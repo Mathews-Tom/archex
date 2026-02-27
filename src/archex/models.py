@@ -365,13 +365,21 @@ class ContextBundle(BaseModel):
 
     def to_prompt(self, format: str = "xml") -> str:
         """Render the context bundle as an LLM prompt string."""
-        # TODO: Implement in Phase 2
-        raise NotImplementedError
+        from archex.serve.renderers.json import render_json
+        from archex.serve.renderers.markdown import render_markdown
+        from archex.serve.renderers.xml import render_xml
+
+        if format == "xml":
+            return render_xml(self)
+        if format == "markdown":
+            return render_markdown(self)
+        if format == "json":
+            return render_json(self)
+        raise ValueError(f"Unknown format: {format}")
 
     def to_dict(self) -> dict[str, Any]:
         """Return the bundle as a plain dict."""
-        # TODO: Implement in Phase 2
-        raise NotImplementedError
+        return self.model_dump()
 
 
 # ---------------------------------------------------------------------------

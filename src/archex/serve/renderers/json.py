@@ -2,4 +2,12 @@
 
 from __future__ import annotations
 
-# TODO: Implement in Phase 3
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from archex.models import ContextBundle
+
+
+def render_json(bundle: ContextBundle) -> str:
+    """Render a ContextBundle as a JSON string."""
+    return bundle.model_dump_json(indent=2)
