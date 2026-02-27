@@ -6,6 +6,8 @@ import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from archex.models import DiscoveredFile, ImportStatement
     from archex.parse.adapters.base import LanguageAdapter
     from archex.parse.engine import TreeSitterEngine
@@ -14,7 +16,7 @@ if TYPE_CHECKING:
 def parse_imports(
     files: list[DiscoveredFile],
     engine: TreeSitterEngine,
-    adapters: dict[str, LanguageAdapter],
+    adapters: Mapping[str, LanguageAdapter],
 ) -> dict[str, list[ImportStatement]]:
     """Parse imports from all files. Returns mapping of file_path → list[ImportStatement]."""
     result: dict[str, list[ImportStatement]] = {}
@@ -38,7 +40,7 @@ def parse_imports(
 def resolve_imports(
     import_map: dict[str, list[ImportStatement]],
     file_map: dict[str, str],
-    adapters: dict[str, LanguageAdapter],
+    adapters: Mapping[str, LanguageAdapter],
     file_languages: dict[str, str],
 ) -> dict[str, list[ImportStatement]]:
     """Resolve import paths in-place. Returns the same dict with resolved_path set."""

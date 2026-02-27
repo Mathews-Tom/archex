@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archex.acquire import clone_repo, discover_files, open_local
+from archex.analyze.decisions import infer_decisions
+from archex.analyze.interfaces import extract_interfaces
+from archex.analyze.modules import detect_modules
+from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
 from archex.index.bm25 import BM25Index
 from archex.index.chunker import ASTChunker
@@ -22,6 +26,8 @@ from archex.parse import (
     resolve_imports,
 )
 from archex.parse.adapters.python import PythonAdapter
+from archex.parse.adapters.typescript import TypeScriptAdapter
+from archex.providers.base import get_provider
 from archex.serve.context import assemble_context
 from archex.serve.profile import build_profile
 
@@ -39,12 +45,24 @@ def _acquire(source: RepoSource) -> tuple[Path, str | None, str | None]:
     raise ValueError("RepoSource must have a url or local_path")
 
 
+def _build_adapters() -> dict[str, LanguageAdapter]:
+    """Build the registry of language adapters."""
+    return {
+        "python": PythonAdapter(),
+        "typescript": TypeScriptAdapter(),
+    }
+
+
 def analyze(
     source: RepoSource,
     config: Config | None = None,
     index_config: IndexConfig | None = None,
 ) -> ArchProfile:
-    """Acquire, parse, index, and analyze a repository."""
+    """Acquire, parse, index, and analyze a repository.
+
+    Runs the full pipeline: acquire → parse → graph → modules → patterns → interfaces
+    → optional LLM enrichment → profile assembly.
+    """
     if config is None:
         config = Config()
 
@@ -52,7 +70,7 @@ def analyze(
     files = discover_files(repo_path, languages=config.languages)
 
     engine = TreeSitterEngine()
-    adapters: dict[str, LanguageAdapter] = {"python": PythonAdapter()}
+    adapters = _build_adapters()
 
     parsed_files = extract_symbols(files, engine, adapters)
     import_map = parse_imports(files, engine, adapters)
@@ -61,6 +79,18 @@ def analyze(
     resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
 
     graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
+
+    # Intelligence: module detection, pattern recognition, interface extraction
+    modules = detect_modules(graph, parsed_files)
+    patterns = detect_patterns(parsed_files, graph, modules)
+    interfaces = extract_interfaces(parsed_files, graph)
+
+    # Optional LLM enrichment
+    provider = None
+    if config.enrich and config.provider:
+        provider = get_provider(config.provider, config.provider_config)
+
+    decisions = infer_decisions(patterns, modules, interfaces, provider=provider)
 
     lang_counts: dict[str, int] = {}
     for f in files:
@@ -76,7 +106,15 @@ def analyze(
         total_lines=total_lines,
     )
 
-    return build_profile(repo_metadata, parsed_files, graph)
+    return build_profile(
+        repo_metadata,
+        parsed_files,
+        graph,
+        modules=modules,
+        patterns=patterns,
+        interfaces=interfaces,
+        decisions=decisions,
+    )
 
 
 def query(
@@ -103,7 +141,7 @@ def query(
     files = discover_files(repo_path, languages=config.languages)
 
     engine = TreeSitterEngine()
-    adapters: dict[str, LanguageAdapter] = {"python": PythonAdapter()}
+    adapters = _build_adapters()
 
     parsed_files = extract_symbols(files, engine, adapters)
     import_map = parse_imports(files, engine, adapters)

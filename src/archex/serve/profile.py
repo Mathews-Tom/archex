@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from archex.models import (
+    ArchDecision,
     ArchProfile,
     CodebaseStats,
     DependencyGraphSummary,
+    DetectedPattern,
     Interface,
     LanguageStats,
+    Module,
     ParsedFile,
     RepoMetadata,
     SymbolKind,
@@ -92,10 +95,16 @@ def build_profile(
     repo_metadata: RepoMetadata,
     parsed_files: list[ParsedFile],
     graph: DependencyGraph,
+    modules: list[Module] | None = None,
+    patterns: list[DetectedPattern] | None = None,
+    interfaces: list[Interface] | None = None,
+    decisions: list[ArchDecision] | None = None,
 ) -> ArchProfile:
-    """Build an ArchProfile from repo metadata, parsed files, and dependency graph."""
+    """Build an ArchProfile from repo metadata, parsed files, dependency graph, and analysis."""
     stats = _compute_stats(parsed_files)
-    interfaces = _extract_interfaces(parsed_files)
+
+    # Use provided interfaces or fall back to basic extraction
+    iface_surface = interfaces if interfaces is not None else _extract_interfaces(parsed_files)
 
     dep_summary = DependencyGraphSummary(
         nodes=graph.file_count + graph.symbol_count,
@@ -105,10 +114,14 @@ def build_profile(
     )
 
     stats.internal_edge_count = graph.file_edge_count
+    stats.module_count = len(modules) if modules else 0
 
     return ArchProfile(
         repo=repo_metadata,
         stats=stats,
-        interface_surface=interfaces,
+        module_map=modules or [],
+        pattern_catalog=patterns or [],
+        interface_surface=iface_surface,
+        decision_log=decisions or [],
         dependency_graph=dep_summary,
     )

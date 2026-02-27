@@ -297,11 +297,47 @@ class ArchProfile(BaseModel):
                 lines.append(f"| {lang} | {ls.files} | {ls.lines} | {ls.percentage:.1f} |")
             lines.append("")
 
+        if self.module_map:
+            lines.append("## Modules")
+            lines.append("")
+            for mod in self.module_map:
+                lines.append(f"### {mod.name}")
+                lines.append(f"- **Root:** `{mod.root_path}`")
+                lines.append(f"- **Files:** {mod.file_count}")
+                lines.append(f"- **Lines:** {mod.line_count}")
+                lines.append(f"- **Cohesion:** {mod.cohesion_score:.2f}")
+                if mod.exports:
+                    exports_str = ", ".join(f"`{e.name}`" for e in mod.exports[:10])
+                    lines.append(f"- **Exports:** {exports_str}")
+                lines.append("")
+
+        if self.pattern_catalog:
+            lines.append("## Detected Patterns")
+            lines.append("")
+            lines.append("| Pattern | Category | Confidence | Evidence |")
+            lines.append("|---------|----------|------------|----------|")
+            for pat in self.pattern_catalog:
+                evidence_count = len(pat.evidence)
+                lines.append(
+                    f"| {pat.display_name} | {pat.category} "
+                    f"| {pat.confidence:.0%} | {evidence_count} items |"
+                )
+            lines.append("")
+
         if self.interface_surface:
             lines.append("## Interface Surface")
             lines.append("")
             for iface in self.interface_surface:
                 lines.append(f"- `{iface.signature}` ({iface.symbol.file_path})")
+            lines.append("")
+
+        if self.decision_log:
+            lines.append("## Architecture Decisions")
+            lines.append("")
+            for dec in self.decision_log:
+                lines.append(f"- **{dec.decision}** ({dec.source})")
+                if dec.alternatives:
+                    lines.append(f"  - Alternatives: {', '.join(dec.alternatives)}")
             lines.append("")
 
         return "\n".join(lines)

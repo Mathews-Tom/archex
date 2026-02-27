@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from archex.models import ParsedFile
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from archex.models import DiscoveredFile
     from archex.parse.adapters.base import LanguageAdapter
     from archex.parse.engine import TreeSitterEngine
@@ -15,7 +17,7 @@ if TYPE_CHECKING:
 def extract_symbols(
     files: list[DiscoveredFile],
     engine: TreeSitterEngine,
-    adapters: dict[str, LanguageAdapter],
+    adapters: Mapping[str, LanguageAdapter],
 ) -> list[ParsedFile]:
     """Extract symbols from all discovered files using the appropriate language adapter.
 
