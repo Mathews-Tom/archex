@@ -205,3 +205,14 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Agentic Systems
+.agent
+.claude/
+.gemini
+.opencode/
+.serena/
+
+# Developer workspace (Sage-Dev generated files)
+.docs/
+.sage/
