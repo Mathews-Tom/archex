@@ -57,6 +57,7 @@ def discover_files(
     repo_path: Path,
     languages: list[str] | None = None,
     ignores: list[str] | None = None,
+    max_file_size: int = 10_000_000,
 ) -> list[DiscoveredFile]:
     """Enumerate source files in repo_path.
 
@@ -110,6 +111,9 @@ def discover_files(
             size = file_path.stat().st_size
         except OSError:
             size = 0
+
+        if size > max_file_size:
+            continue
 
         discovered.append(
             DiscoveredFile(

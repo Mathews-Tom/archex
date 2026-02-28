@@ -140,3 +140,25 @@ def test_main_py_has_run_function(
     main_file = next(pf for pf in parsed if pf.path == "main.py")
     func_names = {s.name for s in main_file.symbols if s.kind == SymbolKind.FUNCTION}
     assert "run" in func_names
+
+
+def test_parse_file_worker_logs_warning_on_failure(caplog: pytest.LogCaptureFixture) -> None:
+    """_parse_file_worker logs a warning and returns None when parsing fails."""
+    import logging
+
+    from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
+
+    with caplog.at_level(logging.WARNING, logger="archex.parse.symbols"):
+        result = _parse_file_worker("/nonexistent/bad.py", "bad.py", "python")
+
+    assert result is None
+    assert any("Failed to parse" in r.message for r in caplog.records)
+    assert any("bad.py" in r.message for r in caplog.records)
+
+
+def test_parse_file_worker_returns_none_on_missing_file() -> None:
+    """_parse_file_worker returns None (not raises) for a missing file."""
+    from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
+
+    result = _parse_file_worker("/nonexistent/ghost.py", "ghost.py", "python")
+    assert result is None

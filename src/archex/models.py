@@ -66,6 +66,7 @@ class Config(BaseModel):
     provider_config: dict[str, Any] = {}
     cache: bool = True
     cache_dir: str = "~/.archex/cache"
+    max_file_size: int = 10_000_000
 
 
 class IndexConfig(BaseModel):

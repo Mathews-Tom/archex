@@ -56,7 +56,7 @@ class APIEmbedder:
             )
 
             try:
-                with urllib.request.urlopen(req) as resp:
+                with urllib.request.urlopen(req, timeout=30) as resp:
                     body: dict[str, Any] = json.loads(resp.read())
             except urllib.error.URLError as e:
                 raise ArchexIndexError(f"Embedding API request failed: {e}") from e

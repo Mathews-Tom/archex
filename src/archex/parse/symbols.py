@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
 from archex.models import ParsedFile
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -41,7 +44,8 @@ def _parse_file_worker(absolute_path: str, relative_path: str, language: str) ->
             symbols=symbols,
             lines=line_count,
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to parse %s: %s", relative_path, e)
         return None
 
 
@@ -76,9 +80,9 @@ def extract_symbols(
                     if result is not None:
                         results.append(result)
             return results
-        except Exception:
+        except Exception as e:
+            logger.error("Parallel executor failed, falling back to sequential: %s", e)
             # Fall back to sequential on any executor failure
-            pass
 
     results_seq: list[ParsedFile] = []
 

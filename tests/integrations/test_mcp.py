@@ -177,6 +177,32 @@ class TestHandleCompareRepos:
         assert source_a.url == "https://github.com/example/a"
         assert source_b.local_path == "/local/b"
 
+    def test_validates_dimensions_valid(self) -> None:
+        result = _make_comparison_result()
+        with patch("archex.integrations.mcp.compare", return_value=result) as mock_compare:
+            handle_compare_repos(
+                "/fake/a",
+                "/fake/b",
+                "error_handling,api_surface,concurrency",
+            )
+        mock_compare.assert_called_once()
+
+    def test_validates_dimensions_invalid(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported dimensions"):
+            handle_compare_repos(
+                "/fake/a",
+                "/fake/b",
+                "invalid_dim,another_bad_dim",
+            )
+
+    def test_validates_dimensions_mixed_valid_invalid(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported dimensions"):
+            handle_compare_repos(
+                "/fake/a",
+                "/fake/b",
+                "api_surface,nonexistent",
+            )
+
 
 # ---------------------------------------------------------------------------
 # Server-level tests

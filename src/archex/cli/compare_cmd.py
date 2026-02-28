@@ -5,6 +5,7 @@ from __future__ import annotations
 import click
 
 from archex.api import analyze
+from archex.exceptions import ArchexError
 from archex.models import Config, RepoSource
 from archex.serve.compare import SUPPORTED_DIMENSIONS, compare_repos
 
@@ -15,11 +16,12 @@ def _resolve_source(path: str) -> RepoSource:
     return RepoSource(local_path=path)
 
 
-def _render_markdown(result: object) -> str:
+def render_comparison_markdown(result: object) -> str:
     """Render a ComparisonResult as markdown."""
     from archex.models import ComparisonResult
 
-    assert isinstance(result, ComparisonResult)
+    if not isinstance(result, ComparisonResult):
+        raise TypeError(f"Expected ComparisonResult, got {type(result).__name__}")
 
     name_a = result.repo_a.url or result.repo_a.local_path or "Repo A"
     name_b = result.repo_b.url or result.repo_b.local_path or "Repo B"
@@ -116,12 +118,14 @@ def compare_cmd(
     source_a_obj = _resolve_source(source_a)
     source_b_obj = _resolve_source(source_b)
 
-    profile_a = analyze(source_a_obj, config)
-    profile_b = analyze(source_b_obj, config)
-
-    result = compare_repos(profile_a, profile_b, dims)
+    try:
+        profile_a = analyze(source_a_obj, config)
+        profile_b = analyze(source_b_obj, config)
+        result = compare_repos(profile_a, profile_b, dims)
+    except ArchexError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     if output_format == "json":
         click.echo(result.model_dump_json(indent=2))
     else:
-        click.echo(_render_markdown(result))
+        click.echo(render_comparison_markdown(result))

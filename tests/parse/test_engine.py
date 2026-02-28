@@ -65,5 +65,26 @@ def test_parse_file(tmp_path: Path) -> None:
 
 def test_parse_file_missing_raises_parse_error(tmp_path: Path) -> None:
     engine = TreeSitterEngine()
-    with pytest.raises(ParseError, match="Failed to read file"):
+    with pytest.raises(ParseError, match="Failed to"):
         engine.parse_file(str(tmp_path / "nonexistent.py"), "python")
+
+
+def test_parse_file_exceeds_max_size_raises_parse_error(tmp_path: Path) -> None:
+    """A file larger than max_file_size raises ParseError."""
+    source_file = tmp_path / "big.py"
+    source_file.write_bytes(b"x = 1\n" * 100)
+    engine = TreeSitterEngine()
+    with pytest.raises(ParseError, match="exceeds maximum size limit"):
+        engine.parse_file(str(source_file), "python", max_file_size=10)
+
+
+def test_parse_file_at_limit_succeeds(tmp_path: Path) -> None:
+    """A file exactly at max_file_size is parsed without error."""
+    content = b"x = 1\n"
+    source_file = tmp_path / "small.py"
+    source_file.write_bytes(content)
+    engine = TreeSitterEngine()
+    # size == max_file_size is allowed (only strictly greater raises)
+    tree = engine.parse_file(str(source_file), "python", max_file_size=len(content))
+    root: Any = tree  # type: ignore[assignment]
+    assert root.root_node is not None

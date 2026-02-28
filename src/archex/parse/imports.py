@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -35,7 +38,8 @@ def _parse_imports_worker(
 
         imports = adapter.parse_imports(tree, source, relative_path)
         return (relative_path, imports)
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to parse %s: %s", relative_path, e)
         return None
 
 
@@ -70,9 +74,9 @@ def parse_imports(
                         path, imports = entry
                         result[path] = imports
             return result
-        except Exception:
+        except Exception as e:
+            logger.error("Parallel executor failed, falling back to sequential: %s", e)
             # Fall back to sequential on any executor failure
-            pass
 
     result_seq: dict[str, list[ImportStatement]] = {}
 

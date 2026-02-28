@@ -200,3 +200,25 @@ def test_insert_or_replace_deduplicates(store: IndexStore) -> None:
     chunks = store.get_chunks()
     assert len(chunks) == 1
     assert chunks[0].content == "# updated"
+
+
+def test_store_closes_connection_on_schema_failure(tmp_path: Path) -> None:
+    """IndexStore closes its connection when create_schema raises, preventing resource leak."""
+    from unittest.mock import patch
+
+    db = tmp_path / "fail.db"
+    with (
+        patch.object(IndexStore, "create_schema", side_effect=RuntimeError("schema failure")),
+        pytest.raises(RuntimeError, match="schema failure"),
+    ):
+        IndexStore(db)
+    # Connection should be closed; the db file may or may not exist, but no hanging connection
+
+
+def test_store_connection_accessible(tmp_path: Path) -> None:
+    """IndexStore.conn returns the underlying sqlite3.Connection."""
+    import sqlite3
+
+    db = tmp_path / "conn.db"
+    with IndexStore(db) as s:
+        assert isinstance(s.conn, sqlite3.Connection)

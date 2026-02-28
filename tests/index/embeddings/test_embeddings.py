@@ -122,3 +122,25 @@ class TestAPIEmbedder:
 
         embedder = APIEmbedder(api_key="test-key", model_name="test-model")
         assert embedder.dimension == 1536
+
+    def test_encode_uses_timeout(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from archex.index.embeddings.api import APIEmbedder
+
+        embedder = APIEmbedder(api_key="test-key")
+        with patch("archex.index.embeddings.api.urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b'{"data": [{"index": 0, "embedding": [0.1, 0.2]}]}'
+            mock_resp.__enter__.return_value = mock_resp
+            mock_resp.__exit__.return_value = None
+            mock_urlopen.return_value = mock_resp
+
+            embedder.encode(["test text"])
+
+            # Verify timeout=30 was passed to urlopen
+            calls = mock_urlopen.call_args_list
+            assert len(calls) > 0
+            # Check that the timeout keyword argument is present in the call
+            args, kwargs = calls[0]
+            assert kwargs.get("timeout") == 30 or (len(args) > 1 and args[1] == 30)

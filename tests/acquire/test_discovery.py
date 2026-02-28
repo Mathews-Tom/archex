@@ -134,3 +134,42 @@ def test_default_ignores_content() -> None:
     assert ".git/" in DEFAULT_IGNORES
     assert "__pycache__/" in DEFAULT_IGNORES
     assert ".venv/" in DEFAULT_IGNORES
+
+
+def test_discover_files_skips_oversized_files(tmp_path: Path) -> None:
+    """Files exceeding max_file_size are excluded from discovery results."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    small = repo / "small.py"
+    small.write_bytes(b"x = 1\n")
+    big = repo / "big.py"
+    big.write_bytes(b"x = 1\n" * 1000)
+
+    small_size = small.stat().st_size
+    big_size = big.stat().st_size
+    # max_file_size set between small and big
+    limit = (small_size + big_size) // 2
+
+    files = discover_files(repo, max_file_size=limit)
+    paths = [f.path for f in files]
+    assert "small.py" in paths
+    assert "big.py" not in paths
+
+
+def test_discover_files_includes_file_at_size_limit(tmp_path: Path) -> None:
+    """A file exactly at max_file_size is included."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    content = b"x = 1\n"
+    exact = repo / "exact.py"
+    exact.write_bytes(content)
+
+    files = discover_files(repo, max_file_size=len(content))
+    paths = [f.path for f in files]
+    assert "exact.py" in paths
+
+
+def test_discover_files_default_max_size_allows_normal_files(python_simple_repo: Path) -> None:
+    """Default max_file_size (10MB) allows all fixture files through."""
+    files = discover_files(python_simple_repo)
+    assert len(files) == 5

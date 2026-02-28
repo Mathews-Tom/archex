@@ -8,6 +8,7 @@ from typing import Any
 
 from archex.api import analyze, compare, query
 from archex.models import RepoSource
+from archex.serve.compare import SUPPORTED_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,8 @@ def handle_compare_repos(
         repo_a: Local path or HTTP(S) URL of the first repository.
         repo_b: Local path or HTTP(S) URL of the second repository.
         dimensions: Comma-separated list of dimensions to compare.
-            Supported values: api_surface, error_handling, concurrency,
-            testing_strategy, dependency_management, configuration_management.
+            Supported values: error_handling, api_surface, state_management,
+            concurrency, testing, configuration.
             Defaults to 'api_surface,error_handling'.
 
     Returns:
@@ -85,6 +86,13 @@ def handle_compare_repos(
     dim_list = [d.strip() for d in dimensions.split(",") if d.strip()]
     if not dim_list:
         raise ValueError("dimensions must be a non-empty comma-separated list")
+
+    unsupported = set(dim_list) - SUPPORTED_DIMENSIONS
+    if unsupported:
+        raise ValueError(
+            f"Unsupported dimensions: {', '.join(sorted(unsupported))}. "
+            f"Supported: {', '.join(sorted(SUPPORTED_DIMENSIONS))}"
+        )
 
     source_a = _resolve_source(repo_a)
     source_b = _resolve_source(repo_b)
@@ -207,7 +215,7 @@ def build_server() -> Any:
         name: str,
         arguments: dict[str, Any],
     ) -> list[mcp_types.TextContent]:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         if name == "analyze_repo":
             repo_url: str = arguments["repo_url"]

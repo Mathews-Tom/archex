@@ -88,7 +88,7 @@ class VectorIndex:
         np.savez_compressed(
             str(path),
             vectors=self._vectors,
-            chunk_ids=np.array(self._chunk_ids, dtype=object),
+            chunk_ids=np.array(self._chunk_ids, dtype="U512"),
         )
 
     def load(self, path: Path, chunks: list[CodeChunk]) -> None:
@@ -100,9 +100,15 @@ class VectorIndex:
                 raise ArchexIndexError(f"Vector index file not found: {path}")
             path = p
 
-        data = np.load(str(path), allow_pickle=True)
-        self._vectors = data["vectors"].astype(np.float32)
-        self._chunk_ids = list(data["chunk_ids"])
+        data = np.load(str(path), allow_pickle=False)
+        vectors = data["vectors"].astype(np.float32)
+        chunk_ids = list(data["chunk_ids"])
+        if vectors.shape[0] != len(chunk_ids):
+            raise ArchexIndexError(
+                f"Vector index corrupt: {vectors.shape[0]} vectors but {len(chunk_ids)} chunk IDs"
+            )
+        self._vectors = vectors
+        self._chunk_ids = chunk_ids
         self._chunks_by_id = {c.id: c for c in chunks}
 
     @property

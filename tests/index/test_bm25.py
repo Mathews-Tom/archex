@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-from archex.index.bm25 import BM25Index
+from archex.index.bm25 import BM25Index, escape_fts_query
 from archex.index.store import IndexStore
 from archex.models import CodeChunk, SymbolKind
 
@@ -145,3 +145,80 @@ def test_build_is_idempotent(store_and_index: tuple[IndexStore, BM25Index]) -> N
     # Should only return one result for authenticate, not two
     auth_chunks = [c for c, _ in results if c.id == "auth.py:authenticate:10"]
     assert len(auth_chunks) == 1
+
+
+# ---------------------------------------------------------------------------
+# escape_fts_query — unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_escape_fts_query_basic_token() -> None:
+    result = escape_fts_query("authenticate")
+    assert result == '"authenticate"'
+
+
+def test_escape_fts_query_multiple_tokens() -> None:
+    result = escape_fts_query("foo bar")
+    assert result == '"foo" OR "bar"'
+
+
+def test_escape_fts_query_empty_string() -> None:
+    assert escape_fts_query("") == ""
+
+
+def test_escape_fts_query_strips_fts5_star() -> None:
+    result = escape_fts_query("foo*")
+    assert result == '"foo"'
+    assert "*" not in result
+
+
+def test_escape_fts_query_strips_not_operator() -> None:
+    result = escape_fts_query("NOT")
+    # "NOT" → only letters remain → "NOT"
+    assert result == '"NOT"'
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "foo* bar",
+        "NOT authenticate",
+        "NEAR/3(foo bar)",
+        "content:value",
+        "(open OR close)",
+        "foo AND bar",
+        "foo OR bar",
+        'foo "exact match"',
+    ],
+)
+def test_escape_fts_query_adversarial_does_not_crash(
+    store_and_index: tuple[IndexStore, BM25Index], query: str
+) -> None:
+    _, idx = store_and_index
+    # Must not raise — result can be empty or return chunks
+    results = idx.search(query)
+    assert isinstance(results, list)
+
+
+def test_escape_fts_query_strips_parentheses() -> None:
+    result = escape_fts_query("(foo)")
+    assert result == '"foo"'
+    assert "(" not in result
+    assert ")" not in result
+
+
+def test_escape_fts_query_strips_colon() -> None:
+    result = escape_fts_query("column:value")
+    # colon is stripped; "columnvalue" remains
+    assert ":" not in result
+
+
+def test_escape_fts_query_all_special_becomes_empty_token_skipped() -> None:
+    # Token consisting entirely of special chars should be skipped
+    result = escape_fts_query("*** !!!")
+    assert result == ""
+
+
+def test_escape_fts_query_preserves_dots_and_underscores() -> None:
+    result = escape_fts_query("my_module.func")
+    assert result == '"my_module.func"'

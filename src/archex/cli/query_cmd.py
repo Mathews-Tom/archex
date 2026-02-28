@@ -7,6 +7,7 @@ import time
 import click
 
 from archex.api import query
+from archex.exceptions import ArchexError
 from archex.models import RepoSource
 
 
@@ -50,9 +51,12 @@ def query_cmd(
     index_config = IndexConfig(vector=(strategy == "hybrid"))
 
     t0 = time.perf_counter()
-    bundle = query(
-        repo_source, question, token_budget=budget, config=config, index_config=index_config
-    )
+    try:
+        bundle = query(
+            repo_source, question, token_budget=budget, config=config, index_config=index_config
+        )
+    except ArchexError as exc:
+        raise click.ClickException(str(exc)) from exc
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
     click.echo(bundle.to_prompt(format=output_format))

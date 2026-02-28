@@ -85,8 +85,12 @@ class IndexStore:
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self.create_schema()
+        try:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self.create_schema()
+        except Exception:
+            self._conn.close()
+            raise
 
     def create_schema(self) -> None:
         cur = self._conn.cursor()

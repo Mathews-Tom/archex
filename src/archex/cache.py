@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from archex.exceptions import CacheError
+
 if TYPE_CHECKING:
     from archex.models import RepoSource
+
+_KEY_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class CacheManager:
@@ -28,12 +33,20 @@ class CacheManager:
         identity = source.url or source.local_path or ""
         return hashlib.sha256(identity.encode()).hexdigest()
 
+    def _validate_key(self, key: str) -> None:
+        if not _KEY_RE.match(key):
+            raise CacheError(
+                f"Invalid cache key {key!r}: must be exactly 64 lowercase hex characters"
+            )
+
     def db_path(self, key: str) -> Path:
         """Return the database path for a cache key."""
+        self._validate_key(key)
         return self._cache_dir / f"{key}.db"
 
     def meta_path(self, key: str) -> Path:
         """Return the metadata file path for a cache key."""
+        self._validate_key(key)
         return self._cache_dir / f"{key}.meta"
 
     # ------------------------------------------------------------------

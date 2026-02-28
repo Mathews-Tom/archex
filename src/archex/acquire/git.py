@@ -2,10 +2,36 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
 from archex.exceptions import AcquireError
+
+_ALLOWED_URL_PREFIXES = ("http://", "https://")
+_DISALLOWED_URL_PREFIXES = ("git@", "ssh://", "file://", "git://", "ftp://", "ftps://")
+_BRANCH_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/-]*$")
+
+
+def validate_url(url: str) -> None:
+    """Raise AcquireError if url is not http/https or a local filesystem path."""
+    if url.startswith(_ALLOWED_URL_PREFIXES):
+        return
+    for prefix in _DISALLOWED_URL_PREFIXES:
+        if url.startswith(prefix):
+            raise AcquireError(
+                f"Disallowed URL scheme in {url!r}: "
+                "only http://, https://, and local paths are allowed"
+            )
+    # Treat anything else as a local path — acceptable
+
+
+def validate_branch(branch: str) -> None:
+    """Raise AcquireError if branch name is unsafe."""
+    if not _BRANCH_RE.match(branch):
+        raise AcquireError(
+            f"Invalid branch name {branch!r}: must match ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
+        )
 
 
 def clone_repo(
@@ -18,6 +44,10 @@ def clone_repo(
 
     Raises AcquireError on subprocess failure or timeout.
     """
+    validate_url(url)
+    if branch is not None:
+        validate_branch(branch)
+
     target = Path(target_dir).resolve()
     cmd: list[str] = ["git", "clone"]
 

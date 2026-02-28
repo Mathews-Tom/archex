@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,14 +20,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 _DROP_FTS_ROWS = "DELETE FROM chunks_fts;"
 
 
-def _escape_fts_query(query: str) -> str:
-    """Escape FTS5 special characters and join tokens with OR for partial matching."""
+def escape_fts_query(query: str) -> str:
+    """Sanitize query tokens and join with OR for FTS5 partial matching.
+
+    Each token is stripped of all non-alphanumeric/underscore/dot characters
+    to eliminate FTS5 special operators (*, :, (), NOT, AND, OR, NEAR).
+    """
     tokens = query.split()
-    if not tokens:
-        return ""
-    # Strip double-quotes from tokens, wrap each in quotes, join with OR
-    escaped = " OR ".join(f'"{t.replace(chr(34), "")}"' for t in tokens)
-    return escaped
+    safe: list[str] = []
+    for token in tokens:
+        cleaned = re.sub(r"[^a-zA-Z0-9_.]", "", token)
+        if cleaned:
+            safe.append(f'"{cleaned}"')
+    return " OR ".join(safe)
 
 
 class BM25Index:
@@ -50,7 +56,7 @@ class BM25Index:
         if not query.strip():
             return []
 
-        escaped = _escape_fts_query(query)
+        escaped = escape_fts_query(query)
         if not escaped:
             return []
 

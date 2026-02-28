@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
 
 from archex.exceptions import ArchexIndexError
@@ -203,6 +204,66 @@ class TestVectorIndexPersistence:
         save_path = tmp_path / "sub" / "dir" / "vectors.npz"
         built_index.save(save_path)
         assert save_path.exists()
+
+    def test_save_load_with_long_chunk_ids(self, embedder: FakeEmbedder, tmp_path: Path) -> None:
+        long_id = "a/b/c/d/e/f/g/h/i/j/k/l/m/n.py:VeryLongClassName_WithSuffix:12345"
+        chunk = CodeChunk(
+            id=long_id,
+            content="def foo(): pass",
+            file_path="a/b/c/d/e/f/g/h/i/j/k/l/m/n.py",
+            start_line=12345,
+            end_line=12346,
+            symbol_name="VeryLongClassName_WithSuffix",
+            symbol_kind=SymbolKind.CLASS,
+            language="python",
+            token_count=5,
+        )
+        idx = VectorIndex()
+        idx.build([chunk], embedder)
+        save_path = tmp_path / "long_ids.npz"
+        idx.save(save_path)
+
+        loaded = VectorIndex()
+        loaded.load(save_path, [chunk])
+        assert loaded.size == 1
+        results = loaded.search(chunk.content, embedder)
+        assert len(results) == 1
+        assert results[0][0].id == long_id
+
+    def test_load_rejects_pickle_payload(self, tmp_path: Path) -> None:
+        # numpy's savez with dtype=object uses pickle; allow_pickle=False must reject it
+        bad_path = tmp_path / "bad.npz"
+        vectors = np.zeros((1, 4), dtype=np.float32)
+        # object array that would hold a pickle payload
+        malicious = np.empty(1, dtype=object)
+        malicious[0] = "injected"
+        np.savez_compressed(str(bad_path), vectors=vectors, chunk_ids=malicious)
+
+        idx = VectorIndex()
+        with pytest.raises(ValueError):
+            # allow_pickle=False causes ValueError on object dtype arrays
+            idx.load(bad_path, [])
+
+    def test_load_validates_chunk_id_length_matches_vectors(
+        self, embedder: FakeEmbedder, tmp_path: Path
+    ) -> None:
+        idx = VectorIndex()
+        idx.build(SAMPLE_CHUNKS, embedder)
+        save_path = tmp_path / "vectors.npz"
+        idx.save(save_path)
+
+        # Manually write a corrupt npz with mismatched lengths
+        data = np.load(str(save_path), allow_pickle=False)
+        corrupt_path = tmp_path / "corrupt.npz"
+        np.savez_compressed(
+            str(corrupt_path),
+            vectors=data["vectors"],
+            chunk_ids=np.array(["only_one_id"], dtype="U512"),
+        )
+
+        loaded = VectorIndex()
+        with pytest.raises(ArchexIndexError, match="corrupt"):
+            loaded.load(corrupt_path, SAMPLE_CHUNKS)
 
 
 class TestReciprocalRankFusion:

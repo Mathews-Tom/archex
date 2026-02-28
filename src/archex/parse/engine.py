@@ -65,12 +65,20 @@ class TreeSitterEngine:
         self._parsers[language_id] = parser
         return parser
 
-    def parse_file(self, file_path: str | Path, language_id: str) -> object:
+    def parse_file(
+        self, file_path: str | Path, language_id: str, max_file_size: int = 10_000_000
+    ) -> object:
         """Read a file and return its parse tree.
 
-        Raises ParseError on IO errors or unsupported language.
+        Raises ParseError on IO errors, unsupported language, or files exceeding max_file_size.
         """
         path = Path(file_path)
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise ParseError(f"Failed to stat file {file_path!r}: {exc}") from exc
+        if size > max_file_size:
+            raise ParseError(f"File {file_path!r} exceeds maximum size limit")
         try:
             source = path.read_bytes()
         except OSError as exc:

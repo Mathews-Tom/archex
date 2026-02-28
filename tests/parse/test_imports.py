@@ -173,3 +173,25 @@ def test_resolve_nested_module(
     auth_imp = next((i for i in main_imports if "auth" in i.module or "services" in i.module), None)
     assert auth_imp is not None
     assert auth_imp.resolved_path == "services/auth.py"
+
+
+def test_parse_imports_worker_logs_warning_on_failure(caplog: pytest.LogCaptureFixture) -> None:
+    """_parse_imports_worker logs a warning and returns None when parsing fails."""
+    import logging
+
+    from archex.parse.imports import _parse_imports_worker  # pyright: ignore[reportPrivateUsage]
+
+    with caplog.at_level(logging.WARNING, logger="archex.parse.imports"):
+        result = _parse_imports_worker("/nonexistent/bad.py", "bad.py", "python")
+
+    assert result is None
+    assert any("Failed to parse" in r.message for r in caplog.records)
+    assert any("bad.py" in r.message for r in caplog.records)
+
+
+def test_parse_imports_worker_returns_none_on_missing_file() -> None:
+    """_parse_imports_worker returns None (not raises) for a missing file."""
+    from archex.parse.imports import _parse_imports_worker  # pyright: ignore[reportPrivateUsage]
+
+    result = _parse_imports_worker("/nonexistent/ghost.py", "ghost.py", "python")
+    assert result is None
