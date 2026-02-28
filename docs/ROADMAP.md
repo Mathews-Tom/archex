@@ -588,7 +588,7 @@ elif strategy == "vector" and vector_index is not None:
 | **API Reference**     | Docstrings on all public classes and functions                         |
 | **Integration Guide** | Examples for LangChain, LlamaIndex, Claude Code MCP, raw Python        |
 | **CHANGELOG.md**      | v0.1.0 release notes                                                   |
-| **PyPI Publish**      | `uv build` + `uv publish`. GitHub Actions release workflow on tag push |
+| **PyPI Publish**      | `uv build` + `uv publish` (manual)                                    |
 
 ### Phase 4 Acceptance Criteria
 
