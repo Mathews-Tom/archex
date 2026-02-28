@@ -283,7 +283,7 @@ def test_utils_rs_grouped_imports(engine: TreeSitterEngine, adapter: RustAdapter
     imports = adapter.parse_imports(tree, source, "src/utils.rs")
     std_imports = [i for i in imports if i.module == "std"]
     assert len(std_imports) >= 1
-    all_symbols = []
+    all_symbols: list[str] = []
     for imp in std_imports:
         all_symbols.extend(imp.symbols)
     assert "io" in all_symbols

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -22,7 +23,7 @@ class HashEmbedder:
         for text in texts:
             h = hashlib.sha256(text.encode()).digest()
             # Expand hash bytes to fill dimension
-            raw = []
+            raw: list[float] = []
             for i in range(self._dim):
                 byte_val = h[i % len(h)]
                 raw.append((byte_val / 255.0) * 2 - 1)
@@ -70,9 +71,9 @@ class TestNomicCodeEmbedder:
     def test_import_error_raises_archex_index_error(self) -> None:
         import builtins
 
-        original_import = builtins.__import__
+        original_import: Any = builtins.__import__
 
-        def mock_import(name: str, *args: object, **kwargs: object) -> object:
+        def mock_import(name: str, *args: Any, **kwargs: Any) -> object:
             if name in ("onnxruntime", "tokenizers"):
                 raise ImportError(f"No module named '{name}'")
             return original_import(name, *args, **kwargs)
@@ -92,9 +93,9 @@ class TestSentenceTransformerEmbedder:
     def test_import_error_raises_archex_index_error(self) -> None:
         import builtins
 
-        original_import = builtins.__import__
+        original_import: Any = builtins.__import__
 
-        def mock_import(name: str, *args: object, **kwargs: object) -> object:
+        def mock_import(name: str, *args: Any, **kwargs: Any) -> object:
             if name == "sentence_transformers":
                 raise ImportError(f"No module named '{name}'")
             return original_import(name, *args, **kwargs)
