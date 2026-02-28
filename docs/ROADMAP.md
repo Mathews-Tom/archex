@@ -598,8 +598,8 @@ elif strategy == "vector" and vector_index is not None:
 - [x] Vector index build + search works with Nomic Embed Code via ONNX
 - [x] Hybrid retrieval (BM25 + vector) improves result quality over BM25-only
 - [x] CLI is polished with progress bars, error messages, timing
-- [ ] `pip install archex` from PyPI works
-- [ ] `pip install archex[vector]` installs ONNX + embeddings
+- [x] `pip install archex` from PyPI works
+- [x] `pip install archex[vector]` installs ONNX + embeddings
 - [x] README has clear quick-start and usage examples
 - [x] All tests pass, coverage > 75% overall
 
@@ -683,12 +683,12 @@ Build evaluation datasets and assertions using Attest's graduated assertion pipe
 
 ### Phase 5 Acceptance Criteria
 
-- [ ] MCP server works with Claude Code (install, tool discovery, invocation)
-- [ ] LangChain retriever passes LangChain's retriever interface tests
+- [x] MCP server works with Claude Code (install, tool discovery, invocation)
+- [x] LangChain retriever passes LangChain's retriever interface tests
 - [ ] Attest eval suite has 10+ test cases with passing assertions
 - [ ] At least 2 content pieces published (LinkedIn + no-magic)
-- [ ] Parse time < 10s for repos with < 500 files
-- [ ] Query time < 1s for cached repos
+- [x] Parse time < 10s for repos with < 500 files
+- [x] Query time < 1s for cached repos
 
 ---
 
