@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -40,6 +42,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from archex.models import ComparisonResult
+
+logger = logging.getLogger(__name__)
+
+
+def _elapsed_ms(start: float) -> float:
+    return (time.perf_counter() - start) * 1000
 
 
 def _acquire(source: RepoSource) -> tuple[Path, str | None, str | None, Callable[[], None]]:
@@ -84,29 +92,41 @@ def analyze(
     if config is None:
         config = Config()
 
+    t0 = time.perf_counter()
     repo_path, url, local_path, cleanup = _acquire(source)
+    logger.info("Acquired repo %s in %.0fms", url or local_path, _elapsed_ms(t0))
     try:
+        t1 = time.perf_counter()
         files = discover_files(
             repo_path, languages=config.languages, max_file_size=config.max_file_size
         )
+        logger.info("Discovered %d files in %.0fms", len(files), _elapsed_ms(t1))
 
         engine = TreeSitterEngine()
         adapters = _build_adapters()
 
+        t2 = time.perf_counter()
         parsed_files = extract_symbols(files, engine, adapters, parallel=config.parallel)
         import_map = parse_imports(files, engine, adapters, parallel=config.parallel)
         file_map = build_file_map(files)
         file_languages = {f.path: f.language for f in files}
         resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
+        logger.info("Parsed %d files in %.0fms", len(parsed_files), _elapsed_ms(t2))
 
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
-        # Intelligence: module detection, pattern recognition, interface extraction
+        t3 = time.perf_counter()
         modules = detect_modules(graph, parsed_files)
         patterns = detect_patterns(parsed_files, graph, modules)
         interfaces = extract_interfaces(parsed_files, graph)
+        logger.info(
+            "Analysis: %d modules, %d patterns, %d interfaces in %.0fms",
+            len(modules),
+            len(patterns),
+            len(interfaces),
+            _elapsed_ms(t3),
+        )
 
-        # Optional LLM enrichment
         provider = None
         if config.enrich and config.provider:
             provider = get_provider(config.provider, config.provider_config)
@@ -127,7 +147,7 @@ def analyze(
             total_lines=total_lines,
         )
 
-        return build_profile(
+        profile = build_profile(
             repo_metadata,
             parsed_files,
             graph,
@@ -136,6 +156,8 @@ def analyze(
             interfaces=interfaces,
             decisions=decisions,
         )
+        logger.info("analyze() completed in %.0fms", _elapsed_ms(t0))
+        return profile
     finally:
         cleanup()
 
@@ -157,12 +179,14 @@ def query(
     if index_config is None:
         index_config = IndexConfig()
 
+    t0 = time.perf_counter()
     cache = CacheManager(cache_dir=config.cache_dir)
     cache_key = cache.cache_key(source)
 
     # Check cache BEFORE parsing — if cached, skip the expensive parse pipeline
     cached_db = cache.get(cache_key) if config.cache else None
     if cached_db is not None:
+        logger.info("Cache hit for %s", cache_key[:12])
         store = IndexStore(cached_db)
         try:
             bm25 = BM25Index(store)
@@ -172,7 +196,6 @@ def query(
             stored_edges = store.get_edges()
             graph = DependencyGraph.from_edges(stored_edges)
 
-            # Load cached vector index if available
             vector_results: list[tuple[object, float]] | None = None
             if index_config.vector:
                 vec_path = cache.vector_path(cache_key)
@@ -186,7 +209,7 @@ def query(
                         vector_results = vec_idx.search(question, embedder, top_k=50)  # type: ignore[assignment]
 
             search_results = bm25.search(question, top_k=50)
-            return assemble_context(
+            bundle = assemble_context(
                 search_results=search_results,
                 graph=graph,
                 all_chunks=cached_chunks,
@@ -194,28 +217,37 @@ def query(
                 token_budget=token_budget,
                 vector_results=vector_results,  # type: ignore[arg-type]
             )
+            logger.info("query() [cached] completed in %.0fms", _elapsed_ms(t0))
+            return bundle
         finally:
             store.close()
 
     # Cache miss — full pipeline
+    logger.info("Cache miss — running full pipeline")
+    t1 = time.perf_counter()
     repo_path, _url, _local_path, cleanup = _acquire(source)
+    logger.info("Acquired repo in %.0fms", _elapsed_ms(t1))
     try:
+        t2 = time.perf_counter()
         files = discover_files(
             repo_path, languages=config.languages, max_file_size=config.max_file_size
         )
+        logger.info("Discovered %d files in %.0fms", len(files), _elapsed_ms(t2))
 
         engine = TreeSitterEngine()
         adapters = _build_adapters()
 
+        t3 = time.perf_counter()
         parsed_files = extract_symbols(files, engine, adapters, parallel=config.parallel)
         import_map = parse_imports(files, engine, adapters, parallel=config.parallel)
         file_map = build_file_map(files)
         file_languages = {f.path: f.language for f in files}
         resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
+        logger.info("Parsed %d files in %.0fms", len(parsed_files), _elapsed_ms(t3))
 
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
-        # Chunk files
+        t4 = time.perf_counter()
         chunker = ASTChunker(config=index_config)
         sources: dict[str, bytes] = {}
         for f in files:
@@ -224,26 +256,39 @@ def query(
             except OSError:
                 continue
         all_chunks = chunker.chunk_files(parsed_files, sources)
+        logger.info("Chunked into %d chunks in %.0fms", len(all_chunks), _elapsed_ms(t4))
 
-        # Build index in temp DB
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
 
         try:
             bm25 = BM25Index(store)
             store.insert_chunks(all_chunks)
-
-            # Store edges for cache reconstruction
             edges = graph.file_edges()
             store.insert_edges(edges)
-
             bm25.build(all_chunks)
+
+            # Build vector index if configured
+            vector_results_miss: list[tuple[object, float]] | None = None
+            if index_config.vector:
+                embedder = _get_embedder(index_config)
+                if embedder is not None:
+                    from archex.index.vector import VectorIndex
+
+                    t5 = time.perf_counter()
+                    vec_idx = VectorIndex()
+                    vec_idx.build(all_chunks, embedder)  # type: ignore[arg-type]
+                    vector_results_miss = vec_idx.search(question, embedder, top_k=50)  # type: ignore[assignment]
+                    logger.info("Vector index built in %.0fms", _elapsed_ms(t5))
+
+                    if config.cache:
+                        vec_idx.save(cache.vector_path(cache_key))
+
             if config.cache:
-                # Checkpoint WAL to ensure all data is in the main DB file before copy
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
                 cache.put(cache_key, db_path)
 
-            # Search and assemble
+            t6 = time.perf_counter()
             search_results = bm25.search(question, top_k=50)
             bundle = assemble_context(
                 search_results=search_results,
@@ -251,10 +296,13 @@ def query(
                 all_chunks=all_chunks,
                 question=question,
                 token_budget=token_budget,
+                vector_results=vector_results_miss,  # type: ignore[arg-type]
             )
+            logger.info("Search + assemble in %.0fms", _elapsed_ms(t6))
         finally:
             store.close()
 
+        logger.info("query() completed in %.0fms", _elapsed_ms(t0))
         return bundle
     finally:
         cleanup()
