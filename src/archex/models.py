@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -55,7 +55,12 @@ class RepoSource(BaseModel):
     local_path: str | None = None
     target: str | None = None
     commit: str | None = None
-    sparse: bool = False
+
+    @model_validator(mode="after")
+    def _require_source(self) -> RepoSource:
+        if not self.url and not self.local_path:
+            raise ValueError("RepoSource requires either 'url' or 'local_path'")
+        return self
 
 
 class Config(BaseModel):
@@ -163,7 +168,6 @@ class CodeChunk(BaseModel):
     language: str
     imports_context: str = ""
     token_count: int = 0
-    module: str | None = None
 
 
 class Edge(BaseModel):

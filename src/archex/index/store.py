@@ -23,8 +23,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     symbol_kind TEXT,
     language TEXT NOT NULL,
     imports_context TEXT DEFAULT '',
-    token_count INTEGER DEFAULT 0,
-    module TEXT
+    token_count INTEGER DEFAULT 0
 );
 """
 
@@ -61,7 +60,6 @@ def _row_to_chunk(row: tuple[object, ...]) -> CodeChunk:
         language,
         imports_context,
         token_count,
-        module,
     ) = row
     symbol_kind: SymbolKind | None = SymbolKind(symbol_kind_str) if symbol_kind_str else None
     return CodeChunk(
@@ -75,7 +73,6 @@ def _row_to_chunk(row: tuple[object, ...]) -> CodeChunk:
         language=str(language),
         imports_context=str(imports_context) if imports_context else "",
         token_count=int(token_count) if token_count is not None else 0,  # type: ignore[arg-type]
-        module=str(module) if module is not None else None,
     )
 
 
@@ -108,8 +105,8 @@ class IndexStore:
         self._conn.executemany(
             "INSERT OR REPLACE INTO chunks "
             "(id, content, file_path, start_line, end_line, symbol_name, symbol_kind, "
-            "language, imports_context, token_count, module) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "language, imports_context, token_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     c.id,
@@ -122,7 +119,6 @@ class IndexStore:
                     c.language,
                     c.imports_context,
                     c.token_count,
-                    c.module,
                 )
                 for c in chunks
             ],
@@ -139,14 +135,14 @@ class IndexStore:
     def get_chunks(self) -> list[CodeChunk]:
         cur = self._conn.execute(
             "SELECT id, content, file_path, start_line, end_line, symbol_name, symbol_kind, "
-            "language, imports_context, token_count, module FROM chunks"
+            "language, imports_context, token_count FROM chunks"
         )
         return [_row_to_chunk(row) for row in cur.fetchall()]
 
     def get_chunk(self, chunk_id: str) -> CodeChunk | None:
         cur = self._conn.execute(
             "SELECT id, content, file_path, start_line, end_line, symbol_name, symbol_kind, "
-            "language, imports_context, token_count, module FROM chunks WHERE id = ?",
+            "language, imports_context, token_count FROM chunks WHERE id = ?",
             (chunk_id,),
         )
         row = cur.fetchone()
@@ -159,7 +155,7 @@ class IndexStore:
         placeholders = ",".join("?" for _ in ids)
         sql = (
             "SELECT id, content, file_path, start_line, end_line, symbol_name, "
-            "symbol_kind, language, imports_context, token_count, module "
+            "symbol_kind, language, imports_context, token_count "
             f"FROM chunks WHERE id IN ({placeholders})"
         )
         cur = self._conn.execute(sql, ids)
@@ -168,7 +164,7 @@ class IndexStore:
     def get_chunks_for_file(self, file_path: str) -> list[CodeChunk]:
         cur = self._conn.execute(
             "SELECT id, content, file_path, start_line, end_line, symbol_name, symbol_kind, "
-            "language, imports_context, token_count, module FROM chunks WHERE file_path = ?",
+            "language, imports_context, token_count FROM chunks WHERE file_path = ?",
             (file_path,),
         )
         return [_row_to_chunk(row) for row in cur.fetchall()]

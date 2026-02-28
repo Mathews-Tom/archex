@@ -72,11 +72,10 @@ def test_acquire_url_cleanup_called_on_exception() -> None:
     assert not target.exists()
 
 
-def test_acquire_raises_on_missing_source() -> None:
-    """_acquire raises ValueError when neither url nor local_path is set."""
-    source = RepoSource()
-    with pytest.raises(ValueError, match="RepoSource must have"):
-        _acquire(source)
+def test_repo_source_requires_url_or_local_path() -> None:
+    """RepoSource model validator rejects construction without url or local_path."""
+    with pytest.raises(ValueError, match="requires either"):
+        RepoSource()
 
 
 def test_acquire_local_path_cleanup_is_idempotent(tmp_path: Path) -> None:

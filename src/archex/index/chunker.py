@@ -106,7 +106,6 @@ def _build_chunk(
         language=language,
         imports_context=imports_context,
         token_count=token_count,
-        module=None,
     )
 
 
