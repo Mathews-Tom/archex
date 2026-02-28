@@ -84,6 +84,19 @@ class IndexConfig(BaseModel):
     token_encoding: str = "cl100k_base"
 
 
+class ScoringWeights(BaseModel):
+    relevance: float = 0.6
+    structural: float = 0.3
+    type_coverage: float = 0.1
+
+    @model_validator(mode="after")
+    def _weights_sum_to_one(self) -> ScoringWeights:
+        total = self.relevance + self.structural + self.type_coverage
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(f"Scoring weights must sum to 1.0, got {total}")
+        return self
+
+
 # ---------------------------------------------------------------------------
 # Intermediate models
 # ---------------------------------------------------------------------------

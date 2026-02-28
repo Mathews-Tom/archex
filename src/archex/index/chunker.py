@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 import tiktoken
 
 from archex.models import CodeChunk, ImportStatement, IndexConfig, ParsedFile, Symbol
+
+
+@runtime_checkable
+class Chunker(Protocol):
+    """Protocol for code chunkers, allowing custom implementations."""
+
+    def chunk_file(self, parsed_file: ParsedFile, source: bytes) -> list[CodeChunk]: ...
+
+    def chunk_files(
+        self, parsed_files: list[ParsedFile], sources: dict[str, bytes]
+    ) -> list[CodeChunk]: ...
 
 
 def _count_tokens(encoder: tiktoken.Encoding, text: str) -> int:

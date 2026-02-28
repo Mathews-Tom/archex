@@ -50,6 +50,12 @@ dev = [
 [project.scripts]
 archex = "archex.cli.main:cli"
 
+[project.entry-points."archex.language_adapters"]
+# Example: java = "mypackage.adapters:JavaAdapter"
+
+[project.entry-points."archex.pattern_detectors"]
+# Example: my_pattern = "mypackage.patterns:detect_my_pattern"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

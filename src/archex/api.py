@@ -17,22 +17,26 @@ from archex.analyze.modules import detect_modules
 from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
 from archex.index.bm25 import BM25Index
-from archex.index.chunker import ASTChunker
+from archex.index.chunker import ASTChunker, Chunker
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
-from archex.models import ArchProfile, Config, ContextBundle, IndexConfig, RepoMetadata, RepoSource
+from archex.models import (
+    ArchProfile,
+    Config,
+    ContextBundle,
+    IndexConfig,
+    RepoMetadata,
+    RepoSource,
+    ScoringWeights,
+)
 from archex.parse import (
-    LanguageAdapter,
     TreeSitterEngine,
     build_file_map,
     extract_symbols,
     parse_imports,
     resolve_imports,
 )
-from archex.parse.adapters.go import GoAdapter
-from archex.parse.adapters.python import PythonAdapter
-from archex.parse.adapters.rust import RustAdapter
-from archex.parse.adapters.typescript import TypeScriptAdapter
+from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.providers.base import get_provider
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context
@@ -70,13 +74,8 @@ def _acquire(source: RepoSource) -> tuple[Path, str | None, str | None, Callable
 
 
 def _build_adapters() -> dict[str, LanguageAdapter]:
-    """Build the registry of language adapters."""
-    return {
-        "python": PythonAdapter(),
-        "typescript": TypeScriptAdapter(),
-        "go": GoAdapter(),
-        "rust": RustAdapter(),
-    }
+    """Build the registry of language adapters from the default registry."""
+    return default_adapter_registry.build_all()
 
 
 def analyze(
@@ -168,6 +167,8 @@ def query(
     token_budget: int = 8192,
     config: Config | None = None,
     index_config: IndexConfig | None = None,
+    scoring_weights: ScoringWeights | None = None,
+    chunker: Chunker | None = None,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -216,6 +217,7 @@ def query(
                 question=question,
                 token_budget=token_budget,
                 vector_results=vector_results,  # type: ignore[arg-type]
+                scoring_weights=scoring_weights,
             )
             logger.info("query() [cached] completed in %.0fms", _elapsed_ms(t0))
             return bundle
@@ -248,14 +250,14 @@ def query(
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
         t4 = time.perf_counter()
-        chunker = ASTChunker(config=index_config)
+        file_chunker: Chunker = chunker if chunker is not None else ASTChunker(config=index_config)
         sources: dict[str, bytes] = {}
         for f in files:
             try:
                 sources[f.path] = Path(f.absolute_path).read_bytes()
             except OSError:
                 continue
-        all_chunks = chunker.chunk_files(parsed_files, sources)
+        all_chunks = file_chunker.chunk_files(parsed_files, sources)
         logger.info("Chunked into %d chunks in %.0fms", len(all_chunks), _elapsed_ms(t4))
 
         db_path = Path(tempfile.mkdtemp()) / "index.db"
@@ -297,6 +299,7 @@ def query(
                 question=question,
                 token_budget=token_budget,
                 vector_results=vector_results_miss,  # type: ignore[arg-type]
+                scoring_weights=scoring_weights,
             )
             logger.info("Search + assemble in %.0fms", _elapsed_ms(t6))
         finally:

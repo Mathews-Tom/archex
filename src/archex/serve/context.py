@@ -10,6 +10,7 @@ from archex.models import (
     ContextBundle,
     RankedChunk,
     RetrievalMetadata,
+    ScoringWeights,
     StructuralContext,
     SymbolKind,
     TypeDefinition,
@@ -34,6 +35,7 @@ def assemble_context(
     question: str,
     token_budget: int = 8192,
     vector_results: list[tuple[CodeChunk, float]] | None = None,
+    scoring_weights: ScoringWeights | None = None,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
 
@@ -41,6 +43,7 @@ def assemble_context(
     vector results before scoring.
     """
     assembly_start = time.perf_counter()
+    weights = scoring_weights or ScoringWeights()
 
     strategy = "hybrid+graph" if vector_results else "bm25+graph"
 
@@ -98,7 +101,11 @@ def assemble_context(
         relevance = bm25_by_id.get(chunk.id, 0.0)
         structural = centrality.get(chunk.file_path, 0.0)
         type_coverage = 0.5 if chunk.symbol_kind in _TYPE_LIKE else 0.0
-        final = 0.6 * relevance + 0.3 * structural + 0.1 * type_coverage
+        final = (
+            weights.relevance * relevance
+            + weights.structural * structural
+            + weights.type_coverage * type_coverage
+        )
         ranked.append(
             RankedChunk(
                 chunk=chunk,

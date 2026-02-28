@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.metadata
+import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from archex.models import (
@@ -17,6 +20,45 @@ from archex.models import (
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
+
+logger = logging.getLogger(__name__)
+
+# Type alias for detector functions
+PatternDetector = Callable[["list[ParsedFile]", "DependencyGraph"], "DetectedPattern | None"]
+
+
+class PatternRegistry:
+    """Registry of pattern detector functions, supporting decorator and entry-point registration."""
+
+    def __init__(self) -> None:
+        self._detectors: list[PatternDetector] = []
+
+    def register(self, fn: PatternDetector) -> PatternDetector:
+        """Decorator to register a pattern detector function."""
+        self._detectors.append(fn)
+        return fn
+
+    def add(self, fn: PatternDetector) -> None:
+        """Programmatic registration (non-decorator)."""
+        self._detectors.append(fn)
+
+    @property
+    def detectors(self) -> list[PatternDetector]:
+        return list(self._detectors)
+
+    def load_entry_points(self, group: str = "archex.pattern_detectors") -> None:
+        """Load detector functions from installed entry points."""
+        for ep in importlib.metadata.entry_points(group=group):
+            try:
+                fn = ep.load()
+                self._detectors.append(fn)
+                logger.info("Loaded pattern detector %s from entry point", ep.name)
+            except Exception:
+                logger.warning("Failed to load pattern detector entry point %s", ep.name)
+
+
+# Module-level default registry
+default_registry = PatternRegistry()
 
 
 # ---------------------------------------------------------------------------
@@ -413,23 +455,27 @@ def _detect_strategy(
 # Public entry point
 # ---------------------------------------------------------------------------
 
-_DETECTORS = [
+# Register built-in detectors
+for _fn in [
     _detect_middleware,
     _detect_plugin_system,
     _detect_event_bus,
     _detect_repository,
     _detect_strategy,
-]
+]:
+    default_registry.register(_fn)
 
 
 def detect_patterns(
     parsed_files: list[ParsedFile],
     graph: DependencyGraph,
     modules: list[Module],  # noqa: ARG001
+    registry: PatternRegistry | None = None,
 ) -> list[DetectedPattern]:
     """Run all pattern detectors and return non-None results."""
+    reg = registry or default_registry
     results: list[DetectedPattern] = []
-    for detector in _DETECTORS:
+    for detector in reg.detectors:
         pattern = detector(parsed_files, graph)
         if pattern is not None:
             results.append(pattern)
