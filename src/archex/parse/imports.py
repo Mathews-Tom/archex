@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -13,13 +14,67 @@ if TYPE_CHECKING:
     from archex.parse.engine import TreeSitterEngine
 
 
+def _parse_imports_worker(
+    absolute_path: str, relative_path: str, language: str
+) -> tuple[str, list[ImportStatement]] | None:
+    """Worker function for parallel import parsing — creates its own engine and adapter."""
+    try:
+        from archex.parse.adapters import ADAPTERS
+        from archex.parse.engine import TreeSitterEngine as _Engine
+
+        engine = _Engine()
+        adapter_class = ADAPTERS.get(language)
+        if adapter_class is None:
+            return None
+
+        adapter = adapter_class()
+        tree = engine.parse_file(absolute_path, language)
+
+        with open(absolute_path, "rb") as fh:
+            source = fh.read()
+
+        imports = adapter.parse_imports(tree, source, relative_path)
+        return (relative_path, imports)
+    except Exception:
+        return None
+
+
 def parse_imports(
     files: list[DiscoveredFile],
     engine: TreeSitterEngine,
     adapters: Mapping[str, LanguageAdapter],
+    parallel: bool = False,
 ) -> dict[str, list[ImportStatement]]:
-    """Parse imports from all files. Returns mapping of file_path → list[ImportStatement]."""
-    result: dict[str, list[ImportStatement]] = {}
+    """Parse imports from all files. Returns mapping of file_path → list[ImportStatement].
+
+    When parallel=True and len(files) > 10, uses ProcessPoolExecutor for concurrency.
+    """
+    eligible = [f for f in files if adapters.get(f.language) is not None]
+
+    if parallel and len(files) > 10:
+        try:
+            result: dict[str, list[ImportStatement]] = {}
+            with ProcessPoolExecutor() as executor:
+                futures = [
+                    executor.submit(
+                        _parse_imports_worker,
+                        str(f.absolute_path),
+                        f.path,
+                        f.language,
+                    )
+                    for f in eligible
+                ]
+                for fut in futures:
+                    entry = fut.result()
+                    if entry is not None:
+                        path, imports = entry
+                        result[path] = imports
+            return result
+        except Exception:
+            # Fall back to sequential on any executor failure
+            pass
+
+    result_seq: dict[str, list[ImportStatement]] = {}
 
     for f in files:
         adapter = adapters.get(f.language)
@@ -32,9 +87,9 @@ def parse_imports(
             source = fh.read()
 
         imports = adapter.parse_imports(tree, source, f.path)
-        result[f.path] = imports
+        result_seq[f.path] = imports
 
-    return result
+    return result_seq
 
 
 def resolve_imports(

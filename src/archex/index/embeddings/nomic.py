@@ -21,6 +21,7 @@ class NomicCodeEmbedder:
         self,
         model_dir: Path = _DEFAULT_MODEL_DIR,
         batch_size: int = 32,
+        cache_dir: str | None = None,
     ) -> None:
         try:
             import onnxruntime as _ort  # pyright: ignore[reportMissingTypeStubs,reportUnusedImport]  # noqa: F401
@@ -31,7 +32,8 @@ class NomicCodeEmbedder:
                 "Install with: uv add 'archex[vector]'"
             ) from e
 
-        self._model_dir = model_dir / _MODEL_NAME
+        effective_dir = Path(cache_dir).expanduser() if cache_dir is not None else model_dir
+        self._model_dir = effective_dir / _MODEL_NAME
         self._batch_size = batch_size
         self._session: Any = None
         self._tokenizer: Any = None
