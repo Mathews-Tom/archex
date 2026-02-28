@@ -15,7 +15,7 @@ def test_version() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
-    assert "archex, version 0.1.0" in result.output
+    assert "archex, version 0.2.0" in result.output
 
 
 def test_help_contains_subcommands() -> None:

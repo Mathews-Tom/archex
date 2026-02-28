@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 (2026-02-28)
+
+### Phase 5 — Ecosystem
+
+- **MCP server:** 3 tools (analyze_repo, query_repo, compare_repos) with async stdio transport, `archex mcp` CLI command
+- **LangChain integration:** `ArchexRetriever(BaseRetriever)` mapping RankedChunks to Documents
+- **LlamaIndex integration:** `ArchexRetriever(BaseRetriever)` mapping RankedChunks to NodeWithScore
+- **Parallel parsing:** `extract_symbols()` and `parse_imports()` accept `parallel=True` for ProcessPoolExecutor concurrency
+- **ONNX model caching:** `NomicCodeEmbedder` supports `cache_dir` for persistent model storage at `~/.archex/models/`
+- **Publish workflow:** GitHub Actions publishes to PyPI on `v*` tag push
+- **New optional deps:** `archex[mcp]`, `archex[langchain]`, `archex[llamaindex]`
+- 422 tests, 81% coverage
+
 ## 0.1.0 (2026-02-28)
 
 ### Phase 0 — Scaffold
