@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.0 (2026-03-01)
+
+### Refactoring
+
+- **Shared tree-sitter helpers:** Extract duplicate `_text`/`_type`/`_children`/`_field`/`_start_line`/`_end_line` accessors from all four language adapters into a single `ts_node` module
+- **Dead code removal:** Remove unused `get_adapter()`, `_extract_interfaces()`, redundant `add_node` calls in `DependencyGraph.from_edges()`, unused `index_config` param from `api.analyze()`
+- **Dependency deduplication:** Use sets instead of lists in `_build_module_from_community` for O(1) membership checks
+- **Chunker optimization:** Remove unnecessary `sorted()` call on already-ordered covered ranges
+- **Vector load:** `copy=False` on `numpy.astype` for zero-copy when array is already float32
+
+### Error handling & logging
+
+- **`infer_decisions()`:** Log LLM enrichment failures with `logger.warning()` instead of silently catching
+- **`BM25Index.search()`:** Log FTS5 query failures instead of silently returning empty results
+- **`SentenceTransformerEmbedder.dimension`:** Replace bare `assert` with explicit `ArchexIndexError`
+
+### Configuration & standards
+
+- **`DEFAULT_CACHE_DIR` constant:** Centralized in `config.py`, used by all CLI cache commands
+- **Config validation:** `model_fields` over `hasattr` for Pydantic v2 correctness
+- **`validate_dimensions()`:** Extracted from `compare_repos()` for reuse by MCP integration
+- **Install instructions:** All `pip install` references replaced with `uv add`
+
+### Testing
+
+- 3 new test files: `test_config.py`, `test_adapter_registry.py`, `test_renderers.py`
+- 7 extended test files covering parse, index, analyze, serve, and acquire layers
+- 538 → 641 tests (+103), 84% → 90% coverage
+
 ## 0.3.0 (2026-03-01)
 
 ### Phase 6a — Harden

@@ -1,6 +1,6 @@
 [project]
 name = "archex"
-version = "0.3.0"
+version = "0.4.0"
 description = "Architecture extraction & codebase intelligence for the agentic era"
 readme = "README.md"
 license = { text = "MIT" }
