@@ -220,11 +220,10 @@ def _find_uncovered_ranges(
             return [(1, total_lines)]
         return []
 
-    sorted_covered = sorted(covered)
     uncovered: list[tuple[int, int]] = []
 
     prev_end = 0
-    for start, end in sorted_covered:
+    for start, end in covered:
         if start > prev_end + 1:
             uncovered.append((prev_end + 1, start - 1))
         prev_end = max(prev_end, end)

@@ -92,8 +92,8 @@ def _build_module_from_community(
                 )
 
     # Internal deps: edges within community
-    internal_deps: list[str] = []
-    external_deps: list[str] = []
+    internal_dep_set: set[str] = set()
+    external_dep_set: set[str] = set()
     for fpath in files:
         pf = file_lookup.get(fpath)
         if pf is None:
@@ -102,14 +102,14 @@ def _build_module_from_community(
             resolved = imp.resolved_path
             if resolved is None:
                 module_name = imp.module.split(".")[0] if imp.module else ""
-                if module_name and module_name not in external_deps:
-                    external_deps.append(module_name)
+                if module_name:
+                    external_dep_set.add(module_name)
             elif resolved in community:
-                if resolved not in internal_deps:
-                    internal_deps.append(resolved)
+                internal_dep_set.add(resolved)
             else:
-                if resolved not in external_deps:
-                    external_deps.append(resolved)
+                external_dep_set.add(resolved)
+    internal_deps = sorted(internal_dep_set)
+    external_deps = sorted(external_dep_set)
 
     cohesion = _cohesion_score(community, g)
 
@@ -143,7 +143,7 @@ def detect_modules(
     if g.number_of_nodes() == 0:  # type: ignore[misc]
         return []
 
-    if g.number_of_nodes() == 1:  # type: ignore[misc]  # type: ignore[misc]
+    if g.number_of_nodes() == 1:  # type: ignore[misc]
         community: set[str] = {str(n) for n in g.nodes()}  # type: ignore[misc]
         return [_build_module_from_community(community, g, file_lookup)]
 

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from archex.exceptions import ProviderError
 from archex.models import ArchDecision, DetectedPattern, Interface, Module
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from archex.providers.base import LLMProvider
@@ -175,8 +178,8 @@ def infer_decisions(
                 source="llm_inferred",
             )
             decisions.append(enriched)
-        except (ProviderError, Exception):
-            # Fall back to structural decision if LLM fails
+        except (ProviderError, Exception):  # noqa: BLE001
+            logger.warning("LLM enrichment failed for %s", pattern.name, exc_info=True)
             decisions.append(structural)
 
     return decisions

@@ -106,7 +106,7 @@ class VectorIndex:
             path = p
 
         data = np.load(str(path), allow_pickle=False)
-        vectors = data["vectors"].astype(np.float32)
+        vectors = data["vectors"].astype(np.float32, copy=False)
         chunk_ids = list(data["chunk_ids"])
         if vectors.shape[0] != len(chunk_ids):
             raise ArchexIndexError(
