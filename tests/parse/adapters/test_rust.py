@@ -408,3 +408,150 @@ def test_classify_visibility_internal(adapter: RustAdapter) -> None:
         visibility=Visibility.INTERNAL,
     )
     assert adapter.classify_visibility(sym) == Visibility.INTERNAL
+
+
+# ---------------------------------------------------------------------------
+# Inline source tests — uncovered branches
+# ---------------------------------------------------------------------------
+
+
+def test_trait_default_method(engine: TreeSitterEngine, adapter: RustAdapter) -> None:
+    """Trait with a default method implementation (function_item in trait body)."""
+    source = b"""
+pub trait Handler {
+    fn handle(&self) -> bool;
+    fn default_impl(&self) -> String {
+        String::from("default")
+    }
+}
+"""
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "handler.rs")
+    method_names = [s.name for s in symbols if s.kind == SymbolKind.METHOD]
+    assert "handle" in method_names
+    assert "default_impl" in method_names
+    # default_impl should have parent Handler
+    default_method = next(s for s in symbols if s.name == "default_impl")
+    assert default_method.parent == "Handler"
+
+
+def test_use_as_clause(engine: TreeSitterEngine, adapter: RustAdapter) -> None:
+    """use_as_clause: `use std::collections::HashMap as Map;`"""
+    source = b"use std::collections::HashMap as Map;\nfn main() {}\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "test.rs")
+    aliased = [i for i in imports if i.alias is not None]
+    assert len(aliased) >= 1
+    assert aliased[0].alias == "Map"
+
+
+def test_use_wildcard(engine: TreeSitterEngine, adapter: RustAdapter) -> None:
+    """use_wildcard: `use std::io::*;`"""
+    source = b"use std::io::*;\nfn main() {}\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "test.rs")
+    wildcard = [i for i in imports if "*" in i.symbols]
+    assert len(wildcard) >= 1
+
+
+def test_use_self_in_list(engine: TreeSitterEngine, adapter: RustAdapter) -> None:
+    """self in use list: `use std::io::{self, Read};`"""
+    source = b"use std::io::{self, Read};\nfn main() {}\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "test.rs")
+    # Should have an import with "self" in symbols or "Read" in symbols
+    io_imp = [i for i in imports if "self" in i.symbols or "Read" in i.symbols]
+    assert len(io_imp) >= 1
+
+
+def test_resolve_super_import(adapter: RustAdapter) -> None:
+    """super:: path resolution."""
+    imp = ImportStatement(
+        module="super::utils",
+        symbols=["format_name"],
+        file_path="src/models/mod.rs",
+        line=1,
+        is_relative=True,
+    )
+    file_map = {"utils": "src/utils.rs"}
+    result = adapter.resolve_import(imp, file_map)
+    assert result == "src/utils.rs"
+
+
+def test_resolve_self_import(adapter: RustAdapter) -> None:
+    """self:: path resolution."""
+    imp = ImportStatement(
+        module="self::helper",
+        symbols=["run"],
+        file_path="src/main.rs",
+        line=1,
+        is_relative=True,
+    )
+    file_map = {"helper": "src/helper.rs"}
+    result = adapter.resolve_import(imp, file_map)
+    assert result == "src/helper.rs"
+
+
+def test_resolve_crate_mod_rs(adapter: RustAdapter) -> None:
+    """crate:: resolution matching mod.rs."""
+    imp = ImportStatement(
+        module="crate::db",
+        symbols=["connect"],
+        file_path="src/main.rs",
+        line=1,
+        is_relative=True,
+    )
+    file_map = {"db": "src/db/mod.rs"}
+    result = adapter.resolve_import(imp, file_map)
+    assert result == "src/db/mod.rs"
+
+
+def test_resolve_crate_lib_rs(adapter: RustAdapter) -> None:
+    """crate:: resolution matching lib.rs."""
+    imp = ImportStatement(
+        module="crate::core",
+        symbols=["init"],
+        file_path="src/main.rs",
+        line=1,
+        is_relative=True,
+    )
+    file_map = {"core": "src/core/lib.rs"}
+    result = adapter.resolve_import(imp, file_map)
+    assert result == "src/core/lib.rs"
+
+
+def test_detect_entry_points_oserror(adapter: RustAdapter, tmp_path: Path) -> None:
+    """detect_entry_points handles OSError gracefully."""
+    files = [
+        DiscoveredFile(
+            path="src/main.rs",
+            absolute_path=str(tmp_path / "nonexistent.rs"),
+            language="rust",
+            size_bytes=100,
+        ),
+    ]
+    entry_points = adapter.detect_entry_points(files)
+    # nonexistent file should be skipped (OSError caught)
+    assert "src/main.rs" not in entry_points
+
+
+def test_nested_scoped_use_with_alias(engine: TreeSitterEngine, adapter: RustAdapter) -> None:
+    """Nested scoped use list with as clause inside."""
+    source = b"use std::collections::{HashMap, BTreeMap as BT};\nfn main() {}\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "test.rs")
+    # Should have HashMap and BTreeMap symbols
+    all_symbols: list[str] = []
+    for imp in imports:
+        all_symbols.extend(imp.symbols)
+    assert "HashMap" in all_symbols
+
+
+def test_use_bare_identifier(engine: TreeSitterEngine, adapter: RustAdapter) -> None:
+    """Bare identifier use: `use serde;`"""
+    source = b"use serde;\nfn main() {}\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "test.rs")
+    assert len(imports) >= 1
+    serde_imp = [i for i in imports if "serde" in i.module]
+    assert len(serde_imp) >= 1

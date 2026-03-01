@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from archex.models import (
     DetectedPattern,
-    Module,
     ParsedFile,
     PatternCategory,
     PatternEvidence,
@@ -469,7 +468,6 @@ for _fn in [
 def detect_patterns(
     parsed_files: list[ParsedFile],
     graph: DependencyGraph,
-    modules: list[Module],  # noqa: ARG001
     registry: PatternRegistry | None = None,
 ) -> list[DetectedPattern]:
     """Run all pattern detectors and return non-None results."""

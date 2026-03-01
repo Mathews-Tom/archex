@@ -6,45 +6,24 @@ import os
 from typing import Any
 
 from archex.models import DiscoveredFile, ImportStatement, Symbol, SymbolKind, Visibility
-
-# ---------------------------------------------------------------------------
-# Thin accessor layer for tree-sitter Node (no type stubs available).
-# All tree-sitter node access is confined to these helpers so the rest of
-# the module stays fully typed.
-# ---------------------------------------------------------------------------
-
-
-def _text(node: object, source: bytes) -> str:
-    """Extract UTF-8 text from a tree-sitter node."""
-    n: Any = node
-    return source[n.start_byte : n.end_byte].decode("utf-8", errors="replace")
-
-
-def _type(node: object) -> str:
-    n: Any = node
-    return str(n.type)
-
-
-def _children(node: object) -> list[object]:
-    n: Any = node
-    return list(n.children)
-
-
-def _field(node: object, field: str) -> object | None:
-    """Return the child node for a named field."""
-    n: Any = node
-    result: object | None = n.child_by_field_name(field)
-    return result
-
-
-def _start_line(node: object) -> int:
-    n: Any = node
-    return int(n.start_point[0]) + 1
-
-
-def _end_line(node: object) -> int:
-    n: Any = node
-    return int(n.end_point[0]) + 1
+from archex.parse.adapters.ts_node import (
+    ts_children as _children,
+)
+from archex.parse.adapters.ts_node import (
+    ts_end_line as _end_line,
+)
+from archex.parse.adapters.ts_node import (
+    ts_field as _field,
+)
+from archex.parse.adapters.ts_node import (
+    ts_start_line as _start_line,
+)
+from archex.parse.adapters.ts_node import (
+    ts_text as _text,
+)
+from archex.parse.adapters.ts_node import (
+    ts_type as _type,
+)
 
 
 def _parent(node: object) -> object | None:

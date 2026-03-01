@@ -5,6 +5,7 @@ from __future__ import annotations
 import click
 
 from archex.cache import CacheManager
+from archex.config import DEFAULT_CACHE_DIR
 
 
 @click.group("cache")
@@ -13,7 +14,7 @@ def cache_cmd() -> None:
 
 
 @cache_cmd.command("list")
-@click.option("--cache-dir", default="~/.archex/cache", help="Cache directory path.")
+@click.option("--cache-dir", default=DEFAULT_CACHE_DIR, help="Cache directory path.")
 def cache_list(cache_dir: str) -> None:
     """List all cached entries."""
     mgr = CacheManager(cache_dir=cache_dir)
@@ -27,7 +28,7 @@ def cache_list(cache_dir: str) -> None:
 
 @cache_cmd.command("clean")
 @click.option("--max-age", default=24, type=int, help="Remove entries older than N hours.")
-@click.option("--cache-dir", default="~/.archex/cache", help="Cache directory path.")
+@click.option("--cache-dir", default=DEFAULT_CACHE_DIR, help="Cache directory path.")
 def cache_clean(max_age: int, cache_dir: str) -> None:
     """Remove expired cache entries."""
     mgr = CacheManager(cache_dir=cache_dir)
@@ -36,7 +37,7 @@ def cache_clean(max_age: int, cache_dir: str) -> None:
 
 
 @cache_cmd.command("info")
-@click.option("--cache-dir", default="~/.archex/cache", help="Cache directory path.")
+@click.option("--cache-dir", default=DEFAULT_CACHE_DIR, help="Cache directory path.")
 def cache_info(cache_dir: str) -> None:
     """Show cache summary information."""
     mgr = CacheManager(cache_dir=cache_dir)

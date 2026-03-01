@@ -29,7 +29,7 @@ class ArchexRetriever(_BaseRetriever):  # type: ignore[misc]
 
     Maps each RankedChunk from a ContextBundle to a LangChain Document.
 
-    Requires ``langchain-core``: ``pip install archex[langchain]``.
+    Requires ``langchain-core``: ``uv add archex[langchain]``.
     """
 
     repo_source: RepoSource
@@ -38,7 +38,7 @@ class ArchexRetriever(_BaseRetriever):  # type: ignore[misc]
 
     def __init__(self, **data: Any) -> None:
         if not _langchain_available:
-            raise ArchexIndexError("Install langchain-core: pip install archex[langchain]")
+            raise ArchexIndexError("Install langchain-core: uv add archex[langchain]")
         super().__init__(**data)
 
     def _get_relevant_documents(

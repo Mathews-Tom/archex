@@ -7,13 +7,12 @@ import logging
 from typing import Any
 
 from archex.api import analyze, compare, query
-from archex.serve.compare import SUPPORTED_DIMENSIONS
+from archex.serve.compare import validate_dimensions
 from archex.utils import resolve_source
 
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_FORMATS = {"json", "markdown"}
-_DEFAULT_DIMENSIONS = ["api_surface", "error_handling"]
 
 
 def handle_analyze_repo(repo_url: str, output_format: str = "json") -> str:
@@ -80,13 +79,7 @@ def handle_compare_repos(
     dim_list = [d.strip() for d in dimensions.split(",") if d.strip()]
     if not dim_list:
         raise ValueError("dimensions must be a non-empty comma-separated list")
-
-    unsupported = set(dim_list) - SUPPORTED_DIMENSIONS
-    if unsupported:
-        raise ValueError(
-            f"Unsupported dimensions: {', '.join(sorted(unsupported))}. "
-            f"Supported: {', '.join(sorted(SUPPORTED_DIMENSIONS))}"
-        )
+    validate_dimensions(dim_list)
 
     source_a = resolve_source(repo_a)
     source_b = resolve_source(repo_b)
@@ -105,7 +98,7 @@ def build_server() -> Any:
         from mcp.server import Server
     except ImportError as exc:
         raise ImportError(
-            "The 'mcp' package is required for MCP integration. Install it with: pip install mcp"
+            "The 'mcp' package is required for MCP integration. Install it with: uv add mcp"
         ) from exc
 
     server: Server[None, Any] = Server("archex")  # type: ignore[type-arg]
@@ -242,7 +235,7 @@ async def run_stdio_server() -> None:
         from mcp.server.stdio import stdio_server
     except ImportError as exc:
         raise ImportError(
-            "The 'mcp' package is required for MCP integration. Install it with: pip install mcp"
+            "The 'mcp' package is required for MCP integration. Install it with: uv add mcp"
         ) from exc
 
     server = build_server()

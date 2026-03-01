@@ -24,6 +24,17 @@ SUPPORTED_DIMENSIONS = frozenset(
 
 _DEFAULT_DIMENSIONS = sorted(SUPPORTED_DIMENSIONS)
 
+
+def validate_dimensions(dims: list[str]) -> None:
+    """Raise ValueError if any dimension is not supported."""
+    unsupported = set(dims) - SUPPORTED_DIMENSIONS
+    if unsupported:
+        raise ValueError(
+            f"Unsupported dimensions: {', '.join(sorted(unsupported))}. "
+            f"Supported: {', '.join(sorted(SUPPORTED_DIMENSIONS))}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Per-dimension evidence extractors
 # ---------------------------------------------------------------------------
@@ -223,13 +234,7 @@ def compare_repos(
         ValueError: If any requested dimension is not supported.
     """
     dims = _DEFAULT_DIMENSIONS if dimensions is None else dimensions
-
-    unsupported = set(dims) - SUPPORTED_DIMENSIONS
-    if unsupported:
-        raise ValueError(
-            f"Unsupported dimensions: {', '.join(sorted(unsupported))}. "
-            f"Supported: {', '.join(sorted(SUPPORTED_DIMENSIONS))}"
-        )
+    validate_dimensions(dims)
 
     comparisons: list[DimensionComparison] = []
     for dim in dims:

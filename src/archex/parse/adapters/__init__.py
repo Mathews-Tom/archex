@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
-from typing import TYPE_CHECKING
 
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.go import GoAdapter
 from archex.parse.adapters.python import PythonAdapter
 from archex.parse.adapters.rust import RustAdapter
 from archex.parse.adapters.typescript import TypeScriptAdapter
-
-if TYPE_CHECKING:
-    from archex.parse.engine import TreeSitterEngine
 
 logger = logging.getLogger(__name__)
 
@@ -72,19 +68,9 @@ default_adapter_registry.register("rust", RustAdapter)  # type: ignore[type-abst
 ADAPTERS: dict[str, type[LanguageAdapter]] = default_adapter_registry.adapter_classes
 
 
-def get_adapter(language_id: str, engine: TreeSitterEngine) -> LanguageAdapter | None:
-    """Return an instantiated LanguageAdapter for language_id, or None if unsupported."""
-    adapter_class = default_adapter_registry.get(language_id)
-    if adapter_class is None:
-        return None
-    _ = engine  # reserved for future adapters that need engine at construction
-    return adapter_class()
-
-
 __all__ = [
     "AdapterRegistry",
     "ADAPTERS",
     "LanguageAdapter",
     "default_adapter_registry",
-    "get_adapter",
 ]

@@ -19,6 +19,8 @@ _ENV_PREFIX = "ARCHEX_"
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
 
+DEFAULT_CACHE_DIR = "~/.archex/cache"
+
 # Default model IDs for LLM providers — single source of truth
 DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-20250514",
@@ -52,7 +54,7 @@ def load_config() -> Config:
             toml_data = tomllib.load(f)
         # Flatten top-level keys into overrides
         for k, v in toml_data.items():
-            if hasattr(Config, k):
+            if k in Config.model_fields:
                 overrides[k] = v
 
     # Environment variables override TOML
@@ -60,7 +62,7 @@ def load_config() -> Config:
         if not env_key.startswith(_ENV_PREFIX):
             continue
         config_key = env_key[len(_ENV_PREFIX) :].lower()
-        if hasattr(Config, config_key):
+        if config_key in Config.model_fields:
             overrides[config_key] = _parse_env_value(config_key, env_val)
 
     return Config(**overrides) if overrides else Config()

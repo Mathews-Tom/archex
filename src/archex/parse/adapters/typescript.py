@@ -6,47 +6,27 @@ import os
 from typing import Any
 
 from archex.models import DiscoveredFile, ImportStatement, Symbol, SymbolKind, Visibility
-
-# ---------------------------------------------------------------------------
-# Thin accessor layer for tree-sitter Node (no type stubs available).
-# ---------------------------------------------------------------------------
-
-
-def _text(node: object, source: bytes) -> str:
-    n: Any = node
-    return source[n.start_byte : n.end_byte].decode("utf-8", errors="replace")
-
-
-def _type(node: object) -> str:
-    n: Any = node
-    return str(n.type)
-
-
-def _children(node: object) -> list[object]:
-    n: Any = node
-    return list(n.children)
-
-
-def _field(node: object, field: str) -> object | None:
-    n: Any = node
-    result: object | None = n.child_by_field_name(field)
-    return result
-
-
-def _start_line(node: object) -> int:
-    n: Any = node
-    return int(n.start_point[0]) + 1
-
-
-def _end_line(node: object) -> int:
-    n: Any = node
-    return int(n.end_point[0]) + 1
-
-
-def _named_children(node: object) -> list[object]:
-    n: Any = node
-    return list(n.named_children)
-
+from archex.parse.adapters.ts_node import (
+    ts_children as _children,
+)
+from archex.parse.adapters.ts_node import (
+    ts_end_line as _end_line,
+)
+from archex.parse.adapters.ts_node import (
+    ts_field as _field,
+)
+from archex.parse.adapters.ts_node import (
+    ts_named_children as _named_children,
+)
+from archex.parse.adapters.ts_node import (
+    ts_start_line as _start_line,
+)
+from archex.parse.adapters.ts_node import (
+    ts_text as _text,
+)
+from archex.parse.adapters.ts_node import (
+    ts_type as _type,
+)
 
 # ---------------------------------------------------------------------------
 # Visibility helpers
@@ -246,13 +226,10 @@ def _extract_declaration(
     return symbols
 
 
-def _const_or_variable(decl_node: object, source: bytes) -> SymbolKind:
+def _const_or_variable(decl_node: object, source: bytes) -> SymbolKind:  # noqa: ARG001
     """Return CONSTANT for const declarations, VARIABLE otherwise."""
     for child in _children(decl_node):
         if _type(child) == "const":
-            return SymbolKind.CONSTANT
-        raw = _text(child, source)
-        if raw == "const":
             return SymbolKind.CONSTANT
     return SymbolKind.VARIABLE
 

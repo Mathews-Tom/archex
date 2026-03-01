@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from archex.index.store import IndexStore
@@ -68,6 +71,7 @@ class BM25Index:
                 (escaped, top_k),
             )
         except Exception:
+            logger.warning("FTS5 query failed for: %s", escaped, exc_info=True)
             return []
 
         rows = cur.fetchall()

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from archex.models import DiscoveredFile, SymbolKind
-from archex.parse.adapters import get_adapter
+from archex.parse.adapters import default_adapter_registry
 from archex.parse.engine import TreeSitterEngine
 from archex.parse.symbols import extract_symbols
 
@@ -22,10 +22,10 @@ def engine() -> TreeSitterEngine:
 
 
 @pytest.fixture()
-def adapters(engine: TreeSitterEngine) -> dict[str, LanguageAdapter]:
-    adapter = get_adapter("python", engine)
-    assert adapter is not None
-    return {"python": adapter}
+def adapters() -> dict[str, LanguageAdapter]:
+    cls = default_adapter_registry.get("python")
+    assert cls is not None
+    return {"python": cls()}
 
 
 @pytest.fixture()

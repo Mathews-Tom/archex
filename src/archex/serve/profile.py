@@ -15,9 +15,6 @@ from archex.models import (
     Module,
     ParsedFile,
     RepoMetadata,
-    SymbolKind,
-    SymbolRef,
-    Visibility,
 )
 
 if TYPE_CHECKING:
@@ -61,36 +58,6 @@ def _compute_stats(parsed_files: list[ParsedFile]) -> CodebaseStats:
     )
 
 
-def _extract_interfaces(parsed_files: list[ParsedFile]) -> list[Interface]:
-    """Extract public functions and classes as the interface surface."""
-    interfaces: list[Interface] = []
-    public_kinds = {SymbolKind.FUNCTION, SymbolKind.CLASS, SymbolKind.METHOD}
-
-    for pf in parsed_files:
-        for sym in pf.symbols:
-            if sym.visibility != Visibility.PUBLIC:
-                continue
-            if sym.kind not in public_kinds:
-                continue
-
-            ref = SymbolRef(
-                name=sym.name,
-                qualified_name=sym.qualified_name,
-                file_path=sym.file_path,
-                kind=sym.kind,
-            )
-            signature = sym.signature or sym.name
-            interfaces.append(
-                Interface(
-                    symbol=ref,
-                    signature=signature,
-                    docstring=sym.docstring,
-                )
-            )
-
-    return interfaces
-
-
 def build_profile(
     repo_metadata: RepoMetadata,
     parsed_files: list[ParsedFile],
@@ -102,9 +69,6 @@ def build_profile(
 ) -> ArchProfile:
     """Build an ArchProfile from repo metadata, parsed files, dependency graph, and analysis."""
     stats = _compute_stats(parsed_files)
-
-    # Use provided interfaces or fall back to basic extraction
-    iface_surface = interfaces if interfaces is not None else _extract_interfaces(parsed_files)
 
     dep_summary = DependencyGraphSummary(
         nodes=graph.file_count + graph.symbol_count,
@@ -121,7 +85,7 @@ def build_profile(
         stats=stats,
         module_map=modules or [],
         pattern_catalog=patterns or [],
-        interface_surface=iface_surface,
+        interface_surface=interfaces or [],
         decision_log=decisions or [],
         dependency_graph=dep_summary,
     )

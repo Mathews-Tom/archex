@@ -26,7 +26,7 @@ class ArchexRetriever(_LIBase):  # type: ignore[misc]
 
     Maps each RankedChunk from a ContextBundle to a NodeWithScore.
 
-    Requires ``llama-index-core``: ``pip install archex[llamaindex]``.
+    Requires ``llama-index-core``: ``uv add archex[llamaindex]``.
     """
 
     def __init__(
@@ -37,7 +37,7 @@ class ArchexRetriever(_LIBase):  # type: ignore[misc]
         **kwargs: Any,
     ) -> None:
         if not _llamaindex_available:
-            raise ArchexIndexError("Install llama-index-core: pip install archex[llamaindex]")
+            raise ArchexIndexError("Install llama-index-core: uv add archex[llamaindex]")
         super().__init__(**kwargs)
         self._repo_source = repo_source
         self._config = config

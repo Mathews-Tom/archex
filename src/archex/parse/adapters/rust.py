@@ -6,55 +6,35 @@ import os
 from typing import Any
 
 from archex.models import DiscoveredFile, ImportStatement, Symbol, SymbolKind, Visibility
-
-# ---------------------------------------------------------------------------
-# Thin accessor layer for tree-sitter Node (no type stubs available).
-# ---------------------------------------------------------------------------
-
-
-def _text(node: object, source: bytes) -> str:
-    n: Any = node
-    return source[n.start_byte : n.end_byte].decode("utf-8", errors="replace")
-
-
-def _type(node: object) -> str:
-    n: Any = node
-    return str(n.type)
-
-
-def _children(node: object) -> list[object]:
-    n: Any = node
-    return list(n.children)
-
-
-def _named_children(node: object) -> list[object]:
-    n: Any = node
-    return list(n.named_children)
-
-
-def _field(node: object, field: str) -> object | None:
-    n: Any = node
-    result: object | None = n.child_by_field_name(field)
-    return result
-
-
-def _start_line(node: object) -> int:
-    n: Any = node
-    return int(n.start_point[0]) + 1
-
-
-def _end_line(node: object) -> int:
-    n: Any = node
-    return int(n.end_point[0]) + 1
-
+from archex.parse.adapters.ts_node import (
+    ts_children as _children,
+)
+from archex.parse.adapters.ts_node import (
+    ts_end_line as _end_line,
+)
+from archex.parse.adapters.ts_node import (
+    ts_field as _field,
+)
+from archex.parse.adapters.ts_node import (
+    ts_named_children as _named_children,
+)
+from archex.parse.adapters.ts_node import (
+    ts_start_line as _start_line,
+)
+from archex.parse.adapters.ts_node import (
+    ts_text as _text,
+)
+from archex.parse.adapters.ts_node import (
+    ts_type as _type,
+)
 
 # ---------------------------------------------------------------------------
 # Visibility helpers
 # ---------------------------------------------------------------------------
 
 
-def _has_visibility(node: object) -> Visibility:
-    """Check for visibility_modifier child and return appropriate Visibility."""
+def _get_visibility(node: object) -> Visibility:
+    """Return the Visibility for a node based on its visibility_modifier child."""
     for child in _children(node):
         if _type(child) == "visibility_modifier":
             return _parse_visibility_modifier(child)
@@ -88,7 +68,7 @@ def _extract_function(
     if name_node is None:
         return None
     name = _text(name_node, source)
-    vis = _has_visibility(node)
+    vis = _get_visibility(node)
     kind = SymbolKind.METHOD if parent else SymbolKind.FUNCTION
     qualified = f"{parent}.{name}" if parent else name
 
@@ -123,7 +103,7 @@ def _extract_struct(node: object, source: bytes, file_path: str) -> Symbol | Non
     if name_node is None:
         return None
     name = _text(name_node, source)
-    vis = _has_visibility(node)
+    vis = _get_visibility(node)
     return Symbol(
         name=name,
         qualified_name=name,
@@ -141,7 +121,7 @@ def _extract_enum(node: object, source: bytes, file_path: str) -> Symbol | None:
     if name_node is None:
         return None
     name = _text(name_node, source)
-    vis = _has_visibility(node)
+    vis = _get_visibility(node)
     return Symbol(
         name=name,
         qualified_name=name,
@@ -159,7 +139,7 @@ def _extract_trait(node: object, source: bytes, file_path: str) -> list[Symbol]:
     if name_node is None:
         return []
     name = _text(name_node, source)
-    vis = _has_visibility(node)
+    vis = _get_visibility(node)
     symbols: list[Symbol] = [
         Symbol(
             name=name,
@@ -236,7 +216,7 @@ def _extract_const(node: object, source: bytes, file_path: str) -> Symbol | None
     if name_node is None:
         return None
     name = _text(name_node, source)
-    vis = _has_visibility(node)
+    vis = _get_visibility(node)
     return Symbol(
         name=name,
         qualified_name=name,
@@ -254,7 +234,7 @@ def _extract_static(node: object, source: bytes, file_path: str) -> Symbol | Non
     if name_node is None:
         return None
     name = _text(name_node, source)
-    vis = _has_visibility(node)
+    vis = _get_visibility(node)
     return Symbol(
         name=name,
         qualified_name=name,
@@ -272,7 +252,7 @@ def _extract_type_alias(node: object, source: bytes, file_path: str) -> Symbol |
     if name_node is None:
         return None
     name = _text(name_node, source)
-    vis = _has_visibility(node)
+    vis = _get_visibility(node)
     return Symbol(
         name=name,
         qualified_name=name,

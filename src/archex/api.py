@@ -81,7 +81,6 @@ def _build_adapters() -> dict[str, LanguageAdapter]:
 def analyze(
     source: RepoSource,
     config: Config | None = None,
-    index_config: IndexConfig | None = None,
 ) -> ArchProfile:
     """Acquire, parse, index, and analyze a repository.
 
@@ -116,7 +115,7 @@ def analyze(
 
         t3 = time.perf_counter()
         modules = detect_modules(graph, parsed_files)
-        patterns = detect_patterns(parsed_files, graph, modules)
+        patterns = detect_patterns(parsed_files, graph)
         interfaces = extract_interfaces(parsed_files, graph)
         logger.info(
             "Analysis: %d modules, %d patterns, %d interfaces in %.0fms",

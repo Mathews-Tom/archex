@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archex.analyze.interfaces import extract_interfaces
+from archex.analyze.interfaces import (
+    _parse_parameters,  # pyright: ignore[reportPrivateUsage]
+    extract_interfaces,
+)
 from archex.index.graph import DependencyGraph
 from archex.models import SymbolKind
 from archex.parse import (
@@ -137,3 +140,91 @@ def test_extract_interfaces_empty_input() -> None:
     graph = DependencyGraph()
     result = extract_interfaces([], graph)
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _parse_parameters edge-case tests
+# ---------------------------------------------------------------------------
+
+
+def test_parse_parameters_with_defaults() -> None:
+    params = _parse_parameters("def foo(a: int, b: str = 'hello')")
+    assert len(params) == 2
+    a = next(p for p in params if p.name == "a")
+    b = next(p for p in params if p.name == "b")
+    assert a.required is True
+    assert a.default is None
+    assert b.required is False
+    assert b.default == "'hello'"
+
+
+def test_parse_parameters_self_cls_skipped() -> None:
+    params = _parse_parameters("def method(self, x: int)")
+    assert len(params) == 1
+    assert params[0].name == "x"
+
+    params_cls = _parse_parameters("def method(cls, y: str)")
+    assert len(params_cls) == 1
+    assert params_cls[0].name == "y"
+
+
+def test_parse_parameters_no_parens() -> None:
+    params = _parse_parameters("some_var")
+    assert params == []
+
+
+def test_parse_parameters_empty_parens() -> None:
+    params = _parse_parameters("def foo()")
+    assert params == []
+
+
+def test_parse_parameters_nested_generics() -> None:
+    # The depth-tracking splitter correctly isolates each param even when the
+    # annotation contains nested brackets with inner commas.  The _PARAM_RE
+    # annotation pattern excludes literal commas, so a: dict[str, list[int]]
+    # fails the regex and is skipped; b: int is matched normally.
+    params = _parse_parameters("def foo(a: dict[str, list[int]], b: int)")
+    # b is always parsed
+    b = next((p for p in params if p.name == "b"), None)
+    assert b is not None
+    assert b.type_annotation == "int"
+    assert b.required is True
+    # a is dropped by the regex due to the comma inside the annotation
+    a = next((p for p in params if p.name == "a"), None)
+    assert a is None
+
+
+def test_parse_parameters_var_positional() -> None:
+    params = _parse_parameters("def foo(*args: int)")
+    assert len(params) == 1
+    assert params[0].name == "args"
+    assert params[0].required is False
+
+
+def test_parse_parameters_var_keyword() -> None:
+    params = _parse_parameters("def foo(**kwargs: str)")
+    assert len(params) == 1
+    assert params[0].name == "kwargs"
+    assert params[0].required is False
+
+
+def test_extract_interfaces_symbol_no_signature() -> None:
+    from archex.models import ParsedFile, Symbol, SymbolKind, Visibility
+
+    sym = Symbol(
+        name="bare_func",
+        qualified_name="bare_func",
+        kind=SymbolKind.FUNCTION,
+        file_path="fake.py",
+        start_line=1,
+        end_line=1,
+        visibility=Visibility.PUBLIC,
+        signature=None,
+    )
+    pf = ParsedFile(path="fake.py", language="python", symbols=[sym])
+    graph = DependencyGraph()
+    interfaces = extract_interfaces([pf], graph)
+    assert len(interfaces) == 1
+    iface = interfaces[0]
+    assert iface.parameters == []
+    assert iface.return_type is None

@@ -63,8 +63,6 @@ class DependencyGraph:
         """Reconstruct a file-level DependencyGraph from Edge objects."""
         graph = cls()
         for edge in edges:
-            graph._file_graph.add_node(edge.source)  # type: ignore[misc]
-            graph._file_graph.add_node(edge.target)  # type: ignore[misc]
             graph._file_graph.add_edge(  # type: ignore[misc]
                 edge.source,
                 edge.target,

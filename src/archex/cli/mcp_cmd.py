@@ -18,7 +18,7 @@ def mcp_cmd() -> None:
         from archex.integrations.mcp import run_stdio_server
     except ImportError as exc:
         raise click.ClickException(
-            "MCP integration requires the 'mcp' package. Install it with: pip install mcp"
+            "MCP integration requires the 'mcp' package. Install it with: uv add mcp"
         ) from exc
 
     asyncio.run(run_stdio_server())

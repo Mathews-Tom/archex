@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from archex.analyze.interfaces import extract_interfaces
 from archex.index.graph import DependencyGraph
 from archex.models import (
     ArchProfile,
@@ -100,8 +101,9 @@ def test_interfaces_extracted_for_public_symbols() -> None:
     metadata = _make_repo_metadata()
     import_map: dict[str, list[ImportStatement]] = {"main.py": [], "models.py": []}
     graph = DependencyGraph.from_parsed_files(parsed, import_map)
+    interfaces = extract_interfaces(parsed, graph)
 
-    profile = build_profile(metadata, parsed, graph)
+    profile = build_profile(metadata, parsed, graph, interfaces=interfaces)
 
     # Only public function/class symbols should appear
     interface_names = [iface.symbol.name for iface in profile.interface_surface]

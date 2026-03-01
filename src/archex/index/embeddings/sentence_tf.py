@@ -10,7 +10,7 @@ from archex.exceptions import ArchexIndexError
 class SentenceTransformerEmbedder:
     """Embedding provider using the sentence-transformers library.
 
-    Requires the `vector-torch` extra: ``pip install archex[vector-torch]``
+    Requires the `vector-torch` extra: ``uv add archex[vector-torch]``
     """
 
     def __init__(
@@ -59,5 +59,6 @@ class SentenceTransformerEmbedder:
     def dimension(self) -> int:
         if self._dimension is None:
             self._load_model()
-        assert self._dimension is not None
+        if self._dimension is None:
+            raise ArchexIndexError("Model dimension unavailable after loading")
         return self._dimension

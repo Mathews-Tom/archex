@@ -286,3 +286,243 @@ class TestCompareCLI:
         assert result.exit_code == 0
         assert "json" in result.output
         assert "markdown" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Tests — render_comparison_markdown
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch  # noqa: E402
+
+from archex.cli.compare_cmd import render_comparison_markdown  # noqa: E402
+from archex.models import DimensionComparison  # noqa: E402
+
+
+def _make_comparison_result(
+    *,
+    url_a: str | None = None,
+    local_path_a: str | None = "/tmp/a",
+    url_b: str | None = None,
+    local_path_b: str | None = "/tmp/b",
+    dimensions: list[DimensionComparison] | None = None,
+    summary: str = "Test summary.",
+) -> ComparisonResult:
+    return ComparisonResult(
+        repo_a=RepoMetadata(url=url_a, local_path=local_path_a, total_files=5, total_lines=200),
+        repo_b=RepoMetadata(url=url_b, local_path=local_path_b, total_files=10, total_lines=800),
+        dimensions=dimensions if dimensions is not None else [],
+        summary=summary,
+    )
+
+
+def _make_dimension(
+    *,
+    dimension: str = "error_handling",
+    repo_a_approach: str = "Uses exceptions",
+    repo_b_approach: str = "Returns error codes",
+    evidence_a: list[str] | None = None,
+    evidence_b: list[str] | None = None,
+    trade_offs: list[str] | None = None,
+) -> DimensionComparison:
+    return DimensionComparison(
+        dimension=dimension,
+        repo_a_approach=repo_a_approach,
+        repo_b_approach=repo_b_approach,
+        evidence_a=evidence_a if evidence_a is not None else [],
+        evidence_b=evidence_b if evidence_b is not None else [],
+        trade_offs=trade_offs if trade_offs is not None else [],
+    )
+
+
+class TestRenderComparisonMarkdown:
+    def test_basic_output_contains_repo_names_and_dimension_headers(self) -> None:
+        dim = _make_dimension(dimension="error_handling")
+        result = _make_comparison_result(
+            local_path_a="/tmp/repo_a",
+            local_path_b="/tmp/repo_b",
+            dimensions=[dim],
+        )
+        md = render_comparison_markdown(result)
+        assert "/tmp/repo_a" in md
+        assert "/tmp/repo_b" in md
+        assert "## Dimensions" in md
+        assert "### Error Handling" in md
+
+    def test_summary_section_included(self) -> None:
+        result = _make_comparison_result(summary="Architecture differs significantly.")
+        md = render_comparison_markdown(result)
+        assert "## Summary" in md
+        assert "Architecture differs significantly." in md
+
+    def test_empty_dimensions_list_produces_no_dimensions_section(self) -> None:
+        result = _make_comparison_result(dimensions=[])
+        md = render_comparison_markdown(result)
+        assert "## Dimensions" not in md
+
+    def test_no_evidence_produces_no_evidence_sections(self) -> None:
+        dim = _make_dimension(evidence_a=[], evidence_b=[])
+        result = _make_comparison_result(dimensions=[dim])
+        md = render_comparison_markdown(result)
+        assert "**Repo A evidence:**" not in md
+        assert "**Repo B evidence:**" not in md
+
+    def test_no_trade_offs_produces_no_trade_offs_section(self) -> None:
+        dim = _make_dimension(trade_offs=[])
+        result = _make_comparison_result(dimensions=[dim])
+        md = render_comparison_markdown(result)
+        assert "**Trade-offs:**" not in md
+
+    def test_repo_names_derived_from_url_when_local_path_is_none(self) -> None:
+        result = _make_comparison_result(
+            url_a="https://github.com/org/repo-a",
+            local_path_a=None,
+            url_b="https://github.com/org/repo-b",
+            local_path_b=None,
+        )
+        md = render_comparison_markdown(result)
+        assert "https://github.com/org/repo-a" in md
+        assert "https://github.com/org/repo-b" in md
+
+
+# ---------------------------------------------------------------------------
+# Tests — trade-off text edge cases (via compare_repos)
+# ---------------------------------------------------------------------------
+
+
+class TestTradeOffEdgeCases:
+    def test_repo_b_empty_trade_off_mentions_repo_b_lacks(self) -> None:
+        a = _make_profile(patterns=[_error_pattern()])
+        b = _make_profile()
+        result = compare_repos(a, b, dimensions=["error_handling"])
+        dim = result.dimensions[0]
+        assert any("Repo B lacks" in t for t in dim.trade_offs)
+
+    def test_repo_a_significantly_more_evidence_mentions_significantly_more(self) -> None:
+        extra_patterns: list[DetectedPattern] = []
+        for i in range(6):
+            extra_patterns.append(
+                DetectedPattern(
+                    name=f"error_pattern_{i}",
+                    display_name=f"Error Pattern {i}",
+                    confidence=0.8,
+                    description="error handling",
+                    category=PatternCategory.STRUCTURAL,
+                    evidence=[
+                        PatternEvidence(
+                            file_path=f"errors_{i}.py",
+                            start_line=1,
+                            end_line=5,
+                            symbol=f"Error{i}",
+                            explanation="exception",
+                        )
+                    ],
+                )
+            )
+        a = _make_profile(patterns=extra_patterns)
+        b = _make_profile(patterns=[_error_pattern()])
+        result = compare_repos(a, b, dimensions=["error_handling"])
+        dim = result.dimensions[0]
+        assert any("significantly more" in t for t in dim.trade_offs)
+
+    def test_repo_b_significantly_more_evidence_mentions_significantly_more(self) -> None:
+        extra_patterns: list[DetectedPattern] = []
+        for i in range(6):
+            extra_patterns.append(
+                DetectedPattern(
+                    name=f"error_pattern_{i}",
+                    display_name=f"Error Pattern {i}",
+                    confidence=0.8,
+                    description="error handling",
+                    category=PatternCategory.STRUCTURAL,
+                    evidence=[
+                        PatternEvidence(
+                            file_path=f"errors_{i}.py",
+                            start_line=1,
+                            end_line=5,
+                            symbol=f"Error{i}",
+                            explanation="exception",
+                        )
+                    ],
+                )
+            )
+        a = _make_profile(patterns=[_error_pattern()])
+        b = _make_profile(patterns=extra_patterns)
+        result = compare_repos(a, b, dimensions=["error_handling"])
+        dim = result.dimensions[0]
+        assert any("significantly more" in t for t in dim.trade_offs)
+
+    def test_comparable_evidence_trade_off_mentions_comparable(self) -> None:
+        a = _make_profile(patterns=[_error_pattern()])
+        b = _make_profile(patterns=[_error_pattern()])
+        result = compare_repos(a, b, dimensions=["error_handling"])
+        dim = result.dimensions[0]
+        assert any("comparable" in t for t in dim.trade_offs)
+
+
+# ---------------------------------------------------------------------------
+# Tests — CLI extended (JSON, markdown, dimension parsing)
+# ---------------------------------------------------------------------------
+
+
+def _make_cli_comparison_result() -> ComparisonResult:
+    return ComparisonResult(
+        repo_a=RepoMetadata(local_path="/tmp/a", total_files=3, total_lines=100),
+        repo_b=RepoMetadata(local_path="/tmp/b", total_files=7, total_lines=300),
+        dimensions=[
+            DimensionComparison(
+                dimension="error_handling",
+                repo_a_approach="Uses exceptions",
+                repo_b_approach="Returns error codes",
+                evidence_a=["Custom exception hierarchy"],
+                evidence_b=[],
+                trade_offs=["Repo A has structured error types; Repo B lacks them"],
+            )
+        ],
+        summary="Repo A uses exceptions; Repo B uses error codes.",
+    )
+
+
+class TestCompareCLIExtended:
+    def test_cli_json_output(self) -> None:
+        import json
+
+        runner = CliRunner()
+        fake_result = _make_cli_comparison_result()
+        with patch("archex.cli.compare_cmd.compare", return_value=fake_result):
+            result = runner.invoke(compare_cmd, ["/tmp/a", "/tmp/b"])
+        assert result.exit_code == 0, result.output
+        parsed = json.loads(result.output)
+        assert "dimensions" in parsed
+        assert parsed["dimensions"][0]["dimension"] == "error_handling"
+
+    def test_cli_markdown_output(self) -> None:
+        runner = CliRunner()
+        fake_result = _make_cli_comparison_result()
+        with patch("archex.cli.compare_cmd.compare", return_value=fake_result):
+            result = runner.invoke(compare_cmd, ["/tmp/a", "/tmp/b", "--format", "markdown"])
+        assert result.exit_code == 0, result.output
+        assert "# Comparison:" in result.output
+        assert "## Dimensions" in result.output
+
+    def test_cli_dimensions_parsing(self) -> None:
+        runner = CliRunner()
+        fake_result = _make_cli_comparison_result()
+        captured: dict[str, list[str] | None] = {}
+
+        def fake_compare(
+            src_a: object,
+            src_b: object,
+            *,
+            dimensions: list[str] | None = None,
+            config: object = None,
+        ) -> ComparisonResult:
+            captured["dimensions"] = dimensions
+            return fake_result
+
+        with patch("archex.cli.compare_cmd.compare", side_effect=fake_compare):
+            result = runner.invoke(
+                compare_cmd,
+                ["/tmp/a", "/tmp/b", "--dimensions", "error_handling,concurrency"],
+            )
+        assert result.exit_code == 0, result.output
+        assert captured["dimensions"] == ["error_handling", "concurrency"]

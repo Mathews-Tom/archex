@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -173,3 +175,87 @@ def test_discover_files_default_max_size_allows_normal_files(python_simple_repo:
     """Default max_file_size (10MB) allows all fixture files through."""
     files = discover_files(python_simple_repo)
     assert len(files) == 5
+
+
+def test_git_ls_files_called_process_error(tmp_path: Path) -> None:
+    """CalledProcessError from git ls-files raises AcquireError with failure message."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+
+    exc = subprocess.CalledProcessError(1, "git", stderr="fatal error")
+    with (
+        patch("subprocess.run", side_effect=exc),
+        pytest.raises(AcquireError, match="git ls-files failed"),
+    ):
+        discover_files(repo)
+
+
+def test_git_ls_files_timeout_expired(tmp_path: Path) -> None:
+    """TimeoutExpired from git ls-files raises AcquireError with timed out message."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+
+    exc = subprocess.TimeoutExpired("git", 30)
+    with (
+        patch("subprocess.run", side_effect=exc),
+        pytest.raises(AcquireError, match="timed out"),
+    ):
+        discover_files(repo)
+
+
+def test_git_ls_files_ghost_path_skipped(tmp_path: Path) -> None:
+    """Files listed by git but absent on disk are excluded from results."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "real.py").write_text("x = 1")
+
+    mock_result = MagicMock()
+    mock_result.stdout = "ghost.py\nreal.py\n"
+    with patch("subprocess.run", return_value=mock_result):
+        files = discover_files(repo)
+
+    paths = [f.path for f in files]
+    assert "real.py" in paths
+    assert "ghost.py" not in paths
+
+
+def test_stat_oserror_defaults_size_to_zero(tmp_path: Path) -> None:
+    """OSError during stat causes size to default to 0 and file is still discovered."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    target = repo / "module.py"
+    target.write_text("x = 1")
+
+    # Use git path to control exactly which paths are visited (avoids rglob stat calls).
+    mock_result = MagicMock()
+    mock_result.stdout = "module.py\n"
+
+    target_abs = str(target)
+    original_is_file = Path.is_file
+    original_stat = Path.stat
+
+    def is_file_side_effect(self: Path) -> bool:
+        # Return True for our target without calling stat(), bypassing the stat mock.
+        if str(self) == target_abs:
+            return True
+        return original_is_file(self)
+
+    def stat_side_effect(self: Path, **kwargs: object) -> object:
+        if str(self) == target_abs:
+            raise OSError("stat failed")
+        return original_stat(self, **kwargs)  # type: ignore[arg-type]
+
+    with (
+        patch("subprocess.run", return_value=mock_result),
+        patch.object(Path, "is_file", is_file_side_effect),
+        patch.object(Path, "stat", stat_side_effect),
+    ):
+        files = discover_files(repo)
+
+    assert len(files) == 1
+    assert files[0].path == "module.py"
+    assert files[0].size_bytes == 0
