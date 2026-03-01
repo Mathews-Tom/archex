@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from archex.models import DiscoveredFile
-from archex.parse.adapters import get_adapter
+from archex.parse.adapters import default_adapter_registry
 from archex.parse.engine import TreeSitterEngine
 from archex.parse.imports import build_file_map, parse_imports, resolve_imports
 
@@ -22,10 +22,10 @@ def engine() -> TreeSitterEngine:
 
 
 @pytest.fixture()
-def adapters(engine: TreeSitterEngine) -> dict[str, LanguageAdapter]:
-    adapter = get_adapter("python", engine)
-    assert adapter is not None
-    return {"python": adapter}
+def adapters() -> dict[str, LanguageAdapter]:
+    cls = default_adapter_registry.get("python")
+    assert cls is not None
+    return {"python": cls()}
 
 
 @pytest.fixture()
@@ -195,3 +195,63 @@ def test_parse_imports_worker_returns_none_on_missing_file() -> None:
 
     result = _parse_imports_worker("/nonexistent/ghost.py", "ghost.py", "python")
     assert result is None
+
+
+# --- skip / continue branches ---
+
+
+def test_parse_imports_skips_unknown_language(engine: TreeSitterEngine) -> None:
+    """parse_imports skips files whose language has no matching adapter (line 86 continue)."""
+    files = [
+        DiscoveredFile(
+            path="test.xyz",
+            absolute_path="/tmp/test.xyz",
+            language="unknown_lang",
+        )
+    ]
+    result = parse_imports(files, engine, {})
+    assert result == {}
+
+
+def test_resolve_imports_skips_missing_language() -> None:
+    """resolve_imports skips files not present in file_languages (line 109 continue)."""
+    from archex.models import ImportStatement
+
+    import_map: dict[str, list[ImportStatement]] = {
+        "unknown.py": [ImportStatement(module="foo", file_path="unknown.py", line=1)],
+    }
+    # file_languages is empty — "unknown.py" has no language entry
+    result = resolve_imports(import_map, {}, {}, {})
+    assert result["unknown.py"][0].resolved_path is None
+
+
+def test_resolve_imports_skips_missing_adapter() -> None:
+    """resolve_imports skips files whose language has no adapter (line 112 continue)."""
+    from archex.models import ImportStatement
+
+    import_map: dict[str, list[ImportStatement]] = {
+        "test.rb": [ImportStatement(module="foo", file_path="test.rb", line=1)],
+    }
+    file_languages = {"test.rb": "ruby"}
+    # adapters does not contain "ruby"
+    result = resolve_imports(import_map, {}, {}, file_languages)
+    assert result["test.rb"][0].resolved_path is None
+
+
+def test_build_file_map_non_python_extension() -> None:
+    """build_file_map uses path-without-extension as key for non-.py files (lines 144-145)."""
+    files = [
+        DiscoveredFile(
+            path="src/utils.ts",
+            absolute_path="/tmp/src/utils.ts",
+            language="typescript",
+        ),
+        DiscoveredFile(
+            path="cmd/main.go",
+            absolute_path="/tmp/cmd/main.go",
+            language="go",
+        ),
+    ]
+    result = build_file_map(files)
+    assert result["src.utils"] == "src/utils.ts"
+    assert result["cmd.main"] == "cmd/main.go"

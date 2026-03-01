@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import tiktoken
 
-from archex.index.chunker import ASTChunker
+from archex.index.chunker import (
+    ASTChunker,
+    _format_import,  # pyright: ignore[reportPrivateUsage]
+    _import_relevant,  # pyright: ignore[reportPrivateUsage]
+)
 from archex.models import (
     CodeChunk,
     ImportStatement,
@@ -421,3 +425,109 @@ def test_symbol_kind_set_on_chunk() -> None:
 
     greeter_chunk = _find_chunk(chunks, "Greeter")
     assert greeter_chunk.symbol_kind == SymbolKind.CLASS
+
+
+# ---------------------------------------------------------------------------
+# Private helper tests
+# ---------------------------------------------------------------------------
+
+def test_format_import_with_alias() -> None:
+    imp = ImportStatement(module="numpy", alias="np", file_path="x.py", line=1)
+    assert _format_import(imp) == "import numpy as np"
+
+
+def test_format_import_from_with_alias() -> None:
+    imp = ImportStatement(
+        module="collections",
+        symbols=["OrderedDict"],
+        alias="OD",
+        file_path="x.py",
+        line=1,
+    )
+    assert _format_import(imp) == "from collections import OrderedDict as OD"
+
+
+def test_import_relevant_bare_import_match() -> None:
+    # module="os.path" → base="path"; "path" appears in content
+    imp = ImportStatement(module="os.path", file_path="x.py", line=1)
+    assert _import_relevant(imp, "result = path.join(a, b)") is True
+
+
+def test_import_relevant_alias_match() -> None:
+    imp = ImportStatement(module="numpy", alias="np", file_path="x.py", line=1)
+    assert _import_relevant(imp, "arr = np.array([1, 2, 3])") is True
+
+
+def test_import_relevant_no_match() -> None:
+    imp = ImportStatement(module="sys", file_path="x.py", line=1)
+    assert _import_relevant(imp, "print('hello')") is False
+
+
+def test_merge_backward_into_previous() -> None:
+    # Source: header comment, foo function, then a footer comment.
+    # With a high min_tokens threshold, both the header and footer are small
+    # file-level chunks. The footer (after foo) has no next file-level chunk
+    # so _merge_small_chunks falls back to merging it into the previous
+    # file-level result entry (the header).
+    source = b"# header\n\ndef foo():\n    pass\n\n# footer\n"
+    parsed = ParsedFile(
+        path="hf.py",
+        language="python",
+        symbols=[
+            Symbol(
+                name="foo",
+                qualified_name="foo",
+                kind=SymbolKind.FUNCTION,
+                file_path="hf.py",
+                start_line=3,
+                end_line=4,
+            )
+        ],
+        imports=[],
+        lines=7,
+    )
+    # min_tokens=100 ensures both "# header" and "# footer" are below the
+    # threshold and trigger the merge path.
+    config = IndexConfig(chunk_min_tokens=100, chunk_max_tokens=500)
+    chunker = ASTChunker(config)
+    chunks = chunker.chunk_file(parsed, source)
+
+    file_chunks = [c for c in chunks if c.symbol_name is None]
+    # header and footer must have been merged into a single file-level chunk
+    assert len(file_chunks) == 1
+    assert "# header" in file_chunks[0].content
+    assert "# footer" in file_chunks[0].content
+
+
+def test_blank_lines_only_file_level_skipped() -> None:
+    # Blank lines between two functions: no real file-level code.
+    source = b"def a():\n    pass\n\n\ndef b():\n    pass\n"
+    parsed = ParsedFile(
+        path="two.py",
+        language="python",
+        symbols=[
+            Symbol(
+                name="a",
+                qualified_name="a",
+                kind=SymbolKind.FUNCTION,
+                file_path="two.py",
+                start_line=1,
+                end_line=2,
+            ),
+            Symbol(
+                name="b",
+                qualified_name="b",
+                kind=SymbolKind.FUNCTION,
+                file_path="two.py",
+                start_line=5,
+                end_line=6,
+            ),
+        ],
+        imports=[],
+        lines=6,
+    )
+    chunker = _default_chunker()
+    chunks = chunker.chunk_file(parsed, source)
+
+    file_chunks = [c for c in chunks if c.symbol_name is None]
+    assert file_chunks == [], f"Expected no file-level chunks, got: {file_chunks}"
