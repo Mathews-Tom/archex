@@ -11,6 +11,8 @@ from archex.parse.engine import TreeSitterEngine
 from archex.parse.symbols import extract_symbols
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from archex.parse.adapters.base import LanguageAdapter
 
 FIXTURE_DIR = "tests/fixtures/python_simple"
@@ -140,6 +142,82 @@ def test_main_py_has_run_function(
     main_file = next(pf for pf in parsed if pf.path == "main.py")
     func_names = {s.name for s in main_file.symbols if s.kind == SymbolKind.FUNCTION}
     assert "run" in func_names
+
+
+# --- _parse_file_worker direct tests ---
+
+
+def test_parse_file_worker_unsupported_language() -> None:
+    """_parse_file_worker returns None for a language with no adapter (line 30)."""
+    from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
+
+    result = _parse_file_worker("/fake/file.xyz", "file.xyz", "brainfuck")
+    assert result is None
+
+
+def test_parse_file_worker_success(tmp_path: Path) -> None:
+    """_parse_file_worker reads a real file and returns a ParsedFile (lines 35-41)."""
+    from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
+
+    py_file = tmp_path / "sample.py"
+    py_file.write_text("def hello():\n    pass\n")
+    result = _parse_file_worker(str(py_file), "sample.py", "python")
+    assert result is not None
+    assert result.path == "sample.py"
+    assert result.language == "python"
+    assert len(result.symbols) >= 1
+    assert result.lines > 0
+
+
+# --- parallel path tests ---
+
+
+def test_extract_symbols_parallel_path(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """extract_symbols uses ProcessPoolExecutor when parallel=True and >10 files (lines 65-82)."""
+    files: list[DiscoveredFile] = []
+    for i in range(12):
+        f = tmp_path / f"mod_{i}.py"
+        f.write_text(f"def func_{i}():\n    pass\n")
+        files.append(
+            DiscoveredFile(
+                path=f"mod_{i}.py",
+                absolute_path=str(f),
+                language="python",
+            )
+        )
+    result = extract_symbols(files, engine, adapters, parallel=True)
+    assert len(result) == 12
+    for pf in result:
+        assert pf.language == "python"
+        assert len(pf.symbols) >= 1
+
+
+def test_extract_symbols_parallel_fallback_on_error(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """extract_symbols falls back to sequential when ProcessPoolExecutor raises (lines 83-85)."""
+    from unittest.mock import patch
+
+    files: list[DiscoveredFile] = []
+    for i in range(12):
+        f = tmp_path / f"mod_{i}.py"
+        f.write_text("def hello():\n    pass\n")
+        files.append(
+            DiscoveredFile(
+                path=f"mod_{i}.py",
+                absolute_path=str(f),
+                language="python",
+            )
+        )
+    with patch("archex.parse.symbols.ProcessPoolExecutor", side_effect=RuntimeError("fail")):
+        result = extract_symbols(files, engine, adapters, parallel=True)
+    assert len(result) == 12
 
 
 def test_parse_file_worker_logs_warning_on_failure(caplog: pytest.LogCaptureFixture) -> None:

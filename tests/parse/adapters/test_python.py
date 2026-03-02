@@ -306,3 +306,212 @@ def test_services_auth_methods(engine: TreeSitterEngine, adapter: PythonAdapter)
     assert "AuthService.login" in methods
     assert "AuthService.logout" in methods
     assert "AuthService.verify_token" in methods
+
+
+# ---------------------------------------------------------------------------
+# Decorated definitions
+# ---------------------------------------------------------------------------
+
+
+def test_extract_decorated_class(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = b"@dataclass\nclass User:\n    name: str\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "models.py")
+    user = next(s for s in symbols if s.name == "User")
+    assert user.kind == SymbolKind.CLASS
+    assert "dataclass" in user.decorators
+
+
+def test_extract_decorated_method(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = b"class Foo:\n    @staticmethod\n    def bar():\n        pass\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "foo.py")
+    bar = next(s for s in symbols if s.name == "bar")
+    assert bar.kind == SymbolKind.METHOD
+    assert "staticmethod" in bar.decorators
+
+
+def test_extract_decorated_top_level_function(
+    engine: TreeSitterEngine, adapter: PythonAdapter
+) -> None:
+    source = b"@app.route('/')\ndef index():\n    pass\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "routes.py")
+    idx = next(s for s in symbols if s.name == "index")
+    assert idx.kind == SymbolKind.FUNCTION
+    assert "app.route" in idx.decorators
+
+
+# ---------------------------------------------------------------------------
+# Docstring extraction
+# ---------------------------------------------------------------------------
+
+
+def test_extract_function_docstring(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = b'def hello():\n    """Greets the user."""\n    pass\n'
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "greet.py")
+    hello = next(s for s in symbols if s.name == "hello")
+    assert hello.docstring == "Greets the user."
+
+
+def test_extract_single_quote_docstring(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = b"def foo():\n    '''Single-quoted doc.'''\n    pass\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "foo.py")
+    foo = next(s for s in symbols if s.name == "foo")
+    assert foo.docstring == "Single-quoted doc."
+
+
+def test_extract_class_docstring(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = b'class Klass:\n    """A class doc."""\n    pass\n'
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "k.py")
+    klass = next(s for s in symbols if s.name == "Klass")
+    assert klass.docstring == "A class doc."
+
+
+# ---------------------------------------------------------------------------
+# Signature extraction
+# ---------------------------------------------------------------------------
+
+
+def test_extract_function_signature(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = b"def add(a: int, b: int) -> int:\n    return a + b\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "math.py")
+    add = next(s for s in symbols if s.name == "add")
+    assert add.signature is not None
+    assert "def add" in add.signature
+    assert "-> int" in add.signature
+
+
+# ---------------------------------------------------------------------------
+# Import edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_parse_from_import_with_alias(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = b"from collections import OrderedDict as OD\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "data.py")
+    imp = imports[0]
+    assert "OrderedDict" in imp.symbols
+    assert imp.alias == "OD"
+
+
+def test_parse_wildcard_import(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = b"from os.path import *\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "data.py")
+    imp = imports[0]
+    assert "*" in imp.symbols
+
+
+def test_parse_type_checking_imports(engine: TreeSitterEngine, adapter: PythonAdapter) -> None:
+    source = (
+        b"from typing import TYPE_CHECKING\n"
+        b"if TYPE_CHECKING:\n"
+        b"    from os import PathLike\n"
+        b"    import sys\n"
+    )
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "data.py")
+    modules = {i.module for i in imports}
+    assert "os" in modules
+    assert "sys" in modules
+
+
+# ---------------------------------------------------------------------------
+# resolve_import: relative edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_relative_import_with_module(adapter: PythonAdapter) -> None:
+    imp = ImportStatement(
+        module=".models",
+        file_path="pkg/views.py",
+        line=1,
+        is_relative=True,
+        symbols=["User"],
+    )
+    result = adapter.resolve_import(imp, {"pkg.models": "pkg/models.py"})
+    assert result == "pkg/models.py"
+
+
+def test_resolve_relative_import_parent(adapter: PythonAdapter) -> None:
+    imp = ImportStatement(
+        module="..utils",
+        file_path="pkg/sub/views.py",
+        line=1,
+        is_relative=True,
+    )
+    result = adapter.resolve_import(imp, {"pkg.utils": "pkg/utils.py"})
+    assert result == "pkg/utils.py"
+
+
+def test_resolve_relative_import_dots_only_init(adapter: PythonAdapter) -> None:
+    imp = ImportStatement(
+        module=".",
+        file_path="pkg/views.py",
+        line=1,
+        is_relative=True,
+        symbols=["something"],
+    )
+    result = adapter.resolve_import(imp, {"pkg/__init__.py": "pkg/__init__.py"})
+    assert result == "pkg/__init__.py"
+
+
+def test_resolve_relative_import_to_package_init(adapter: PythonAdapter) -> None:
+    """Relative import resolving to a package __init__.py (line 405)."""
+    imp = ImportStatement(
+        module=".subpkg",
+        file_path="pkg/views.py",
+        line=1,
+        is_relative=True,
+    )
+    file_map = {"x": "pkg/subpkg/__init__.py"}
+    result = adapter.resolve_import(imp, file_map)
+    assert result == "pkg/subpkg/__init__.py"
+
+
+def test_resolve_absolute_partial_dotted(adapter: PythonAdapter) -> None:
+    """Absolute import with dotted module resolving via partial match (line 420)."""
+    imp = ImportStatement(
+        module="pkg.sub.thing",
+        file_path="main.py",
+        line=1,
+        is_relative=False,
+    )
+    # Only "pkg.sub" is in file_map, not the full "pkg.sub.thing"
+    file_map = {"pkg.sub": "pkg/sub/__init__.py"}
+    result = adapter.resolve_import(imp, file_map)
+    assert result == "pkg/sub/__init__.py"
+
+
+def test_resolve_relative_import_no_match(adapter: PythonAdapter) -> None:
+    imp = ImportStatement(
+        module=".missing",
+        file_path="pkg/views.py",
+        line=1,
+        is_relative=True,
+    )
+    result = adapter.resolve_import(imp, {})
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# detect_entry_points: unreadable file
+# ---------------------------------------------------------------------------
+
+
+def test_detect_entry_points_unreadable_file(adapter: PythonAdapter, tmp_path: Path) -> None:
+    files = [
+        DiscoveredFile(
+            path="ghost.py",
+            absolute_path=str(tmp_path / "nonexistent.py"),
+            language="python",
+        ),
+    ]
+    entries = adapter.detect_entry_points(files)
+    assert "ghost.py" not in entries

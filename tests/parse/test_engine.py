@@ -88,3 +88,50 @@ def test_parse_file_at_limit_succeeds(tmp_path: Path) -> None:
     tree = engine.parse_file(str(source_file), "python", max_file_size=len(content))
     root: Any = tree  # type: ignore[assignment]
     assert root.root_node is not None
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: ImportError for grammar module, Language constructor failure,
+# and OSError reading file bytes
+# ---------------------------------------------------------------------------
+
+
+def test_missing_grammar_module_raises_parse_error() -> None:
+    from unittest.mock import patch
+
+    engine = TreeSitterEngine()
+    engine._languages.clear()  # pyright: ignore[reportPrivateUsage]
+    engine._parsers.clear()  # pyright: ignore[reportPrivateUsage]
+    with (
+        patch("importlib.import_module", side_effect=ImportError("no module")),
+        pytest.raises(ParseError, match="not installed"),
+    ):
+        engine.get_language("python")
+
+
+def test_language_constructor_failure_raises_parse_error() -> None:
+    from unittest.mock import MagicMock, patch
+
+    engine = TreeSitterEngine()
+    engine._languages.clear()  # pyright: ignore[reportPrivateUsage]
+    engine._parsers.clear()  # pyright: ignore[reportPrivateUsage]
+    mock_module = MagicMock()
+    mock_module.language.side_effect = RuntimeError("bad language")
+    with (
+        patch("importlib.import_module", return_value=mock_module),
+        pytest.raises(ParseError, match="Failed to load"),
+    ):
+        engine.get_language("python")
+
+
+def test_parse_file_read_error_raises_parse_error(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    source_file = tmp_path / "unreadable.py"
+    source_file.write_bytes(b"x = 1")
+    engine = TreeSitterEngine()
+    with (
+        patch("pathlib.Path.read_bytes", side_effect=OSError("permission denied")),
+        pytest.raises(ParseError, match="Failed to read"),
+    ):
+        engine.parse_file(str(source_file), "python")

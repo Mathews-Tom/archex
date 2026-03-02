@@ -461,3 +461,217 @@ def test_all_types_ts_symbols_found(engine: TreeSitterEngine, adapter: TypeScrip
     assert "User" in names
     assert "AuthResult" in names
     assert len(symbols) == 3
+
+
+# ---------------------------------------------------------------------------
+# Inline source: non-exported declarations (direct _extract_declaration paths)
+# ---------------------------------------------------------------------------
+
+
+def test_nonexported_interface_declaration(
+    engine: TreeSitterEngine, adapter: TypeScriptAdapter
+) -> None:
+    source = b"interface Config { name: string; }\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "config.ts")
+    names = {s.name for s in symbols}
+    assert "Config" in names
+    config = next(s for s in symbols if s.name == "Config")
+    assert config.kind == SymbolKind.INTERFACE
+    assert config.visibility == Visibility.PRIVATE
+
+
+def test_nonexported_type_alias_declaration(
+    engine: TreeSitterEngine, adapter: TypeScriptAdapter
+) -> None:
+    source = b"type UserId = string;\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "types.ts")
+    names = {s.name for s in symbols}
+    assert "UserId" in names
+    uid = next(s for s in symbols if s.name == "UserId")
+    assert uid.kind == SymbolKind.TYPE
+    assert uid.visibility == Visibility.PRIVATE
+
+
+def test_nonexported_enum_declaration(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"enum Color { Red, Green, Blue }\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "color.ts")
+    names = {s.name for s in symbols}
+    assert "Color" in names
+    color = next(s for s in symbols if s.name == "Color")
+    assert color.kind == SymbolKind.ENUM
+    assert color.visibility == Visibility.PRIVATE
+
+
+def test_exported_const_declaration(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"export const API_KEY = 'abc';\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "config.ts")
+    names = {s.name for s in symbols}
+    assert "API_KEY" in names
+    api = next(s for s in symbols if s.name == "API_KEY")
+    assert api.kind == SymbolKind.CONSTANT
+    assert api.visibility == Visibility.PUBLIC
+
+
+def test_let_declaration(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"let counter = 0;\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "state.ts")
+    names = {s.name for s in symbols}
+    assert "counter" in names
+    ctr = next(s for s in symbols if s.name == "counter")
+    assert ctr.kind == SymbolKind.VARIABLE
+    assert ctr.visibility == Visibility.PRIVATE
+
+
+def test_var_declaration(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"var legacy = true;\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "old.ts")
+    names = {s.name for s in symbols}
+    assert "legacy" in names
+    leg = next(s for s in symbols if s.name == "legacy")
+    assert leg.kind == SymbolKind.VARIABLE
+
+
+# ---------------------------------------------------------------------------
+# Inline source: import edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_reexport_with_named_symbols(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"export { foo, bar } from './utils';\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "index.ts")
+    assert len(imports) >= 1
+    imp = imports[0]
+    assert imp.module == "./utils"
+    assert "foo" in imp.symbols
+    assert "bar" in imp.symbols
+    assert imp.is_relative is True
+
+
+def test_namespace_import_alias(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"import * as path from 'path';\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "app.ts")
+    assert len(imports) >= 1
+    imp = next(i for i in imports if i.module == "path")
+    assert imp.alias == "path"
+    assert "*" in imp.symbols
+
+
+def test_require_call_relative(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"const helper = require('./helper');\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "app.js")
+    modules = {i.module for i in imports}
+    assert "./helper" in modules
+    imp = next(i for i in imports if i.module == "./helper")
+    assert imp.is_relative is True
+
+
+# ---------------------------------------------------------------------------
+# resolve_import: index file resolution via keys
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_relative_index_via_key(adapter: TypeScriptAdapter) -> None:
+    file_map = {"src/components/index.ts": "src/components/index.ts"}
+    imp = ImportStatement(
+        module="./components",
+        file_path="src/app.ts",
+        line=1,
+        is_relative=True,
+    )
+    result = adapter.resolve_import(imp, file_map)
+    assert result == "src/components/index.ts"
+
+
+def test_resolve_absolute_module_via_key(adapter: TypeScriptAdapter) -> None:
+    file_map = {"utils": "src/utils.ts"}
+    imp = ImportStatement(
+        module="utils",
+        file_path="src/app.ts",
+        line=1,
+        is_relative=False,
+    )
+    result = adapter.resolve_import(imp, file_map)
+    assert result == "src/utils.ts"
+
+
+# ---------------------------------------------------------------------------
+# detect_entry_points: export default body read
+# ---------------------------------------------------------------------------
+
+
+def test_detect_entry_point_export_default_class(
+    adapter: TypeScriptAdapter, tmp_path: Path
+) -> None:
+    app = tmp_path / "app.ts"
+    app.write_text("export default class App {}")
+    lib = tmp_path / "lib.ts"
+    lib.write_text("function helper() {}")
+    files = [
+        DiscoveredFile(path="app.ts", absolute_path=str(app), language="typescript"),
+        DiscoveredFile(path="lib.ts", absolute_path=str(lib), language="typescript"),
+    ]
+    entries = adapter.detect_entry_points(files)
+    assert "app.ts" in entries
+    assert "lib.ts" not in entries
+
+
+def test_class_with_methods(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"class Greeter {\n  greet(): string { return 'hi'; }\n  farewell(): void {}\n}\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "greeter.ts")
+    names = {s.name for s in symbols}
+    assert "Greeter" in names
+    assert "greet" in names
+    assert "farewell" in names
+    greeter = next(s for s in symbols if s.name == "Greeter")
+    assert greeter.kind == SymbolKind.CLASS
+    assert greeter.visibility == Visibility.PRIVATE
+    greet = next(s for s in symbols if s.name == "greet")
+    assert greet.kind == SymbolKind.METHOD
+    assert greet.parent == "Greeter"
+
+
+def test_exported_class_with_methods(engine: TreeSitterEngine, adapter: TypeScriptAdapter) -> None:
+    source = b"export class Service {\n  start(): void {}\n  stop(): void {}\n}\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "service.ts")
+    svc = next(s for s in symbols if s.name == "Service")
+    assert svc.kind == SymbolKind.CLASS
+    assert svc.visibility == Visibility.PUBLIC
+    start = next(s for s in symbols if s.name == "start")
+    assert start.kind == SymbolKind.METHOD
+    assert start.parent == "Service"
+
+
+def test_namespace_import_inside_clause(
+    engine: TreeSitterEngine, adapter: TypeScriptAdapter
+) -> None:
+    """Namespace import inside an import_clause (not at top level)."""
+    source = b"import React, * as ReactNS from 'react';\n"
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "app.tsx")
+    assert len(imports) >= 1
+    imp = imports[0]
+    assert imp.module == "react"
+    assert "*" in imp.symbols or imp.alias is not None
+
+
+def test_detect_entry_point_unreadable_file(adapter: TypeScriptAdapter, tmp_path: Path) -> None:
+    files = [
+        DiscoveredFile(
+            path="ghost.ts",
+            absolute_path=str(tmp_path / "nonexistent.ts"),
+            language="typescript",
+        ),
+    ]
+    entries = adapter.detect_entry_points(files)
+    assert "ghost.ts" not in entries

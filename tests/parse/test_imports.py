@@ -11,6 +11,8 @@ from archex.parse.engine import TreeSitterEngine
 from archex.parse.imports import build_file_map, parse_imports, resolve_imports
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from archex.parse.adapters.base import LanguageAdapter
 
 FIXTURE_DIR = "tests/fixtures/python_simple"
@@ -236,6 +238,81 @@ def test_resolve_imports_skips_missing_adapter() -> None:
     # adapters does not contain "ruby"
     result = resolve_imports(import_map, {}, {}, file_languages)
     assert result["test.rb"][0].resolved_path is None
+
+
+# --- _parse_imports_worker direct tests ---
+
+
+def test_parse_imports_worker_unsupported_language() -> None:
+    """_parse_imports_worker returns None for a language with no adapter (line 31)."""
+    from archex.parse.imports import _parse_imports_worker  # pyright: ignore[reportPrivateUsage]
+
+    result = _parse_imports_worker("/fake/file.xyz", "file.xyz", "brainfuck")
+    assert result is None
+
+
+def test_parse_imports_worker_success(tmp_path: Path) -> None:
+    """_parse_imports_worker reads a real file and returns parsed imports (lines 36-40)."""
+    from archex.parse.imports import _parse_imports_worker  # pyright: ignore[reportPrivateUsage]
+
+    py_file = tmp_path / "sample.py"
+    py_file.write_text("import os\nimport sys\n")
+    result = _parse_imports_worker(str(py_file), "sample.py", "python")
+    assert result is not None
+    path, imports = result
+    assert path == "sample.py"
+    assert len(imports) >= 2
+
+
+# --- parallel path tests ---
+
+
+def test_parse_imports_parallel_path(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """parse_imports uses ProcessPoolExecutor when parallel=True and >10 files (lines 58-76)."""
+    files: list[DiscoveredFile] = []
+    for i in range(12):
+        f = tmp_path / f"mod_{i}.py"
+        f.write_text("import os\n")
+        files.append(
+            DiscoveredFile(
+                path=f"mod_{i}.py",
+                absolute_path=str(f),
+                language="python",
+            )
+        )
+    result = parse_imports(files, engine, adapters, parallel=True)
+    assert len(result) == 12
+    for path, imports in result.items():
+        assert path.startswith("mod_")
+        assert len(imports) >= 1
+
+
+def test_parse_imports_parallel_fallback_on_error(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """parse_imports falls back to sequential when ProcessPoolExecutor raises (lines 77-78)."""
+    from unittest.mock import patch
+
+    files: list[DiscoveredFile] = []
+    for i in range(12):
+        f = tmp_path / f"mod_{i}.py"
+        f.write_text("import os\n")
+        files.append(
+            DiscoveredFile(
+                path=f"mod_{i}.py",
+                absolute_path=str(f),
+                language="python",
+            )
+        )
+    with patch("archex.parse.imports.ProcessPoolExecutor", side_effect=RuntimeError("pool failed")):
+        result = parse_imports(files, engine, adapters, parallel=True)
+    assert len(result) == 12
 
 
 def test_build_file_map_non_python_extension() -> None:
