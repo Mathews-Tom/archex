@@ -470,6 +470,104 @@ class ContextBundle(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Output models — Precision Symbol Tools (Tier 1)
+# ---------------------------------------------------------------------------
+
+
+class FileTreeEntry(BaseModel):
+    """Single entry in an annotated repository file tree."""
+
+    path: str
+    language: str | None = None
+    lines: int = 0
+    symbol_count: int = 0
+    is_directory: bool = False
+    children: list[FileTreeEntry] = []
+
+
+class FileTree(BaseModel):
+    """Annotated file tree of a repository."""
+
+    root: str
+    entries: list[FileTreeEntry]
+    total_files: int
+    languages: dict[str, int]
+
+
+class SymbolOutline(BaseModel):
+    """Symbol metadata without source code — used in file outlines."""
+
+    symbol_id: str
+    name: str
+    kind: SymbolKind
+    file_path: str
+    start_line: int
+    end_line: int
+    signature: str | None = None
+    visibility: Visibility = Visibility.PUBLIC
+    docstring: str | None = None
+    children: list[SymbolOutline] = []
+
+
+class FileOutline(BaseModel):
+    """Symbol hierarchy for a single file."""
+
+    file_path: str
+    language: str
+    lines: int
+    symbols: list[SymbolOutline]
+    token_count_raw: int
+
+
+class SymbolMatch(BaseModel):
+    """Search result for symbol search — metadata only."""
+
+    symbol_id: str
+    name: str
+    kind: SymbolKind
+    file_path: str
+    start_line: int
+    signature: str | None = None
+    visibility: Visibility = Visibility.PUBLIC
+    relevance_score: float = 0.0
+
+
+class SymbolSource(BaseModel):
+    """Full symbol with source code — returned by get_symbol."""
+
+    symbol_id: str
+    name: str
+    kind: SymbolKind
+    file_path: str
+    start_line: int
+    end_line: int
+    signature: str | None = None
+    visibility: Visibility = Visibility.PUBLIC
+    docstring: str | None = None
+    source: str
+    imports_context: str = ""
+    token_count: int = 0
+
+
+class TokenMeta(BaseModel):
+    """Token efficiency metrics included in every tool response."""
+
+    tokens_returned: int
+    tokens_raw_equivalent: int
+    savings_pct: float
+    strategy: str
+    tool_name: str
+    cached: bool = False
+    index_time_ms: float = 0.0
+    query_time_ms: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Output models — Comparison
+# ---------------------------------------------------------------------------
+
+
 class DimensionComparison(BaseModel):
     dimension: str
     repo_a_approach: str

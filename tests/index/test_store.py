@@ -356,3 +356,20 @@ def test_clear_reindex_flag(tmp_path: Path) -> None:
         assert s.needs_reindex() is True
         s.clear_reindex_flag()
         assert s.needs_reindex() is False
+
+
+def test_get_file_metadata(store: IndexStore) -> None:
+    store.insert_chunks(SAMPLE_CHUNKS)
+    meta = store.get_file_metadata()
+    assert len(meta) == 3  # 3 different files
+    by_file = {m["file_path"]: m for m in meta}
+    assert "utils.py" in by_file
+    assert "auth.py" in by_file
+    assert "models.py" in by_file
+    assert by_file["utils.py"]["language"] == "python"
+    assert by_file["utils.py"]["symbol_count"] == 1
+
+
+def test_get_file_metadata_empty_store(store: IndexStore) -> None:
+    meta = store.get_file_metadata()
+    assert meta == []

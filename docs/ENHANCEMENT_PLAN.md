@@ -21,14 +21,14 @@ This enhancement plan expands archex along six axes:
 
 All enhancements ship as minor releases within the v0.5.x line:
 
-| Release | Enhancement | Timeline |
-|---|---|---|
-| **v0.5.1** | Stable IDs + Token Reporting | ~2 weeks |
-| **v0.5.2** | Precision Tools + Benchmarking | ~3 weeks |
-| **v0.5.3** | Delta Indexing | ~2 weeks |
-| **v0.5.4** | Language Expansion: JVM + .NET + Apple | ~3.5 weeks |
+| Release    | Enhancement                                          | Timeline   |
+| ---------- | ---------------------------------------------------- | ---------- |
+| **v0.5.1** | Stable IDs + Token Reporting                         | ~2 weeks   |
+| **v0.5.2** | Precision Tools + Benchmarking                       | ~3 weeks   |
+| **v0.5.3** | Delta Indexing                                       | ~2 weeks   |
+| **v0.5.4** | Language Expansion: JVM + .NET + Apple               | ~3.5 weeks |
 | **v0.5.5** | Language Expansion: Mobile + BEAM + Next-Gen Systems | ~2.5 weeks |
-| **v0.5.6** | Language Expansion: C/C++ | ~3.5 weeks |
+| **v0.5.6** | Language Expansion: C/C++                            | ~3.5 weeks |
 
 ---
 
@@ -97,6 +97,7 @@ src/lib.rs::impl_Pool::acquire#method  <- Rust impl block method
 ```
 
 **Stability contract:**
+
 - ID remains identical across re-indexing if `file_path`, `qualified_name`, and `kind` are unchanged.
 - Renaming a symbol changes its ID (expected behavior).
 - Moving a symbol to a different file changes its ID (expected behavior).
@@ -115,14 +116,14 @@ The suffix `@N` is ordinal by source position.
 
 ### 3.3 Implementation
 
-| File | Change |
-|---|---|
-| `models.py` | Add `SymbolId` type alias (`str`), add `symbol_id` field to `CodeChunk`, add `SymbolRef` model with `symbol_id`, `file_path`, `name`, `kind` |
-| `index/chunker.py` | Replace `_make_chunk_id()` with `_make_symbol_id()` using `{path}::{qualified_name}#{kind}` scheme. Handle disambiguation for duplicates. |
-| `parse/symbols.py` | Ensure `qualified_name` is populated on all `Symbol` objects (currently `name` only for some adapters) |
+| File                  | Change                                                                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `models.py`           | Add `SymbolId` type alias (`str`), add `symbol_id` field to `CodeChunk`, add `SymbolRef` model with `symbol_id`, `file_path`, `name`, `kind`                                                                  |
+| `index/chunker.py`    | Replace `_make_chunk_id()` with `_make_symbol_id()` using `{path}::{qualified_name}#{kind}` scheme. Handle disambiguation for duplicates.                                                                     |
+| `parse/symbols.py`    | Ensure `qualified_name` is populated on all `Symbol` objects (currently `name` only for some adapters)                                                                                                        |
 | `parse/adapters/*.py` | Each adapter must populate `Symbol.qualified_name` correctly: Python uses dot notation (`Class.method`), Go uses receiver syntax (`(*Pool).Acquire`), Rust uses `impl_Struct::method`, TS uses `Class.method` |
-| `index/store.py` | Add `symbol_id` column to chunks table, add index on `symbol_id`, add `get_chunk_by_symbol_id()` and `search_symbols()` queries |
-| Migration | `ALTER TABLE chunks ADD COLUMN symbol_id TEXT` with backfill from existing id format. Version metadata bumped. |
+| `index/store.py`      | Add `symbol_id` column to chunks table, add index on `symbol_id`, add `get_chunk_by_symbol_id()` and `search_symbols()` queries                                                                               |
+| Migration             | `ALTER TABLE chunks ADD COLUMN symbol_id TEXT` with backfill from existing id format. Version metadata bumped.                                                                                                |
 
 ### 3.4 Store Schema Changes
 
@@ -413,7 +414,7 @@ class FileOutline(BaseModel):
 
 ### 5.1 Design
 
-Every tool response includes a `TokenMeta` block reporting what the agent consumed vs. what it *would have* consumed through raw file access.
+Every tool response includes a `TokenMeta` block reporting what the agent consumed vs. what it _would have_ consumed through raw file access.
 
 ```python
 class TokenMeta(BaseModel):
@@ -430,16 +431,16 @@ class TokenMeta(BaseModel):
 
 ### 5.2 Calculation Per Tool
 
-| Tool | `tokens_returned` | `tokens_raw_equivalent` | Notes |
-|---|---|---|---|
-| `get_file_tree` | Tokens in the annotated tree output | Sum of all file sizes (tokens) in repo | Raw equivalent = reading every file |
-| `get_file_outline` | Tokens in symbol metadata | Tokens in the full raw file | Raw equivalent = reading the whole file |
-| `search_symbols` | Tokens in match list | Sum of tokens in all files containing matches | Raw equivalent = grepping and reading matched files |
-| `get_symbol` | Tokens in symbol source + imports | Tokens in the full file containing the symbol | Raw equivalent = reading the whole file |
-| `get_symbols_batch` | Sum of symbol tokens | Sum of unique file tokens containing requested symbols | Deduplicates files (requesting 3 symbols from same file counts the file once) |
-| `query_repo` | `ContextBundle.token_count` | Sum of tokens in all files touched by retrieval (seed + expansion) | Raw equivalent = reading all files the agent would have needed |
-| `analyze_repo` | Tokens in serialized profile | Sum of all file tokens in repo | Raw equivalent = reading every file |
-| `compare_repos` | Tokens in comparison result | Sum of all file tokens in both repos | Raw equivalent = reading both repos |
+| Tool                | `tokens_returned`                   | `tokens_raw_equivalent`                                            | Notes                                                                         |
+| ------------------- | ----------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `get_file_tree`     | Tokens in the annotated tree output | Sum of all file sizes (tokens) in repo                             | Raw equivalent = reading every file                                           |
+| `get_file_outline`  | Tokens in symbol metadata           | Tokens in the full raw file                                        | Raw equivalent = reading the whole file                                       |
+| `search_symbols`    | Tokens in match list                | Sum of tokens in all files containing matches                      | Raw equivalent = grepping and reading matched files                           |
+| `get_symbol`        | Tokens in symbol source + imports   | Tokens in the full file containing the symbol                      | Raw equivalent = reading the whole file                                       |
+| `get_symbols_batch` | Sum of symbol tokens                | Sum of unique file tokens containing requested symbols             | Deduplicates files (requesting 3 symbols from same file counts the file once) |
+| `query_repo`        | `ContextBundle.token_count`         | Sum of tokens in all files touched by retrieval (seed + expansion) | Raw equivalent = reading all files the agent would have needed                |
+| `analyze_repo`      | Tokens in serialized profile        | Sum of all file tokens in repo                                     | Raw equivalent = reading every file                                           |
+| `compare_repos`     | Tokens in comparison result         | Sum of all file tokens in both repos                               | Raw equivalent = reading both repos                                           |
 
 ### 5.3 Implementation
 
@@ -524,13 +525,13 @@ $ archex query ./httpx "connection pooling" --budget 8000 --timing
 
 ### 6.2 Benchmark Repos
 
-| Repo | Size | Languages | Why |
-|---|---|---|---|
-| `pallets/click` | ~50 files | Python | Small, clean architecture, decorator-heavy patterns |
-| `encode/httpx` | ~200 files | Python | Medium, async patterns, connection pooling, middleware |
-| `expressjs/express` | ~150 files | JavaScript | Middleware chain, plugin system, well-known |
-| `gin-gonic/gin` | ~100 files | Go | Interface-heavy, middleware, HTTP router |
-| `tokio-rs/mini-redis` | ~50 files | Rust | Async runtime patterns, clean module boundaries |
+| Repo                  | Size       | Languages  | Why                                                    |
+| --------------------- | ---------- | ---------- | ------------------------------------------------------ |
+| `pallets/click`       | ~50 files  | Python     | Small, clean architecture, decorator-heavy patterns    |
+| `encode/httpx`        | ~200 files | Python     | Medium, async patterns, connection pooling, middleware |
+| `expressjs/express`   | ~150 files | JavaScript | Middleware chain, plugin system, well-known            |
+| `gin-gonic/gin`       | ~100 files | Go         | Interface-heavy, middleware, HTTP router               |
+| `tokio-rs/mini-redis` | ~50 files  | Rust       | Async runtime patterns, clean module boundaries        |
 
 Additional repos added as language adapters ship (see section 9.9).
 
@@ -542,7 +543,7 @@ Each benchmark task defines a question, the set of files that constitute the cor
 # benchmarks/tasks/httpx_pooling.yaml
 task_id: httpx_pooling
 repo: encode/httpx
-commit: abc123def  # Pinned
+commit: abc123def # Pinned
 question: "How does connection pooling work?"
 expected_files:
   - httpx/_pool.py
@@ -559,13 +560,13 @@ token_budget: 8192
 
 ### 6.4 Measured Strategies
 
-| Strategy | Description | What's Measured |
-|---|---|---|
-| **raw_files** | Read all expected files from disk, concatenate | Tokens in raw file content (baseline worst case) |
-| **raw_grepped** | Grep for keywords, read matched files | Tokens in matched files (naive agent behavior) |
+| Strategy                 | Description                                     | What's Measured                                   |
+| ------------------------ | ----------------------------------------------- | ------------------------------------------------- |
+| **raw_files**            | Read all expected files from disk, concatenate  | Tokens in raw file content (baseline worst case)  |
+| **raw_grepped**          | Grep for keywords, read matched files           | Tokens in matched files (naive agent behavior)    |
 | **archex_symbol_lookup** | `search_symbols` -> `get_symbol` for each match | Sum of tokens across N tool calls + call overhead |
-| **archex_query** | Single `query_repo` call with token budget | Total tokens in ContextBundle |
-| **archex_query_hybrid** | Single `query_repo` with `--strategy hybrid` | Total tokens in ContextBundle (BM25 + vector) |
+| **archex_query**         | Single `query_repo` call with token budget      | Total tokens in ContextBundle                     |
+| **archex_query_hybrid**  | Single `query_repo` with `--strategy hybrid`    | Total tokens in ContextBundle (BM25 + vector)     |
 
 ### 6.5 Metrics Collected
 
@@ -643,15 +644,15 @@ Notes:
 
 ### 6.9 Deliverables
 
-| Deliverable | Location |
-|---|---|
-| Task definitions | `benchmarks/tasks/*.yaml` |
-| Runner code | `benchmarks/runner.py` |
-| Result storage | `benchmarks/results/*.json` (gitignored, regenerated) |
-| Report generator | `benchmarks/report.py` |
-| CLI commands | `archex benchmark run/report/validate` |
-| README table | Auto-generated from latest results, embedded in `README.md` |
-| CI integration | GitHub Actions workflow: run benchmarks on release, publish results |
+| Deliverable      | Location                                                            |
+| ---------------- | ------------------------------------------------------------------- |
+| Task definitions | `benchmarks/tasks/*.yaml`                                           |
+| Runner code      | `benchmarks/runner.py`                                              |
+| Result storage   | `benchmarks/results/*.json` (gitignored, regenerated)               |
+| Report generator | `benchmarks/report.py`                                              |
+| CLI commands     | `archex benchmark run/report/validate`                              |
+| README table     | Auto-generated from latest results, embedded in `README.md`         |
+| CI integration   | GitHub Actions workflow: run benchmarks on release, publish results |
 
 ---
 
@@ -700,12 +701,12 @@ D  src/auth/old_checker.py       # Deleted
 R  src/utils.py -> src/helpers.py  # Renamed
 ```
 
-| Change Type | Action |
-|---|---|
-| **Modified (M)** | Re-parse file, replace chunks in store, update edges where this file is source or target |
-| **Added (A)** | Parse new file, insert chunks, add edges |
-| **Deleted (D)** | Remove chunks for this file, remove edges referencing this file |
-| **Renamed (R)** | Update `file_path` on all chunks and edges for this file. If content also changed, re-parse. |
+| Change Type      | Action                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| **Modified (M)** | Re-parse file, replace chunks in store, update edges where this file is source or target     |
+| **Added (A)**    | Parse new file, insert chunks, add edges                                                     |
+| **Deleted (D)**  | Remove chunks for this file, remove edges referencing this file                              |
+| **Renamed (R)**  | Update `file_path` on all chunks and edges for this file. If content also changed, re-parse. |
 
 ### 7.4 Surgical Index Updates
 
@@ -760,11 +761,11 @@ def update_files(
 
 The BM25 index (FTS5) is straightforward to update surgically -- it's just SQL row operations. The vector index is harder.
 
-| Strategy | Description | Tradeoff |
-|---|---|---|
-| **Option A: Rebuild from updated chunk list** | Embed only changed chunks, rebuild numpy array from stored + new embeddings | Simple. Embedding 8 files is fast (~2s ONNX). Array reshape is cheap. |
-| **Option B: Append-only with tombstones** | Mark deleted chunks as inactive, append new embeddings, periodically compact | Complex. Avoids full-array rebuild but requires tombstone tracking. |
-| **Option C: Mutable vector store** | Switch to FAISS with `IDMap` or SQLite vector extension | More infrastructure. Properly supports incremental updates natively. |
+| Strategy                                      | Description                                                                  | Tradeoff                                                              |
+| --------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| **Option A: Rebuild from updated chunk list** | Embed only changed chunks, rebuild numpy array from stored + new embeddings  | Simple. Embedding 8 files is fast (~2s ONNX). Array reshape is cheap. |
+| **Option B: Append-only with tombstones**     | Mark deleted chunks as inactive, append new embeddings, periodically compact | Complex. Avoids full-array rebuild but requires tombstone tracking.   |
+| **Option C: Mutable vector store**            | Switch to FAISS with `IDMap` or SQLite vector extension                      | More infrastructure. Properly supports incremental updates natively.  |
 
 **Decision:** Option A for v0.5.3. Rebuild the vector index from the updated chunk list. It's the simplest implementation and the vector build is fast relative to full re-parsing. Option C becomes attractive at v0.5.5+ when supporting 11+ languages and larger index sizes.
 
@@ -828,15 +829,15 @@ For the 5,000-file monorepo case: ~60 seconds -> ~1 second.
 
 ### 7.9 Edge Cases
 
-| Case | Handling |
-|---|---|
-| **Force push / rebase** (non-linear history) | `git diff` still works between any two commits. Delta is correct even across rebases. |
-| **Branch switch** | Same mechanism -- diff the cached commit against new HEAD. May be a large diff, approaching full re-index cost. |
-| **Submodule update** | Detect via `git diff --submodule` and re-index the submodule path. |
-| **File permission changes only** | `git diff --name-status` reports these as `M`. Re-parse is unnecessary but cheap. Could optimize with content hash check. |
-| **>50% files changed** | Heuristic: if delta exceeds `FULL_REINDEX_THRESHOLD` (default 50%) of total files, fall back to full re-index. Surgical updates at that scale have diminishing returns and risk correctness issues. |
-| **Non-git repos** (local directories) | Delta indexing unavailable. Fall back to full re-index using file mtime comparison: only re-parse files where mtime > last index time. Less precise than git diff but still skips untouched files. |
-| **Shallow clones** | `git diff` may fail if the cached commit is outside the shallow history. Detect with `git cat-file -t <cached_commit>` and fall back to full re-index. |
+| Case                                         | Handling                                                                                                                                                                                            |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Force push / rebase** (non-linear history) | `git diff` still works between any two commits. Delta is correct even across rebases.                                                                                                               |
+| **Branch switch**                            | Same mechanism -- diff the cached commit against new HEAD. May be a large diff, approaching full re-index cost.                                                                                     |
+| **Submodule update**                         | Detect via `git diff --submodule` and re-index the submodule path.                                                                                                                                  |
+| **File permission changes only**             | `git diff --name-status` reports these as `M`. Re-parse is unnecessary but cheap. Could optimize with content hash check.                                                                           |
+| **>50% files changed**                       | Heuristic: if delta exceeds `FULL_REINDEX_THRESHOLD` (default 50%) of total files, fall back to full re-index. Surgical updates at that scale have diminishing returns and risk correctness issues. |
+| **Non-git repos** (local directories)        | Delta indexing unavailable. Fall back to full re-index using file mtime comparison: only re-parse files where mtime > last index time. Less precise than git diff but still skips untouched files.  |
+| **Shallow clones**                           | `git diff` may fail if the cached commit is outside the shallow history. Detect with `git cat-file -t <cached_commit>` and fall back to full re-index.                                              |
 
 ### 7.10 `_meta` Integration
 
@@ -858,16 +859,16 @@ class DeltaMeta(BaseModel):
 
 ### 7.11 Implementation
 
-| File | Change |
-|---|---|
-| `index/delta.py` (NEW) | `DeltaIndexer` class: `compute_delta()`, `apply_delta()`, `DeltaManifest` model |
-| `index/cache.py` | Replace binary hit/miss with `get_or_update()` flow. Add `FULL_REINDEX_THRESHOLD` config. |
-| `index/store.py` | Add `delete_chunks_for_files()`, `delete_edges_for_files()`, `update_file_paths()` batch operations |
-| `graph/dependency.py` | Add `DependencyGraph.update_files()` method |
-| `models.py` | Add `DeltaMeta` model |
-| `reporting.py` | Include delta info in `TokenMeta` when applicable |
-| `api.py` | No API changes -- delta indexing is transparent to consumers |
-| `integrations/mcp.py` | No MCP changes -- delta indexing is transparent to tool callers |
+| File                   | Change                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `index/delta.py` (NEW) | `DeltaIndexer` class: `compute_delta()`, `apply_delta()`, `DeltaManifest` model                     |
+| `index/cache.py`       | Replace binary hit/miss with `get_or_update()` flow. Add `FULL_REINDEX_THRESHOLD` config.           |
+| `index/store.py`       | Add `delete_chunks_for_files()`, `delete_edges_for_files()`, `update_file_paths()` batch operations |
+| `graph/dependency.py`  | Add `DependencyGraph.update_files()` method                                                         |
+| `models.py`            | Add `DeltaMeta` model                                                                               |
+| `reporting.py`         | Include delta info in `TokenMeta` when applicable                                                   |
+| `api.py`               | No API changes -- delta indexing is transparent to consumers                                        |
+| `integrations/mcp.py`  | No MCP changes -- delta indexing is transparent to tool callers                                     |
 
 ### 7.12 Tests
 
@@ -876,7 +877,7 @@ class DeltaMeta(BaseModel):
 - Added file: new chunks appear, edges to existing files created
 - Deleted file: all chunks and edges for file removed, no orphaned references
 - Renamed file: file_path updated on all chunks and edges, symbol IDs updated
-- >50% threshold triggers full re-index
+- > 50% threshold triggers full re-index
 - Non-git fallback uses mtime comparison
 - Shallow clone fallback detects missing commit gracefully
 - `DeltaMeta` correctly reports file counts
@@ -899,7 +900,7 @@ Extends the benchmark infrastructure from v0.5.2 to measure delta indexing perfo
 task_id: httpx_delta_small
 repo: encode/httpx
 base_commit: abc123def
-delta_commit: def456ghi  # Modifies 3 files
+delta_commit: def456ghi # Modifies 3 files
 expected_delta:
   modified: ["httpx/_client.py", "httpx/_pool.py"]
   added: ["httpx/_retry.py"]
@@ -908,7 +909,7 @@ metrics:
   - delta_time_ms
   - full_reindex_time_ms
   - speedup_factor
-  - correctness  # Result matches full re-index
+  - correctness # Result matches full re-index
 ```
 
 ### 8.2 Delta Metrics
@@ -938,34 +939,34 @@ Language selection optimizes for three factors: agent ecosystem demand (where de
 
 ### 9.2 Full Language Roadmap
 
-| Release | Languages Added | Total | Ecosystem Coverage |
-|---|---|---|---|
-| v0.4.0 (shipped) | Python, TypeScript/JS, Go, Rust | 4 | Web, backend, systems |
-| **v0.5.4** | **Java, Kotlin, C#, Swift** | **8** | + JVM, .NET, Apple |
-| **v0.5.5** | **Dart, Zig, Elixir** | **11** | + Mobile (Flutter), next-gen systems, BEAM |
-| **v0.5.6** | **C, C++** | **13** | + Systems legacy, embedded |
+| Release          | Languages Added                 | Total  | Ecosystem Coverage                         |
+| ---------------- | ------------------------------- | ------ | ------------------------------------------ |
+| v0.4.0 (shipped) | Python, TypeScript/JS, Go, Rust | 4      | Web, backend, systems                      |
+| **v0.5.4**       | **Java, Kotlin, C#, Swift**     | **8**  | + JVM, .NET, Apple                         |
+| **v0.5.5**       | **Dart, Zig, Elixir**           | **11** | + Mobile (Flutter), next-gen systems, BEAM |
+| **v0.5.6**       | **C, C++**                      | **13** | + Systems legacy, embedded                 |
 
 ### 9.3 Priority Rationale
 
-| Language | Priority | Rationale |
-|---|---|---|
-| **Java** | P0 (v0.5.4) | Largest enterprise language. Spring ecosystem. Massive monorepos that need structural intelligence. High agent adoption in enterprise teams. |
-| **Kotlin** | P0 (v0.5.4) | Android's primary language. JVM interop means agents on Java projects frequently hit Kotlin files. Growing fast in server-side (Ktor, Spring Boot). Ships as a natural pair with Java -- indexing a Kotlin project and getting "unsupported language" on the Java files is a broken experience. |
-| **C#** | P0 (v0.5.4) | .NET ecosystem, Unity (massive gamedev market), enterprise. Strong agent adoption in VS Code + Copilot workflows. Clean AST structure, well-defined visibility, explicit module system. |
-| **Swift** | P0 (v0.5.4) | iOS/macOS is a huge developer population. SwiftUI projects are well-structured and AST-friendly. Underserved by existing code intelligence tools for agents. Clean protocol-oriented patterns map well to archex's pattern detection. |
-| **Dart** | P1 (v0.5.5) | Flutter is the fastest-growing cross-platform mobile framework. Well-structured widget trees, explicit state management. Dart's AST is clean and tree-sitter-friendly. Flutter developers are heavy agent users -- widget boilerplate makes AI assistance very attractive. Dart + Swift + Kotlin = complete mobile coverage. |
-| **Zig** | P1 (v0.5.5) | Forward-looking systems pick. Gaining serious traction (Bun, TigerBeetle, mach engine). Developer profile is exactly archex's target: systems engineers who adopt tools early. Zig's explicit-over-implicit philosophy means the AST captures everything -- no hidden macro magic, no preprocessor. The C/C++ replacement that's actually analyzable. |
-| **Elixir** | P1 (v0.5.5) | BEAM ecosystem has outsized presence in real-time systems, fintech, and distributed applications. Phoenix LiveView projects are architecturally interesting (supervision trees, GenServers, pipeline-oriented design) and showcase archex's pattern detection well. Small but extremely technical and tool-forward community. |
-| **C/C++** | P2 (v0.5.6) | Largest existing codebase surface area of any language family. But adapter complexity is 2-3x other languages: preprocessor macros, header file resolution (build-system-dependent), C++ templates, no standard module system. Deferred until the adapter pattern is proven across 11 languages. |
+| Language   | Priority    | Rationale                                                                                                                                                                                                                                                                                                                                             |
+| ---------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Java**   | P0 (v0.5.4) | Largest enterprise language. Spring ecosystem. Massive monorepos that need structural intelligence. High agent adoption in enterprise teams.                                                                                                                                                                                                          |
+| **Kotlin** | P0 (v0.5.4) | Android's primary language. JVM interop means agents on Java projects frequently hit Kotlin files. Growing fast in server-side (Ktor, Spring Boot). Ships as a natural pair with Java -- indexing a Kotlin project and getting "unsupported language" on the Java files is a broken experience.                                                       |
+| **C#**     | P0 (v0.5.4) | .NET ecosystem, Unity (massive gamedev market), enterprise. Strong agent adoption in VS Code + Copilot workflows. Clean AST structure, well-defined visibility, explicit module system.                                                                                                                                                               |
+| **Swift**  | P0 (v0.5.4) | iOS/macOS is a huge developer population. SwiftUI projects are well-structured and AST-friendly. Underserved by existing code intelligence tools for agents. Clean protocol-oriented patterns map well to archex's pattern detection.                                                                                                                 |
+| **Dart**   | P1 (v0.5.5) | Flutter is the fastest-growing cross-platform mobile framework. Well-structured widget trees, explicit state management. Dart's AST is clean and tree-sitter-friendly. Flutter developers are heavy agent users -- widget boilerplate makes AI assistance very attractive. Dart + Swift + Kotlin = complete mobile coverage.                          |
+| **Zig**    | P1 (v0.5.5) | Forward-looking systems pick. Gaining serious traction (Bun, TigerBeetle, mach engine). Developer profile is exactly archex's target: systems engineers who adopt tools early. Zig's explicit-over-implicit philosophy means the AST captures everything -- no hidden macro magic, no preprocessor. The C/C++ replacement that's actually analyzable. |
+| **Elixir** | P1 (v0.5.5) | BEAM ecosystem has outsized presence in real-time systems, fintech, and distributed applications. Phoenix LiveView projects are architecturally interesting (supervision trees, GenServers, pipeline-oriented design) and showcase archex's pattern detection well. Small but extremely technical and tool-forward community.                         |
+| **C/C++**  | P2 (v0.5.6) | Largest existing codebase surface area of any language family. But adapter complexity is 2-3x other languages: preprocessor macros, header file resolution (build-system-dependent), C++ templates, no standard module system. Deferred until the adapter pattern is proven across 11 languages.                                                      |
 
 ### 9.4 Deliberately Excluded
 
-| Language | Why Not |
-|---|---|
-| **PHP** | Developer community slow to adopt agent tooling. PSR-4 autoloading is convention-based, making resolution harder than it looks. Not where archex's early adopters live. |
-| **Ruby** | Language is contracting in new projects. Metaprogramming-heavy idioms (`method_missing`, open classes, DSL blocks) are genuinely hard to analyze statically -- tree-sitter gives syntax but misses implicit relationships. Rails conventions create the most interesting patterns, but no AST can capture them. |
-| **Scala** | JVM coverage already handled by Java + Kotlin. Scala's type system complexity (implicits, higher-kinded types, macro annotations) makes the adapter disproportionately hard relative to the user base. |
-| **R / Julia** | Data science languages tend toward notebook-oriented workflows rather than structured repositories. archex's graph-based retrieval is most valuable on architectured codebases with module/dependency structure. |
+| Language      | Why Not                                                                                                                                                                                                                                                                                                         |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PHP**       | Developer community slow to adopt agent tooling. PSR-4 autoloading is convention-based, making resolution harder than it looks. Not where archex's early adopters live.                                                                                                                                         |
+| **Ruby**      | Language is contracting in new projects. Metaprogramming-heavy idioms (`method_missing`, open classes, DSL blocks) are genuinely hard to analyze statically -- tree-sitter gives syntax but misses implicit relationships. Rails conventions create the most interesting patterns, but no AST can capture them. |
+| **Scala**     | JVM coverage already handled by Java + Kotlin. Scala's type system complexity (implicits, higher-kinded types, macro annotations) makes the adapter disproportionately hard relative to the user base.                                                                                                          |
+| **R / Julia** | Data science languages tend toward notebook-oriented workflows rather than structured repositories. archex's graph-based retrieval is most valuable on architectured codebases with module/dependency structure.                                                                                                |
 
 ### 9.5 v0.5.4 Per-Language Implementation Scope
 
@@ -986,102 +987,102 @@ class LanguageAdapter(Protocol):
 
 #### Java Adapter
 
-| Feature | Implementation |
-|---|---|
-| **Symbols** | Classes, interfaces, enums, records, methods, fields, constants (`static final`), annotations |
-| **Imports** | `import pkg.Class`, `import pkg.*`, `import static`, `module-info.java` |
-| **Resolution** | Map `import com.example.Foo` -> search for `Foo.java` in matching directory structure. Maven/Gradle `src/main/java` convention. |
-| **Visibility** | `public`, `protected` (-> internal), `private`, package-private (-> internal) |
-| **Entry points** | `public static void main(String[])`, `@SpringBootApplication`, `@Test` |
-| **Qualified names** | `com.example.service.UserService.authenticate` (package-based) |
-| **Complexity** | ~400 lines. Inner classes, anonymous classes, lambda expressions, annotation parsing. |
+| Feature             | Implementation                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Symbols**         | Classes, interfaces, enums, records, methods, fields, constants (`static final`), annotations                                   |
+| **Imports**         | `import pkg.Class`, `import pkg.*`, `import static`, `module-info.java`                                                         |
+| **Resolution**      | Map `import com.example.Foo` -> search for `Foo.java` in matching directory structure. Maven/Gradle `src/main/java` convention. |
+| **Visibility**      | `public`, `protected` (-> internal), `private`, package-private (-> internal)                                                   |
+| **Entry points**    | `public static void main(String[])`, `@SpringBootApplication`, `@Test`                                                          |
+| **Qualified names** | `com.example.service.UserService.authenticate` (package-based)                                                                  |
+| **Complexity**      | ~400 lines. Inner classes, anonymous classes, lambda expressions, annotation parsing.                                           |
 
 #### Kotlin Adapter
 
-| Feature | Implementation |
-|---|---|
-| **Symbols** | Classes, objects, data classes, sealed classes/interfaces, functions, properties, typealiases, companion objects, extension functions |
-| **Imports** | `import pkg.Class`, `import pkg.*`, `import pkg.func as alias` |
-| **Resolution** | Same directory convention as Java (`src/main/kotlin`). Kotlin and Java files in the same package resolve cross-language. |
-| **Visibility** | `public` (default), `internal`, `protected`, `private` |
-| **Entry points** | `fun main()`, `@SpringBootApplication`, `@Test`, `@Composable` (Jetpack Compose) |
-| **Qualified names** | `com.example.service.UserService.authenticate` (package-based, consistent with Java) |
-| **Complexity** | ~350 lines. Extension functions, companion objects, data classes, sealed hierarchies, coroutine suspend functions. |
-| **JVM shared** | Shares `_jvm_helpers` module with Java adapter for package resolution, visibility mapping, and directory convention detection. |
+| Feature             | Implementation                                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Symbols**         | Classes, objects, data classes, sealed classes/interfaces, functions, properties, typealiases, companion objects, extension functions |
+| **Imports**         | `import pkg.Class`, `import pkg.*`, `import pkg.func as alias`                                                                        |
+| **Resolution**      | Same directory convention as Java (`src/main/kotlin`). Kotlin and Java files in the same package resolve cross-language.              |
+| **Visibility**      | `public` (default), `internal`, `protected`, `private`                                                                                |
+| **Entry points**    | `fun main()`, `@SpringBootApplication`, `@Test`, `@Composable` (Jetpack Compose)                                                      |
+| **Qualified names** | `com.example.service.UserService.authenticate` (package-based, consistent with Java)                                                  |
+| **Complexity**      | ~350 lines. Extension functions, companion objects, data classes, sealed hierarchies, coroutine suspend functions.                    |
+| **JVM shared**      | Shares `_jvm_helpers` module with Java adapter for package resolution, visibility mapping, and directory convention detection.        |
 
 #### C# Adapter
 
-| Feature | Implementation |
-|---|---|
-| **Symbols** | Classes, structs, interfaces, enums, records, methods, properties, fields, events, delegates |
-| **Imports** | `using` directives, `using static`, `global using` |
-| **Resolution** | Map `using Namespace` -> search `.cs` files with matching namespace declarations. `.csproj` project references for cross-project resolution. |
-| **Visibility** | `public`, `internal`, `protected`, `private`, `protected internal`, `private protected` |
-| **Entry points** | `static void Main`, `static async Task Main`, top-level statements (C# 9+), `[Fact]`/`[Test]` |
-| **Qualified names** | `Namespace.Class.Method` |
-| **Complexity** | ~400 lines. Properties, events, partial classes, extension methods, LINQ expression bodies. |
+| Feature             | Implementation                                                                                                                               |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Symbols**         | Classes, structs, interfaces, enums, records, methods, properties, fields, events, delegates                                                 |
+| **Imports**         | `using` directives, `using static`, `global using`                                                                                           |
+| **Resolution**      | Map `using Namespace` -> search `.cs` files with matching namespace declarations. `.csproj` project references for cross-project resolution. |
+| **Visibility**      | `public`, `internal`, `protected`, `private`, `protected internal`, `private protected`                                                      |
+| **Entry points**    | `static void Main`, `static async Task Main`, top-level statements (C# 9+), `[Fact]`/`[Test]`                                                |
+| **Qualified names** | `Namespace.Class.Method`                                                                                                                     |
+| **Complexity**      | ~400 lines. Properties, events, partial classes, extension methods, LINQ expression bodies.                                                  |
 
 #### Swift Adapter
 
-| Feature | Implementation |
-|---|---|
-| **Symbols** | Classes, structs, enums, protocols, functions, properties, subscripts, extensions, typealiases, actors |
-| **Imports** | `import Module`, `@testable import Module` |
-| **Resolution** | Module-level imports. Map `import Foundation` -> framework. Map internal modules via directory structure and `Package.swift` / `.xcodeproj` target membership. |
-| **Visibility** | `public`, `internal` (default), `fileprivate`, `private`, `open` (-> public, subclassable) |
-| **Entry points** | `@main` struct/class, `@UIApplicationMain`, `@NSApplicationMain`, `XCTestCase` subclasses |
-| **Qualified names** | `Module.Type.method` |
-| **Complexity** | ~350 lines. Protocol extensions, associated types, property wrappers (`@State`, `@Published`), result builders, actors. |
+| Feature             | Implementation                                                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Symbols**         | Classes, structs, enums, protocols, functions, properties, subscripts, extensions, typealiases, actors                                                         |
+| **Imports**         | `import Module`, `@testable import Module`                                                                                                                     |
+| **Resolution**      | Module-level imports. Map `import Foundation` -> framework. Map internal modules via directory structure and `Package.swift` / `.xcodeproj` target membership. |
+| **Visibility**      | `public`, `internal` (default), `fileprivate`, `private`, `open` (-> public, subclassable)                                                                     |
+| **Entry points**    | `@main` struct/class, `@UIApplicationMain`, `@NSApplicationMain`, `XCTestCase` subclasses                                                                      |
+| **Qualified names** | `Module.Type.method`                                                                                                                                           |
+| **Complexity**      | ~350 lines. Protocol extensions, associated types, property wrappers (`@State`, `@Published`), result builders, actors.                                        |
 
 ### 9.6 v0.5.5 Per-Language Implementation Scope
 
 #### Dart Adapter
 
-| Feature | Implementation |
-|---|---|
-| **Symbols** | Classes, mixins, extensions, enums, functions, methods, properties, typedefs |
-| **Imports** | `import 'package:...'`, `import '...' as prefix`, `import '...' show/hide`, `part`/`part of`, `export` |
-| **Resolution** | `package:` scheme maps via `pubspec.yaml` + `package_config.json`. Relative imports map directly to file paths. |
-| **Visibility** | `_` prefix = private (file-scoped), everything else = public. No protected/internal. |
-| **Entry points** | `void main()`, `runApp()`, `@override Widget build()` (Flutter) |
-| **Qualified names** | `package.lib.ClassName.method` |
-| **Complexity** | ~300 lines. Clean language, explicit imports. Extension methods, mixins, factory constructors. |
+| Feature             | Implementation                                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Symbols**         | Classes, mixins, extensions, enums, functions, methods, properties, typedefs                                    |
+| **Imports**         | `import 'package:...'`, `import '...' as prefix`, `import '...' show/hide`, `part`/`part of`, `export`          |
+| **Resolution**      | `package:` scheme maps via `pubspec.yaml` + `package_config.json`. Relative imports map directly to file paths. |
+| **Visibility**      | `_` prefix = private (file-scoped), everything else = public. No protected/internal.                            |
+| **Entry points**    | `void main()`, `runApp()`, `@override Widget build()` (Flutter)                                                 |
+| **Qualified names** | `package.lib.ClassName.method`                                                                                  |
+| **Complexity**      | ~300 lines. Clean language, explicit imports. Extension methods, mixins, factory constructors.                  |
 
 #### Zig Adapter
 
-| Feature | Implementation |
-|---|---|
-| **Symbols** | Functions, structs, enums, unions, errors, constants (`const`), variables (`var`), test blocks |
-| **Imports** | `@import("...")`, `const std = @import("std")` |
-| **Resolution** | `@import` resolves relative to source file or to build-system-configured package paths. `build.zig` for external dependencies. |
-| **Visibility** | `pub` = public, everything else = file-private. `pub` on struct fields. |
-| **Entry points** | `pub fn main()`, `export fn` (C ABI), `test "..."` blocks |
-| **Qualified names** | `file.StructName.method` |
-| **Complexity** | ~250 lines. Simplest language in the set. No inheritance, no exceptions, no macros (comptime instead). AST is extremely clean. |
+| Feature             | Implementation                                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Symbols**         | Functions, structs, enums, unions, errors, constants (`const`), variables (`var`), test blocks                                 |
+| **Imports**         | `@import("...")`, `const std = @import("std")`                                                                                 |
+| **Resolution**      | `@import` resolves relative to source file or to build-system-configured package paths. `build.zig` for external dependencies. |
+| **Visibility**      | `pub` = public, everything else = file-private. `pub` on struct fields.                                                        |
+| **Entry points**    | `pub fn main()`, `export fn` (C ABI), `test "..."` blocks                                                                      |
+| **Qualified names** | `file.StructName.method`                                                                                                       |
+| **Complexity**      | ~250 lines. Simplest language in the set. No inheritance, no exceptions, no macros (comptime instead). AST is extremely clean. |
 
 #### Elixir Adapter
 
-| Feature | Implementation |
-|---|---|
-| **Symbols** | Modules, functions (`def`/`defp`), macros (`defmacro`), structs (`defstruct`), protocols (`defprotocol`/`defimpl`), behaviours (`@behaviour`/`@callback`) |
-| **Imports** | `alias`, `import`, `use`, `require` |
-| **Resolution** | Module names map to file paths via Elixir convention (`MyApp.Accounts.User` -> `lib/my_app/accounts/user.ex`). `mix.exs` for deps. |
-| **Visibility** | `def` = public, `defp` = private. Module-level only. |
-| **Entry points** | `Application.start/2`, `Plug.Router`, `Phoenix.Router`, `GenServer.init/1` |
-| **Qualified names** | `MyApp.Accounts.User.changeset` (module-based) |
-| **Complexity** | ~300 lines. Pattern-matching function heads, pipeline operator, `use` macro expansion (convention-based, not AST-visible). OTP patterns (GenServer, Supervisor) map well to archex's pattern detection. |
+| Feature             | Implementation                                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Symbols**         | Modules, functions (`def`/`defp`), macros (`defmacro`), structs (`defstruct`), protocols (`defprotocol`/`defimpl`), behaviours (`@behaviour`/`@callback`)                                               |
+| **Imports**         | `alias`, `import`, `use`, `require`                                                                                                                                                                     |
+| **Resolution**      | Module names map to file paths via Elixir convention (`MyApp.Accounts.User` -> `lib/my_app/accounts/user.ex`). `mix.exs` for deps.                                                                      |
+| **Visibility**      | `def` = public, `defp` = private. Module-level only.                                                                                                                                                    |
+| **Entry points**    | `Application.start/2`, `Plug.Router`, `Phoenix.Router`, `GenServer.init/1`                                                                                                                              |
+| **Qualified names** | `MyApp.Accounts.User.changeset` (module-based)                                                                                                                                                          |
+| **Complexity**      | ~300 lines. Pattern-matching function heads, pipeline operator, `use` macro expansion (convention-based, not AST-visible). OTP patterns (GenServer, Supervisor) map well to archex's pattern detection. |
 
 ### 9.7 v0.5.6: C/C++ Adapters
 
 C/C++ is deferred to v0.5.6 due to disproportionate adapter complexity:
 
-| Challenge | Impact |
-|---|---|
-| **Preprocessor macros** | `#define`, `#ifdef` create code invisible to AST. Conditional compilation means different code paths on different platforms. |
-| **Header resolution** | `#include "foo.h"` requires knowing include paths, which are build-system-dependent (CMake, Make, Bazel, Meson all configure them differently). |
-| **C++ templates** | Monomorphized code is invisible to static analysis. Template metaprogramming creates complex implicit relationships. |
+| Challenge                     | Impact                                                                                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Preprocessor macros**       | `#define`, `#ifdef` create code invisible to AST. Conditional compilation means different code paths on different platforms.                               |
+| **Header resolution**         | `#include "foo.h"` requires knowing include paths, which are build-system-dependent (CMake, Make, Bazel, Meson all configure them differently).            |
+| **C++ templates**             | Monomorphized code is invisible to static analysis. Template metaprogramming creates complex implicit relationships.                                       |
 | **No standard module system** | C++20 modules exist but adoption is tiny. Real C++ projects use headers, which are fundamentally different from imports in every other supported language. |
-| **Namespace complexity** | Anonymous namespaces, `using namespace`, ADL (argument-dependent lookup) make scope resolution non-trivial. |
+| **Namespace complexity**      | Anonymous namespaces, `using namespace`, ADL (argument-dependent lookup) make scope resolution non-trivial.                                                |
 
 **Approach for v0.5.6:**
 
@@ -1091,26 +1092,26 @@ Estimated effort: ~600 lines per adapter (vs. ~300-400 for other languages), ~3 
 
 ### 9.8 Shared Infrastructure Updates
 
-| Component | Change |
-|---|---|
-| `ts_node.py` | Already extracted shared helpers. New adapters use same `_text()`, `_type()`, `_children()`, etc. |
-| `_jvm_helpers.py` (NEW) | Shared module for Java + Kotlin: package resolution from directory structure, JVM visibility mapping, Maven/Gradle convention detection. |
-| `pyproject.toml` | v0.5.4: `tree-sitter-java`, `tree-sitter-kotlin`, `tree-sitter-c-sharp`, `tree-sitter-swift`. v0.5.5: `tree-sitter-dart`, `tree-sitter-zig`, `tree-sitter-elixir`. v0.5.6: `tree-sitter-c`, `tree-sitter-cpp`. |
-| `AdapterRegistry` | New adapters auto-register via entry points. No changes to registry code. |
-| `discovery.py` | Add file extension mappings for new languages per release. |
-| Pattern detectors | Existing detectors work on abstract graph structure -- no language-specific changes needed initially. Language-specific patterns (Spring DI for Java, OTP supervision for Elixir, Flutter widget tree for Dart) added as follow-up enhancements. |
+| Component               | Change                                                                                                                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ts_node.py`            | Already extracted shared helpers. New adapters use same `_text()`, `_type()`, `_children()`, etc.                                                                                                                                                |
+| `_jvm_helpers.py` (NEW) | Shared module for Java + Kotlin: package resolution from directory structure, JVM visibility mapping, Maven/Gradle convention detection.                                                                                                         |
+| `pyproject.toml`        | v0.5.4: `tree-sitter-java`, `tree-sitter-kotlin`, `tree-sitter-c-sharp`, `tree-sitter-swift`. v0.5.5: `tree-sitter-dart`, `tree-sitter-zig`, `tree-sitter-elixir`. v0.5.6: `tree-sitter-c`, `tree-sitter-cpp`.                                   |
+| `AdapterRegistry`       | New adapters auto-register via entry points. No changes to registry code.                                                                                                                                                                        |
+| `discovery.py`          | Add file extension mappings for new languages per release.                                                                                                                                                                                       |
+| Pattern detectors       | Existing detectors work on abstract graph structure -- no language-specific changes needed initially. Language-specific patterns (Spring DI for Java, OTP supervision for Elixir, Flutter widget tree for Dart) added as follow-up enhancements. |
 
 ### 9.9 Benchmark Repos Per Language
 
-| Release | Language | Benchmark Repo | Why |
-|---|---|---|---|
-| v0.5.4 | Java | `spring-projects/spring-petclinic` | Canonical Spring Boot app, DI + MVC patterns |
-| v0.5.4 | Kotlin | `JetBrains/kotlin-examples` or `ktorio/ktor` | Coroutines, Ktor routing, idiomatic Kotlin |
-| v0.5.4 | C# | `dotnet/eShop` | .NET reference architecture, clean module boundaries |
-| v0.5.4 | Swift | `pointfreeco/swift-composable-architecture` | Protocol-oriented, well-structured SwiftUI |
-| v0.5.5 | Dart | `flutter/gallery` | Flutter widget patterns, state management |
-| v0.5.5 | Zig | `ziglang/zig` (std lib subset) | Clean Zig idioms, comptime patterns |
-| v0.5.5 | Elixir | `phoenixframework/phoenix` | GenServer, Plug pipeline, supervision trees |
+| Release | Language | Benchmark Repo                               | Why                                                  |
+| ------- | -------- | -------------------------------------------- | ---------------------------------------------------- |
+| v0.5.4  | Java     | `spring-projects/spring-petclinic`           | Canonical Spring Boot app, DI + MVC patterns         |
+| v0.5.4  | Kotlin   | `JetBrains/kotlin-examples` or `ktorio/ktor` | Coroutines, Ktor routing, idiomatic Kotlin           |
+| v0.5.4  | C#       | `dotnet/eShop`                               | .NET reference architecture, clean module boundaries |
+| v0.5.4  | Swift    | `pointfreeco/swift-composable-architecture`  | Protocol-oriented, well-structured SwiftUI           |
+| v0.5.5  | Dart     | `flutter/gallery`                            | Flutter widget patterns, state management            |
+| v0.5.5  | Zig      | `ziglang/zig` (std lib subset)               | Clean Zig idioms, comptime patterns                  |
+| v0.5.5  | Elixir   | `phoenixframework/phoenix`                   | GenServer, Plug pipeline, supervision trees          |
 
 ### 9.10 Test Strategy
 
@@ -1147,92 +1148,92 @@ Mobile (x-platform): Dart (Flutter)
 
 ### v0.5.1 -- Stable IDs + Token Reporting
 
-| Deliverable | Effort |
-|---|---|
-| Stable symbol ID scheme implementation | 3-4 days |
-| Store schema migration + new indexes | 1-2 days |
-| `TokenMeta` model + computation | 1-2 days |
-| `_meta` reporting wired into all existing MCP tools | 1-2 days |
-| CLI `--timing` savings output | 1 day |
-| `reporting.py` module | 1 day |
-| Tests (IDs, meta, migration) | 2-3 days |
-| Documentation updates | 1 day |
-| **Total** | **~2 weeks** |
+| Deliverable                                         | Effort       |
+| --------------------------------------------------- | ------------ |
+| Stable symbol ID scheme implementation              | 3-4 days     |
+| Store schema migration + new indexes                | 1-2 days     |
+| `TokenMeta` model + computation                     | 1-2 days     |
+| `_meta` reporting wired into all existing MCP tools | 1-2 days     |
+| CLI `--timing` savings output                       | 1 day        |
+| `reporting.py` module                               | 1 day        |
+| Tests (IDs, meta, migration)                        | 2-3 days     |
+| Documentation updates                               | 1 day        |
+| **Total**                                           | **~2 weeks** |
 
 ### v0.5.2 -- Precision Tools + Benchmarking
 
-| Deliverable | Effort |
-|---|---|
-| 5 new MCP tools (file_tree, file_outline, search_symbols, get_symbol, get_symbols_batch) | 4-5 days |
-| 5 corresponding library API functions | 2-3 days |
-| New models (SymbolOutline, SymbolMatch, SymbolSource, FileTree, FileOutline) | 1-2 days |
-| symbols_fts index + store queries | 1-2 days |
-| `_meta` reporting on all new tools | 1 day |
-| Benchmark task definitions (5 repos x 2-3 tasks each) | 2-3 days |
-| Benchmark runner + report generator | 2-3 days |
-| `archex benchmark` CLI commands | 1-2 days |
-| Tests (tools, benchmarks, integration) | 3-4 days |
-| README rewrite with benchmark results | 1-2 days |
-| **Total** | **~3 weeks** |
+| Deliverable                                                                              | Effort       |
+| ---------------------------------------------------------------------------------------- | ------------ |
+| 5 new MCP tools (file_tree, file_outline, search_symbols, get_symbol, get_symbols_batch) | 4-5 days     |
+| 5 corresponding library API functions                                                    | 2-3 days     |
+| New models (SymbolOutline, SymbolMatch, SymbolSource, FileTree, FileOutline)             | 1-2 days     |
+| symbols_fts index + store queries                                                        | 1-2 days     |
+| `_meta` reporting on all new tools                                                       | 1 day        |
+| Benchmark task definitions (5 repos x 2-3 tasks each)                                    | 2-3 days     |
+| Benchmark runner + report generator                                                      | 2-3 days     |
+| `archex benchmark` CLI commands                                                          | 1-2 days     |
+| Tests (tools, benchmarks, integration)                                                   | 3-4 days     |
+| README rewrite with benchmark results                                                    | 1-2 days     |
+| **Total**                                                                                | **~3 weeks** |
 
 ### v0.5.3 -- Delta Indexing
 
-| Deliverable | Effort |
-|---|---|
-| `DeltaIndexer` class with `compute_delta()` and `apply_delta()` | 3-4 days |
-| `DeltaManifest` model and git diff integration | 1-2 days |
-| `IndexStore` batch operations (delete/update by file set) | 1-2 days |
-| `DependencyGraph.update_files()` incremental method | 1-2 days |
-| Cache scheme migration (binary hit/miss -> delta-aware) | 1-2 days |
-| Vector index rebuild from updated chunk list (Option A) | 1 day |
-| Non-git fallback (mtime-based delta detection) | 1 day |
-| `DeltaMeta` model and `_meta` integration | 1 day |
-| Delta benchmark tasks and metrics | 1-2 days |
-| Tests (correctness, edge cases, performance) | 2-3 days |
-| Documentation updates | 1 day |
-| **Total** | **~2 weeks** |
+| Deliverable                                                     | Effort       |
+| --------------------------------------------------------------- | ------------ |
+| `DeltaIndexer` class with `compute_delta()` and `apply_delta()` | 3-4 days     |
+| `DeltaManifest` model and git diff integration                  | 1-2 days     |
+| `IndexStore` batch operations (delete/update by file set)       | 1-2 days     |
+| `DependencyGraph.update_files()` incremental method             | 1-2 days     |
+| Cache scheme migration (binary hit/miss -> delta-aware)         | 1-2 days     |
+| Vector index rebuild from updated chunk list (Option A)         | 1 day        |
+| Non-git fallback (mtime-based delta detection)                  | 1 day        |
+| `DeltaMeta` model and `_meta` integration                       | 1 day        |
+| Delta benchmark tasks and metrics                               | 1-2 days     |
+| Tests (correctness, edge cases, performance)                    | 2-3 days     |
+| Documentation updates                                           | 1 day        |
+| **Total**                                                       | **~2 weeks** |
 
 ### v0.5.4 -- JVM + .NET + Apple Language Expansion
 
-| Deliverable | Effort |
-|---|---|
-| Java adapter (~400 lines) | 3-4 days |
-| Kotlin adapter (~350 lines) + `_jvm_helpers` shared module | 3-4 days |
-| C# adapter (~400 lines) | 3-4 days |
-| Swift adapter (~350 lines) | 3-4 days |
-| Test fixtures (4 languages x 5-10 files) | 2 days |
-| Test suites (~200 new tests) | 3-4 days |
-| Benchmark repos + tasks for new languages | 1-2 days |
-| Documentation + language support matrix | 1 day |
-| **Total** | **~3.5 weeks** |
+| Deliverable                                                | Effort         |
+| ---------------------------------------------------------- | -------------- |
+| Java adapter (~400 lines)                                  | 3-4 days       |
+| Kotlin adapter (~350 lines) + `_jvm_helpers` shared module | 3-4 days       |
+| C# adapter (~400 lines)                                    | 3-4 days       |
+| Swift adapter (~350 lines)                                 | 3-4 days       |
+| Test fixtures (4 languages x 5-10 files)                   | 2 days         |
+| Test suites (~200 new tests)                               | 3-4 days       |
+| Benchmark repos + tasks for new languages                  | 1-2 days       |
+| Documentation + language support matrix                    | 1 day          |
+| **Total**                                                  | **~3.5 weeks** |
 
 ### v0.5.5 -- Mobile + Next-Gen Systems + BEAM
 
-| Deliverable | Effort |
-|---|---|
-| Dart adapter (~300 lines) | 2-3 days |
-| Zig adapter (~250 lines) | 2-3 days |
-| Elixir adapter (~300 lines) | 2-3 days |
-| Test fixtures (3 languages x 5-10 files) | 1-2 days |
-| Test suites (~150 new tests) | 2-3 days |
-| Benchmark repos + tasks for new languages | 1-2 days |
-| Language-specific pattern detectors (Flutter widget tree, OTP supervision, comptime patterns) | 3-4 days |
-| Documentation updates | 1 day |
-| **Total** | **~2.5 weeks** |
+| Deliverable                                                                                   | Effort         |
+| --------------------------------------------------------------------------------------------- | -------------- |
+| Dart adapter (~300 lines)                                                                     | 2-3 days       |
+| Zig adapter (~250 lines)                                                                      | 2-3 days       |
+| Elixir adapter (~300 lines)                                                                   | 2-3 days       |
+| Test fixtures (3 languages x 5-10 files)                                                      | 1-2 days       |
+| Test suites (~150 new tests)                                                                  | 2-3 days       |
+| Benchmark repos + tasks for new languages                                                     | 1-2 days       |
+| Language-specific pattern detectors (Flutter widget tree, OTP supervision, comptime patterns) | 3-4 days       |
+| Documentation updates                                                                         | 1 day          |
+| **Total**                                                                                     | **~2.5 weeks** |
 
 ### v0.5.6 -- C/C++ (Hard Mode)
 
-| Deliverable | Effort |
-|---|---|
-| C adapter (~600 lines) | 4-5 days |
-| C++ adapter (~600 lines) + `_c_family_helpers` shared module | 5-6 days |
-| Include path resolution (basic CMake + compile_commands.json support) | 3-4 days |
-| Preprocessor-aware chunking (conditional compilation blocks) | 2-3 days |
-| Test fixtures (C + C++ projects, header/source pairs) | 2 days |
-| Test suites (~150 new tests) | 3-4 days |
-| Benchmark repos (Redis for C, an LLVM sub-project or similar for C++) | 1-2 days |
-| Known-limitations documentation | 1 day |
-| **Total** | **~3.5 weeks** |
+| Deliverable                                                           | Effort         |
+| --------------------------------------------------------------------- | -------------- |
+| C adapter (~600 lines)                                                | 4-5 days       |
+| C++ adapter (~600 lines) + `_c_family_helpers` shared module          | 5-6 days       |
+| Include path resolution (basic CMake + compile_commands.json support) | 3-4 days       |
+| Preprocessor-aware chunking (conditional compilation blocks)          | 2-3 days       |
+| Test fixtures (C + C++ projects, header/source pairs)                 | 2 days         |
+| Test suites (~150 new tests)                                          | 3-4 days       |
+| Benchmark repos (Redis for C, an LLVM sub-project or similar for C++) | 1-2 days       |
+| Known-limitations documentation                                       | 1 day          |
+| **Total**                                                             | **~3.5 weeks** |
 
 ### Timeline
 
@@ -1302,7 +1303,7 @@ gantt
 - [ ] `_meta` includes `DeltaMeta` when delta indexing was applied
 - [ ] Non-git fallback (mtime-based) works for local directories without git
 - [ ] Shallow clone fallback detects missing base commit and triggers full re-index gracefully
-- [ ] >50% file change threshold correctly triggers full re-index
+- [ ] > 50% file change threshold correctly triggers full re-index
 - [ ] All existing tool responses are unchanged (delta indexing is transparent to API consumers)
 - [ ] 850 -> ~920 tests, >=89% coverage
 
@@ -1340,22 +1341,22 @@ gantt
 
 ## 12. Open Questions
 
-| Question | Decision Needed By | Options |
-|---|---|---|
-| Should `get_file_outline` include one-line docstring summaries? | v0.5.2 | Yes (richer but more tokens) / No (leaner) |
-| Maximum batch size for `get_symbols_batch`? | v0.5.2 | 20 (conservative) / 50 (generous) / configurable |
-| Should benchmarks run in CI on every PR? | v0.5.2 | Yes (catches regressions) / Release-only (faster CI) |
-| Should stable IDs include a version prefix for future schema changes? | v0.5.1 | `v1:{path}::{name}#{kind}` vs. unversioned |
-| Raw token counting: use tiktoken in benchmarks or a faster approximation? | v0.5.2 | tiktoken (accurate) / `len(text.split()) * 1.3` (fast) |
-| Delta indexing: full reindex threshold percentage? | v0.5.3 | 50% (conservative) / 70% (aggressive) / configurable |
-| Delta indexing: should vector index migration to FAISS happen in v0.5.5? | v0.5.5 | Yes (handles 11+ language index sizes) / Defer (Option A sufficient) |
-| Java/Kotlin: should Spring-specific patterns (DI, Controllers) ship in v0.5.4 or defer? | v0.5.4 | v0.5.4 (useful for adoption) / v0.5.5 (ship core adapter first) |
-| Kotlin: how deep to go on coroutine/Flow analysis? | v0.5.4 | Signature-level only (suspend functions detected) / Flow graph tracking (heavyweight) |
-| Swift: handle SwiftUI `@ViewBuilder` and result builders? | v0.5.4 | Detect as symbols with annotations / Deep result builder analysis (defer) |
-| Dart: should `part`/`part of` be treated as one logical file or separate? | v0.5.5 | Merge into single ParsedFile (semantically correct) / Keep separate (simpler) |
-| C/C++: require `compile_commands.json` or attempt heuristic include resolution? | v0.5.6 | Require (accurate but demands build system) / Heuristic (works out of box, sometimes wrong) / Both with fallback |
-| C++: attempt template instantiation analysis or signature-only? | v0.5.6 | Signature-only (safe, complete) / Basic instantiation tracking (complex, partial) |
-| Should language-specific pattern detectors be separate entry point groups? | v0.5.5 | `archex.pattern_detectors.elixir` (namespaced) / Same flat `archex.pattern_detectors` group |
+| Question                                                                                | Decision Needed By | Options                                                                                                          |
+| --------------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Should `get_file_outline` include one-line docstring summaries?                         | v0.5.2             | Yes (richer but more tokens) / No (leaner)                                                                       |
+| Maximum batch size for `get_symbols_batch`?                                             | v0.5.2             | 20 (conservative) / 50 (generous) / configurable                                                                 |
+| Should benchmarks run in CI on every PR?                                                | v0.5.2             | Yes (catches regressions) / Release-only (faster CI)                                                             |
+| Should stable IDs include a version prefix for future schema changes?                   | v0.5.1             | `v1:{path}::{name}#{kind}` vs. unversioned                                                                       |
+| Raw token counting: use tiktoken in benchmarks or a faster approximation?               | v0.5.2             | tiktoken (accurate) / `len(text.split()) * 1.3` (fast)                                                           |
+| Delta indexing: full reindex threshold percentage?                                      | v0.5.3             | 50% (conservative) / 70% (aggressive) / configurable                                                             |
+| Delta indexing: should vector index migration to FAISS happen in v0.5.5?                | v0.5.5             | Yes (handles 11+ language index sizes) / Defer (Option A sufficient)                                             |
+| Java/Kotlin: should Spring-specific patterns (DI, Controllers) ship in v0.5.4 or defer? | v0.5.4             | v0.5.4 (useful for adoption) / v0.5.5 (ship core adapter first)                                                  |
+| Kotlin: how deep to go on coroutine/Flow analysis?                                      | v0.5.4             | Signature-level only (suspend functions detected) / Flow graph tracking (heavyweight)                            |
+| Swift: handle SwiftUI `@ViewBuilder` and result builders?                               | v0.5.4             | Detect as symbols with annotations / Deep result builder analysis (defer)                                        |
+| Dart: should `part`/`part of` be treated as one logical file or separate?               | v0.5.5             | Merge into single ParsedFile (semantically correct) / Keep separate (simpler)                                    |
+| C/C++: require `compile_commands.json` or attempt heuristic include resolution?         | v0.5.6             | Require (accurate but demands build system) / Heuristic (works out of box, sometimes wrong) / Both with fallback |
+| C++: attempt template instantiation analysis or signature-only?                         | v0.5.6             | Signature-only (safe, complete) / Basic instantiation tracking (complex, partial)                                |
+| Should language-specific pattern detectors be separate entry point groups?              | v0.5.5             | `archex.pattern_detectors.elixir` (namespaced) / Same flat `archex.pattern_detectors` group                      |
 
 ---
 
@@ -1400,9 +1401,9 @@ graph LR
 
 **Ecosystem coverage at each milestone:**
 
-| Milestone | Languages | Ecosystems |
-|---|---|---|
-| v0.4.0 | 4 | Web, backend, systems |
-| v0.5.4 | 8 | + JVM, .NET, Apple |
-| v0.5.5 | 11 | + Mobile (Flutter), next-gen systems, BEAM |
-| v0.5.6 | 13 | + Systems legacy, embedded |
+| Milestone | Languages | Ecosystems                                 |
+| --------- | --------- | ------------------------------------------ |
+| v0.4.0    | 4         | Web, backend, systems                      |
+| v0.5.4    | 8         | + JVM, .NET, Apple                         |
+| v0.5.5    | 11        | + Mobile (Flutter), next-gen systems, BEAM |
+| v0.5.6    | 13        | + Systems legacy, embedded                 |

@@ -216,6 +216,22 @@ class IndexStore:
         cur = self._conn.execute(f"{_CHUNK_SELECT} WHERE symbol_id IN ({placeholders})", symbol_ids)
         return [_row_to_chunk(row) for row in cur.fetchall()]
 
+    def get_file_metadata(self) -> list[dict[str, str | int]]:
+        """Return per-file aggregates: file_path, language, line count, symbol count."""
+        rows = self._conn.execute(
+            "SELECT file_path, language, MAX(end_line) as lines, COUNT(*) as symbol_count "
+            "FROM chunks GROUP BY file_path ORDER BY file_path"
+        ).fetchall()
+        return [
+            {
+                "file_path": str(r[0]),
+                "language": str(r[1]),
+                "lines": int(r[2]),
+                "symbol_count": int(r[3]),
+            }
+            for r in rows
+        ]
+
     def search_symbols(
         self,
         query: str,

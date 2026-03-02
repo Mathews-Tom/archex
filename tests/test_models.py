@@ -272,3 +272,147 @@ def test_context_bundle_to_prompt_unknown_format_raises() -> None:
     bundle = _make_bundle()
     with _pytest.raises(ValueError, match="Unknown format"):
         bundle.to_prompt(format="yaml")
+
+
+# ---------------------------------------------------------------------------
+# Precision Symbol Tool models
+# ---------------------------------------------------------------------------
+
+
+def test_file_tree_entry_instantiation() -> None:
+    from archex.models import FileTreeEntry
+
+    entry = FileTreeEntry(path="src/main.py", language="python", lines=50, symbol_count=3)
+    assert entry.path == "src/main.py"
+    assert entry.is_directory is False
+    assert entry.children == []
+
+
+def test_file_tree_entry_with_children() -> None:
+    from archex.models import FileTreeEntry
+
+    child = FileTreeEntry(path="src/utils.py", language="python", lines=30, symbol_count=2)
+    parent = FileTreeEntry(path="src", is_directory=True, children=[child])
+    assert parent.is_directory is True
+    assert len(parent.children) == 1
+    assert parent.children[0].path == "src/utils.py"
+
+
+def test_file_tree_instantiation() -> None:
+    from archex.models import FileTree, FileTreeEntry
+
+    entry = FileTreeEntry(path="main.py", language="python", lines=100, symbol_count=5)
+    tree = FileTree(root="/repo", entries=[entry], total_files=1, languages={"python": 1})
+    assert tree.root == "/repo"
+    assert tree.total_files == 1
+    assert tree.languages["python"] == 1
+
+
+def test_symbol_outline_instantiation() -> None:
+    from archex.models import SymbolKind, SymbolOutline, Visibility
+
+    outline = SymbolOutline(
+        symbol_id="src/main.py::MyClass#class",
+        name="MyClass",
+        kind=SymbolKind.CLASS,
+        file_path="src/main.py",
+        start_line=10,
+        end_line=50,
+        signature="class MyClass",
+        visibility=Visibility.PUBLIC,
+    )
+    assert outline.symbol_id == "src/main.py::MyClass#class"
+    assert outline.children == []
+
+
+def test_symbol_outline_with_children() -> None:
+    from archex.models import SymbolKind, SymbolOutline
+
+    child = SymbolOutline(
+        symbol_id="f.py::Cls.method#method",
+        name="method",
+        kind=SymbolKind.METHOD,
+        file_path="f.py",
+        start_line=5,
+        end_line=10,
+    )
+    parent = SymbolOutline(
+        symbol_id="f.py::Cls#class",
+        name="Cls",
+        kind=SymbolKind.CLASS,
+        file_path="f.py",
+        start_line=1,
+        end_line=10,
+        children=[child],
+    )
+    assert len(parent.children) == 1
+
+
+def test_file_outline_instantiation() -> None:
+    from archex.models import FileOutline, SymbolKind, SymbolOutline
+
+    sym = SymbolOutline(
+        symbol_id="f.py::foo#function",
+        name="foo",
+        kind=SymbolKind.FUNCTION,
+        file_path="f.py",
+        start_line=1,
+        end_line=5,
+    )
+    outline = FileOutline(
+        file_path="f.py", language="python", lines=100, symbols=[sym], token_count_raw=500
+    )
+    assert outline.file_path == "f.py"
+    assert outline.token_count_raw == 500
+    assert len(outline.symbols) == 1
+
+
+def test_symbol_match_instantiation() -> None:
+    from archex.models import SymbolKind, SymbolMatch
+
+    match = SymbolMatch(
+        symbol_id="f.py::foo#function",
+        name="foo",
+        kind=SymbolKind.FUNCTION,
+        file_path="f.py",
+        start_line=1,
+    )
+    assert match.relevance_score == 0.0
+    assert match.visibility == "public"
+
+
+def test_symbol_source_instantiation() -> None:
+    from archex.models import SymbolKind, SymbolSource
+
+    source = SymbolSource(
+        symbol_id="f.py::foo#function",
+        name="foo",
+        kind=SymbolKind.FUNCTION,
+        file_path="f.py",
+        start_line=1,
+        end_line=5,
+        source="def foo(): pass",
+        token_count=10,
+    )
+    assert source.source == "def foo(): pass"
+    assert source.imports_context == ""
+
+
+def test_symbol_source_round_trip() -> None:
+    import json
+
+    from archex.models import SymbolKind, SymbolSource
+
+    source = SymbolSource(
+        symbol_id="f.py::foo#function",
+        name="foo",
+        kind=SymbolKind.FUNCTION,
+        file_path="f.py",
+        start_line=1,
+        end_line=5,
+        source="def foo(): pass",
+    )
+    data = json.loads(source.model_dump_json())
+    restored = SymbolSource(**data)
+    assert restored.symbol_id == source.symbol_id
+    assert restored.source == source.source
