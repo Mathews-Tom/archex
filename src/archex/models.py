@@ -46,6 +46,13 @@ class PatternCategory(StrEnum):
 
 
 # ---------------------------------------------------------------------------
+# Type aliases
+# ---------------------------------------------------------------------------
+
+SymbolId = str
+
+
+# ---------------------------------------------------------------------------
 # Input models
 # ---------------------------------------------------------------------------
 
@@ -181,6 +188,11 @@ class CodeChunk(BaseModel):
     language: str
     imports_context: str = ""
     token_count: int = 0
+    symbol_id: SymbolId | None = None
+    qualified_name: str | None = None
+    visibility: str | None = None
+    signature: str | None = None
+    docstring: str | None = None
 
 
 class Edge(BaseModel):
