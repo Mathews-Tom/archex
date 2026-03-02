@@ -232,9 +232,7 @@ class TestTreeCmd:
                 path="src",
                 is_directory=True,
                 children=[
-                    FileTreeEntry(
-                        path="src/main.py", language="python", lines=50, symbol_count=5
-                    ),
+                    FileTreeEntry(path="src/main.py", language="python", lines=50, symbol_count=5),
                 ],
             ),
         ]
@@ -355,9 +353,7 @@ class TestOutlineCmd:
         from archex.exceptions import ArchexError
 
         runner = CliRunner()
-        with patch(
-            "archex.cli.outline_cmd.file_outline", side_effect=ArchexError("outline fail")
-        ):
+        with patch("archex.cli.outline_cmd.file_outline", side_effect=ArchexError("outline fail")):
             result = runner.invoke(cli, ["outline", "/fake", "f.py"])
         assert result.exit_code != 0
         assert "outline fail" in result.output
@@ -435,9 +431,7 @@ class TestSymbolsCmd:
         from archex.exceptions import ArchexError
 
         runner = CliRunner()
-        with patch(
-            "archex.cli.symbols_cmd.search_symbols", side_effect=ArchexError("search fail")
-        ):
+        with patch("archex.cli.symbols_cmd.search_symbols", side_effect=ArchexError("search fail")):
             result = runner.invoke(cli, ["symbols", "/fake", "q"])
         assert result.exit_code != 0
         assert "search fail" in result.output
