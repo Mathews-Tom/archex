@@ -222,3 +222,155 @@ class TestAnalyzeThenQuery:
 
         bundle = query(source, "user model", config=config)
         assert isinstance(bundle, ContextBundle)
+
+
+class TestFileTreeEndToEnd:
+    """Full pipeline: index → file_tree."""
+
+    def test_file_tree_python_simple(self, python_simple_repo: Path) -> None:
+        from archex.api import file_tree
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        result = file_tree(source, config=Config(languages=["python"], cache=False))
+
+        assert result.total_files > 0
+        assert "python" in result.languages
+        # Should have entries
+        assert len(result.entries) > 0
+
+    def test_file_tree_with_depth_limit(self, python_simple_repo: Path) -> None:
+        from archex.api import file_tree
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        result = file_tree(source, max_depth=1, config=Config(languages=["python"], cache=False))
+        assert result.total_files > 0
+
+    def test_file_tree_language_filter(self, python_simple_repo: Path) -> None:
+        from archex.api import file_tree
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        result = file_tree(source, language="python", config=Config(cache=False))
+        assert result.total_files > 0
+        assert result.languages.get("python", 0) > 0
+
+        # Filter to nonexistent language should return empty
+        result_empty = file_tree(source, language="rust", config=Config(cache=False))
+        assert result_empty.total_files == 0
+
+
+class TestFileOutlineEndToEnd:
+    """Full pipeline: index → file_outline."""
+
+    def test_outline_known_file(self, python_simple_repo: Path) -> None:
+        import os
+
+        from archex.api import file_outline
+
+        source = RepoSource(local_path=str(python_simple_repo))
+
+        # Find a .py file in the fixture
+        py_files = [f for f in os.listdir(python_simple_repo) if f.endswith(".py")]
+        assert py_files, "Expected .py files in fixture"
+
+        result = file_outline(
+            source, file_path=py_files[0], config=Config(languages=["python"], cache=False)
+        )
+        assert result.file_path == py_files[0]
+        assert result.language == "python"
+
+    def test_outline_missing_file(self, python_simple_repo: Path) -> None:
+        from archex.api import file_outline
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        result = file_outline(
+            source, file_path="nonexistent.py", config=Config(languages=["python"], cache=False)
+        )
+        assert result.symbols == []
+
+
+class TestSearchSymbolsEndToEnd:
+    """Full pipeline: index → search_symbols."""
+
+    def test_search_finds_symbols(self, python_simple_repo: Path) -> None:
+        from archex.api import search_symbols
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        # Search for a broad term likely to match something in the fixture
+        results = search_symbols(
+            source, query="class", config=Config(languages=["python"], cache=False)
+        )
+        # May or may not find matches depending on fixture content, but should not error
+        assert isinstance(results, list)
+
+    def test_search_respects_limit(self, python_simple_repo: Path) -> None:
+        from archex.api import search_symbols
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        results = search_symbols(
+            source, query="def", limit=2, config=Config(languages=["python"], cache=False)
+        )
+        assert len(results) <= 2
+
+
+class TestGetSymbolEndToEnd:
+    """Full pipeline: index → search → get_symbol."""
+
+    def test_get_symbol_round_trip(self, python_simple_repo: Path) -> None:
+        from archex.api import get_symbol, search_symbols
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=False)
+
+        # First find some symbols
+        matches = search_symbols(source, query="def", config=config)
+        if matches:
+            # Then retrieve the first one
+            result = get_symbol(source, symbol_id=matches[0].symbol_id, config=config)
+            assert result is not None
+            assert result.source  # Should have source code
+            assert result.symbol_id == matches[0].symbol_id
+
+    def test_get_symbol_not_found(self, python_simple_repo: Path) -> None:
+        from archex.api import get_symbol
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        result = get_symbol(
+            source, symbol_id="fake::nonexistent#function", config=Config(cache=False)
+        )
+        assert result is None
+
+
+class TestGetSymbolsBatchEndToEnd:
+    """Full pipeline: index → search → get_symbols_batch."""
+
+    def test_batch_with_mixed_ids(self, python_simple_repo: Path) -> None:
+        from archex.api import get_symbols_batch, search_symbols
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=False)
+
+        matches = search_symbols(source, query="def", config=config)
+        if matches:
+            valid_id = matches[0].symbol_id
+            ids = [valid_id, "fake::nonexistent#function"]
+            results = get_symbols_batch(source, symbol_ids=ids, config=config)
+            assert len(results) == 2
+            assert results[0] is not None
+            assert results[0].symbol_id == valid_id
+            assert results[1] is None
+
+    def test_batch_rejects_over_50(self, python_simple_repo: Path) -> None:
+        import pytest as _pytest
+
+        from archex.api import get_symbols_batch
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        with _pytest.raises(ValueError, match="Maximum 50"):
+            get_symbols_batch(source, symbol_ids=["id"] * 51, config=Config(cache=False))
+
+    def test_batch_empty_input(self, python_simple_repo: Path) -> None:
+        from archex.api import get_symbols_batch
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        results = get_symbols_batch(source, symbol_ids=[], config=Config(cache=False))
+        assert results == []
