@@ -88,6 +88,68 @@ class TestNomicCodeEmbedder:
                 importlib.reload(nomic)
                 nomic.NomicCodeEmbedder()
 
+    def test_load_model_missing_onnx_file_raises(self, tmp_path: Any) -> None:
+        """_load_model raises ArchexIndexError when model.onnx is missing."""
+        from unittest.mock import MagicMock
+
+        mock_ort = MagicMock()
+        mock_tok = MagicMock()
+        with patch.dict("sys.modules", {"onnxruntime": mock_ort, "tokenizers": mock_tok}):
+            from archex.index.embeddings.nomic import NomicCodeEmbedder
+
+            embedder = NomicCodeEmbedder(model_dir=tmp_path)
+            with pytest.raises(ArchexIndexError, match="ONNX model not found"):
+                embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+    def test_load_model_missing_tokenizer_raises(self, tmp_path: Any) -> None:
+        """_load_model raises ArchexIndexError when tokenizer.json is missing."""
+        from unittest.mock import MagicMock
+
+        model_dir = tmp_path / "nomic-embed-code-v1"
+        model_dir.mkdir(parents=True)
+        (model_dir / "model.onnx").write_text("fake")
+
+        mock_ort = MagicMock()
+        mock_tok = MagicMock()
+        with patch.dict("sys.modules", {"onnxruntime": mock_ort, "tokenizers": mock_tok}):
+            from archex.index.embeddings.nomic import NomicCodeEmbedder
+
+            embedder = NomicCodeEmbedder(model_dir=tmp_path)
+            with pytest.raises(ArchexIndexError, match="Tokenizer not found"):
+                embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+    def test_load_model_success(self, tmp_path: Any) -> None:
+        """_load_model succeeds when both model.onnx and tokenizer.json exist."""
+        from unittest.mock import MagicMock
+
+        model_dir = tmp_path / "nomic-embed-code-v1"
+        model_dir.mkdir(parents=True)
+        (model_dir / "model.onnx").write_text("fake")
+        (model_dir / "tokenizer.json").write_text("fake")
+
+        mock_ort = MagicMock()
+        mock_tok_module = MagicMock()
+        with patch.dict("sys.modules", {"onnxruntime": mock_ort, "tokenizers": mock_tok_module}):
+            from archex.index.embeddings.nomic import NomicCodeEmbedder
+
+            embedder = NomicCodeEmbedder(model_dir=tmp_path)
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+        assert embedder._session is not None  # pyright: ignore[reportPrivateUsage]
+        assert embedder._tokenizer is not None  # pyright: ignore[reportPrivateUsage]
+
+    def test_dimension_property_returns_768(self) -> None:
+        """dimension property returns 768."""
+        from unittest.mock import MagicMock
+
+        mock_ort = MagicMock()
+        mock_tok = MagicMock()
+        with patch.dict("sys.modules", {"onnxruntime": mock_ort, "tokenizers": mock_tok}):
+            from archex.index.embeddings.nomic import NomicCodeEmbedder
+
+            embedder = NomicCodeEmbedder()
+            assert embedder.dimension == 768
+
 
 class TestSentenceTransformerEmbedder:
     def test_import_error_raises_archex_index_error(self) -> None:
@@ -108,6 +170,78 @@ class TestSentenceTransformerEmbedder:
             with pytest.raises(ArchexIndexError, match="sentence-transformers"):
                 importlib.reload(sentence_tf)
                 sentence_tf.SentenceTransformerEmbedder()
+
+    def test_encode_delegates_to_model(self) -> None:
+        """encode() lazy-loads the model and delegates to model.encode()."""
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.encode.return_value = np.array([[0.1, 0.2], [0.3, 0.4]])
+        mock_model.get_sentence_embedding_dimension.return_value = 2
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
+            from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+
+            embedder = SentenceTransformerEmbedder(model_name="test-model", batch_size=16)
+            result = embedder.encode(["hello", "world"])  # pyright: ignore[reportPrivateUsage]
+
+        assert len(result) == 2
+        mock_model.encode.assert_called_once()
+
+    def test_dimension_property_loads_model(self) -> None:
+        """dimension property triggers lazy model load and returns embedding dim."""
+        from unittest.mock import MagicMock
+
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
+            from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+
+            embedder = SentenceTransformerEmbedder()
+            dim = embedder.dimension
+
+        assert dim == 384
+
+    def test_dimension_raises_when_model_returns_none(self) -> None:
+        """dimension raises ArchexIndexError if model dimension is None after loading."""
+        from unittest.mock import MagicMock
+
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = None
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
+            from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+
+            embedder = SentenceTransformerEmbedder()
+            with pytest.raises(ArchexIndexError, match="dimension unavailable"):
+                _ = embedder.dimension
+
+    def test_load_model_is_idempotent(self) -> None:
+        """Calling _load_model() twice does not recreate the model."""
+        from unittest.mock import MagicMock
+
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 128
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
+            from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+
+            embedder = SentenceTransformerEmbedder()
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+        mock_st_module.SentenceTransformer.assert_called_once()
 
 
 class TestAPIEmbedder:

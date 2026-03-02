@@ -500,6 +500,99 @@ def test_merge_backward_into_previous() -> None:
     assert "# footer" in file_chunks[0].content
 
 
+def test_merge_small_chunks_empty_input() -> None:
+    """_merge_small_chunks returns empty list for empty input."""
+    from archex.index.chunker import _merge_small_chunks  # pyright: ignore[reportPrivateUsage]
+
+    encoder = tiktoken.get_encoding("cl100k_base")
+    result = _merge_small_chunks([], 50, encoder)
+    assert result == []
+
+
+def test_merge_small_chunks_backward_merge_direct() -> None:
+    """Small file-level chunk with a symbol next merges backward into previous file-level result.
+
+    Sequence: [file_level_normal, file_level_small, symbol_chunk]
+    - file_level_normal: above min_tokens threshold → appended to result as-is
+    - file_level_small: below min_tokens, next candidate has a symbol (not file-level)
+      → forward merge blocked; result[-1] is file-level → backward merge triggers
+    - symbol_chunk: always appended as-is
+    """
+    from archex.index.chunker import _merge_small_chunks  # pyright: ignore[reportPrivateUsage]
+
+    encoder = tiktoken.get_encoding("cl100k_base")
+
+    sym = Symbol(
+        name="foo",
+        qualified_name="foo",
+        kind=SymbolKind.FUNCTION,
+        file_path="t.py",
+        start_line=5,
+        end_line=6,
+    )
+
+    # Build a normal-sized file-level chunk (well above min_tokens=5)
+    normal_lines = [b"x = " + str(i).encode() + b"  # padding line\n" for i in range(30)]
+    # Small file-level chunk (just one short line — will be below min_tokens=50)
+    small_lines = [b"y = 1\n"]
+    # A symbol chunk
+    sym_lines = [b"def foo(): pass\n"]
+
+    candidates: list[tuple[list[bytes], int, Symbol | None]] = [
+        (normal_lines, 1, None),
+        (small_lines, 31, None),
+        (sym_lines, 32, sym),
+    ]
+
+    result = _merge_small_chunks(candidates, min_tokens=50, encoder=encoder)
+
+    # The small file-level chunk should have merged backward into the normal one.
+    # Result should have exactly 2 entries: merged-file-level + symbol.
+    assert len(result) == 2
+
+    merged_entry = result[0]
+    assert merged_entry[2] is None  # still file-level
+    merged_text = b"".join(merged_entry[0]).decode()
+    assert "y = 1" in merged_text  # small chunk content present
+    assert "x = 0" in merged_text  # normal chunk content present
+
+    sym_entry = result[1]
+    assert sym_entry[2] is sym
+
+
+def test_merge_small_chunks_backward_merge_blocked_by_symbol_in_result() -> None:
+    """Small file-level chunk does NOT merge when result[-1] is a symbol chunk."""
+    from archex.index.chunker import _merge_small_chunks  # pyright: ignore[reportPrivateUsage]
+
+    encoder = tiktoken.get_encoding("cl100k_base")
+
+    sym = Symbol(
+        name="bar",
+        qualified_name="bar",
+        kind=SymbolKind.FUNCTION,
+        file_path="t.py",
+        start_line=1,
+        end_line=2,
+    )
+
+    sym_lines = [b"def bar(): pass\n"]
+    small_lines = [b"z = 99\n"]
+
+    # [symbol_chunk, small_file_level] — small_file_level can't merge forward (end of list)
+    # and can't merge backward (result[-1] is a symbol, not file-level)
+    candidates: list[tuple[list[bytes], int, Symbol | None]] = [
+        (sym_lines, 1, sym),
+        (small_lines, 3, None),
+    ]
+
+    result = _merge_small_chunks(candidates, min_tokens=50, encoder=encoder)
+
+    # Both entries remain separate because backward merge is blocked by the symbol
+    assert len(result) == 2
+    assert result[0][2] is sym
+    assert result[1][2] is None
+
+
 def test_blank_lines_only_file_level_skipped() -> None:
     # Blank lines between two functions: no real file-level code.
     source = b"def a():\n    pass\n\n\ndef b():\n    pass\n"

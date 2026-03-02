@@ -222,3 +222,46 @@ def test_escape_fts_query_all_special_becomes_empty_token_skipped() -> None:
 def test_escape_fts_query_preserves_dots_and_underscores() -> None:
     result = escape_fts_query("my_module.func")
     assert result == '"my_module.func"'
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: empty escaped query and FTS5 exception path
+# ---------------------------------------------------------------------------
+
+
+def test_search_all_special_chars_returns_empty(
+    store_and_index: tuple[IndexStore, BM25Index],
+) -> None:
+    _, idx = store_and_index
+    # escape_fts_query("*** !!!") returns "" → search short-circuits to []
+    assert idx.search("*** !!!") == []
+
+
+def test_search_survives_fts5_error(tmp_path: Path) -> None:
+    db = tmp_path / "bm25_err.db"
+    s = IndexStore(db)
+    idx = BM25Index(s)
+    s.insert_chunks(SAMPLE_CHUNKS)
+    idx.build(SAMPLE_CHUNKS)
+
+    # sqlite3.Connection.execute is a C-level slot — wrap conn in a proxy.
+    real_conn = s.conn
+
+    class _FailOnMatch:
+        """Proxy that raises on FTS MATCH queries, delegates everything else."""
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(real_conn, name)
+
+        def execute(self, sql: str, parameters: object = None, /) -> object:
+            if "MATCH" in sql:
+                raise RuntimeError("FTS5 error")
+            if parameters is not None:
+                return real_conn.execute(sql, parameters)  # type: ignore[arg-type]
+            return real_conn.execute(sql)
+
+    s._conn = _FailOnMatch()  # type: ignore[assignment]
+    results = idx.search("authenticate")
+    s._conn = real_conn  # type: ignore[assignment]
+    assert results == []
+    s.close()
