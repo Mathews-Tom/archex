@@ -427,7 +427,7 @@ Your agent now has access to `analyze_repo`, `query_repo`, `compare_repos`, `get
 archex is Apache 2.0 licensed. Contributions welcome.
 
 ```bash
-git clone https://github.com/Mathews-Tom/archex.git
+git clone https://github.com/determ-ai/archex.git
 cd archex
 uv sync --all-extras
 uv run pytest  # 1274 tests, 92% coverage

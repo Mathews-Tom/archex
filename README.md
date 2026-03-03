@@ -438,7 +438,7 @@ Adapters are extensible via Python entry points — add a new language without m
 ## Development
 
 ```bash
-git clone https://github.com/Mathews-Tom/archex.git
+git clone https://github.com/determ-ai/archex.git
 cd archex
 uv sync --all-extras
 
