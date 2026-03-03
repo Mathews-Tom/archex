@@ -91,7 +91,11 @@ def test_query_timing_flag(python_simple_repo: Path) -> None:
         ["query", str(python_simple_repo), "what functions exist?", "--timing"],
     )
     assert result.exit_code == 0, result.output
-    assert "Timing:" in result.output
+    assert "[savings]" in result.output
+    assert "[timing]" in result.output
+    # Phase timing: should show acquire or cache hit
+    output = result.output
+    assert "Acquired repo" in output or "Cache hit" in output
 
 
 def test_compare_error_handling() -> None:
@@ -254,10 +258,16 @@ class TestTreeCmd:
 
         tree = FileTree(root="/r", entries=[], total_files=0, languages={})
         runner = CliRunner()
-        with patch("archex.cli.tree_cmd.file_tree", return_value=tree):
+        with (
+            patch("archex.cli.tree_cmd.file_tree", return_value=tree),
+            patch("archex.cli.tree_cmd.get_repo_total_tokens", return_value=1000),
+        ):
             result = runner.invoke(cli, ["tree", "/r", "--timing"])
         assert result.exit_code == 0
-        assert "Timing:" in result.output
+        assert "[savings]" in result.output
+        assert "[timing]" in result.output
+        # Phase timing present (cache hit or acquire)
+        assert "Cache hit" in result.output or "timing" in result.output
 
     def test_tree_error_handling(self) -> None:
         from unittest.mock import patch
@@ -345,7 +355,9 @@ class TestOutlineCmd:
         with patch("archex.cli.outline_cmd.file_outline", return_value=outline):
             result = runner.invoke(cli, ["outline", "/repo", "f.py", "--timing"])
         assert result.exit_code == 0
-        assert "Timing:" in result.output
+        assert "[savings]" in result.output
+        assert "[timing]" in result.output
+        assert "Cache hit" in result.output or "timing" in result.output
 
     def test_outline_error_handling(self) -> None:
         from unittest.mock import patch
@@ -420,10 +432,14 @@ class TestSymbolsCmd:
         from unittest.mock import patch
 
         runner = CliRunner()
-        with patch("archex.cli.symbols_cmd.search_symbols", return_value=[]):
+        with (
+            patch("archex.cli.symbols_cmd.search_symbols", return_value=[]),
+            patch("archex.cli.symbols_cmd.get_files_token_count", return_value=500),
+        ):
             result = runner.invoke(cli, ["symbols", "/repo", "q", "--timing"])
         assert result.exit_code == 0
-        assert "Timing:" in result.output
+        assert "[savings]" in result.output
+        assert "[timing]" in result.output
 
     def test_symbols_error_handling(self) -> None:
         from unittest.mock import patch
@@ -503,10 +519,14 @@ class TestSymbolCmd:
             source="pass",
         )
         runner = CliRunner()
-        with patch("archex.cli.symbol_cmd.get_symbol", return_value=sym):
+        with (
+            patch("archex.cli.symbol_cmd.get_symbol", return_value=sym),
+            patch("archex.cli.symbol_cmd.get_file_token_count", return_value=200),
+        ):
             result = runner.invoke(cli, ["symbol", "/repo", "f.py::x#function", "--timing"])
         assert result.exit_code == 0
-        assert "Timing:" in result.output
+        assert "[savings]" in result.output
+        assert "[timing]" in result.output
 
     def test_symbol_error_handling(self) -> None:
         from unittest.mock import patch

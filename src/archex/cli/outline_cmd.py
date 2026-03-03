@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING
 
 import click
 
 from archex.api import file_outline
 from archex.exceptions import ArchexError
+from archex.models import PipelineTiming
+from archex.reporting import count_tokens, print_savings, print_timing
 from archex.utils import resolve_source
 
 if TYPE_CHECKING:
@@ -34,12 +35,11 @@ def outline_cmd(source: str, file_path: str, output_json: bool, timing: bool) ->
     """Display the symbol outline for a single file in a repository."""
     source_obj = resolve_source(source)
 
-    t0 = time.perf_counter()
+    pt = PipelineTiming() if timing else None
     try:
-        result = file_outline(source_obj, file_path=file_path)
+        result = file_outline(source_obj, file_path=file_path, timing=pt)
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - t0) * 1000
 
     if output_json:
         click.echo(result.model_dump_json(indent=2))
@@ -50,5 +50,17 @@ def outline_cmd(source: str, file_path: str, output_json: bool, timing: bool) ->
         for line in _render_symbols(result.symbols):
             click.echo(line)
 
-    if timing:
-        click.echo(f"\n--- Timing: {elapsed_ms:.0f}ms total ---", err=True)
+    if timing and pt is not None:
+        print_timing(pt)
+        if output_json:
+            output = result.model_dump_json(indent=2)
+        else:
+            lines = [
+                f"file: {result.file_path}",
+                f"language: {result.language}",
+                f"lines: {result.lines}",
+            ]
+            lines.extend(_render_symbols(result.symbols))
+            output = "\n".join(lines)
+        returned = count_tokens(output)
+        print_savings(returned, result.token_count_raw, pt.total_ms)

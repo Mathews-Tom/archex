@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import time
+
 import click
 
-from archex.api import compare
+from archex.api import compare, get_repo_total_tokens
 from archex.exceptions import ArchexError
 from archex.models import Config
+from archex.reporting import count_tokens, print_savings
 from archex.serve.compare import SUPPORTED_DIMENSIONS
 from archex.utils import resolve_source
 
@@ -95,12 +98,14 @@ def render_comparison_markdown(result: object) -> str:
     multiple=True,
     help="Filter by language (may be repeated).",
 )
+@click.option("--timing", is_flag=True, default=False, help="Print timing breakdown.")
 def compare_cmd(
     source_a: str,
     source_b: str,
     dimensions_str: str | None,
     output_format: str,
     languages: tuple[str, ...],
+    timing: bool,
 ) -> None:
     """Compare two repositories across architectural dimensions."""
     dims: list[str] | None = None
@@ -113,12 +118,23 @@ def compare_cmd(
     source_a_obj = resolve_source(source_a)
     source_b_obj = resolve_source(source_b)
 
+    t0 = time.perf_counter()
     try:
         result = compare(source_a_obj, source_b_obj, dimensions=dims, config=config)
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
+    elapsed_ms = (time.perf_counter() - t0) * 1000
 
     if output_format == "json":
-        click.echo(result.model_dump_json(indent=2))
+        output = result.model_dump_json(indent=2)
+        click.echo(output)
     else:
-        click.echo(render_comparison_markdown(result))
+        output = render_comparison_markdown(result)
+        click.echo(output)
+
+    if timing:
+        returned = count_tokens(output)
+        raw = get_repo_total_tokens(source_a_obj, config) + get_repo_total_tokens(
+            source_b_obj, config
+        )
+        print_savings(returned, raw, elapsed_ms)

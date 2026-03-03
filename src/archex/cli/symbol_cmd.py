@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import time
-
 import click
 
-from archex.api import get_symbol
+from archex.api import get_file_token_count, get_symbol
 from archex.exceptions import ArchexError
+from archex.models import PipelineTiming
+from archex.reporting import print_savings, print_timing
 from archex.utils import resolve_source
 
 
@@ -20,12 +20,11 @@ def symbol_cmd(source: str, symbol_id: str, output_json: bool, timing: bool) -> 
     """Retrieve the full source for a single symbol by its stable ID."""
     source_obj = resolve_source(source)
 
-    t0 = time.perf_counter()
+    pt = PipelineTiming() if timing else None
     try:
-        result = get_symbol(source_obj, symbol_id=symbol_id)
+        result = get_symbol(source_obj, symbol_id=symbol_id, timing=pt)
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - t0) * 1000
 
     if result is None:
         raise click.ClickException(f"Symbol not found: {symbol_id}")
@@ -37,5 +36,7 @@ def symbol_cmd(source: str, symbol_id: str, output_json: bool, timing: bool) -> 
         click.echo(f"# {result.name} ({result.kind}) — {loc}")
         click.echo(result.source)
 
-    if timing:
-        click.echo(f"\n--- Timing: {elapsed_ms:.0f}ms total ---", err=True)
+    if timing and pt is not None:
+        print_timing(pt)
+        raw = get_file_token_count(source_obj, result.file_path)
+        print_savings(result.token_count, raw, pt.total_ms)

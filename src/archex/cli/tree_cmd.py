@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING
 
 import click
 
-from archex.api import file_tree
+from archex.api import file_tree, get_repo_total_tokens
 from archex.exceptions import ArchexError
+from archex.models import PipelineTiming
+from archex.reporting import count_tokens, print_savings, print_timing
 from archex.utils import resolve_source
 
 if TYPE_CHECKING:
@@ -47,12 +48,11 @@ def tree_cmd(
     """Display the annotated file tree of a repository."""
     source_obj = resolve_source(source)
 
-    t0 = time.perf_counter()
+    pt = PipelineTiming() if timing else None
     try:
-        result = file_tree(source_obj, max_depth=depth, language=language)
+        result = file_tree(source_obj, max_depth=depth, language=language, timing=pt)
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - t0) * 1000
 
     if output_json:
         click.echo(result.model_dump_json(indent=2))
@@ -61,5 +61,12 @@ def tree_cmd(
         for line in _render_tree(result.entries):
             click.echo(line)
 
-    if timing:
-        click.echo(f"\n--- Timing: {elapsed_ms:.0f}ms total ---", err=True)
+    if timing and pt is not None:
+        print_timing(pt)
+        if output_json:
+            output = result.model_dump_json(indent=2)
+        else:
+            output = "\n".join([result.root, *_render_tree(result.entries)])
+        returned = count_tokens(output)
+        raw = get_repo_total_tokens(source_obj)
+        print_savings(returned, raw, pt.total_ms)

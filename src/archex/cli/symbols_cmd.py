@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-import time
 
 import click
 
-from archex.api import search_symbols
+from archex.api import get_files_token_count, search_symbols
 from archex.exceptions import ArchexError
+from archex.models import PipelineTiming
+from archex.reporting import count_tokens, print_savings, print_timing
 from archex.utils import resolve_source
 
 
@@ -32,12 +33,13 @@ def symbols_cmd(
     """Search symbols by name across a repository."""
     source_obj = resolve_source(source)
 
-    t0 = time.perf_counter()
+    pt = PipelineTiming() if timing else None
     try:
-        results = search_symbols(source_obj, query=query, kind=kind, language=language, limit=limit)
+        results = search_symbols(
+            source_obj, query=query, kind=kind, language=language, limit=limit, timing=pt
+        )
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - t0) * 1000
 
     if output_json:
         click.echo(json.dumps([m.model_dump() for m in results], indent=2))
@@ -58,5 +60,10 @@ def symbols_cmd(
                     f"{m.symbol_id}"
                 )
 
-    if timing:
-        click.echo(f"\n--- Timing: {elapsed_ms:.0f}ms total ---", err=True)
+    if timing and pt is not None:
+        print_timing(pt)
+        output_text = json.dumps([m.model_dump() for m in results], indent=2) if output_json else ""
+        returned = count_tokens(output_text) if output_text else len(results)
+        unique_files = list({m.file_path for m in results})
+        raw = get_files_token_count(source_obj, unique_files)
+        print_savings(returned, raw, pt.total_ms, file_count=len(unique_files))

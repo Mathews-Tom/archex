@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import time
-
 import click
 
-from archex.api import query
+from archex.api import get_files_token_count, query
 from archex.exceptions import ArchexError
+from archex.reporting import print_savings, print_timing
 from archex.utils import resolve_source
 
 
@@ -41,22 +40,31 @@ def query_cmd(
     timing: bool,
 ) -> None:
     """Query a repository and return a context bundle."""
-    from archex.models import Config, IndexConfig
+    from archex.models import Config, IndexConfig, PipelineTiming
 
     repo_source = resolve_source(source)
     config = Config(languages=list(language) if language else None)
     index_config = IndexConfig(vector=(strategy == "hybrid"))
 
-    t0 = time.perf_counter()
+    pt = PipelineTiming() if timing else None
     try:
         bundle = query(
-            repo_source, question, token_budget=budget, config=config, index_config=index_config
+            repo_source,
+            question,
+            token_budget=budget,
+            config=config,
+            index_config=index_config,
+            timing=pt,
         )
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - t0) * 1000
 
     click.echo(bundle.to_prompt(format=output_format))
 
-    if timing:
-        click.echo(f"\n--- Timing: {elapsed_ms:.0f}ms total ---", err=True)
+    if timing and pt is not None:
+        print_timing(pt)
+        unique_files = list({c.chunk.file_path for c in bundle.chunks})
+        raw = get_files_token_count(repo_source, unique_files, config)
+        print_savings(
+            bundle.token_count, raw, pt.total_ms, budget=budget, file_count=len(unique_files)
+        )

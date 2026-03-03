@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import time
-
 import click
 
-from archex.api import analyze
+from archex.api import analyze, get_repo_total_tokens
 from archex.exceptions import ArchexError
-from archex.models import Config
+from archex.models import Config, PipelineTiming
+from archex.reporting import count_tokens, print_savings, print_timing
 from archex.utils import resolve_source
 
 
@@ -37,17 +36,20 @@ def analyze_cmd(source: str, output_format: str, languages: tuple[str, ...], tim
     lang_list: list[str] | None = list(languages) if languages else None
     config = Config(languages=lang_list)
 
-    t0 = time.perf_counter()
+    pt = PipelineTiming() if timing else None
     try:
-        profile = analyze(source_obj, config)
+        profile = analyze(source_obj, config, timing=pt)
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - t0) * 1000
 
     if output_format == "json":
         click.echo(profile.to_json())
     else:
         click.echo(profile.to_markdown())
 
-    if timing:
-        click.echo(f"\n--- Timing: {elapsed_ms:.0f}ms total ---", err=True)
+    if timing and pt is not None:
+        print_timing(pt)
+        output = profile.to_json() if output_format == "json" else profile.to_markdown()
+        returned = count_tokens(output)
+        raw = get_repo_total_tokens(source_obj, config)
+        print_savings(returned, raw, pt.total_ms)
