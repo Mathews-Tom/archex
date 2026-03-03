@@ -6,6 +6,7 @@ import click
 
 from archex import __version__
 from archex.cli.analyze_cmd import analyze_cmd
+from archex.cli.benchmark_cmd import benchmark_cmd
 from archex.cli.cache_cmd import cache_cmd
 from archex.cli.compare_cmd import compare_cmd
 from archex.cli.mcp_cmd import mcp_cmd
@@ -23,6 +24,7 @@ def cli() -> None:
 
 
 cli.add_command(analyze_cmd)
+cli.add_command(benchmark_cmd)
 cli.add_command(query_cmd)
 cli.add_command(compare_cmd)
 cli.add_command(cache_cmd)

@@ -1,0 +1,15 @@
+task_id: httpx_pooling
+repo: encode/httpx
+commit: "0.28.1"
+question: "How does httpx manage HTTP connection pooling and keep-alive?"
+expected_files:
+  - httpx/_transports/default.py
+  - httpx/_client.py
+  - httpx/_config.py
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - pool
+  - connection
+  - keep_alive
+  - transport

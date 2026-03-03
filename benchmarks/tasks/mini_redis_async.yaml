@@ -1,0 +1,16 @@
+task_id: mini_redis_async
+repo: tokio-rs/mini-redis
+commit: "v0.4.1"
+question: "How does mini-redis handle async command processing and connection management?"
+expected_files:
+  - src/server.rs
+  - src/cmd/mod.rs
+  - src/connection.rs
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - async
+  - command
+  - connection
+  - handler
+  - tokio

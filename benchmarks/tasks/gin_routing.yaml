@@ -1,0 +1,16 @@
+task_id: gin_routing
+repo: gin-gonic/gin
+commit: "v1.10.0"
+question: "How does gin implement HTTP routing with its radix tree?"
+expected_files:
+  - tree.go
+  - routergroup.go
+  - gin.go
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - route
+  - tree
+  - node
+  - radix
+  - handler

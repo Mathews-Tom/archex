@@ -1,0 +1,16 @@
+task_id: express_middleware
+repo: expressjs/express
+commit: "v4.21.2"
+question: "How does express implement the middleware chain and next() function?"
+expected_files:
+  - lib/router/index.js
+  - lib/router/route.js
+  - lib/router/layer.js
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - middleware
+  - next
+  - route
+  - layer
+  - dispatch

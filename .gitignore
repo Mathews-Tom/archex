@@ -216,3 +216,6 @@ __marimo__/
 # Developer workspace (Sage-Dev generated files)
 .docs/
 .sage/
+
+# Benchmark results (keep .gitkeep)
+benchmarks/results/*.json
