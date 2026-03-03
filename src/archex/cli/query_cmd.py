@@ -30,6 +30,7 @@ from archex.utils import resolve_source
     help="Retrieval strategy.",
 )
 @click.option("--timing", is_flag=True, default=False, help="Print timing breakdown.")
+@click.option("--metrics", is_flag=True, default=False, help="Print timing metrics as JSON.")
 def query_cmd(
     source: str,
     question: str,
@@ -38,6 +39,7 @@ def query_cmd(
     language: tuple[str, ...],
     strategy: str,
     timing: bool,
+    metrics: bool,
 ) -> None:
     """Query a repository and return a context bundle."""
     from archex.models import Config, IndexConfig, PipelineTiming
@@ -46,7 +48,7 @@ def query_cmd(
     config = Config(languages=list(language) if language else None)
     index_config = IndexConfig(vector=(strategy == "hybrid"))
 
-    pt = PipelineTiming() if timing else None
+    pt = PipelineTiming() if (timing or metrics) else None
     try:
         bundle = query(
             repo_source,
@@ -68,3 +70,14 @@ def query_cmd(
         print_savings(
             bundle.token_count, raw, pt.total_ms, budget=budget, file_count=len(unique_files)
         )
+
+    if metrics and pt is not None:
+        import json
+        from dataclasses import asdict
+
+        metrics_dict = asdict(pt)
+        # Remove non-serializable delta_meta for JSON output
+        if metrics_dict.get("delta_meta") is not None:
+            dm = metrics_dict["delta_meta"]
+            metrics_dict["delta_meta"] = {k: v for k, v in dm.items()}
+        click.echo(json.dumps(metrics_dict, indent=2), err=True)

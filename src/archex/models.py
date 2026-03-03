@@ -643,6 +643,11 @@ class PipelineTiming:
     cached: bool = False
     delta_ms: float = 0.0
     delta_meta: DeltaMeta | None = None
+    delta_attempted: bool = False
+    delta_succeeded: bool = False
+    parse_failure_count: int = 0
+    vector_used: bool = False
+    strategy: str = ""  # "full", "cached", "delta"
 
 
 # ---------------------------------------------------------------------------
