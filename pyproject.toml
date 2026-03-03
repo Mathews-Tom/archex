@@ -35,14 +35,13 @@ dependencies = [
 [project.optional-dependencies]
 vector = ["onnxruntime>=1.17", "tokenizers>=0.15"]
 vector-torch = ["sentence-transformers>=2.6"]
-voyage = ["voyageai>=0.3"]
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.30"]
 mcp = ["mcp>=1.0"]
 langchain = ["langchain-core>=0.2"]
 llamaindex = ["llama-index-core>=0.10"]
 language-pack = ["tree-sitter-language-pack>=0.13"]
-all = ["archex[vector,voyage,openai,anthropic,mcp,langchain,llamaindex,language-pack]"]
+all = ["archex[vector,openai,anthropic,mcp,langchain,llamaindex,language-pack]"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
