@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from archex.benchmark.models import BenchmarkReport  # noqa: TCH001 — Pydantic needs at runtime
+from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runtime
+    BenchmarkReport,
+    DeltaBenchmarkResult,
+)
 
 
 class QualityThresholds(BaseModel):
@@ -52,4 +55,52 @@ def check_gate(
                             actual=actual,
                         )
                     )
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Delta quality gate
+# ---------------------------------------------------------------------------
+
+
+class DeltaQualityThresholds(BaseModel):
+    min_speedup: float = 1.5
+    require_correctness: bool = True
+
+
+class DeltaGateViolation(BaseModel):
+    task_id: str
+    metric: str
+    threshold: float
+    actual: float
+
+
+def check_delta_gate(
+    results: list[DeltaBenchmarkResult],
+    thresholds: DeltaQualityThresholds | None = None,
+) -> list[DeltaGateViolation]:
+    """Check delta benchmark results against quality thresholds. Returns violations."""
+    if thresholds is None:
+        thresholds = DeltaQualityThresholds()
+
+    violations: list[DeltaGateViolation] = []
+    for r in results:
+        if thresholds.require_correctness and not r.correctness:
+            violations.append(
+                DeltaGateViolation(
+                    task_id=r.task_id,
+                    metric="correctness",
+                    threshold=1.0,
+                    actual=0.0,
+                )
+            )
+        if r.speedup_factor < thresholds.min_speedup:
+            violations.append(
+                DeltaGateViolation(
+                    task_id=r.task_id,
+                    metric="speedup_factor",
+                    threshold=thresholds.min_speedup,
+                    actual=r.speedup_factor,
+                )
+            )
     return violations

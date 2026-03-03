@@ -8,10 +8,21 @@ from pathlib import Path
 import click
 
 from archex.benchmark.baseline import compare_baseline, load_baseline, save_baseline
-from archex.benchmark.gate import QualityThresholds, check_gate
+from archex.benchmark.delta_runner import run_all_delta
+from archex.benchmark.gate import (
+    DeltaQualityThresholds,
+    QualityThresholds,
+    check_delta_gate,
+    check_gate,
+)
 from archex.benchmark.loader import load_tasks
-from archex.benchmark.models import BenchmarkReport, Strategy
-from archex.benchmark.reporter import format_json, format_markdown, format_summary
+from archex.benchmark.models import BenchmarkReport, DeltaBenchmarkResult, Strategy
+from archex.benchmark.reporter import (
+    format_delta_summary,
+    format_json,
+    format_markdown,
+    format_summary,
+)
 from archex.benchmark.runner import run_all
 
 
@@ -264,3 +275,100 @@ def gate_cmd(
         raise SystemExit(1)
     else:
         click.echo("Quality gate passed.")
+
+
+# ---------------------------------------------------------------------------
+# Delta benchmark subcommands
+# ---------------------------------------------------------------------------
+
+
+@benchmark_cmd.group("delta")
+def delta_cmd() -> None:
+    """Delta indexing benchmarks: measure speedup and correctness."""
+
+
+@delta_cmd.command("run")
+@click.option(
+    "--output",
+    "output_dir",
+    default="benchmarks/delta_results",
+    type=click.Path(),
+    help="Directory for delta result JSON files.",
+)
+@click.option("--task", "task_id", default=None, help="Run a single task by task_id.")
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/delta_tasks",
+    type=click.Path(exists=True),
+    help="Directory containing delta task YAML files.",
+)
+def delta_run_cmd(output_dir: str, task_id: str | None, tasks_dir: str) -> None:
+    """Run delta indexing benchmarks."""
+    results = run_all_delta(
+        tasks_dir=Path(tasks_dir),
+        output_dir=Path(output_dir),
+        task_filter=task_id,
+    )
+    click.echo(f"\nCompleted {len(results)} delta benchmark(s).", err=True)
+
+
+@delta_cmd.command("gate")
+@click.option(
+    "--input",
+    "input_dir",
+    default="benchmarks/delta_results",
+    type=click.Path(exists=True),
+    help="Directory containing delta result JSON files.",
+)
+@click.option("--min-speedup", default=1.5, type=float, help="Minimum speedup threshold.")
+@click.option(
+    "--require-correctness/--no-require-correctness",
+    default=True,
+    help="Require correctness (chunk/edge equivalence).",
+)
+def delta_gate_cmd(input_dir: str, min_speedup: float, require_correctness: bool) -> None:
+    """Check delta benchmark results against quality thresholds."""
+    input_path = Path(input_dir)
+    results: list[DeltaBenchmarkResult] = []
+    for json_file in sorted(input_path.glob("*.json")):
+        data = json.loads(json_file.read_text(encoding="utf-8"))
+        results.append(DeltaBenchmarkResult.model_validate(data))
+
+    if not results:
+        raise click.ClickException(f"No delta result files found in {input_dir}")
+
+    thresholds = DeltaQualityThresholds(
+        min_speedup=min_speedup,
+        require_correctness=require_correctness,
+    )
+    violations = check_delta_gate(results, thresholds)
+
+    if violations:
+        click.echo(f"DELTA QUALITY GATE FAILED: {len(violations)} violation(s)")
+        for v in violations:
+            click.echo(f"  {v.task_id} {v.metric}: {v.actual:.3f} < {v.threshold:.3f}")
+        raise SystemExit(1)
+    else:
+        click.echo("Delta quality gate passed.")
+
+
+@delta_cmd.command("report")
+@click.option(
+    "--input",
+    "input_dir",
+    default="benchmarks/delta_results",
+    type=click.Path(exists=True),
+    help="Directory containing delta result JSON files.",
+)
+def delta_report_cmd(input_dir: str) -> None:
+    """Generate formatted reports from delta benchmark results."""
+    input_path = Path(input_dir)
+    results: list[DeltaBenchmarkResult] = []
+    for json_file in sorted(input_path.glob("*.json")):
+        data = json.loads(json_file.read_text(encoding="utf-8"))
+        results.append(DeltaBenchmarkResult.model_validate(data))
+
+    if not results:
+        raise click.ClickException(f"No delta result files found in {input_dir}")
+
+    click.echo(format_delta_summary(results))

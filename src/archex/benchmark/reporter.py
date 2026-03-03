@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from archex.benchmark.models import BenchmarkReport
+    from archex.benchmark.models import BenchmarkReport, DeltaBenchmarkResult
 
 
 def format_markdown(report: BenchmarkReport) -> str:
@@ -80,6 +80,37 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
         lines.append(
             f"| {name} | {avg_tokens:,.0f} | {avg_savings:.1f}% "
             f"| {avg_recall:.2f} | {avg_f1:.2f} | {avg_mrr:.2f} | {count} |"
+        )
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_delta_summary(results: list[DeltaBenchmarkResult]) -> str:
+    """Render a markdown summary table for delta benchmark results."""
+    if not results:
+        return "No delta benchmark results."
+
+    lines: list[str] = []
+    lines.append("# Delta Benchmark Summary")
+    lines.append(f"**Tasks:** {len(results)}")
+    lines.append("")
+    lines.append(
+        "| Task | Delta Files | Total Files | Delta % | Delta (ms) "
+        "| Full (ms) | Speedup | Correct | Chunks Updated | Chunks Unchanged |"
+    )
+    lines.append(
+        "|------|-------------|-------------|---------|------------"
+        "|-----------|---------|---------|----------------|------------------|"
+    )
+
+    for r in results:
+        correct_str = "yes" if r.correctness else "NO"
+        lines.append(
+            f"| {r.task_id} | {r.delta_files} | {r.total_files} | {r.delta_pct:.1f}% "
+            f"| {r.delta_time_ms:.0f} | {r.full_reindex_time_ms:.0f} "
+            f"| {r.speedup_factor:.1f}x | {correct_str} "
+            f"| {r.chunks_updated} | {r.chunks_unchanged} |"
         )
 
     lines.append("")
