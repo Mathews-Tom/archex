@@ -85,6 +85,31 @@ def test_clean_keeps_recent_entries(cache: CacheManager, sample_db: Path) -> Non
     assert cache.get(KEY_NEW) is not None
 
 
+def test_clean_by_size_evicts_oldest_entries(cache: CacheManager, sample_db: Path) -> None:
+    cache.put(KEY_A, sample_db)
+    cache.put(KEY_B, sample_db)
+
+    cache.meta_path(KEY_A).write_text("1.0")
+    cache.meta_path(KEY_B).write_text("2.0")
+
+    db_a = cache.get(KEY_A)
+    db_b = cache.get(KEY_B)
+    assert db_a is not None
+    assert db_b is not None
+
+    total_size = db_a.stat().st_size + db_b.stat().st_size
+    removed = cache.clean_by_size(max_size_bytes=total_size - 1)
+
+    assert removed == 1
+    assert cache.get(KEY_A) is None
+    assert cache.get(KEY_B) is not None
+
+
+def test_clean_by_size_rejects_non_positive_limit(cache: CacheManager) -> None:
+    with pytest.raises(CacheError, match="max_size_bytes must be positive"):
+        cache.clean_by_size(0)
+
+
 def test_list_entries_returns_correct_data(cache: CacheManager, sample_db: Path) -> None:
     cache.put(KEY_K1, sample_db)
     cache.put(KEY_K2, sample_db)
@@ -125,6 +150,24 @@ def test_cache_key_local_path(cache: CacheManager) -> None:
     source = RepoSource(local_path="/home/user/project")
     key = cache.cache_key(source)
     assert len(key) == 64
+
+
+def test_cache_key_with_head_override(cache: CacheManager) -> None:
+    source = RepoSource(url="https://github.com/example/repo")
+    key_without = cache.cache_key(source)
+    key_with = cache.cache_key(source, head_override="abc123deadbeef")
+    assert key_without != key_with
+    assert len(key_with) == 64
+
+
+def test_cache_key_head_override_takes_precedence(cache: CacheManager) -> None:
+    source = RepoSource(url="https://github.com/example/repo", commit="original_commit")
+    key_with_commit = cache.cache_key(source)
+    key_with_override = cache.cache_key(source, head_override="override_commit")
+    # head_override produces a different key than source.commit
+    assert key_with_commit != key_with_override
+    # Verify override is consistent
+    assert cache.cache_key(source, head_override="override_commit") == key_with_override
 
 
 # ---------------------------------------------------------------------------

@@ -16,9 +16,8 @@ from archex.analyze.interfaces import extract_interfaces
 from archex.analyze.modules import detect_modules
 from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
-from archex.exceptions import DeltaIndexError
+from archex.exceptions import ConfigError, DeltaIndexError
 from archex.index.bm25 import BM25Index
-from archex.index.chunker import ASTChunker, Chunker
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
 from archex.models import (
@@ -40,14 +39,8 @@ from archex.models import (
     SymbolSource,
     Visibility,
 )
-from archex.parse import (
-    TreeSitterEngine,
-    build_file_map,
-    extract_symbols,
-    parse_imports,
-    resolve_imports,
-)
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
+from archex.pipeline.service import build_chunks, parse_repository
 from archex.providers.base import get_provider
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context
@@ -56,6 +49,7 @@ from archex.serve.profile import build_profile
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from archex.index.chunker import Chunker
     from archex.models import ComparisonResult
 
 # ---------------------------------------------------------------------------
@@ -72,33 +66,18 @@ def _full_index(
 ) -> IndexStore:
     """Run the full acquire → parse → chunk → store pipeline."""
     t_acq = time.perf_counter()
-    repo_path, _url, _local_path, cleanup = _acquire(source)
+    repo_path, _url, _local_path, cleanup, cloned_head = _acquire(source)
     if timing is not None:
         timing.acquire_ms = _elapsed_ms(t_acq)
     try:
         t_parse = time.perf_counter()
-        files = discover_files(
-            repo_path, languages=config.languages, max_file_size=config.max_file_size
-        )
-        engine = TreeSitterEngine()
-        adapters = _build_adapters()
-        parsed_files = extract_symbols(files, engine, adapters, parallel=config.parallel)
-        import_map = parse_imports(files, engine, adapters, parallel=config.parallel)
-        file_map = build_file_map(files)
-        file_languages = {f.path: f.language for f in files}
-        resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
-
-        graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
-
+        adapters = _build_adapters(strict=config.strict)
+        parsed = parse_repository(repo_path, config, adapters)
+        graph = DependencyGraph.from_parsed_files(parsed.parsed_files, parsed.resolved_imports)
         index_config = IndexConfig()
-        file_chunker: Chunker = ASTChunker(config=index_config)
-        sources: dict[str, bytes] = {}
-        for f in files:
-            try:
-                sources[f.path] = Path(f.absolute_path).read_bytes()
-            except OSError:
-                continue
-        all_chunks = file_chunker.chunk_files(parsed_files, sources)
+        all_chunks = build_chunks(
+            parsed.files, parsed.parsed_files, index_config, strict=config.strict
+        )
         if timing is not None:
             timing.parse_ms = _elapsed_ms(t_parse)
 
@@ -110,13 +89,14 @@ def _full_index(
         store.insert_edges(edges)
 
         if config.cache:
-            commit = cache.git_head(source.local_path) or source.commit or ""
+            commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
             identity = source.url or source.local_path or ""
             store.set_metadata("commit_hash", commit)
             store.set_metadata("source_identity", identity)
             store.set_metadata("indexed_at", str(time.time()))
             store.conn.execute("PRAGMA wal_checkpoint(FULL)")
             cache.put(cache_key, db_path)
+            _enforce_cache_policy(cache, config)
         if timing is not None:
             timing.index_ms = _elapsed_ms(t_idx)
 
@@ -156,8 +136,8 @@ def _ensure_index(
         store.close()
         cache.invalidate(cache_key)
 
-    # Path 2: Delta path — same repo, different commit
-    if config.cache:
+    # Path 2: Delta path — local repos only; URL sources are always fresh clones
+    if config.cache and source.local_path:
         existing = cache.find_store_for_source(source)
         if existing is not None:
             db_path, cached_commit = existing
@@ -175,6 +155,7 @@ def _ensure_index(
                             repo_path,
                             languages=config.languages,
                             max_file_size=config.max_file_size,
+                            strict=config.strict,
                         )
                     )
                     change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
@@ -188,6 +169,7 @@ def _ensure_index(
                         store.set_metadata("indexed_at", str(time.time()))
                         store.conn.execute("PRAGMA wal_checkpoint(FULL)")
                         cache.put(cache_key, db_path)
+                        _enforce_cache_policy(cache, config)
                         if timing is not None:
                             timing.delta_ms = delta_meta.delta_time_ms
                             timing.delta_meta = delta_meta
@@ -249,33 +231,56 @@ def _chunk_to_symbol_match(chunk: CodeChunk, score: float = 0.0) -> SymbolMatch:
 
 
 logger = logging.getLogger(__name__)
+_PLUGIN_BOOTSTRAP_STRICT: bool | None = None
 
 
 def _elapsed_ms(start: float) -> float:
     return (time.perf_counter() - start) * 1000
 
 
-def _acquire(source: RepoSource) -> tuple[Path, str | None, str | None, Callable[[], None]]:
-    """Resolve a RepoSource to a local path, returning a cleanup callable."""
+def _enforce_cache_policy(cache: CacheManager, config: Config) -> None:
+    if config.cache_max_size_bytes is not None:
+        cache.clean_by_size(config.cache_max_size_bytes)
+
+
+def _bootstrap_plugins(strict: bool = False) -> None:
+    """Load adapter and pattern plugins once per process."""
+    global _PLUGIN_BOOTSTRAP_STRICT
+    if _PLUGIN_BOOTSTRAP_STRICT is not None and (not strict or _PLUGIN_BOOTSTRAP_STRICT):
+        return  # already loaded at equal or higher strictness
+    default_adapter_registry.load_entry_points(strict=strict)
+    from archex.analyze.patterns import default_registry
+
+    default_registry.load_entry_points(strict=strict)
+    _PLUGIN_BOOTSTRAP_STRICT = strict
+
+
+def _acquire(
+    source: RepoSource,
+) -> tuple[Path, str | None, str | None, Callable[[], None], str | None]:
+    """Resolve a RepoSource to a local path, returning a cleanup callable and cloned HEAD."""
     if source.url and (source.url.startswith("http://") or source.url.startswith("https://")):
         target_dir = tempfile.mkdtemp()
 
         def _url_cleanup() -> None:
             shutil.rmtree(target_dir, ignore_errors=True)
 
-        return clone_repo(source.url, target_dir), source.url, None, _url_cleanup
+        repo_path = clone_repo(source.url, target_dir)
+        cloned_head = CacheManager.git_head(str(repo_path))
+        return repo_path, source.url, None, _url_cleanup, cloned_head
 
     if source.local_path is not None:
 
         def _noop() -> None:
             pass
 
-        return open_local(source.local_path), None, source.local_path, _noop
+        return open_local(source.local_path), None, source.local_path, _noop, None
     raise ValueError("RepoSource must have a url or local_path")
 
 
-def _build_adapters() -> dict[str, LanguageAdapter]:
+def _build_adapters(strict: bool = False) -> dict[str, LanguageAdapter]:
     """Build the registry of language adapters from the default registry."""
+    _bootstrap_plugins(strict=strict)
     return default_adapter_registry.build_all()
 
 
@@ -293,38 +298,28 @@ def analyze(
         config = Config()
 
     t0 = time.perf_counter()
-    repo_path, url, local_path, cleanup = _acquire(source)
+    repo_path, url, local_path, cleanup, _cloned_head = _acquire(source)
     acquire_ms = _elapsed_ms(t0)
     logger.info("Acquired repo %s in %.0fms", url or local_path, acquire_ms)
     if timing is not None:
         timing.acquire_ms = acquire_ms
     try:
         t1 = time.perf_counter()
-        files = discover_files(
-            repo_path, languages=config.languages, max_file_size=config.max_file_size
-        )
-        logger.info("Discovered %d files in %.0fms", len(files), _elapsed_ms(t1))
-
-        engine = TreeSitterEngine()
-        adapters = _build_adapters()
-
+        adapters = _build_adapters(strict=config.strict)
         t2 = time.perf_counter()
-        parsed_files = extract_symbols(files, engine, adapters, parallel=config.parallel)
-        import_map = parse_imports(files, engine, adapters, parallel=config.parallel)
-        file_map = build_file_map(files)
-        file_languages = {f.path: f.language for f in files}
-        resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
+        parsed = parse_repository(repo_path, config, adapters)
+        logger.info("Discovered %d files in %.0fms", len(parsed.files), _elapsed_ms(t1))
         parse_ms = _elapsed_ms(t1)  # discover + parse combined
-        logger.info("Parsed %d files in %.0fms", len(parsed_files), _elapsed_ms(t2))
+        logger.info("Parsed %d files in %.0fms", len(parsed.parsed_files), _elapsed_ms(t2))
         if timing is not None:
             timing.parse_ms = parse_ms
 
-        graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
+        graph = DependencyGraph.from_parsed_files(parsed.parsed_files, parsed.resolved_imports)
 
         t3 = time.perf_counter()
-        modules = detect_modules(graph, parsed_files)
-        patterns = detect_patterns(parsed_files, graph)
-        interfaces = extract_interfaces(parsed_files, graph)
+        modules = detect_modules(graph, parsed.parsed_files, strict=config.strict)
+        patterns = detect_patterns(parsed.parsed_files, graph)
+        interfaces = extract_interfaces(parsed.parsed_files, graph)
         analysis_ms = _elapsed_ms(t3)
         logger.info(
             "Analysis: %d modules, %d patterns, %d interfaces in %.0fms",
@@ -343,22 +338,22 @@ def analyze(
         decisions = infer_decisions(patterns, modules, interfaces, provider=provider)
 
         lang_counts: dict[str, int] = {}
-        for f in files:
+        for f in parsed.files:
             lang_counts[f.language] = lang_counts.get(f.language, 0) + 1
 
-        total_lines = sum(pf.lines for pf in parsed_files)
+        total_lines = sum(pf.lines for pf in parsed.parsed_files)
 
         repo_metadata = RepoMetadata(
             url=url,
             local_path=local_path,
             languages=lang_counts,
-            total_files=len(files),
+            total_files=len(parsed.files),
             total_lines=total_lines,
         )
 
         profile = build_profile(
             repo_metadata,
-            parsed_files,
+            parsed.parsed_files,
             graph,
             modules=modules,
             patterns=patterns,
@@ -392,6 +387,7 @@ def query(
         config = Config()
     if index_config is None:
         index_config = IndexConfig()
+    _validate_vector_config(index_config)
 
     t0 = time.perf_counter()
     cache = CacheManager(cache_dir=config.cache_dir)
@@ -411,7 +407,7 @@ def query(
             try:
                 if timing is not None:
                     timing.cached = True
-                bm25 = BM25Index(store)
+                bm25 = BM25Index(store, strict=config.strict)
                 cached_chunks = store.get_chunks()
                 if cached_chunks:
                     bm25.build(cached_chunks)
@@ -419,16 +415,28 @@ def query(
                 graph = DependencyGraph.from_edges(stored_edges)
 
                 vector_results: list[tuple[object, float]] | None = None
+                vector_index_size = 0
+                fallback_reason: str | None = None
                 if index_config.vector:
                     vec_path = cache.vector_path(cache_key)
                     if vec_path.exists():
                         from archex.index.vector import VectorIndex
 
                         vec_idx = VectorIndex()
-                        vec_idx.load(vec_path, cached_chunks)
+                        vec_idx.load(
+                            vec_path,
+                            cached_chunks,
+                            embedder_name=index_config.embedder or "",
+                            vector_dim=0,
+                        )
+                        vector_index_size = len(cached_chunks)
                         embedder = _get_embedder(index_config)
                         if embedder is not None:
                             vector_results = vec_idx.search(question, embedder, top_k=50)  # type: ignore[assignment]
+                        else:
+                            fallback_reason = "embedder_not_available"
+                    else:
+                        fallback_reason = "vector_index_missing"
 
                 t_search = time.perf_counter()
                 search_results = bm25.search(question, top_k=50)
@@ -446,6 +454,9 @@ def query(
                 if timing is not None:
                     timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
                 bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
+                bundle.retrieval_metadata.vector_enabled = index_config.vector
+                bundle.retrieval_metadata.vector_index_size = vector_index_size
+                bundle.retrieval_metadata.hybrid_fallback_reason = fallback_reason
                 logger.info("query() [cached] completed in %.0fms", _elapsed_ms(t0))
                 if timing is not None:
                     timing.total_ms = _elapsed_ms(t0)
@@ -456,50 +467,35 @@ def query(
     # Cache miss — full pipeline
     logger.info("Cache miss — running full pipeline")
     t1 = time.perf_counter()
-    repo_path, _url, _local_path, cleanup = _acquire(source)
+    repo_path, _url, _local_path, cleanup, cloned_head = _acquire(source)
     acquire_ms = _elapsed_ms(t1)
     logger.info("Acquired repo in %.0fms", acquire_ms)
     if timing is not None:
         timing.acquire_ms = acquire_ms
     try:
         t2 = time.perf_counter()
-        files = discover_files(
-            repo_path, languages=config.languages, max_file_size=config.max_file_size
-        )
-        logger.info("Discovered %d files in %.0fms", len(files), _elapsed_ms(t2))
-
-        engine = TreeSitterEngine()
-        adapters = _build_adapters()
-
+        adapters = _build_adapters(strict=config.strict)
         t3 = time.perf_counter()
-        parsed_files = extract_symbols(files, engine, adapters, parallel=config.parallel)
-        import_map = parse_imports(files, engine, adapters, parallel=config.parallel)
-        file_map = build_file_map(files)
-        file_languages = {f.path: f.language for f in files}
-        resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
+        parsed = parse_repository(repo_path, config, adapters)
+        logger.info("Discovered %d files in %.0fms", len(parsed.files), _elapsed_ms(t2))
         parse_ms = _elapsed_ms(t3)
-        logger.info("Parsed %d files in %.0fms", len(parsed_files), parse_ms)
+        logger.info("Parsed %d files in %.0fms", len(parsed.parsed_files), parse_ms)
         if timing is not None:
             timing.parse_ms = parse_ms
 
-        graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
+        graph = DependencyGraph.from_parsed_files(parsed.parsed_files, parsed.resolved_imports)
 
         t4 = time.perf_counter()
-        file_chunker: Chunker = chunker if chunker is not None else ASTChunker(config=index_config)
-        sources: dict[str, bytes] = {}
-        for f in files:
-            try:
-                sources[f.path] = Path(f.absolute_path).read_bytes()
-            except OSError:
-                continue
-        all_chunks = file_chunker.chunk_files(parsed_files, sources)
+        all_chunks = build_chunks(
+            parsed.files, parsed.parsed_files, index_config, chunker=chunker, strict=config.strict
+        )
         logger.info("Chunked into %d chunks in %.0fms", len(all_chunks), _elapsed_ms(t4))
 
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
 
         try:
-            bm25 = BM25Index(store)
+            bm25 = BM25Index(store, strict=config.strict)
             store.insert_chunks(all_chunks)
             edges = graph.file_edges()
             store.insert_edges(edges)
@@ -509,6 +505,8 @@ def query(
 
             # Build vector index if configured
             vector_results_miss: list[tuple[object, float]] | None = None
+            vector_index_size = 0
+            fallback_reason: str | None = None
             if index_config.vector:
                 embedder = _get_embedder(index_config)
                 if embedder is not None:
@@ -517,20 +515,29 @@ def query(
                     t5 = time.perf_counter()
                     vec_idx = VectorIndex()
                     vec_idx.build(all_chunks, embedder)  # type: ignore[arg-type]
+                    vector_index_size = len(all_chunks)
                     vector_results_miss = vec_idx.search(question, embedder, top_k=50)  # type: ignore[assignment]
                     logger.info("Vector index built in %.0fms", _elapsed_ms(t5))
 
                     if config.cache:
-                        vec_idx.save(cache.vector_path(cache_key))
+                        vec_dim = vec_idx._vectors.shape[1] if vec_idx._vectors is not None else 0
+                        vec_idx.save(
+                            cache.vector_path(cache_key),
+                            embedder_name=index_config.embedder or "",
+                            vector_dim=vec_dim,
+                        )
+                else:
+                    fallback_reason = "embedder_not_available"
 
             if config.cache:
-                commit = cache.git_head(source.local_path) or source.commit or ""
+                commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
                 identity = source.url or source.local_path or ""
                 store.set_metadata("commit_hash", commit)
                 store.set_metadata("source_identity", identity)
                 store.set_metadata("indexed_at", str(time.time()))
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
                 cache.put(cache_key, db_path)
+                _enforce_cache_policy(cache, config)
 
             t6 = time.perf_counter()
             search_results = bm25.search(question, top_k=50)
@@ -548,6 +555,9 @@ def query(
             if timing is not None:
                 timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
             bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
+            bundle.retrieval_metadata.vector_enabled = index_config.vector
+            bundle.retrieval_metadata.vector_index_size = vector_index_size
+            bundle.retrieval_metadata.hybrid_fallback_reason = fallback_reason
             logger.info("Search + assemble in %.0fms", _elapsed_ms(t6))
         finally:
             store.close()
@@ -574,6 +584,19 @@ def _get_embedder(index_config: IndexConfig) -> object | None:
         return SentenceTransformerEmbedder()
     # API embedder requires additional config — not created here
     return None
+
+
+def _validate_vector_config(index_config: IndexConfig) -> None:
+    """Validate vector retrieval configuration before query execution."""
+    if (
+        index_config.vector
+        and index_config.hybrid_required_embedder
+        and (index_config.embedder is None or index_config.embedder.strip() == "")
+    ):
+        raise ConfigError(
+            "Hybrid retrieval requires an embedder. Set --embedder (e.g. 'nomic' "
+            "or 'sentence_transformers') or disable hybrid strategy."
+        )
 
 
 def compare(

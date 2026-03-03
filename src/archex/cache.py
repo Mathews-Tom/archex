@@ -30,11 +30,11 @@ class CacheManager:
     # Key helpers
     # ------------------------------------------------------------------
 
-    def cache_key(self, source: RepoSource) -> str:
+    def cache_key(self, source: RepoSource, *, head_override: str | None = None) -> str:
         """Derive a stable SHA256 cache key from the source identity and git HEAD."""
         identity = source.url or source.local_path or ""
-        # Include git HEAD commit for local repos to invalidate on new commits
-        commit = source.commit or self.git_head(source.local_path)
+        # Include git HEAD commit to invalidate on new commits
+        commit = head_override or source.commit or self.git_head(source.local_path)
         if commit:
             identity = f"{identity}@{commit}"
         return hashlib.sha256(identity.encode()).hexdigest()
@@ -152,6 +152,41 @@ class CacheManager:
                 removed += 1
         return removed
 
+    def clean_by_size(self, max_size_bytes: int) -> int:
+        """Evict oldest cache entries until total .db size is <= max_size_bytes."""
+        if max_size_bytes <= 0:
+            raise CacheError("max_size_bytes must be positive")
+
+        entries = []
+        total_size = 0
+        for db in self._cache_dir.glob("*.db"):
+            key = db.stem
+            meta = self.meta_path(key)
+            if meta.exists():
+                try:
+                    created = float(meta.read_text().strip())
+                except ValueError:
+                    created = db.stat().st_mtime
+            else:
+                created = db.stat().st_mtime
+            size = db.stat().st_size
+            entries.append((created, key, db, size))
+            total_size += size
+
+        if total_size <= max_size_bytes:
+            return 0
+
+        removed = 0
+        for _created, key, db, size in sorted(entries, key=lambda x: x[0]):
+            if total_size <= max_size_bytes:
+                break
+            db.unlink(missing_ok=True)
+            self.meta_path(key).unlink(missing_ok=True)
+            self.vector_path(key).unlink(missing_ok=True)
+            total_size -= size
+            removed += 1
+        return removed
+
     def find_store_for_source(self, source: RepoSource) -> tuple[Path, str] | None:
         """Find a cached store for the same source identity, regardless of commit.
 
@@ -180,7 +215,7 @@ class CacheManager:
                             return (db_file, str(commit_row[0]))
                 finally:
                     conn.close()
-            except Exception:
+            except (sqlite3.Error, OSError, ValueError):
                 continue
 
         return None
