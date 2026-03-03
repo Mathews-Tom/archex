@@ -1,0 +1,13 @@
+task_id: archex_delta_small
+repo: "."
+base_commit: "895adea"
+delta_commit: "30e6d33"
+expected_delta:
+  - src/archex/benchmark/baseline.py
+  - src/archex/benchmark/gate.py
+  - src/archex/benchmark/models.py
+  - src/archex/benchmark/reporter.py
+  - src/archex/benchmark/runner.py
+  - src/archex/benchmark/strategies.py
+  - src/archex/cli/benchmark_cmd.py
+language: python

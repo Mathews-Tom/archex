@@ -1,0 +1,14 @@
+task_id: archex_delta_large
+repo: "."
+base_commit: "353f4a9"
+delta_commit: "a995519"
+expected_delta:
+  - src/archex/api.py
+  - src/archex/cache.py
+  - src/archex/index/delta.py
+  - src/archex/index/store.py
+  - src/archex/index/graph.py
+  - src/archex/models.py
+  - src/archex/exceptions.py
+  - src/archex/reporting.py
+language: python
