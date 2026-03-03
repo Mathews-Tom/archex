@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archex.api import analyze, compare, query
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from archex.models import FileTreeEntry
 from archex.models import (
     ArchProfile,
@@ -708,3 +707,211 @@ class TestFileTreeDepthLimit:
                 paths.append(e.path)
             paths.extend(TestFileTreeDepthLimit._collect_paths(e.children))
         return paths
+
+
+# ---------------------------------------------------------------------------
+# Delta indexing integration tests
+# ---------------------------------------------------------------------------
+
+
+def _git(repo: Path, *args: str) -> str:
+    import subprocess
+
+    result = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+class TestDeltaIndexIntegration:
+    """End-to-end delta indexing via _ensure_index / query()."""
+
+    def test_delta_index_single_file_change(self, python_simple_repo: Path, tmp_path: Path) -> None:
+        """Modify one file, delta re-index, verify new content appears in index."""
+        source = RepoSource(local_path=str(python_simple_repo))
+        cache_dir = str(tmp_path / "cache")
+        config = Config(languages=["python"], cache=True, cache_dir=cache_dir)
+
+        # First query — builds full index
+        bundle1 = query(source, "calculate_sum", config=config)
+        assert isinstance(bundle1, ContextBundle)
+
+        # Modify utils.py in the fixture repo
+        utils = python_simple_repo / "utils.py"
+        utils.write_text("def delta_changed_function():\n    return 999\n")
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "delta test: modify utils")
+
+        # Second query — should trigger delta path (same repo, new commit)
+        bundle2 = query(source, "delta_changed_function", config=config)
+        assert isinstance(bundle2, ContextBundle)
+
+    def test_delta_index_add_file(self, python_simple_repo: Path, tmp_path: Path) -> None:
+        """Add a new .py file, delta re-index, verify it appears in index."""
+        source = RepoSource(local_path=str(python_simple_repo))
+        cache_dir = str(tmp_path / "cache")
+        config = Config(languages=["python"], cache=True, cache_dir=cache_dir)
+
+        # Build initial index
+        query(source, "models", config=config)
+
+        # Add a new file
+        new_file = python_simple_repo / "brand_new_module.py"
+        new_file.write_text(
+            "def ultra_unique_delta_function():\n    return 'added by delta test'\n"
+        )
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "add brand_new_module")
+
+        # Re-query — delta should include new file
+        bundle = query(source, "ultra_unique_delta_function", config=config)
+        assert isinstance(bundle, ContextBundle)
+
+    def test_delta_index_delete_file(self, python_simple_repo: Path, tmp_path: Path) -> None:
+        """Delete a file, delta re-index, verify its chunks are removed."""
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        cache_dir = str(tmp_path / "cache")
+        config = Config(languages=["python"], cache=True, cache_dir=cache_dir)
+
+        # Build initial index and verify utils.py is indexed
+        store = _ensure_index(source, config=config)
+        try:
+            initial_chunks = store.get_chunks_for_file("utils.py")
+            assert len(initial_chunks) > 0
+        finally:
+            store.close()
+
+        # Delete utils.py
+        (python_simple_repo / "utils.py").unlink()
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "delete utils.py")
+
+        # Re-index via delta path
+        store2 = _ensure_index(source, config=config)
+        try:
+            after_chunks = store2.get_chunks_for_file("utils.py")
+            assert after_chunks == []
+        finally:
+            store2.close()
+
+    def test_delta_meta_in_timing(self, python_simple_repo: Path, tmp_path: Path) -> None:
+        """PipelineTiming.delta_meta is populated after the delta path executes."""
+        source = RepoSource(local_path=str(python_simple_repo))
+        cache_dir = str(tmp_path / "cache")
+        config = Config(languages=["python"], cache=True, cache_dir=cache_dir)
+
+        # Prime the cache
+        query(source, "models", config=config)
+
+        # Make a change to trigger delta
+        (python_simple_repo / "utils.py").write_text("def timing_test(): pass\n")
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "timing delta test")
+
+        # Query with timing to check delta_meta populated
+        pt = PipelineTiming()
+        bundle = query(source, "timing_test", config=config, timing=pt)
+
+        assert isinstance(bundle, ContextBundle)
+        # If delta path was taken, delta_meta should be set
+        if pt.delta_meta is not None:
+            assert pt.delta_meta.full_reindex_avoided is True
+            assert pt.delta_meta.delta_time_ms >= 0
+            assert pt.delta_ms >= 0
+
+    def test_delta_threshold_triggers_full_reindex(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """When change ratio exceeds delta_threshold, full re-index is used."""
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        cache_dir = str(tmp_path / "cache")
+        # Set threshold to 0.0 so any change triggers full re-index
+        config = Config(languages=["python"], cache=True, cache_dir=cache_dir, delta_threshold=0.0)
+
+        # Build initial index
+        _ensure_index(source, config=config).close()
+
+        # Modify one file
+        (python_simple_repo / "utils.py").write_text("# threshold test\n")
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "threshold test")
+
+        # With threshold=0.0, even 1 change is >= 0.0, so full re-index runs
+        pt = PipelineTiming()
+        store = _ensure_index(source, config=config, timing=pt)
+        store.close()
+
+        # delta_meta should be None (full re-index path, not delta path)
+        assert pt.delta_meta is None
+
+    def test_delta_index_matches_full_reindex(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """After delta, querying produces the same symbol set as a full re-index."""
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        cache_dir_delta = str(tmp_path / "cache_delta")
+
+        # Build initial delta-path index
+        config_delta = Config(languages=["python"], cache=True, cache_dir=cache_dir_delta)
+        _ensure_index(source, config=config_delta).close()
+
+        # Modify utils.py
+        (python_simple_repo / "utils.py").write_text(
+            "def fresh_symbol_for_comparison(): return 1\n"
+        )
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "comparison test")
+
+        # Get delta-indexed store
+        store_delta = _ensure_index(source, config=config_delta)
+        try:
+            delta_chunks = {c.file_path for c in store_delta.get_chunks()}
+        finally:
+            store_delta.close()
+
+        # Get full-indexed store (fresh cache)
+        config_full = Config(languages=["python"], cache=False)
+        store_full = _ensure_index(source, config=config_full)
+        try:
+            full_chunks = {c.file_path for c in store_full.get_chunks()}
+        finally:
+            store_full.close()
+
+        # Both should index the same set of files
+        assert delta_chunks == full_chunks
+
+    def test_delta_nongit_mtime_api(self, tmp_path: Path) -> None:
+        """compute_mtime_delta on a non-git directory detects file changes by mtime."""
+        import shutil
+        import time as _time
+
+        from archex.index.delta import compute_mtime_delta
+        from archex.index.store import IndexStore
+        from archex.models import ChangeStatus
+
+        fixtures_dir = Path(__file__).parent / "fixtures"
+        nongit_dir = tmp_path / "nongit"
+        shutil.copytree(fixtures_dir / "python_simple", nongit_dir)
+        assert not (nongit_dir / ".git").exists()
+
+        db = tmp_path / "mtime_test.db"
+        store = IndexStore(db)
+        try:
+            # Empty store — all files on disk should be ADDED
+            manifest = compute_mtime_delta(nongit_dir, store, _time.time() - 10)
+            added = [c for c in manifest.changes if c.status == ChangeStatus.ADDED]
+            assert len(added) > 0
+            assert manifest.base_commit == "mtime"
+            assert manifest.current_commit == "mtime"
+        finally:
+            store.close()

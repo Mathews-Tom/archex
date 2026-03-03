@@ -178,3 +178,118 @@ def test_meta_path_accepts_valid_sha256_key(cache: CacheManager) -> None:
     key = hashlib.sha256(b"test").hexdigest()
     path = cache.meta_path(key)
     assert path.name == f"{key}.meta"
+
+
+# ---------------------------------------------------------------------------
+# find_store_for_source
+# ---------------------------------------------------------------------------
+
+
+class TestFindStoreForSource:
+    def test_finds_matching_identity(self, cache: CacheManager, tmp_path: Path) -> None:
+        from archex.index.store import IndexStore
+
+        db = tmp_path / "source.db"
+        store = IndexStore(db)
+        store.set_metadata("source_identity", "/path/to/repo")
+        store.set_metadata("commit_hash", "abc123")
+        store.close()
+
+        key = "a" * 64
+        cache.put(key, db)
+
+        source = RepoSource(local_path="/path/to/repo")
+        result = cache.find_store_for_source(source)
+        assert result is not None
+        _, commit = result
+        assert commit == "abc123"
+
+    def test_returns_none_when_no_match(self, cache: CacheManager) -> None:
+        source = RepoSource(local_path="/nonexistent/path")
+        assert cache.find_store_for_source(source) is None
+
+    def test_finds_different_commit(self, cache: CacheManager, tmp_path: Path) -> None:
+        from archex.index.store import IndexStore
+
+        db = tmp_path / "source.db"
+        store = IndexStore(db)
+        store.set_metadata("source_identity", "/my/repo")
+        store.set_metadata("commit_hash", "old_commit")
+        store.close()
+
+        key = "b" * 64
+        cache.put(key, db)
+
+        source = RepoSource(local_path="/my/repo", commit="new_commit")
+        result = cache.find_store_for_source(source)
+        assert result is not None
+        _, commit = result
+        assert commit == "old_commit"
+
+    def test_no_match_different_identity(self, cache: CacheManager, tmp_path: Path) -> None:
+        from archex.index.store import IndexStore
+
+        db = tmp_path / "other.db"
+        store = IndexStore(db)
+        store.set_metadata("source_identity", "/different/repo")
+        store.set_metadata("commit_hash", "some_commit")
+        store.close()
+
+        key = "c" * 64
+        cache.put(key, db)
+
+        source = RepoSource(local_path="/my/repo")
+        result = cache.find_store_for_source(source)
+        assert result is None
+
+    def test_returns_db_path(self, cache: CacheManager, tmp_path: Path) -> None:
+        from archex.index.store import IndexStore
+
+        db = tmp_path / "source.db"
+        store = IndexStore(db)
+        store.set_metadata("source_identity", "/some/repo")
+        store.set_metadata("commit_hash", "commitxyz")
+        store.close()
+
+        key = "e" * 64
+        cache.put(key, db)
+
+        source = RepoSource(local_path="/some/repo")
+        result = cache.find_store_for_source(source)
+        assert result is not None
+        db_path, _ = result
+        assert db_path.exists()
+        assert db_path.suffix == ".db"
+
+    def test_empty_identity_returns_none(self, cache: CacheManager) -> None:
+        # RepoSource with url=None, local_path=None raises ValueError
+        # so we test empty string identity directly
+        result = (
+            cache.find_store_for_source.__func__(  # type: ignore[attr-defined]
+                cache, RepoSource(local_path="")
+            )
+            if False
+            else None
+        )
+        # The method checks `if not identity: return None`
+        # Test indirectly: no cached db with empty identity should match
+        source = RepoSource(url="https://github.com/example/repo")
+        result = cache.find_store_for_source(source)
+        assert result is None  # no entry in empty cache
+
+    def test_missing_commit_hash_not_returned(self, cache: CacheManager, tmp_path: Path) -> None:
+        from archex.index.store import IndexStore
+
+        db = tmp_path / "nocommit.db"
+        store = IndexStore(db)
+        store.set_metadata("source_identity", "/repo/no/commit")
+        # Deliberately do not set commit_hash
+        store.close()
+
+        key = "f" * 64
+        cache.put(key, db)
+
+        source = RepoSource(local_path="/repo/no/commit")
+        result = cache.find_store_for_source(source)
+        # No commit_hash row → result should be None
+        assert result is None

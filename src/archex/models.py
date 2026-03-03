@@ -46,6 +46,13 @@ class PatternCategory(StrEnum):
     CREATIONAL = "creational"
 
 
+class ChangeStatus(StrEnum):
+    MODIFIED = "M"
+    ADDED = "A"
+    DELETED = "D"
+    RENAMED = "R"
+
+
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
@@ -96,6 +103,7 @@ class Config(BaseModel):
     cache_dir: str = "~/.archex/cache"
     max_file_size: int = 10_000_000
     parallel: bool = False
+    delta_threshold: float = 0.5
 
 
 class IndexConfig(BaseModel):
@@ -187,6 +195,63 @@ class ParsedFile(BaseModel):
     imports: list[ImportStatement] = []
     lines: int = 0
     tokens: int = 0
+
+
+class FileChange(BaseModel):
+    """A single file change between two commits."""
+
+    path: str
+    status: ChangeStatus
+    old_path: str | None = None
+
+
+class DeltaManifest(BaseModel):
+    """Change manifest between two commits."""
+
+    base_commit: str
+    current_commit: str
+    changes: list[FileChange] = []
+
+    @property
+    def modified_files(self) -> list[str]:
+        return [c.path for c in self.changes if c.status == ChangeStatus.MODIFIED]
+
+    @property
+    def added_files(self) -> list[str]:
+        return [c.path for c in self.changes if c.status == ChangeStatus.ADDED]
+
+    @property
+    def deleted_files(self) -> list[str]:
+        return [c.path for c in self.changes if c.status == ChangeStatus.DELETED]
+
+    @property
+    def renamed_files(self) -> list[tuple[str, str]]:
+        return [
+            (c.old_path or c.path, c.path) for c in self.changes if c.status == ChangeStatus.RENAMED
+        ]
+
+    @property
+    def all_affected_files(self) -> set[str]:
+        paths: set[str] = set()
+        for c in self.changes:
+            paths.add(c.path)
+            if c.old_path:
+                paths.add(c.old_path)
+        return paths
+
+
+class DeltaMeta(BaseModel):
+    """Delta indexing metrics for _meta response."""
+
+    base_commit: str
+    current_commit: str
+    files_modified: int
+    files_added: int
+    files_deleted: int
+    files_renamed: int
+    files_unchanged: int
+    delta_time_ms: float
+    full_reindex_avoided: bool
 
 
 # ---------------------------------------------------------------------------
@@ -562,6 +627,7 @@ class TokenMeta(BaseModel):
     cached: bool = False
     index_time_ms: float = 0.0
     query_time_ms: float = 0.0
+    delta: DeltaMeta | None = None
 
 
 @dataclass
@@ -575,6 +641,8 @@ class PipelineTiming:
     assemble_ms: float = 0.0
     total_ms: float = 0.0
     cached: bool = False
+    delta_ms: float = 0.0
+    delta_meta: DeltaMeta | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -321,16 +321,16 @@ class TestCacheKeyFingerprint:
     def test_changes_with_git_head(self, tmp_path: Path) -> None:
         cache = CacheManager(cache_dir=str(tmp_path))
         source = RepoSource(local_path="/some/repo")
-        with patch.object(CacheManager, "_git_head", return_value="abc"):
+        with patch.object(CacheManager, "git_head", return_value="abc"):
             k1 = cache.cache_key(source)
-        with patch.object(CacheManager, "_git_head", return_value="def"):
+        with patch.object(CacheManager, "git_head", return_value="def"):
             k2 = cache.cache_key(source)
         assert k1 != k2
 
     def test_stable_without_git(self, tmp_path: Path) -> None:
         cache = CacheManager(cache_dir=str(tmp_path))
         source = RepoSource(local_path="/r")
-        with patch.object(CacheManager, "_git_head", return_value=None):
+        with patch.object(CacheManager, "git_head", return_value=None):
             k1 = cache.cache_key(source)
             k2 = cache.cache_key(source)
         assert k1 == k2
@@ -380,7 +380,7 @@ class TestQueryCacheSkipsParse:
         config = Config(cache=True, cache_dir=str(cache_dir))
         with (
             patch("archex.api.extract_symbols") as mock_es,
-            patch("archex.cache.CacheManager._git_head", return_value=None),
+            patch("archex.cache.CacheManager.git_head", return_value=None),
         ):
             from archex.api import query
 
@@ -420,14 +420,14 @@ class TestQueryCacheSkipsParse:
         cache_dir.mkdir()
         cache = CacheManager(cache_dir=str(cache_dir))
         source = RepoSource(local_path=str(python_simple_repo))
-        with patch("archex.cache.CacheManager._git_head", return_value=None):
+        with patch("archex.cache.CacheManager.git_head", return_value=None):
             key = cache.cache_key(source)
         cache.put(key, db_path)
 
         config = Config(cache=True, cache_dir=str(cache_dir))
         with (
             patch("archex.api.extract_symbols", wraps=extract_symbols) as mock_es,
-            patch("archex.cache.CacheManager._git_head", return_value=None),
+            patch("archex.cache.CacheManager.git_head", return_value=None),
         ):
             from archex.api import query
 

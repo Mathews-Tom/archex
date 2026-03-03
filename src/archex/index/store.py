@@ -133,7 +133,7 @@ class IndexStore:
         )
         self._conn.commit()
 
-    def insert_chunks(self, chunks: list[CodeChunk]) -> None:
+    def _insert_chunks_no_commit(self, chunks: list[CodeChunk]) -> None:
         self._conn.executemany(
             "INSERT OR REPLACE INTO chunks "
             "(id, content, file_path, start_line, end_line, symbol_name, symbol_kind, "
@@ -161,7 +161,6 @@ class IndexStore:
                 for c in chunks
             ],
         )
-        # Populate symbols_fts for chunks that have a symbol_id
         fts_rows = [
             (c.symbol_id, c.symbol_name, c.qualified_name, c.file_path)
             for c in chunks
@@ -174,14 +173,119 @@ class IndexStore:
                 "VALUES (?, ?, ?, ?)",
                 fts_rows,
             )
+
+    def insert_chunks(self, chunks: list[CodeChunk]) -> None:
+        self._insert_chunks_no_commit(chunks)
         self._conn.commit()
 
-    def insert_edges(self, edges: list[Edge]) -> None:
+    def _insert_edges_no_commit(self, edges: list[Edge]) -> None:
         self._conn.executemany(
             "INSERT INTO edges (source, target, kind, location) VALUES (?, ?, ?, ?)",
             [(e.source, e.target, str(e.kind), e.location) for e in edges],
         )
+
+    def insert_edges(self, edges: list[Edge]) -> None:
+        self._insert_edges_no_commit(edges)
         self._conn.commit()
+
+    def delete_chunks_for_files(self, file_paths: list[str]) -> int:
+        """Delete all chunks and FTS entries for the given file paths."""
+        if not file_paths:
+            return 0
+        placeholders = ",".join("?" for _ in file_paths)
+        self._conn.execute(
+            f"DELETE FROM symbols_fts WHERE file_path IN ({placeholders})",
+            file_paths,
+        )
+        self._conn.execute(
+            f"DELETE FROM chunks_fts WHERE chunk_id IN "
+            f"(SELECT id FROM chunks WHERE file_path IN ({placeholders}))",
+            file_paths,
+        )
+        cur = self._conn.execute(
+            f"DELETE FROM chunks WHERE file_path IN ({placeholders})",
+            file_paths,
+        )
+        self._conn.commit()
+        return cur.rowcount
+
+    def delete_edges_for_files(self, file_paths: list[str]) -> int:
+        """Delete all edges where source or target is in file_paths."""
+        if not file_paths:
+            return 0
+        placeholders = ",".join("?" for _ in file_paths)
+        cur = self._conn.execute(
+            f"DELETE FROM edges WHERE source IN ({placeholders}) OR target IN ({placeholders})",
+            file_paths + file_paths,
+        )
+        self._conn.commit()
+        return cur.rowcount
+
+    def update_file_paths(self, old_path: str, new_path: str) -> None:
+        """Update file path references for a rename across chunks, edges, and FTS."""
+        self._conn.execute(
+            "UPDATE chunks SET file_path = ? WHERE file_path = ?",
+            (new_path, old_path),
+        )
+        self._conn.execute(
+            "UPDATE edges SET source = ? WHERE source = ?",
+            (new_path, old_path),
+        )
+        self._conn.execute(
+            "UPDATE edges SET target = ? WHERE target = ?",
+            (new_path, old_path),
+        )
+        cur = self._conn.execute(
+            "SELECT symbol_id, symbol_name, qualified_name FROM symbols_fts WHERE file_path = ?",
+            (old_path,),
+        )
+        rows = cur.fetchall()
+        if rows:
+            self._conn.execute(
+                "DELETE FROM symbols_fts WHERE file_path = ?",
+                (old_path,),
+            )
+            self._conn.executemany(
+                "INSERT INTO symbols_fts (symbol_id, symbol_name, qualified_name, file_path) "
+                "VALUES (?, ?, ?, ?)",
+                [(r[0], r[1], r[2], new_path) for r in rows],
+            )
+        self._conn.commit()
+
+    def delete_and_insert_for_files(
+        self,
+        file_paths: list[str],
+        new_chunks: list[CodeChunk],
+        new_edges: list[Edge],
+    ) -> None:
+        """Atomically replace chunks and edges for the given files."""
+        try:
+            if file_paths:
+                placeholders = ",".join("?" for _ in file_paths)
+                self._conn.execute(
+                    f"DELETE FROM symbols_fts WHERE file_path IN ({placeholders})",
+                    file_paths,
+                )
+                self._conn.execute(
+                    f"DELETE FROM chunks_fts WHERE chunk_id IN "
+                    f"(SELECT id FROM chunks WHERE file_path IN ({placeholders}))",
+                    file_paths,
+                )
+                self._conn.execute(
+                    f"DELETE FROM chunks WHERE file_path IN ({placeholders})",
+                    file_paths,
+                )
+                self._conn.execute(
+                    f"DELETE FROM edges WHERE source IN ({placeholders}) "
+                    f"OR target IN ({placeholders})",
+                    file_paths + file_paths,
+                )
+            self._insert_chunks_no_commit(new_chunks)
+            self._insert_edges_no_commit(new_edges)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def get_chunks(self) -> list[CodeChunk]:
         cur = self._conn.execute(_CHUNK_SELECT)

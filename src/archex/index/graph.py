@@ -85,6 +85,42 @@ class DependencyGraph:
         self._file_graph.add_edge(source, target, kind=kind)  # type: ignore[misc]
         self._centrality_cache = None
 
+    def update_files(
+        self,
+        removed_paths: set[str],
+        new_edges: list[Edge],
+    ) -> None:
+        """Incrementally update the file graph for changed files.
+
+        Removes all nodes (and their incident edges) for files in removed_paths,
+        then adds new edges (implicitly creating nodes). Invalidates centrality cache.
+
+        Args:
+            removed_paths: File paths to remove (modified + deleted files).
+                Modified files are removed then re-added via new_edges.
+            new_edges: Edges from re-parsed and newly added files.
+        """
+        for path in removed_paths:
+            if self._file_graph.has_node(path):  # type: ignore[misc]
+                self._file_graph.remove_node(path)  # type: ignore[misc]
+            nodes_to_remove = [
+                n
+                for n in self._symbol_graph.nodes()  # type: ignore[misc]
+                if self._symbol_graph.nodes[n].get("file_path") == path  # type: ignore[misc]
+            ]
+            for n in nodes_to_remove:
+                self._symbol_graph.remove_node(n)  # type: ignore[misc]
+
+        for edge in new_edges:
+            self._file_graph.add_edge(  # type: ignore[misc]
+                edge.source,
+                edge.target,
+                kind=edge.kind,
+                location=edge.location,
+            )
+
+        self._centrality_cache = None
+
     @property
     def file_count(self) -> int:
         return self._file_graph.number_of_nodes()  # type: ignore[misc]

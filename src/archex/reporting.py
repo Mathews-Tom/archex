@@ -6,7 +6,7 @@ import sys
 
 import tiktoken
 
-from archex.models import PipelineTiming, TokenMeta
+from archex.models import DeltaMeta, PipelineTiming, TokenMeta
 
 _encoder = tiktoken.get_encoding("cl100k_base")
 
@@ -25,6 +25,7 @@ def compute_meta(
     cached: bool = False,
     index_time_ms: float = 0.0,
     query_time_ms: float = 0.0,
+    delta: DeltaMeta | None = None,
 ) -> TokenMeta:
     """Compute token efficiency metrics for a tool response."""
     returned = count_tokens(response_text)
@@ -38,6 +39,7 @@ def compute_meta(
         cached=cached,
         index_time_ms=round(index_time_ms, 1),
         query_time_ms=round(query_time_ms, 1),
+        delta=delta,
     )
 
 
@@ -53,6 +55,14 @@ def print_timing(timing: PipelineTiming) -> None:
     if timing.search_ms > 0 or timing.assemble_ms > 0:
         sa = timing.search_ms + timing.assemble_ms
         print(f"[timing] Search + assemble in {sa:.0f}ms", file=sys.stderr)
+    if timing.delta_meta is not None:
+        dm = timing.delta_meta
+        print(
+            f"[timing] Delta index: {dm.files_modified}M/{dm.files_added}A/"
+            f"{dm.files_deleted}D files in {dm.delta_time_ms:.0f}ms "
+            f"(full reindex avoided)",
+            file=sys.stderr,
+        )
 
 
 def print_savings(

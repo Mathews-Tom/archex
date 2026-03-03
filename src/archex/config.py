@@ -34,6 +34,11 @@ def _parse_env_value(key: str, value: str) -> Any:
     lower = key.lower()
     if lower.endswith("_size") or lower.endswith("_budget"):
         return int(value)
+    if lower.endswith("_threshold"):
+        try:
+            return float(value)
+        except ValueError:
+            return value
     if value.lower() in _BOOL_TRUE:
         return True
     if value.lower() in {"0", "false", "no", "off"}:

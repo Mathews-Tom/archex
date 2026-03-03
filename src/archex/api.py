@@ -16,6 +16,7 @@ from archex.analyze.interfaces import extract_interfaces
 from archex.analyze.modules import detect_modules
 from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
+from archex.exceptions import DeltaIndexError
 from archex.index.bm25 import BM25Index
 from archex.index.chunker import ASTChunker, Chunker
 from archex.index.graph import DependencyGraph
@@ -62,35 +63,14 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _ensure_index(
+def _full_index(
     source: RepoSource,
-    config: Config | None = None,
-    timing: PipelineTiming | None = None,
+    config: Config,
+    cache: CacheManager,
+    cache_key: str,
+    timing: PipelineTiming | None,
 ) -> IndexStore:
-    """Ensure the repo is indexed and return an open IndexStore.
-
-    On cache hit, returns the cached store directly.
-    On cache miss, runs the full acquire → parse → chunk → store pipeline.
-    The caller is responsible for closing the returned store.
-    """
-    if config is None:
-        config = Config()
-
-    t_start = time.perf_counter()
-    cache = CacheManager(cache_dir=config.cache_dir)
-    cache_key = cache.cache_key(source)
-
-    cached_db = cache.get(cache_key) if config.cache else None
-    if cached_db is not None:
-        store = IndexStore(cached_db)
-        if not store.needs_reindex():
-            if timing is not None:
-                timing.cached = True
-                timing.index_ms = _elapsed_ms(t_start)
-            return store
-        store.close()
-        cache.invalidate(cache_key)
-
+    """Run the full acquire → parse → chunk → store pipeline."""
     t_acq = time.perf_counter()
     repo_path, _url, _local_path, cleanup = _acquire(source)
     if timing is not None:
@@ -130,6 +110,11 @@ def _ensure_index(
         store.insert_edges(edges)
 
         if config.cache:
+            commit = cache.git_head(source.local_path) or source.commit or ""
+            identity = source.url or source.local_path or ""
+            store.set_metadata("commit_hash", commit)
+            store.set_metadata("source_identity", identity)
+            store.set_metadata("indexed_at", str(time.time()))
             store.conn.execute("PRAGMA wal_checkpoint(FULL)")
             cache.put(cache_key, db_path)
         if timing is not None:
@@ -138,6 +123,82 @@ def _ensure_index(
         return store
     finally:
         cleanup()
+
+
+def _ensure_index(
+    source: RepoSource,
+    config: Config | None = None,
+    timing: PipelineTiming | None = None,
+) -> IndexStore:
+    """Ensure the repo is indexed and return an open IndexStore.
+
+    On exact cache hit (same commit), returns the cached store directly.
+    On same-repo different-commit, applies delta if within threshold.
+    On cache miss, runs the full acquire → parse → chunk → store pipeline.
+    The caller is responsible for closing the returned store.
+    """
+    if config is None:
+        config = Config()
+
+    t_start = time.perf_counter()
+    cache = CacheManager(cache_dir=config.cache_dir)
+    cache_key = cache.cache_key(source)
+
+    # Path 1: Exact cache hit (same commit) — fast path
+    cached_db = cache.get(cache_key) if config.cache else None
+    if cached_db is not None:
+        store = IndexStore(cached_db)
+        if not store.needs_reindex():
+            if timing is not None:
+                timing.cached = True
+                timing.index_ms = _elapsed_ms(t_start)
+            return store
+        store.close()
+        cache.invalidate(cache_key)
+
+    # Path 2: Delta path — same repo, different commit
+    if config.cache:
+        existing = cache.find_store_for_source(source)
+        if existing is not None:
+            db_path, cached_commit = existing
+            current_commit = CacheManager.git_head(source.local_path)
+            if current_commit and cached_commit != current_commit:
+                try:
+                    from archex.index.delta import apply_delta, compute_delta
+
+                    repo_path = (
+                        Path(source.local_path).resolve() if source.local_path else Path(".")
+                    )
+                    manifest = compute_delta(repo_path, cached_commit, current_commit)
+                    total_files = len(
+                        discover_files(
+                            repo_path,
+                            languages=config.languages,
+                            max_file_size=config.max_file_size,
+                        )
+                    )
+                    change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
+                    if change_ratio < config.delta_threshold:
+                        store = IndexStore(db_path)
+                        graph = DependencyGraph.from_edges(store.get_edges())
+                        delta_meta = apply_delta(store, graph, manifest, repo_path, config)
+                        identity = source.url or source.local_path or ""
+                        store.set_metadata("commit_hash", current_commit)
+                        store.set_metadata("source_identity", identity)
+                        store.set_metadata("indexed_at", str(time.time()))
+                        store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+                        cache.put(cache_key, db_path)
+                        if timing is not None:
+                            timing.delta_ms = delta_meta.delta_time_ms
+                            timing.delta_meta = delta_meta
+                            timing.index_ms = _elapsed_ms(t_start)
+                        logger.info("Delta index applied in %.0fms", delta_meta.delta_time_ms)
+                        return store
+                except DeltaIndexError:
+                    logger.info("Delta indexing failed, falling back to full re-index")
+
+    # Path 3: Full re-index
+    return _full_index(source, config, cache, cache_key, timing)
 
 
 def _chunk_to_symbol_source(chunk: CodeChunk) -> SymbolSource:
@@ -463,6 +524,11 @@ def query(
                         vec_idx.save(cache.vector_path(cache_key))
 
             if config.cache:
+                commit = cache.git_head(source.local_path) or source.commit or ""
+                identity = source.url or source.local_path or ""
+                store.set_metadata("commit_hash", commit)
+                store.set_metadata("source_identity", identity)
+                store.set_metadata("indexed_at", str(time.time()))
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
                 cache.put(cache_key, db_path)
 

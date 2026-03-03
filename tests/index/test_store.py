@@ -417,3 +417,193 @@ def test_get_files_tokens_deduplicates(store: IndexStore) -> None:
 def test_get_files_tokens_empty_list(store: IndexStore) -> None:
     store.insert_chunks(SAMPLE_CHUNKS)
     assert store.get_files_tokens([]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Batch delta operations
+# ---------------------------------------------------------------------------
+
+
+def _init_bm25(store: IndexStore) -> None:
+    """Initialize the chunks_fts table required by delete/insert operations."""
+    from archex.index.bm25 import BM25Index
+
+    BM25Index(store)
+
+
+class TestStoreBatchOperations:
+    def test_delete_chunks_for_files(self, store: IndexStore) -> None:
+        _init_bm25(store)
+        chunks = [
+            CodeChunk(
+                id="a1",
+                content="x=1",
+                file_path="a.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            ),
+            CodeChunk(
+                id="b1",
+                content="y=2",
+                file_path="b.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            ),
+        ]
+        store.insert_chunks(chunks)
+        deleted = store.delete_chunks_for_files(["a.py"])
+        assert deleted == 1
+        assert store.get_chunks_for_file("a.py") == []
+        assert len(store.get_chunks_for_file("b.py")) == 1
+
+    def test_delete_chunks_for_files_empty(self, store: IndexStore) -> None:
+        deleted = store.delete_chunks_for_files([])
+        assert deleted == 0
+
+    def test_delete_edges_for_files(self, store: IndexStore) -> None:
+        edges = [
+            Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS),
+            Edge(source="b.py", target="c.py", kind=EdgeKind.IMPORTS),
+        ]
+        store.insert_edges(edges)
+        deleted = store.delete_edges_for_files(["a.py"])
+        remaining = store.get_edges()
+        assert deleted == 1
+        assert len(remaining) == 1
+        assert remaining[0].source == "b.py"
+
+    def test_delete_edges_for_files_target_match(self, store: IndexStore) -> None:
+        edges = [
+            Edge(source="x.py", target="a.py", kind=EdgeKind.IMPORTS),
+            Edge(source="y.py", target="z.py", kind=EdgeKind.IMPORTS),
+        ]
+        store.insert_edges(edges)
+        deleted = store.delete_edges_for_files(["a.py"])
+        remaining = store.get_edges()
+        assert deleted == 1
+        assert len(remaining) == 1
+        assert remaining[0].source == "y.py"
+
+    def test_delete_edges_for_files_empty(self, store: IndexStore) -> None:
+        store.insert_edges([Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS)])
+        deleted = store.delete_edges_for_files([])
+        assert deleted == 0
+        assert len(store.get_edges()) == 1
+
+    def test_update_file_paths(self, store: IndexStore) -> None:
+        chunks = [
+            CodeChunk(
+                id="old1",
+                content="x=1",
+                file_path="old.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+                symbol_id="old.py::x#variable",
+                symbol_name="x",
+                qualified_name="x",
+            ),
+        ]
+        store.insert_chunks(chunks)
+        store.insert_edges([Edge(source="old.py", target="other.py", kind=EdgeKind.IMPORTS)])
+
+        store.update_file_paths("old.py", "new.py")
+
+        assert store.get_chunks_for_file("old.py") == []
+        assert len(store.get_chunks_for_file("new.py")) == 1
+        edges = store.get_edges()
+        assert edges[0].source == "new.py"
+
+    def test_update_file_paths_target_edge(self, store: IndexStore) -> None:
+        store.insert_edges([Edge(source="other.py", target="old.py", kind=EdgeKind.IMPORTS)])
+        store.update_file_paths("old.py", "new.py")
+        edges = store.get_edges()
+        assert edges[0].target == "new.py"
+
+    def test_delete_and_insert_atomic(self, store: IndexStore) -> None:
+        _init_bm25(store)
+        old = [
+            CodeChunk(
+                id="x1",
+                content="old",
+                file_path="x.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            )
+        ]
+        store.insert_chunks(old)
+        store.insert_edges([Edge(source="x.py", target="y.py", kind=EdgeKind.IMPORTS)])
+
+        new_chunks = [
+            CodeChunk(
+                id="x2",
+                content="new",
+                file_path="x.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            )
+        ]
+        new_edges = [Edge(source="x.py", target="z.py", kind=EdgeKind.IMPORTS)]
+        store.delete_and_insert_for_files(["x.py"], new_chunks, new_edges)
+
+        chunks = store.get_chunks_for_file("x.py")
+        assert len(chunks) == 1
+        assert chunks[0].content == "new"
+        edges = store.get_edges()
+        assert len(edges) == 1
+        assert edges[0].target == "z.py"
+
+    def test_delete_and_insert_empty_new_chunks(self, store: IndexStore) -> None:
+        _init_bm25(store)
+        old = [
+            CodeChunk(
+                id="z1",
+                content="content",
+                file_path="z.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            )
+        ]
+        store.insert_chunks(old)
+        store.delete_and_insert_for_files(["z.py"], [], [])
+        assert store.get_chunks_for_file("z.py") == []
+
+    def test_delete_chunks_for_multiple_files(self, store: IndexStore) -> None:
+        _init_bm25(store)
+        chunks = [
+            CodeChunk(
+                id="p1",
+                content="p",
+                file_path="p.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            ),
+            CodeChunk(
+                id="q1",
+                content="q",
+                file_path="q.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            ),
+            CodeChunk(
+                id="r1",
+                content="r",
+                file_path="r.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            ),
+        ]
+        store.insert_chunks(chunks)
+        deleted = store.delete_chunks_for_files(["p.py", "q.py"])
+        assert deleted == 2
+        assert store.get_chunks_for_file("p.py") == []
+        assert store.get_chunks_for_file("q.py") == []
+        assert len(store.get_chunks_for_file("r.py")) == 1

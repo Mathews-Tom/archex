@@ -31,5 +31,9 @@ class CacheError(ArchexError):
     """Raised when cache read/write operations fail."""
 
 
+class DeltaIndexError(ArchexError):
+    """Raised when delta indexing operations fail."""
+
+
 class ConfigError(ArchexError):
     """Raised when configuration is invalid or missing."""

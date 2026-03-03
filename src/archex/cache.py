@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
+import sqlite3
 import subprocess
 import time
 from pathlib import Path
@@ -33,13 +34,13 @@ class CacheManager:
         """Derive a stable SHA256 cache key from the source identity and git HEAD."""
         identity = source.url or source.local_path or ""
         # Include git HEAD commit for local repos to invalidate on new commits
-        commit = source.commit or self._git_head(source.local_path)
+        commit = source.commit or self.git_head(source.local_path)
         if commit:
             identity = f"{identity}@{commit}"
         return hashlib.sha256(identity.encode()).hexdigest()
 
     @staticmethod
-    def _git_head(local_path: str | None) -> str | None:
+    def git_head(local_path: str | None) -> str | None:
         """Return the HEAD commit hash for a local repo, or None."""
         if local_path is None:
             return None
@@ -150,6 +151,39 @@ class CacheManager:
                     meta.unlink()
                 removed += 1
         return removed
+
+    def find_store_for_source(self, source: RepoSource) -> tuple[Path, str] | None:
+        """Find a cached store for the same source identity, regardless of commit.
+
+        Returns (db_path, cached_commit_hash) if found, else None.
+        """
+        identity = source.url or source.local_path or ""
+        if not identity:
+            return None
+
+        for db_file in self._cache_dir.glob("*.db"):
+            try:
+                conn = sqlite3.connect(str(db_file))
+                try:
+                    cur = conn.execute(
+                        "SELECT value FROM metadata WHERE key = ?",
+                        ("source_identity",),
+                    )
+                    row = cur.fetchone()
+                    if row and str(row[0]) == identity:
+                        cur2 = conn.execute(
+                            "SELECT value FROM metadata WHERE key = ?",
+                            ("commit_hash",),
+                        )
+                        commit_row = cur2.fetchone()
+                        if commit_row:
+                            return (db_file, str(commit_row[0]))
+                finally:
+                    conn.close()
+            except Exception:
+                continue
+
+        return None
 
     def info(self) -> dict[str, Any]:
         """Return summary info about the cache."""
