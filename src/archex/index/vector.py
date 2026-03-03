@@ -84,7 +84,7 @@ class VectorIndex:
 
         return results
 
-    def save(self, path: Path) -> None:
+    def save(self, path: Path, *, embedder_name: str = "", vector_dim: int = 0) -> None:
         """Save vectors and chunk IDs to a compressed numpy file."""
         if self._vectors is None:
             raise ArchexIndexError("Cannot save empty vector index")
@@ -94,9 +94,17 @@ class VectorIndex:
             str(path),
             vectors=self._vectors,
             chunk_ids=np.array(self._chunk_ids, dtype="U512"),
+            embedder_meta=np.array([embedder_name, str(vector_dim)], dtype="U256"),
         )
 
-    def load(self, path: Path, chunks: list[CodeChunk]) -> None:
+    def load(
+        self,
+        path: Path,
+        chunks: list[CodeChunk],
+        *,
+        embedder_name: str = "",
+        vector_dim: int = 0,
+    ) -> None:
         """Load vectors from disk and rebuild the chunk lookup map."""
         if not path.exists():
             suffix = ".npz"
@@ -106,6 +114,21 @@ class VectorIndex:
             path = p
 
         data = np.load(str(path), allow_pickle=False)
+
+        if "embedder_meta" in data:
+            stored = list(data["embedder_meta"])
+            if len(stored) >= 2:
+                stored_name, stored_dim_str = str(stored[0]), str(stored[1])
+                stored_dim = int(stored_dim_str) if stored_dim_str else 0
+                if embedder_name and stored_name and stored_name != embedder_name:
+                    raise ArchexIndexError(
+                        f"Embedder mismatch: cached={stored_name}, current={embedder_name}"
+                    )
+                if vector_dim > 0 and stored_dim > 0 and stored_dim != vector_dim:
+                    raise ArchexIndexError(
+                        f"Vector dim mismatch: cached={stored_dim}, current={vector_dim}"
+                    )
+
         vectors = data["vectors"].astype(np.float32, copy=False)
         chunk_ids = list(data["chunk_ids"])
         if vectors.shape[0] != len(chunk_ids):

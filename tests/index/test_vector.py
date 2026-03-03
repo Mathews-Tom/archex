@@ -266,6 +266,51 @@ class TestVectorIndexPersistence:
             loaded.load(corrupt_path, SAMPLE_CHUNKS)
 
 
+class TestVectorIndexEmbedderManifest:
+    def test_save_load_with_matching_embedder(self, tmp_path: Path) -> None:
+        vi = VectorIndex()
+        vi._vectors = np.array([[0.1, 0.2, 0.3] * 256], dtype=np.float32)
+        vi._chunk_ids = ["chunk1"]
+        save_path = tmp_path / "vectors.npz"
+        vi.save(save_path, embedder_name="nomic", vector_dim=768)
+
+        loaded = VectorIndex()
+        loaded.load(save_path, [], embedder_name="nomic", vector_dim=768)
+        assert loaded.size == 1
+
+    def test_load_mismatched_embedder_raises(self, tmp_path: Path) -> None:
+        vi = VectorIndex()
+        vi._vectors = np.array([[0.1, 0.2, 0.3]], dtype=np.float32)
+        vi._chunk_ids = ["chunk1"]
+        save_path = tmp_path / "vectors.npz"
+        vi.save(save_path, embedder_name="nomic", vector_dim=768)
+
+        loaded = VectorIndex()
+        with pytest.raises(ArchexIndexError, match="Embedder mismatch"):
+            loaded.load(save_path, [], embedder_name="sentence_transformers", vector_dim=768)
+
+    def test_load_mismatched_dim_raises(self, tmp_path: Path) -> None:
+        vi = VectorIndex()
+        vi._vectors = np.array([[0.1, 0.2, 0.3]], dtype=np.float32)
+        vi._chunk_ids = ["chunk1"]
+        save_path = tmp_path / "vectors.npz"
+        vi.save(save_path, embedder_name="nomic", vector_dim=768)
+
+        loaded = VectorIndex()
+        with pytest.raises(ArchexIndexError, match="Vector dim mismatch"):
+            loaded.load(save_path, [], embedder_name="nomic", vector_dim=384)
+
+    def test_load_legacy_npz_without_meta(self, tmp_path: Path) -> None:
+        vectors = np.array([[0.1, 0.2, 0.3]], dtype=np.float32)
+        chunk_ids = np.array(["chunk1"], dtype="U512")
+        legacy_path = tmp_path / "legacy.npz"
+        np.savez_compressed(str(legacy_path), vectors=vectors, chunk_ids=chunk_ids)
+
+        loaded = VectorIndex()
+        loaded.load(legacy_path, [], embedder_name="nomic", vector_dim=768)
+        assert loaded.size == 1
+
+
 class TestReciprocalRankFusion:
     def test_rrf_merges_results(self) -> None:
         bm25: list[tuple[CodeChunk, float]] = [
