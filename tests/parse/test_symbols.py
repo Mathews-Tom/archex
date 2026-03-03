@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -148,7 +149,7 @@ def test_main_py_has_run_function(
 
 
 def test_parse_file_worker_unsupported_language() -> None:
-    """_parse_file_worker returns None for a language with no adapter (line 30)."""
+    """_parse_file_worker returns None for a language with no adapter."""
     from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
 
     result = _parse_file_worker("/fake/file.xyz", "file.xyz", "brainfuck")
@@ -156,7 +157,7 @@ def test_parse_file_worker_unsupported_language() -> None:
 
 
 def test_parse_file_worker_success(tmp_path: Path) -> None:
-    """_parse_file_worker reads a real file and returns a ParsedFile (lines 35-41)."""
+    """_parse_file_worker reads a real file and returns a ParsedFile."""
     from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
 
     py_file = tmp_path / "sample.py"
@@ -169,6 +170,15 @@ def test_parse_file_worker_success(tmp_path: Path) -> None:
     assert result.lines > 0
 
 
+def test_parse_file_worker_raises_on_missing_file() -> None:
+    """_parse_file_worker propagates ParseError for a missing file."""
+    from archex.exceptions import ParseError
+    from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
+
+    with pytest.raises(ParseError):
+        _parse_file_worker("/nonexistent/ghost.py", "ghost.py", "python")
+
+
 # --- parallel path tests ---
 
 
@@ -177,7 +187,7 @@ def test_extract_symbols_parallel_path(
     engine: TreeSitterEngine,
     adapters: dict[str, LanguageAdapter],
 ) -> None:
-    """extract_symbols uses ProcessPoolExecutor when parallel=True and >10 files (lines 65-82)."""
+    """extract_symbols uses ProcessPoolExecutor when parallel=True and >10 files."""
     files: list[DiscoveredFile] = []
     for i in range(12):
         f = tmp_path / f"mod_{i}.py"
@@ -201,9 +211,7 @@ def test_extract_symbols_parallel_fallback_on_error(
     engine: TreeSitterEngine,
     adapters: dict[str, LanguageAdapter],
 ) -> None:
-    """extract_symbols falls back to sequential when ProcessPoolExecutor raises (lines 83-85)."""
-    from unittest.mock import patch
-
+    """extract_symbols falls back to sequential when ProcessPoolExecutor raises."""
     files: list[DiscoveredFile] = []
     for i in range(12):
         f = tmp_path / f"mod_{i}.py"
@@ -220,23 +228,64 @@ def test_extract_symbols_parallel_fallback_on_error(
     assert len(result) == 12
 
 
-def test_parse_file_worker_logs_warning_on_failure(caplog: pytest.LogCaptureFixture) -> None:
-    """_parse_file_worker logs a warning and returns None when parsing fails."""
-    import logging
+def test_strict_parallel_raises_on_bad_file(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """extract_symbols raises ParseError when strict=True and a file fails in parallel mode."""
+    from archex.exceptions import ParseError
 
-    from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
+    files: list[DiscoveredFile] = []
+    for i in range(11):
+        f = tmp_path / f"good_{i}.py"
+        f.write_text(f"def func_{i}():\n    pass\n")
+        files.append(
+            DiscoveredFile(
+                path=f"good_{i}.py",
+                absolute_path=str(f),
+                language="python",
+            )
+        )
+    # 12th file points to a nonexistent path — worker will raise
+    files.append(
+        DiscoveredFile(
+            path="missing.py",
+            absolute_path=str(tmp_path / "missing.py"),
+            language="python",
+        )
+    )
+    with pytest.raises(ParseError, match="Parallel parsing failed"):
+        extract_symbols(files, engine, adapters, parallel=True, strict=True)
 
-    with caplog.at_level(logging.WARNING, logger="archex.parse.symbols"):
-        result = _parse_file_worker("/nonexistent/bad.py", "bad.py", "python")
 
-    assert result is None
-    assert any("Failed to parse" in r.message for r in caplog.records)
-    assert any("bad.py" in r.message for r in caplog.records)
-
-
-def test_parse_file_worker_returns_none_on_missing_file() -> None:
-    """_parse_file_worker returns None (not raises) for a missing file."""
-    from archex.parse.symbols import _parse_file_worker  # pyright: ignore[reportPrivateUsage]
-
-    result = _parse_file_worker("/nonexistent/ghost.py", "ghost.py", "python")
-    assert result is None
+def test_nonstrict_parallel_skips_bad_file(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """extract_symbols returns good results and skips bad files when strict=False in parallel."""
+    files: list[DiscoveredFile] = []
+    for i in range(11):
+        f = tmp_path / f"good_{i}.py"
+        f.write_text(f"def func_{i}():\n    pass\n")
+        files.append(
+            DiscoveredFile(
+                path=f"good_{i}.py",
+                absolute_path=str(f),
+                language="python",
+            )
+        )
+    # 12th file points to a nonexistent path — worker will raise, should be skipped
+    files.append(
+        DiscoveredFile(
+            path="missing.py",
+            absolute_path=str(tmp_path / "missing.py"),
+            language="python",
+        )
+    )
+    result = extract_symbols(files, engine, adapters, parallel=True, strict=False)
+    # Bad file is skipped, good 11 files return results
+    assert len(result) == 11
+    for pf in result:
+        assert pf.language == "python"

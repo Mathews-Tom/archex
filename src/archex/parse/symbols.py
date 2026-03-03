@@ -6,6 +6,7 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
+from archex.exceptions import ParseError
 from archex.models import ParsedFile
 
 logger = logging.getLogger(__name__)
@@ -20,33 +21,29 @@ if TYPE_CHECKING:
 
 def _parse_file_worker(absolute_path: str, relative_path: str, language: str) -> ParsedFile | None:
     """Worker function for parallel parsing — creates its own engine and adapter."""
-    try:
-        from archex.parse.adapters import ADAPTERS
-        from archex.parse.engine import TreeSitterEngine as _Engine
+    from archex.parse.adapters import ADAPTERS
+    from archex.parse.engine import TreeSitterEngine as _Engine
 
-        engine = _Engine()
-        adapter_class = ADAPTERS.get(language)
-        if adapter_class is None:
-            return None
-
-        adapter = adapter_class()
-        tree = engine.parse_file(absolute_path, language)
-
-        with open(absolute_path, "rb") as fh:
-            source = fh.read()
-
-        symbols = adapter.extract_symbols(tree, source, relative_path)
-        line_count = source.count(b"\n") + (1 if source and not source.endswith(b"\n") else 0)
-
-        return ParsedFile(
-            path=relative_path,
-            language=language,
-            symbols=symbols,
-            lines=line_count,
-        )
-    except Exception as e:
-        logger.warning("Failed to parse %s: %s", relative_path, e)
+    engine = _Engine()
+    adapter_class = ADAPTERS.get(language)
+    if adapter_class is None:
         return None
+
+    adapter = adapter_class()
+    tree = engine.parse_file(absolute_path, language)
+
+    with open(absolute_path, "rb") as fh:
+        source = fh.read()
+
+    symbols = adapter.extract_symbols(tree, source, relative_path)
+    line_count = source.count(b"\n") + (1 if source and not source.endswith(b"\n") else 0)
+
+    return ParsedFile(
+        path=relative_path,
+        language=language,
+        symbols=symbols,
+        lines=line_count,
+    )
 
 
 def extract_symbols(
@@ -54,6 +51,7 @@ def extract_symbols(
     engine: TreeSitterEngine,
     adapters: Mapping[str, LanguageAdapter],
     parallel: bool = False,
+    strict: bool = False,
 ) -> list[ParsedFile]:
     """Extract symbols from all discovered files using the appropriate language adapter.
 
@@ -65,6 +63,7 @@ def extract_symbols(
     if parallel and len(files) > 10:
         try:
             results: list[ParsedFile] = []
+            errors: list[tuple[str, Exception]] = []
             with ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(
@@ -75,14 +74,23 @@ def extract_symbols(
                     )
                     for f in eligible
                 ]
-                for fut in futures:
-                    result = fut.result()
-                    if result is not None:
-                        results.append(result)
+                for fut, f in zip(futures, eligible, strict=True):
+                    try:
+                        result = fut.result()
+                        if result is not None:
+                            results.append(result)
+                    except Exception as e:
+                        errors.append((f.path, e))
+            if errors and strict:
+                paths = ", ".join(p for p, _ in errors)
+                raise ParseError(f"Parallel parsing failed for {len(errors)} file(s): {paths}")
             return results
+        except ParseError:
+            raise
         except Exception as e:
+            if strict:
+                raise ParseError(f"Parallel parsing failed: {e}") from e
             logger.error("Parallel executor failed, falling back to sequential: %s", e)
-            # Fall back to sequential on any executor failure
 
     results_seq: list[ParsedFile] = []
 

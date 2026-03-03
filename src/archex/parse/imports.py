@@ -7,6 +7,8 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
+from archex.exceptions import ParseError
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -21,26 +23,22 @@ def _parse_imports_worker(
     absolute_path: str, relative_path: str, language: str
 ) -> tuple[str, list[ImportStatement]] | None:
     """Worker function for parallel import parsing — creates its own engine and adapter."""
-    try:
-        from archex.parse.adapters import ADAPTERS
-        from archex.parse.engine import TreeSitterEngine as _Engine
+    from archex.parse.adapters import ADAPTERS
+    from archex.parse.engine import TreeSitterEngine as _Engine
 
-        engine = _Engine()
-        adapter_class = ADAPTERS.get(language)
-        if adapter_class is None:
-            return None
-
-        adapter = adapter_class()
-        tree = engine.parse_file(absolute_path, language)
-
-        with open(absolute_path, "rb") as fh:
-            source = fh.read()
-
-        imports = adapter.parse_imports(tree, source, relative_path)
-        return (relative_path, imports)
-    except Exception as e:
-        logger.warning("Failed to parse %s: %s", relative_path, e)
+    engine = _Engine()
+    adapter_class = ADAPTERS.get(language)
+    if adapter_class is None:
         return None
+
+    adapter = adapter_class()
+    tree = engine.parse_file(absolute_path, language)
+
+    with open(absolute_path, "rb") as fh:
+        source = fh.read()
+
+    imports = adapter.parse_imports(tree, source, relative_path)
+    return (relative_path, imports)
 
 
 def parse_imports(
@@ -48,6 +46,7 @@ def parse_imports(
     engine: TreeSitterEngine,
     adapters: Mapping[str, LanguageAdapter],
     parallel: bool = False,
+    strict: bool = False,
 ) -> dict[str, list[ImportStatement]]:
     """Parse imports from all files. Returns mapping of file_path → list[ImportStatement].
 
@@ -58,6 +57,7 @@ def parse_imports(
     if parallel and len(files) > 10:
         try:
             result: dict[str, list[ImportStatement]] = {}
+            errors: list[tuple[str, Exception]] = []
             with ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(
@@ -68,15 +68,26 @@ def parse_imports(
                     )
                     for f in eligible
                 ]
-                for fut in futures:
-                    entry = fut.result()
-                    if entry is not None:
-                        path, imports = entry
-                        result[path] = imports
+                for fut, f in zip(futures, eligible, strict=True):
+                    try:
+                        entry = fut.result()
+                        if entry is not None:
+                            path, imports = entry
+                            result[path] = imports
+                    except Exception as e:
+                        errors.append((f.path, e))
+            if errors and strict:
+                paths = ", ".join(p for p, _ in errors)
+                raise ParseError(
+                    f"Parallel import parsing failed for {len(errors)} file(s): {paths}"
+                )
             return result
+        except ParseError:
+            raise
         except Exception as e:
+            if strict:
+                raise ParseError(f"Parallel import parsing failed: {e}") from e
             logger.error("Parallel executor failed, falling back to sequential: %s", e)
-            # Fall back to sequential on any executor failure
 
     result_seq: dict[str, list[ImportStatement]] = {}
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -177,33 +178,20 @@ def test_resolve_nested_module(
     assert auth_imp.resolved_path == "services/auth.py"
 
 
-def test_parse_imports_worker_logs_warning_on_failure(caplog: pytest.LogCaptureFixture) -> None:
-    """_parse_imports_worker logs a warning and returns None when parsing fails."""
-    import logging
-
+def test_parse_imports_worker_raises_on_missing_file() -> None:
+    """_parse_imports_worker propagates ParseError for a missing file."""
+    from archex.exceptions import ParseError
     from archex.parse.imports import _parse_imports_worker  # pyright: ignore[reportPrivateUsage]
 
-    with caplog.at_level(logging.WARNING, logger="archex.parse.imports"):
-        result = _parse_imports_worker("/nonexistent/bad.py", "bad.py", "python")
-
-    assert result is None
-    assert any("Failed to parse" in r.message for r in caplog.records)
-    assert any("bad.py" in r.message for r in caplog.records)
-
-
-def test_parse_imports_worker_returns_none_on_missing_file() -> None:
-    """_parse_imports_worker returns None (not raises) for a missing file."""
-    from archex.parse.imports import _parse_imports_worker  # pyright: ignore[reportPrivateUsage]
-
-    result = _parse_imports_worker("/nonexistent/ghost.py", "ghost.py", "python")
-    assert result is None
+    with pytest.raises(ParseError):
+        _parse_imports_worker("/nonexistent/ghost.py", "ghost.py", "python")
 
 
 # --- skip / continue branches ---
 
 
 def test_parse_imports_skips_unknown_language(engine: TreeSitterEngine) -> None:
-    """parse_imports skips files whose language has no matching adapter (line 86 continue)."""
+    """parse_imports skips files whose language has no matching adapter."""
     files = [
         DiscoveredFile(
             path="test.xyz",
@@ -216,7 +204,7 @@ def test_parse_imports_skips_unknown_language(engine: TreeSitterEngine) -> None:
 
 
 def test_resolve_imports_skips_missing_language() -> None:
-    """resolve_imports skips files not present in file_languages (line 109 continue)."""
+    """resolve_imports skips files not present in file_languages."""
     from archex.models import ImportStatement
 
     import_map: dict[str, list[ImportStatement]] = {
@@ -228,7 +216,7 @@ def test_resolve_imports_skips_missing_language() -> None:
 
 
 def test_resolve_imports_skips_missing_adapter() -> None:
-    """resolve_imports skips files whose language has no adapter (line 112 continue)."""
+    """resolve_imports skips files whose language has no adapter."""
     from archex.models import ImportStatement
 
     import_map: dict[str, list[ImportStatement]] = {
@@ -244,7 +232,7 @@ def test_resolve_imports_skips_missing_adapter() -> None:
 
 
 def test_parse_imports_worker_unsupported_language() -> None:
-    """_parse_imports_worker returns None for a language with no adapter (line 31)."""
+    """_parse_imports_worker returns None for a language with no adapter."""
     from archex.parse.imports import _parse_imports_worker  # pyright: ignore[reportPrivateUsage]
 
     result = _parse_imports_worker("/fake/file.xyz", "file.xyz", "brainfuck")
@@ -252,7 +240,7 @@ def test_parse_imports_worker_unsupported_language() -> None:
 
 
 def test_parse_imports_worker_success(tmp_path: Path) -> None:
-    """_parse_imports_worker reads a real file and returns parsed imports (lines 36-40)."""
+    """_parse_imports_worker reads a real file and returns parsed imports."""
     from archex.parse.imports import _parse_imports_worker  # pyright: ignore[reportPrivateUsage]
 
     py_file = tmp_path / "sample.py"
@@ -272,7 +260,7 @@ def test_parse_imports_parallel_path(
     engine: TreeSitterEngine,
     adapters: dict[str, LanguageAdapter],
 ) -> None:
-    """parse_imports uses ProcessPoolExecutor when parallel=True and >10 files (lines 58-76)."""
+    """parse_imports uses ProcessPoolExecutor when parallel=True and >10 files."""
     files: list[DiscoveredFile] = []
     for i in range(12):
         f = tmp_path / f"mod_{i}.py"
@@ -296,9 +284,7 @@ def test_parse_imports_parallel_fallback_on_error(
     engine: TreeSitterEngine,
     adapters: dict[str, LanguageAdapter],
 ) -> None:
-    """parse_imports falls back to sequential when ProcessPoolExecutor raises (lines 77-78)."""
-    from unittest.mock import patch
-
+    """parse_imports falls back to sequential when ProcessPoolExecutor raises."""
     files: list[DiscoveredFile] = []
     for i in range(12):
         f = tmp_path / f"mod_{i}.py"
@@ -316,7 +302,7 @@ def test_parse_imports_parallel_fallback_on_error(
 
 
 def test_build_file_map_non_python_extension() -> None:
-    """build_file_map uses path-without-extension as key for non-.py files (lines 144-145)."""
+    """build_file_map uses path-without-extension as key for non-.py files."""
     files = [
         DiscoveredFile(
             path="src/utils.ts",
@@ -332,3 +318,64 @@ def test_build_file_map_non_python_extension() -> None:
     result = build_file_map(files)
     assert result["src.utils"] == "src/utils.ts"
     assert result["cmd.main"] == "cmd/main.go"
+
+
+def test_strict_parallel_raises_on_bad_file(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """parse_imports raises ParseError when strict=True and a file fails in parallel mode."""
+    from archex.exceptions import ParseError
+
+    files: list[DiscoveredFile] = []
+    for i in range(11):
+        f = tmp_path / f"good_{i}.py"
+        f.write_text("import os\n")
+        files.append(
+            DiscoveredFile(
+                path=f"good_{i}.py",
+                absolute_path=str(f),
+                language="python",
+            )
+        )
+    # 12th file points to a nonexistent path — worker will raise
+    files.append(
+        DiscoveredFile(
+            path="missing.py",
+            absolute_path=str(tmp_path / "missing.py"),
+            language="python",
+        )
+    )
+    with pytest.raises(ParseError, match="Parallel import parsing failed"):
+        parse_imports(files, engine, adapters, parallel=True, strict=True)
+
+
+def test_nonstrict_parallel_skips_bad_file(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """parse_imports returns good results and skips bad files when strict=False in parallel."""
+    files: list[DiscoveredFile] = []
+    for i in range(11):
+        f = tmp_path / f"good_{i}.py"
+        f.write_text("import os\n")
+        files.append(
+            DiscoveredFile(
+                path=f"good_{i}.py",
+                absolute_path=str(f),
+                language="python",
+            )
+        )
+    # 12th file points to a nonexistent path — worker will raise, should be skipped
+    files.append(
+        DiscoveredFile(
+            path="missing.py",
+            absolute_path=str(tmp_path / "missing.py"),
+            language="python",
+        )
+    )
+    result = parse_imports(files, engine, adapters, parallel=True, strict=False)
+    # Bad file is skipped, good 11 files return results
+    assert len(result) == 11
