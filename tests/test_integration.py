@@ -727,7 +727,6 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-
 class TestDeltaIndexIntegration:
     """End-to-end delta indexing via _ensure_index / query()."""
 
