@@ -290,16 +290,33 @@ def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     timing = PipelineTiming()
     source = RepoSource(local_path=str(repo_path))
     config = Config(cache=False)
-    index_config = IndexConfig(vector=True)
+    index_config = IndexConfig(vector=True, embedder="nomic")
 
-    bundle = query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        config=config,
-        index_config=index_config,
-        timing=timing,
-    )
+    try:
+        bundle = query(
+            source,
+            task.question,
+            token_budget=task.token_budget,
+            config=config,
+            index_config=index_config,
+            timing=timing,
+        )
+    except Exception:
+        wall_ms = (time.perf_counter() - t0) * 1000
+        return BenchmarkResult(
+            task_id=task.task_id,
+            strategy=Strategy.ARCHEX_QUERY_HYBRID,
+            tokens_total=0,
+            tool_calls=1,
+            files_accessed=0,
+            recall=0.0,
+            precision=0.0,
+            savings_vs_raw=0.0,
+            wall_time_ms=wall_ms,
+            cached=False,
+            timing=timing,
+            timestamp=now_iso(),
+        )
 
     result_files = {c.chunk.file_path for c in bundle.chunks}
     wall_ms = (time.perf_counter() - t0) * 1000

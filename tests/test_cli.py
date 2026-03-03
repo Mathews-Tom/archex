@@ -98,6 +98,17 @@ def test_query_timing_flag(python_simple_repo: Path) -> None:
     assert "Acquired repo" in output or "Cache hit" in output
 
 
+def test_query_metrics_flag(python_simple_repo: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["query", str(python_simple_repo), "what functions exist?", "--metrics"],
+    )
+    assert result.exit_code == 0
+    # Metrics JSON should be in stderr
+    assert "strategy" in result.output
+
+
 def test_compare_error_handling() -> None:
     from unittest.mock import patch
 

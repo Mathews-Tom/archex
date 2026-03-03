@@ -511,3 +511,15 @@ class TestCompareParallel:
 
             compare(RepoSource(local_path="/a"), RepoSource(local_path="/b"))
         assert mock_a.call_count == 2
+
+
+def test_pipeline_timing_fields() -> None:
+    """PipelineTiming has the new observability fields with correct defaults."""
+    from archex.models import PipelineTiming
+
+    pt = PipelineTiming()
+    assert pt.strategy == ""
+    assert pt.delta_attempted is False
+    assert pt.delta_succeeded is False
+    assert pt.parse_failure_count == 0
+    assert pt.vector_used is False

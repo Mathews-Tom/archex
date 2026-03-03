@@ -119,6 +119,7 @@ def _full_index(
             cache.put(cache_key, db_path)
         if timing is not None:
             timing.index_ms = _elapsed_ms(t_idx)
+            timing.strategy = "full"
 
         return store
     finally:
@@ -151,6 +152,7 @@ def _ensure_index(
         if not store.needs_reindex():
             if timing is not None:
                 timing.cached = True
+                timing.strategy = "cached"
                 timing.index_ms = _elapsed_ms(t_start)
             return store
         store.close()
@@ -179,6 +181,8 @@ def _ensure_index(
                     )
                     change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
                     if change_ratio < config.delta_threshold:
+                        if timing is not None:
+                            timing.delta_attempted = True
                         store = IndexStore(db_path)
                         graph = DependencyGraph.from_edges(store.get_edges())
                         delta_meta = apply_delta(store, graph, manifest, repo_path, config)
@@ -192,9 +196,13 @@ def _ensure_index(
                             timing.delta_ms = delta_meta.delta_time_ms
                             timing.delta_meta = delta_meta
                             timing.index_ms = _elapsed_ms(t_start)
+                            timing.delta_succeeded = True
+                            timing.strategy = "delta"
                         logger.info("Delta index applied in %.0fms", delta_meta.delta_time_ms)
                         return store
                 except DeltaIndexError:
+                    if timing is not None:
+                        timing.delta_attempted = True
                     logger.info("Delta indexing failed, falling back to full re-index")
 
     # Path 3: Full re-index
@@ -429,6 +437,8 @@ def query(
                         embedder = _get_embedder(index_config)
                         if embedder is not None:
                             vector_results = vec_idx.search(question, embedder, top_k=50)  # type: ignore[assignment]
+                            if timing is not None:
+                                timing.vector_used = True
 
                 t_search = time.perf_counter()
                 search_results = bm25.search(question, top_k=50)
@@ -518,6 +528,8 @@ def query(
                     vec_idx = VectorIndex()
                     vec_idx.build(all_chunks, embedder)  # type: ignore[arg-type]
                     vector_results_miss = vec_idx.search(question, embedder, top_k=50)  # type: ignore[assignment]
+                    if timing is not None:
+                        timing.vector_used = True
                     logger.info("Vector index built in %.0fms", _elapsed_ms(t5))
 
                     if config.cache:
