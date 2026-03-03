@@ -138,3 +138,119 @@ def test_sqlite_round_trip(tmp_path: Path) -> None:
     restored = DependencyGraph.from_sqlite(db_path)
     assert restored.file_count == graph.file_count
     assert restored.file_edge_count == graph.file_edge_count
+
+
+# ---------------------------------------------------------------------------
+# DependencyGraph.update_files
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateFiles:
+    def test_removes_node_and_edges(self) -> None:
+
+        parsed = [
+            ParsedFile(path="a.py", language="python"),
+            ParsedFile(path="b.py", language="python"),
+        ]
+        import_map = {
+            "a.py": [
+                ImportStatement(
+                    module="b",
+                    symbols=[],
+                    file_path="a.py",
+                    line=1,
+                    resolved_path="b.py",
+                )
+            ]
+        }
+        graph = DependencyGraph.from_parsed_files(parsed, import_map)
+        assert graph.file_count == 2
+        assert graph.file_edge_count == 1
+
+        graph.update_files({"a.py"}, [])
+        assert graph.file_count == 1
+        assert graph.file_edge_count == 0
+
+    def test_adds_new_edges(self) -> None:
+        from archex.models import Edge, EdgeKind
+
+        parsed = [
+            ParsedFile(path="a.py", language="python"),
+            ParsedFile(path="b.py", language="python"),
+        ]
+        graph = DependencyGraph.from_parsed_files(parsed, {})
+        assert graph.file_edge_count == 0
+
+        new_edges = [Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS)]
+        graph.update_files(set(), new_edges)
+        assert graph.file_edge_count == 1
+
+    def test_invalidates_centrality(self) -> None:
+
+        parsed = [
+            ParsedFile(path="a.py", language="python"),
+            ParsedFile(path="b.py", language="python"),
+        ]
+        graph = DependencyGraph.from_parsed_files(parsed, {})
+        _ = graph.structural_centrality()  # populate cache
+        assert graph._centrality_cache is not None
+
+        graph.update_files({"a.py"}, [])
+        assert graph._centrality_cache is None
+
+    def test_empty_inputs(self) -> None:
+        parsed = [ParsedFile(path="a.py", language="python")]
+        graph = DependencyGraph.from_parsed_files(parsed, {})
+        graph.update_files(set(), [])
+        assert graph.file_count == 1
+
+    def test_removes_only_specified_node(self) -> None:
+        parsed = [
+            ParsedFile(path="a.py", language="python"),
+            ParsedFile(path="b.py", language="python"),
+            ParsedFile(path="c.py", language="python"),
+        ]
+        graph = DependencyGraph.from_parsed_files(parsed, {})
+        graph.update_files({"b.py"}, [])
+        assert graph.file_count == 2
+        assert "a.py" in graph._file_graph.nodes()
+        assert "c.py" in graph._file_graph.nodes()
+        assert "b.py" not in graph._file_graph.nodes()
+
+    def test_remove_nonexistent_path_is_safe(self) -> None:
+        parsed = [ParsedFile(path="a.py", language="python")]
+        graph = DependencyGraph.from_parsed_files(parsed, {})
+        # Should not raise even if path doesn't exist in graph
+        graph.update_files({"nonexistent.py"}, [])
+        assert graph.file_count == 1
+
+    def test_replace_modified_file_edges(self) -> None:
+        from archex.models import Edge, EdgeKind
+
+        parsed = [
+            ParsedFile(path="a.py", language="python"),
+            ParsedFile(path="b.py", language="python"),
+            ParsedFile(path="c.py", language="python"),
+        ]
+        import_map = {
+            "a.py": [
+                ImportStatement(
+                    module="b",
+                    symbols=[],
+                    file_path="a.py",
+                    line=1,
+                    resolved_path="b.py",
+                )
+            ]
+        }
+        graph = DependencyGraph.from_parsed_files(parsed, import_map)
+        assert graph.file_edge_count == 1
+
+        # Remove old a.py edges, add new a.py -> c.py edge
+        new_edges = [Edge(source="a.py", target="c.py", kind=EdgeKind.IMPORTS)]
+        graph.update_files({"a.py"}, new_edges)
+
+        edges = graph.file_edges()
+        assert len(edges) == 1
+        assert edges[0].source == "a.py"
+        assert edges[0].target == "c.py"
