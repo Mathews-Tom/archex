@@ -249,6 +249,19 @@ def _chunk_to_symbol_match(chunk: CodeChunk, score: float = 0.0) -> SymbolMatch:
 
 
 logger = logging.getLogger(__name__)
+_plugin_bootstrap_strict: bool | None = None
+
+
+def _bootstrap_plugins(strict: bool = False) -> None:
+    """Load adapter and pattern plugins once per process."""
+    global _plugin_bootstrap_strict
+    if _plugin_bootstrap_strict is not None and (not strict or _plugin_bootstrap_strict):
+        return  # already loaded at equal or higher strictness
+    default_adapter_registry.load_entry_points(strict=strict)
+    from archex.analyze.patterns import default_registry
+
+    default_registry.load_entry_points(strict=strict)
+    _plugin_bootstrap_strict = strict
 
 
 def _elapsed_ms(start: float) -> float:
@@ -291,6 +304,7 @@ def analyze(
     """
     if config is None:
         config = Config()
+    _bootstrap_plugins()
 
     t0 = time.perf_counter()
     repo_path, url, local_path, cleanup = _acquire(source)

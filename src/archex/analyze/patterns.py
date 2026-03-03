@@ -7,6 +7,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from archex.exceptions import ConfigError
 from archex.models import (
     DetectedPattern,
     ParsedFile,
@@ -31,6 +32,8 @@ class PatternRegistry:
 
     def __init__(self) -> None:
         self._detectors: list[PatternDetector] = []
+        self._entry_points_loaded: bool = False
+        self._entry_points_strict: bool = False
 
     def register(self, fn: PatternDetector) -> PatternDetector:
         """Decorator to register a pattern detector function."""
@@ -45,15 +48,28 @@ class PatternRegistry:
     def detectors(self) -> list[PatternDetector]:
         return list(self._detectors)
 
-    def load_entry_points(self, group: str = "archex.pattern_detectors") -> None:
+    def load_entry_points(
+        self,
+        group: str = "archex.pattern_detectors",
+        strict: bool = False,
+    ) -> None:
         """Load detector functions from installed entry points."""
-        for ep in importlib.metadata.entry_points(group=group):
+        if self._entry_points_loaded and (not strict or self._entry_points_strict):
+            return  # already loaded at equal or higher strictness
+        eps = sorted(importlib.metadata.entry_points(group=group), key=lambda ep: ep.name)
+        for ep in eps:
             try:
                 fn = ep.load()
                 self._detectors.append(fn)
                 logger.info("Loaded pattern detector %s from entry point", ep.name)
-            except Exception:
-                logger.warning("Failed to load pattern detector entry point %s", ep.name)
+            except (ImportError, AttributeError, TypeError, ValueError) as exc:
+                if strict:
+                    raise ConfigError(
+                        f"Failed to load pattern detector entry point {ep.name!r}: {exc}"
+                    ) from exc
+                logger.warning("Failed to load pattern detector entry point %s: %s", ep.name, exc)
+        self._entry_points_loaded = True
+        self._entry_points_strict = strict
 
 
 # Module-level default registry

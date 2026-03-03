@@ -915,3 +915,49 @@ class TestDeltaIndexIntegration:
             assert manifest.current_commit == "mtime"
         finally:
             store.close()
+
+
+class TestPluginBootstrapLifecycle:
+    def test_bootstrap_nonstrict_then_strict_reloads(self) -> None:
+        """Non-strict bootstrap followed by strict should re-validate."""
+        import archex.api as api_mod
+
+        original = api_mod._plugin_bootstrap_strict  # pyright: ignore[reportPrivateUsage]
+        try:
+            api_mod._plugin_bootstrap_strict = None  # pyright: ignore[reportPrivateUsage]
+
+            api_mod._bootstrap_plugins(strict=False)  # pyright: ignore[reportPrivateUsage]
+            assert api_mod._plugin_bootstrap_strict is False  # pyright: ignore[reportPrivateUsage]
+
+            api_mod._bootstrap_plugins(strict=True)  # pyright: ignore[reportPrivateUsage]
+            assert api_mod._plugin_bootstrap_strict is True  # pyright: ignore[reportPrivateUsage]
+        finally:
+            api_mod._plugin_bootstrap_strict = original  # pyright: ignore[reportPrivateUsage]
+
+    def test_bootstrap_strict_then_nonstrict_skips(self) -> None:
+        """Strict bootstrap followed by non-strict should skip (already at higher level)."""
+        import archex.api as api_mod
+
+        original = api_mod._plugin_bootstrap_strict  # pyright: ignore[reportPrivateUsage]
+        try:
+            api_mod._plugin_bootstrap_strict = None  # pyright: ignore[reportPrivateUsage]
+
+            api_mod._bootstrap_plugins(strict=True)  # pyright: ignore[reportPrivateUsage]
+            assert api_mod._plugin_bootstrap_strict is True  # pyright: ignore[reportPrivateUsage]
+
+            api_mod._bootstrap_plugins(strict=False)  # pyright: ignore[reportPrivateUsage]
+            assert api_mod._plugin_bootstrap_strict is True  # pyright: ignore[reportPrivateUsage]
+        finally:
+            api_mod._plugin_bootstrap_strict = original  # pyright: ignore[reportPrivateUsage]
+
+    def test_adapter_registry_entry_points_strictness_upgrade(self) -> None:
+        """AdapterRegistry re-loads entry points when upgrading to strict."""
+        from archex.parse.adapters import AdapterRegistry
+
+        reg = AdapterRegistry()
+        reg.load_entry_points(strict=False)
+        assert reg._entry_points_loaded is True  # pyright: ignore[reportPrivateUsage]
+        assert reg._entry_points_strict is False  # pyright: ignore[reportPrivateUsage]
+
+        reg.load_entry_points(strict=True)
+        assert reg._entry_points_strict is True  # pyright: ignore[reportPrivateUsage]
