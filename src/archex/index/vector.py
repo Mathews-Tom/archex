@@ -84,6 +84,13 @@ class VectorIndex:
 
         return results
 
+    @property
+    def dim(self) -> int:
+        """Return the vector dimension, or 0 if not built."""
+        if self._vectors is not None:
+            return int(self._vectors.shape[1])
+        return 0
+
     def save(self, path: Path, *, embedder_name: str = "", vector_dim: int = 0) -> None:
         """Save vectors and chunk IDs to a compressed numpy file."""
         if self._vectors is None:
@@ -114,12 +121,17 @@ class VectorIndex:
             path = p
 
         data = np.load(str(path), allow_pickle=False)
+        vectors = data["vectors"].astype(np.float32, copy=False)
+        chunk_ids = list(data["chunk_ids"])
+        if vectors.shape[0] != len(chunk_ids):
+            raise ArchexIndexError(
+                f"Vector index corrupt: {vectors.shape[0]} vectors but {len(chunk_ids)} chunk IDs"
+            )
 
         if "embedder_meta" in data:
             stored = list(data["embedder_meta"])
             if len(stored) >= 2:
-                stored_name, stored_dim_str = str(stored[0]), str(stored[1])
-                stored_dim = int(stored_dim_str) if stored_dim_str else 0
+                stored_name, stored_dim = str(stored[0]), int(stored[1])
                 if embedder_name and stored_name and stored_name != embedder_name:
                     raise ArchexIndexError(
                         f"Embedder mismatch: cached={stored_name}, current={embedder_name}"
@@ -129,12 +141,6 @@ class VectorIndex:
                         f"Vector dim mismatch: cached={stored_dim}, current={vector_dim}"
                     )
 
-        vectors = data["vectors"].astype(np.float32, copy=False)
-        chunk_ids = list(data["chunk_ids"])
-        if vectors.shape[0] != len(chunk_ids):
-            raise ArchexIndexError(
-                f"Vector index corrupt: {vectors.shape[0]} vectors but {len(chunk_ids)} chunk IDs"
-            )
         self._vectors = vectors
         self._chunk_ids = chunk_ids
         self._chunks_by_id = {c.id: c for c in chunks}
