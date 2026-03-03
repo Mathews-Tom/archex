@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ class BM25Index:
                 "FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY score LIMIT ?",
                 (escaped, top_k),
             )
-        except Exception:
+        except sqlite3.OperationalError:
             logger.warning("FTS5 query failed for: %s", escaped, exc_info=True)
             return []
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from archex.analyze.modules import detect_modules
 from archex.index.graph import DependencyGraph
 from archex.models import ParsedFile
@@ -148,7 +150,30 @@ def test_infer_module_name_common_prefix() -> None:
 
 
 def test_detect_modules_louvain_fallback() -> None:
-    """When louvain_communities raises, all files collapse into one module."""
+    """When louvain_communities raises NetworkXError, all files collapse into one module."""
+    from unittest.mock import patch
+
+    import networkx as nx  # type: ignore[import-untyped]
+
+    pf_a = ParsedFile(path="pkg/a.py", language="python", lines=5)
+    pf_b = ParsedFile(path="pkg/b.py", language="python", lines=8)
+    graph = DependencyGraph()
+    graph.add_file_node("pkg/a.py")
+    graph.add_file_node("pkg/b.py")
+    graph.add_file_edge("pkg/a.py", "pkg/b.py")
+
+    with patch(
+        "archex.analyze.modules.louvain_communities",
+        side_effect=nx.NetworkXError("fail"),
+    ):
+        modules = detect_modules(graph, [pf_a, pf_b])
+
+    assert len(modules) == 1
+    assert set(modules[0].files) == {"pkg/a.py", "pkg/b.py"}
+
+
+def test_detect_modules_louvain_unexpected_error_propagates() -> None:
+    """Unexpected errors from louvain_communities must propagate, not be silently caught."""
     from unittest.mock import patch
 
     pf_a = ParsedFile(path="pkg/a.py", language="python", lines=5)
@@ -158,11 +183,11 @@ def test_detect_modules_louvain_fallback() -> None:
     graph.add_file_node("pkg/b.py")
     graph.add_file_edge("pkg/a.py", "pkg/b.py")
 
-    with patch("archex.analyze.modules.louvain_communities", side_effect=RuntimeError("fail")):
-        modules = detect_modules(graph, [pf_a, pf_b])
-
-    assert len(modules) == 1
-    assert set(modules[0].files) == {"pkg/a.py", "pkg/b.py"}
+    with (
+        patch("archex.analyze.modules.louvain_communities", side_effect=TypeError("unexpected")),
+        pytest.raises(TypeError, match="unexpected"),
+    ):
+        detect_modules(graph, [pf_a, pf_b])
 
 
 def test_detect_modules_single_node_graph() -> None:

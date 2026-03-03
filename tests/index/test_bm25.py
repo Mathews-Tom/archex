@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from typing import TYPE_CHECKING
 
 import pytest
@@ -255,7 +256,7 @@ def test_search_survives_fts5_error(tmp_path: Path) -> None:
 
         def execute(self, sql: str, parameters: object = None, /) -> object:
             if "MATCH" in sql:
-                raise RuntimeError("FTS5 error")
+                raise sqlite3.OperationalError("FTS5 error")
             if parameters is not None:
                 return real_conn.execute(sql, parameters)  # type: ignore[arg-type]
             return real_conn.execute(sql)
@@ -264,4 +265,32 @@ def test_search_survives_fts5_error(tmp_path: Path) -> None:
     results = idx.search("authenticate")
     s._conn = real_conn  # type: ignore[assignment]
     assert results == []
+    s.close()
+
+
+def test_search_propagates_non_operational_error(tmp_path: Path) -> None:
+    """Non-OperationalError exceptions from FTS5 must propagate."""
+    db = tmp_path / "bm25_prop.db"
+    s = IndexStore(db)
+    idx = BM25Index(s)
+    s.insert_chunks(SAMPLE_CHUNKS)
+    idx.build(SAMPLE_CHUNKS)
+
+    real_conn = s.conn
+
+    class _FailIntegrity:
+        def __getattr__(self, name: str) -> object:
+            return getattr(real_conn, name)
+
+        def execute(self, sql: str, parameters: object = None, /) -> object:
+            if "MATCH" in sql:
+                raise sqlite3.IntegrityError("integrity violation")
+            if parameters is not None:
+                return real_conn.execute(sql, parameters)  # type: ignore[arg-type]
+            return real_conn.execute(sql)
+
+    s._conn = _FailIntegrity()  # type: ignore[assignment]
+    with pytest.raises(sqlite3.IntegrityError, match="integrity violation"):
+        idx.search("authenticate")
+    s._conn = real_conn  # type: ignore[assignment]
     s.close()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,8 @@ from archex.models import Module, ParsedFile, SymbolKind, SymbolRef, Visibility,
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
+
+logger = logging.getLogger(__name__)
 
 
 def _build_nx_graph(graph: DependencyGraph, parsed_files: list[ParsedFile]) -> Any:
@@ -150,7 +153,11 @@ def detect_modules(
 
     try:
         raw_communities: list[Any] = louvain_communities(g, seed=42)  # type: ignore[no-untyped-call]
-    except Exception:
+    except (nx.NetworkXError, ValueError):
+        logger.warning(
+            "Louvain community detection failed, falling back to single module",
+            exc_info=True,
+        )
         # Fall back: treat all files as one module
         raw_communities = [g.nodes()]  # type: ignore[misc]
 
