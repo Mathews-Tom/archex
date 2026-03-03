@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from archex.models import PipelineTiming  # noqa: TCH001 — Pydantic needs at runtime
+from archex.models import DeltaMeta, PipelineTiming  # noqa: TCH001 — Pydantic needs at runtime
 
 
 class Strategy(StrEnum):
@@ -52,3 +52,39 @@ class BenchmarkReport(BaseModel):
     question: str
     results: list[BenchmarkResult]
     baseline_tokens: int
+
+
+# ---------------------------------------------------------------------------
+# Delta benchmarking models
+# ---------------------------------------------------------------------------
+
+
+class DeltaStrategy(StrEnum):
+    DELTA_INDEX = "delta_index"
+    FULL_REINDEX = "full_reindex"
+
+
+class DeltaBenchmarkTask(BaseModel):
+    task_id: str
+    repo: str
+    base_commit: str
+    delta_commit: str
+    expected_delta: list[str] = []
+    language: str = "python"
+
+
+class DeltaBenchmarkResult(BaseModel):
+    task_id: str
+    strategy: DeltaStrategy
+    delta_files: int
+    total_files: int
+    delta_pct: float
+    delta_time_ms: float
+    full_reindex_time_ms: float
+    speedup_factor: float
+    correctness: bool
+    chunks_updated: int
+    chunks_unchanged: int
+    edges_updated: int
+    timestamp: str
+    delta_meta: DeltaMeta | None = None

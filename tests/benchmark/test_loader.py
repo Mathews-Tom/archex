@@ -6,8 +6,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from archex.benchmark.loader import load_task, load_tasks, validate_task
-from archex.benchmark.models import BenchmarkTask
+from archex.benchmark.loader import (
+    load_delta_task,
+    load_delta_tasks,
+    load_task,
+    load_tasks,
+    validate_task,
+)
+from archex.benchmark.models import BenchmarkTask, DeltaBenchmarkTask
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -148,3 +154,49 @@ class TestValidateTask:
         )
         errors = validate_task(task, python_simple_repo)
         assert any("Empty question" in e for e in errors)
+
+
+class TestLoadDeltaTask:
+    def test_load_valid_delta_yaml(self, tmp_path: Path) -> None:
+        content = """\
+task_id: delta_test
+repo: "."
+base_commit: abc123
+delta_commit: def456
+expected_delta:
+  - src/main.py
+language: python
+"""
+        p = tmp_path / "delta_test.yaml"
+        p.write_text(content)
+        task = load_delta_task(p)
+        assert isinstance(task, DeltaBenchmarkTask)
+        assert task.task_id == "delta_test"
+        assert task.base_commit == "abc123"
+        assert task.delta_commit == "def456"
+        assert task.expected_delta == ["src/main.py"]
+        assert task.language == "python"
+
+    def test_load_delta_tasks_directory(self, tmp_path: Path) -> None:
+        for i in range(2):
+            content = f"""\
+task_id: delta_{i}
+repo: "."
+base_commit: base{i}
+delta_commit: delta{i}
+"""
+            (tmp_path / f"delta_{i}.yaml").write_text(content)
+        tasks = load_delta_tasks(tmp_path)
+        assert len(tasks) == 2
+        assert all(isinstance(t, DeltaBenchmarkTask) for t in tasks)
+        assert [t.task_id for t in tasks] == ["delta_0", "delta_1"]
+
+    def test_load_delta_missing_directory(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_delta_tasks(tmp_path / "nonexistent")
+
+    def test_load_delta_invalid_yaml(self, tmp_path: Path) -> None:
+        p = tmp_path / "bad.yaml"
+        p.write_text("- just a list")
+        with pytest.raises(ValueError, match="Expected a YAML mapping"):
+            load_delta_task(p)
