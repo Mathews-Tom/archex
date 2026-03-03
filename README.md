@@ -21,23 +21,45 @@ archex is a Python library and CLI that transforms any Git repository into struc
 ## Installation
 
 ```bash
+# CLI tool (system-wide)
+uv tool install archex
+
+# Project dependency
 uv add archex
 ```
 
 ### Extras
 
-| Extra                   | What it adds                                      |
-| ----------------------- | ------------------------------------------------- |
-| `archex[vector]`        | ONNX-based local embeddings (Nomic Code)          |
-| `archex[vector-torch]`  | Torch-backed sentence-transformers                |
-| `archex[voyage]`        | Voyage Code API embeddings                        |
-| `archex[openai]`        | OpenAI API embeddings + LLM enrichment            |
-| `archex[anthropic]`     | Anthropic API LLM enrichment                      |
-| `archex[mcp]`           | MCP server for agent integration                  |
-| `archex[langchain]`     | LangChain retriever integration                   |
-| `archex[llamaindex]`    | LlamaIndex retriever integration                  |
-| `archex[language-pack]` | Additional grammars via tree-sitter-language-pack |
-| `archex[all]`           | All optional dependencies                         |
+The core package handles all 8 languages, structural analysis, and BM25 retrieval with zero API calls. Extras add optional capabilities:
+
+**Agent integration:**
+
+```bash
+uv tool install "archex[mcp]"        # MCP server (Claude Code / Claude Desktop)
+uv add "archex[langchain]"           # LangChain retriever
+uv add "archex[llamaindex]"          # LlamaIndex retriever
+```
+
+**Hybrid retrieval** (vector embeddings + BM25):
+
+```bash
+uv add "archex[vector]"              # ONNX local embeddings (Nomic Code) — no GPU required
+uv add "archex[vector-torch]"        # Torch-backed sentence-transformers — GPU-accelerated
+```
+
+**LLM enrichment** (optional — enriches architectural decisions with LLM reasoning):
+
+```bash
+uv add "archex[openai]"              # OpenAI (gpt-4.1)
+uv add "archex[anthropic]"           # Anthropic (claude-sonnet-4-20250514)
+```
+
+**Other:**
+
+```bash
+uv add "archex[language-pack]"       # Fallback tree-sitter grammars
+uv add "archex[all]"                 # Everything
+```
 
 ## Quick Start
 
@@ -224,14 +246,33 @@ agent_context = bundle.to_prompt(format="xml")
 
 ### Token Efficiency
 
-archex replaces multi-file exploration loops with single-call retrieval:
+Measured across 10 popular open-source repositories (Flask, Requests, FastAPI, Django, Express, Got, Gin, actix-web, Oak, httpx) spanning Python, JavaScript, TypeScript, Go, and Rust — from 35 files to 2,332 files:
 
-| Task                    | Without archex                                       | With archex                      | Savings |
-| ----------------------- | ---------------------------------------------------- | -------------------------------- | ------- |
-| Understand a subsystem  | ~45,000 tokens (10+ file reads, backtracking)        | ~7,500 tokens (1 `query()` call) | 83%     |
-| Get a symbol's source   | ~3,200 tokens (read entire file)                     | ~340 tokens (`get_symbol()`)     | 89%     |
-| File structure overview | ~4,800 tokens (read full file)                       | ~180 tokens (`file_outline()`)   | 96%     |
-| Repository navigation   | ~200,000+ tokens (directory listing + file skimming) | ~2,000 tokens (`file_tree()`)    | 99%     |
+| Repository | Language | Files | Repo Tokens | Raw Baseline | archex Output | Savings |
+| ---------- | -------- | ----: | ----------: | -----------: | ------------: | ------: |
+| flask      | Python   |    80 |        182K |         797K |           55K |   93.1% |
+| requests   | Python   |    35 |        131K |         631K |           20K |   96.9% |
+| fastapi    | Python   |   941 |        774K |       3,235K |          512K |   84.2% |
+| django     | Python   | 2,332 |      7,196K |      28,964K |          540K |   98.1% |
+| express    | JS       |   141 |        136K |         569K |           19K |   96.6% |
+| got        | TS       |    77 |        198K |         864K |           14K |   98.4% |
+| gin        | Go       |    99 |        190K |         852K |           63K |   92.6% |
+| actix-web  | Rust     |   313 |        619K |       2,585K |           37K |   98.6% |
+| oak        | TS       |    61 |        112K |         502K |           16K |   96.9% |
+| httpx      | Python   |    57 |        172K |         769K |           61K |   92.1% |
+
+**Median savings: 96.8%.** Raw baseline = sum of raw file tokens each operation would require without archex. archex output = sum of structured responses across all 8 API operations (`file_tree`, `analyze`, `file_outline`, `search_symbols`, `get_symbol`, `get_symbols_batch`, `query`, `compare`). Token budget: 8,192.
+
+Per-operation breakdown:
+
+| Operation          | Typical Savings | What it replaces                                    |
+| ------------------ | --------------- | --------------------------------------------------- |
+| `file_tree()`      | 95–99%          | Reading entire repo to understand structure         |
+| `analyze()`        | 82–99%          | Manual exploration of modules, patterns, interfaces |
+| `compare()`        | 79–99%          | Reading both repos end-to-end                       |
+| `query()`          | 66–96%          | Multi-file search and backtracking                  |
+| `get_symbol()`     | 49–87%          | Reading entire file to extract one function         |
+| `search_symbols()` | 68–96%          | Grepping + reading matching files                   |
 
 ## CLI Reference
 
