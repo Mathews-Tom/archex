@@ -69,6 +69,7 @@ def _full_index(
     cache: CacheManager,
     cache_key: str,
     timing: PipelineTiming | None,
+    index_config: IndexConfig | None = None,
 ) -> IndexStore:
     """Run the full acquire → parse → chunk → store pipeline."""
     t_acq = time.perf_counter()
@@ -90,8 +91,8 @@ def _full_index(
 
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
-        index_config = IndexConfig()
-        file_chunker: Chunker = ASTChunker(config=index_config)
+        effective_index_config = index_config or IndexConfig()
+        file_chunker: Chunker = ASTChunker(config=effective_index_config)
         sources: dict[str, bytes] = {}
         for f in files:
             try:
@@ -130,6 +131,7 @@ def _ensure_index(
     source: RepoSource,
     config: Config | None = None,
     timing: PipelineTiming | None = None,
+    index_config: IndexConfig | None = None,
 ) -> IndexStore:
     """Ensure the repo is indexed and return an open IndexStore.
 
@@ -206,7 +208,7 @@ def _ensure_index(
                     logger.info("Delta indexing failed, falling back to full re-index")
 
     # Path 3: Full re-index
-    return _full_index(source, config, cache, cache_key, timing)
+    return _full_index(source, config, cache, cache_key, timing, index_config=index_config)
 
 
 def _chunk_to_symbol_source(chunk: CodeChunk) -> SymbolSource:
@@ -261,14 +263,16 @@ _plugin_bootstrap_strict: bool | None = None
 
 
 def _bootstrap_plugins(strict: bool = False) -> None:
-    """Load adapter and pattern plugins once per process."""
+    """Load adapter, pattern, and embedder plugins once per process."""
     global _plugin_bootstrap_strict
     if _plugin_bootstrap_strict is not None and (not strict or _plugin_bootstrap_strict):
         return  # already loaded at equal or higher strictness
     default_adapter_registry.load_entry_points(strict=strict)
     from archex.analyze.patterns import default_registry
+    from archex.index.embeddings import default_embedder_registry
 
     default_registry.load_entry_points(strict=strict)
+    default_embedder_registry.load_entry_points(strict=strict)
     _plugin_bootstrap_strict = strict
 
 
@@ -418,6 +422,7 @@ def query(
         config = Config()
     if index_config is None:
         index_config = IndexConfig()
+    _bootstrap_plugins()
 
     t0 = time.perf_counter()
     cache = CacheManager(cache_dir=config.cache_dir)
@@ -600,19 +605,10 @@ def query(
 
 
 def _get_embedder(index_config: IndexConfig) -> object | None:
-    """Create an embedder from index_config, or return None if not configured."""
-    if not index_config.embedder:
-        return None
-    if index_config.embedder == "nomic":
-        from archex.index.embeddings.nomic import NomicCodeEmbedder
+    """Create an embedder from index_config via the EmbedderRegistry."""
+    from archex.index.embeddings import default_embedder_registry
 
-        return NomicCodeEmbedder()
-    if index_config.embedder == "sentence_transformers":
-        from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
-
-        return SentenceTransformerEmbedder()
-    # API embedder requires additional config — not created here
-    return None
+    return default_embedder_registry.create(index_config)
 
 
 def compare(

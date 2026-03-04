@@ -446,11 +446,13 @@ class TestGetEmbedder:
         assert _get_embedder(IndexConfig()) is None
         assert _get_embedder(IndexConfig(embedder="")) is None
 
-    def test_returns_none_for_unknown_embedder(self) -> None:
+    def test_raises_for_unknown_embedder(self) -> None:
         from archex.api import _get_embedder
+        from archex.exceptions import ConfigError
         from archex.models import IndexConfig
 
-        assert _get_embedder(IndexConfig(embedder="custom_api")) is None
+        with pytest.raises(ConfigError, match="Unknown embedder"):
+            _get_embedder(IndexConfig(embedder="custom_api"))
 
     def test_creates_nomic_embedder(self) -> None:
         from archex.api import _get_embedder
