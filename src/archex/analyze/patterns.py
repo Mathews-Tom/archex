@@ -93,7 +93,7 @@ def _public_methods_of(class_name: str, symbols: list[Symbol]) -> list[Symbol]:
 
 
 def _method_names(class_name: str, symbols: list[Symbol]) -> set[str]:
-    return {s.name for s in _public_methods_of(class_name, symbols)}
+    return {s.name.lower() for s in _public_methods_of(class_name, symbols)}
 
 
 def _classes(symbols: list[Symbol]) -> list[Symbol]:
@@ -124,12 +124,16 @@ def _detect_middleware(
 
     for pf in parsed_files:
         classes = _classes(pf.symbols)
+        full_chain_found = False
+
+        # First pass: find full chain classes
         for cls in classes:
             methods = _method_names(cls.name, pf.symbols)
             has_next = "set_next" in methods or "next" in methods
             has_process = "process" in methods or "handle" in methods
 
             if has_next and has_process:
+                full_chain_found = True
                 evidence.append(
                     PatternEvidence(
                         file_path=pf.path,
@@ -141,20 +145,33 @@ def _detect_middleware(
                         ),
                     )
                 )
-            elif has_process:
-                # Check if it's a subclass that only overrides process/handle (chain participant)
-                # A class with process/handle but no set_next may be a concrete handler
-                evidence.append(
-                    PatternEvidence(
-                        file_path=pf.path,
-                        start_line=cls.start_line,
-                        end_line=cls.end_line,
-                        symbol=cls.name,
-                        explanation=(
-                            f"Class '{cls.name}' overrides process/handle (chain participant)"
-                        ),
-                    )
+
+        # Second pass: find chain participants
+        for cls in classes:
+            methods = _method_names(cls.name, pf.symbols)
+            has_next = "set_next" in methods or "next" in methods
+            has_process = "process" in methods or "handle" in methods
+
+            if has_next and has_process:
+                continue  # Already added in first pass
+
+            if has_process:
+                has_chain_name = any(
+                    kw in cls.name.lower()
+                    for kw in ("middleware", "handler", "chain", "filter", "interceptor")
                 )
+                if has_chain_name or full_chain_found:
+                    evidence.append(
+                        PatternEvidence(
+                            file_path=pf.path,
+                            start_line=cls.start_line,
+                            end_line=cls.end_line,
+                            symbol=cls.name,
+                            explanation=(
+                                f"Class '{cls.name}' overrides process/handle (chain participant)"
+                            ),
+                        )
+                    )
 
     if not evidence:
         return None
@@ -255,6 +272,15 @@ def _detect_event_bus(
             has_subscribe = bool(methods & subscribe_names)
             has_emit = bool(methods & emit_names)
 
+            # "on" alone is too generic -- require corroboration
+            if methods & subscribe_names == {"on"}:
+                name_lower = cls.name.lower()
+                if not any(
+                    kw in name_lower
+                    for kw in ("event", "bus", "emitter", "dispatcher", "listener")
+                ):
+                    continue
+
             if has_subscribe and has_emit:
                 evidence.append(
                     PatternEvidence(
@@ -313,7 +339,11 @@ def _detect_repository(
             methods = _method_names(cls.name, pf.symbols)
             crud_hits = methods & crud_names
 
-            if len(crud_hits) >= 2:
+            name_indicates_repo = any(
+                kw in cls.name.lower()
+                for kw in ("repo", "repository", "dao", "store", "data")
+            )
+            if len(crud_hits) >= 3 or (len(crud_hits) >= 2 and name_indicates_repo):
                 evidence.append(
                     PatternEvidence(
                         file_path=pf.path,
