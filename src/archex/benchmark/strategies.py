@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import subprocess
 import time
@@ -157,6 +158,40 @@ def compute_precision(result_files: set[str], expected_files: list[str]) -> floa
     return relevant / len(result_files)
 
 
+def compute_ndcg(ranked_files: list[str], expected_files: list[str], k: int = 10) -> float:
+    """Normalized discounted cumulative gain at k."""
+    if not expected_files:
+        return 0.0
+    expected_set = set(expected_files)
+    # DCG
+    dcg = 0.0
+    for i, f in enumerate(ranked_files[:k]):
+        rel = 1.0 if f in expected_set else 0.0
+        dcg += rel / math.log2(i + 2)  # i+2 because log2(1)=0
+    # Ideal DCG
+    ideal_count = min(len(expected_files), k)
+    idcg = sum(1.0 / math.log2(i + 2) for i in range(ideal_count))
+    if idcg == 0.0:
+        return 0.0
+    return dcg / idcg
+
+
+def compute_map(ranked_files: list[str], expected_files: list[str]) -> float:
+    """Mean average precision."""
+    if not expected_files:
+        return 0.0
+    expected_set = set(expected_files)
+    hits = 0
+    sum_precision = 0.0
+    for i, f in enumerate(ranked_files, 1):
+        if f in expected_set:
+            hits += 1
+            sum_precision += hits / i
+    if hits == 0:
+        return 0.0
+    return sum_precision / len(expected_files)
+
+
 def count_file_tokens(repo_path: Path, files: list[str]) -> int:
     """Count tokens across a list of files relative to repo_path."""
     total = 0
@@ -197,6 +232,10 @@ def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         files_accessed=len(task.expected_files),
         recall=1.0,
         precision=1.0,
+        f1_score=1.0,
+        mrr=1.0,
+        ndcg=1.0,
+        map_score=1.0,
         savings_vs_raw=0.0,
         wall_time_ms=wall_ms,
         cached=False,
@@ -220,6 +259,10 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
                 "--include=*.js",
                 "--include=*.go",
                 "--include=*.rs",
+                "--include=*.java",
+                "--include=*.kt",
+                "--include=*.cs",
+                "--include=*.swift",
                 "-i",
                 kw,
                 ".",
@@ -241,6 +284,9 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     recall = compute_recall(matched_files, task.expected_files)
     precision = compute_precision(matched_files, task.expected_files)
     f1 = compute_f1(recall, precision)
+    ranked = list(matched_files)
+    ndcg_val = compute_ndcg(ranked, task.expected_files)
+    map_val = compute_map(ranked, task.expected_files)
 
     return BenchmarkResult(
         task_id=task.task_id,
@@ -251,6 +297,8 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         recall=recall,
         precision=precision,
         f1_score=f1,
+        ndcg=ndcg_val,
+        map_score=map_val,
         savings_vs_raw=0.0,  # backfilled by runner
         wall_time_ms=wall_ms,
         cached=False,
@@ -285,6 +333,8 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     precision = compute_precision(result_files, task.expected_files)
     f1 = compute_f1(recall, precision)
     mrr_val = compute_mrr(ranked_files, task.expected_files)
+    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
+    map_val = compute_map(ranked_files, task.expected_files)
 
     return BenchmarkResult(
         task_id=task.task_id,
@@ -296,6 +346,8 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         precision=precision,
         f1_score=f1,
         mrr=mrr_val,
+        ndcg=ndcg_val,
+        map_score=map_val,
         savings_vs_raw=0.0,  # backfilled by runner
         wall_time_ms=wall_ms,
         cached=timing.cached,
@@ -336,6 +388,8 @@ def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
             precision=0.0,
             f1_score=0.0,
             mrr=0.0,
+            ndcg=0.0,
+            map_score=0.0,
             savings_vs_raw=0.0,
             wall_time_ms=wall_ms,
             cached=False,
@@ -350,6 +404,8 @@ def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     precision = compute_precision(result_files, task.expected_files)
     f1 = compute_f1(recall, precision)
     mrr_val = compute_mrr(ranked_files, task.expected_files)
+    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
+    map_val = compute_map(ranked_files, task.expected_files)
 
     return BenchmarkResult(
         task_id=task.task_id,
@@ -361,6 +417,8 @@ def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         precision=precision,
         f1_score=f1,
         mrr=mrr_val,
+        ndcg=ndcg_val,
+        map_score=map_val,
         savings_vs_raw=0.0,  # backfilled by runner
         wall_time_ms=wall_ms,
         cached=timing.cached,
