@@ -131,6 +131,14 @@ class IndexStore:
             + _CREATE_IDX_EDGES_SOURCE
             + _CREATE_IDX_EDGES_TARGET
         )
+        # Create BM25 FTS table so delete operations are safe without prior BM25Index init
+        cur.executescript("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                chunk_id UNINDEXED,
+                content,
+                symbol_name
+            );
+        """)
         self._conn.commit()
 
     def _insert_chunks_no_commit(self, chunks: list[CodeChunk]) -> None:

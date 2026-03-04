@@ -607,3 +607,140 @@ class TestStoreBatchOperations:
         assert store.get_chunks_for_file("p.py") == []
         assert store.get_chunks_for_file("q.py") == []
         assert len(store.get_chunks_for_file("r.py")) == 1
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests — chunks_fts bug fix verification
+# ---------------------------------------------------------------------------
+
+
+class TestChunksFtsBugFix:
+    """Verify delete operations work on fresh stores without BM25Index init."""
+
+    def test_delete_chunks_without_bm25_init(self, store: IndexStore) -> None:
+        """delete_chunks_for_files should work on fresh store without BM25Index."""
+        chunks = [
+            CodeChunk(
+                id="a1",
+                content="x=1",
+                file_path="a.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            ),
+        ]
+        store.insert_chunks(chunks)
+        # This should NOT raise OperationalError anymore
+        deleted = store.delete_chunks_for_files(["a.py"])
+        assert deleted == 1
+
+    def test_delete_and_insert_without_bm25_init(self, store: IndexStore) -> None:
+        """delete_and_insert_for_files should work without prior BM25Index."""
+        old = [
+            CodeChunk(
+                id="b1",
+                content="old",
+                file_path="b.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            )
+        ]
+        store.insert_chunks(old)
+        new_chunks = [
+            CodeChunk(
+                id="b2",
+                content="new",
+                file_path="b.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            )
+        ]
+        # This should NOT raise OperationalError anymore
+        store.delete_and_insert_for_files(["b.py"], new_chunks, [])
+        result = store.get_chunks_for_file("b.py")
+        assert len(result) == 1
+        assert result[0].content == "new"
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests — FTS special characters
+# ---------------------------------------------------------------------------
+
+
+class TestFTSSpecialCharacters:
+    """Verify search_symbols handles FTS special characters without crashing."""
+
+    def test_search_with_double_quotes(self, store: IndexStore) -> None:
+        store.insert_chunks(SAMPLE_CHUNKS)
+        # Should not crash — may return empty
+        results = store.search_symbols('"authenticate"')
+        assert isinstance(results, list)
+
+    def test_search_with_parentheses(self, store: IndexStore) -> None:
+        store.insert_chunks(SAMPLE_CHUNKS)
+        results = store.search_symbols("func()")
+        assert isinstance(results, list)
+
+    def test_search_with_asterisk(self, store: IndexStore) -> None:
+        store.insert_chunks(SAMPLE_CHUNKS)
+        results = store.search_symbols("auth*")
+        assert isinstance(results, list)
+
+    def test_search_with_fts_operators(self, store: IndexStore) -> None:
+        store.insert_chunks(SAMPLE_CHUNKS)
+        results = store.search_symbols("auth AND user")
+        assert isinstance(results, list)
+
+    def test_search_with_single_quotes(self, store: IndexStore) -> None:
+        store.insert_chunks(SAMPLE_CHUNKS)
+        results = store.search_symbols("it's")
+        assert isinstance(results, list)
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests — empty and boundary operations
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyAndBoundaryOperations:
+    def test_insert_empty_chunks(self, store: IndexStore) -> None:
+        store.insert_chunks([])
+        assert store.get_chunks() == []
+
+    def test_get_chunks_for_nonexistent_file(self, store: IndexStore) -> None:
+        result = store.get_chunks_for_file("nonexistent.py")
+        assert result == []
+
+    def test_get_chunk_by_symbol_id_missing(self, store: IndexStore) -> None:
+        result = store.get_chunk_by_symbol_id("missing::symbol#function")
+        assert result is None
+
+    def test_get_chunks_by_ids_empty(self, store: IndexStore) -> None:
+        result = store.get_chunks_by_ids([])
+        assert result == []
+
+    def test_get_chunks_by_ids_large_batch(self, store: IndexStore) -> None:
+        """Verify SQLite variable limit is handled for 999+ IDs."""
+        store.insert_chunks(SAMPLE_CHUNKS)
+        # Create 1000+ IDs (most won't match — that's fine, we're testing no crash)
+        large_ids = [f"fake_id_{i}" for i in range(1050)]
+        large_ids.extend([c.id for c in SAMPLE_CHUNKS])
+        results = store.get_chunks_by_ids(large_ids)
+        assert len(results) == len(SAMPLE_CHUNKS)
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests — corrupted database
+# ---------------------------------------------------------------------------
+
+
+class TestCorruptedDatabase:
+    def test_non_sqlite_file_raises(self, tmp_path: Path) -> None:
+        """Passing a non-SQLite file should raise an error."""
+        bad_db = tmp_path / "not_sqlite.db"
+        bad_db.write_text("This is not a SQLite database")
+        import sqlite3
+        with pytest.raises(sqlite3.DatabaseError):
+            IndexStore(bad_db)
