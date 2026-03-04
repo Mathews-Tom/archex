@@ -1,6 +1,6 @@
 task_id: express_middleware
 repo: expressjs/express
-commit: "v4.21.2"
+commit: "4.21.2"
 question: "How does express implement the middleware chain and next() function?"
 expected_files:
   - lib/router/index.js

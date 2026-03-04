@@ -23,8 +23,21 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
 
 
 def clone_at_commit(repo_slug: str, commit: str) -> tuple[Path, bool]:
-    """Clone a GitHub repo and checkout a specific commit. Returns (path, needs_cleanup)."""
+    """Clone a GitHub repo and checkout a specific commit/tag. Returns (path, needs_cleanup)."""
     url = f"https://github.com/{repo_slug}.git"
+    target = Path(tempfile.mkdtemp(prefix="archex-bench-"))
+
+    # Try shallow clone at ref (works for tags and branches, much faster)
+    result = subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", "--branch", commit, url, str(target)],
+        capture_output=True,
+        timeout=300,
+    )
+    if result.returncode == 0:
+        return target, True
+
+    # Fallback: full clone + checkout (needed for bare commit hashes)
+    shutil.rmtree(target, ignore_errors=True)
     target = Path(tempfile.mkdtemp(prefix="archex-bench-"))
     subprocess.run(
         ["git", "clone", "--quiet", url, str(target)],

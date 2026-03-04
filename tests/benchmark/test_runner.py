@@ -185,12 +185,12 @@ class TestCloneAtCommit:
 
         assert needs_cleanup is True
         assert path.exists()
-        # First call: git clone; second call: git checkout
-        assert len(calls) == 2
+        # Shallow clone with --branch succeeds (returncode=0), so only 1 call.
+        assert len(calls) == 1
         assert "clone" in calls[0]
         assert "https://github.com/owner/repo.git" in calls[0]
-        assert "checkout" in calls[1]
-        assert "abc123" in calls[1]
+        assert "--depth" in calls[0]
+        assert "abc123" in calls[0]
 
         # Cleanup
         import shutil
