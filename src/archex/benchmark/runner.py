@@ -11,7 +11,8 @@ from pathlib import Path
 
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
-from archex.benchmark.strategies import STRATEGY_RUNNERS
+from archex.benchmark.strategies import default_strategy_registry
+from archex.exceptions import ArchexIndexError
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ def run_benchmark(
     try:
         results: list[BenchmarkResult] = []
         for strategy in strategies:
-            runner = STRATEGY_RUNNERS.get(strategy)
+            runner = default_strategy_registry.get(strategy)
             if runner is None:
                 logger.warning("No runner for strategy %s, skipping", strategy)
                 continue
@@ -86,7 +87,7 @@ def run_benchmark(
                     f"recall={result.recall:.2f}, {result.wall_time_ms:.0f}ms",
                     file=sys.stderr,
                 )
-            except NotImplementedError as exc:
+            except (NotImplementedError, ArchexIndexError) as exc:
                 logger.info("Skipping %s: %s", strategy.value, exc)
                 print(f"  [{strategy.value}] skipped: {exc}", file=sys.stderr)
 
