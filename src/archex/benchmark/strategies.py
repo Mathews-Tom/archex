@@ -358,7 +358,7 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     t0 = time.perf_counter()
     timing = PipelineTiming()
     source = RepoSource(local_path=str(repo_path))
-    config = Config(cache=False)
+    config = Config(cache=False, languages=task.languages)
     index_config = IndexConfig(vector=False)
 
     bundle = query(

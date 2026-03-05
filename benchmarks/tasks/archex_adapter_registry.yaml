@@ -1,6 +1,7 @@
 task_id: archex_adapter_registry
 repo: "."
 commit: "HEAD"
+languages: [python]
 question: "How does archex register language adapters?"
 expected_files:
   - src/archex/parse/adapters/__init__.py

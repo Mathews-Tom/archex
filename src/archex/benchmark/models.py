@@ -26,6 +26,7 @@ class BenchmarkTask(BaseModel):
     expected_symbols: list[str] = []
     token_budget: int = 8192
     keywords: list[str] = []
+    languages: list[str] | None = None
 
 
 class BenchmarkResult(BaseModel):

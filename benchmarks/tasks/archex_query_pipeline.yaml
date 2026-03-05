@@ -1,6 +1,7 @@
 task_id: archex_query_pipeline
 repo: "."
 commit: "HEAD"
+languages: [python]
 question: "How does archex implement the query pipeline?"
 expected_files:
   - src/archex/api.py
