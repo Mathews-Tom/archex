@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import re
 import sqlite3
@@ -32,7 +33,7 @@ _STOPWORDS = frozenset({
     "when", "where", "which", "who", "why", "will", "with", "you",
 })
 
-_AND_FALLBACK_THRESHOLD = 3
+_GRADUATED_THRESHOLD = 10
 
 
 def _sanitize_tokens(query: str) -> list[str]:
@@ -46,17 +47,13 @@ def _sanitize_tokens(query: str) -> list[str]:
 
 
 def escape_fts_query(query: str) -> str:
-    """Sanitize query tokens and AND-join for FTS5 precise matching.
-
-    Stopwords are stripped before joining. AND-join requires all remaining
-    terms present, improving precision for multi-term queries.
-    """
+    """Sanitize query tokens and AND-join for FTS5 precise matching."""
     safe = _sanitize_tokens(query)
     return " AND ".join(safe) if safe else ""
 
 
 def _escape_fts_query_or(query: str) -> str:
-    """OR-join variant used as fallback when AND returns too few results."""
+    """OR-join variant used as final fallback."""
     safe = _sanitize_tokens(query)
     return " OR ".join(safe) if safe else ""
 
@@ -100,23 +97,66 @@ class BM25Index:
             return []
         return [(str(row[0]), float(row[1])) for row in cur.fetchall()]
 
+    def _graduated_search(
+        self, tokens: list[str], top_k: int,
+    ) -> list[tuple[str, float]]:
+        """Graduated fallback: AND-all → AND-subsets → OR-all.
+
+        1. AND all terms — if >= threshold results, return
+        2. Drop one term at a time (N-1 subsets), merge results
+        3. If still < threshold, try pairs of terms, merge
+        4. Final fallback: OR all terms
+        """
+        # Stage 1: AND all terms
+        if len(tokens) >= 2:
+            and_query = " AND ".join(tokens)
+            rows = self._execute_fts(and_query, top_k)
+            if len(rows) >= _GRADUATED_THRESHOLD:
+                return rows
+
+        # Stage 2: drop one term at a time (N-1 subsets)
+        merged: dict[str, float] = {}
+        if len(tokens) >= 3:
+            for subset in itertools.combinations(tokens, len(tokens) - 1):
+                sub_query = " AND ".join(subset)
+                sub_rows = self._execute_fts(sub_query, top_k)
+                for cid, score in sub_rows:
+                    # Keep the best score per chunk across subsets
+                    if cid not in merged or score < merged[cid]:  # FTS5 scores are negative
+                        merged[cid] = score
+            if len(merged) >= _GRADUATED_THRESHOLD:
+                return sorted(merged.items(), key=lambda x: x[1])[:top_k]
+
+        # Stage 3: pairs of terms
+        if len(tokens) >= 4:
+            for pair in itertools.combinations(tokens, 2):
+                pair_query = " AND ".join(pair)
+                pair_rows = self._execute_fts(pair_query, top_k)
+                for cid, score in pair_rows:
+                    if cid not in merged or score < merged[cid]:
+                        merged[cid] = score
+            if len(merged) >= _GRADUATED_THRESHOLD:
+                return sorted(merged.items(), key=lambda x: x[1])[:top_k]
+
+        # Stage 4: OR all terms
+        or_query = " OR ".join(tokens)
+        or_rows = self._execute_fts(or_query, top_k)
+        # Merge OR results with anything we found earlier
+        for cid, score in or_rows:
+            if cid not in merged or score < merged[cid]:
+                merged[cid] = score
+
+        return sorted(merged.items(), key=lambda x: x[1])[:top_k]
+
     def search(self, query: str, top_k: int = 20) -> list[tuple[CodeChunk, float]]:
         if not query.strip():
             return []
 
-        escaped = escape_fts_query(query)
-        if not escaped:
+        tokens = _sanitize_tokens(query)
+        if not tokens:
             return []
 
-        rows = self._execute_fts(escaped, top_k)
-
-        # Fall back to OR-join when AND returns too few results
-        if len(rows) < _AND_FALLBACK_THRESHOLD:
-            or_escaped = _escape_fts_query_or(query)
-            if or_escaped and or_escaped != escaped:
-                or_rows = self._execute_fts(or_escaped, top_k)
-                if len(or_rows) > len(rows):
-                    rows = or_rows
+        rows = self._graduated_search(tokens, top_k)
 
         if not rows:
             return []
