@@ -35,7 +35,7 @@ MAX_EXPANSION_FILES = 10
 MAX_FILES = 8
 
 
-def _estimate_tokens(chunk: CodeChunk) -> int:
+def estimate_tokens(chunk: CodeChunk) -> int:
     if chunk.token_count > 0:
         return chunk.token_count
     return int(len(chunk.content.split()) * 1.3)
@@ -51,7 +51,7 @@ def passthrough_context(
     Skips BM25/scoring overhead for small repos where retrieval adds no value.
     """
     assembly_start = time.perf_counter()
-    total_tokens = sum(_estimate_tokens(c) for c in all_chunks)
+    total_tokens = sum(estimate_tokens(c) for c in all_chunks)
     included = [
         RankedChunk(chunk=chunk, relevance_score=1.0, final_score=1.0) for chunk in all_chunks
     ]
@@ -353,7 +353,7 @@ def assemble_context(
     for rc in ranked:
         if rc.final_score < score_floor:
             break
-        tokens = _estimate_tokens(rc.chunk)
+        tokens = estimate_tokens(rc.chunk)
         if total_tokens + tokens > token_budget:
             continue
         included.append(rc)

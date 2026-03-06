@@ -14,7 +14,7 @@ from archex.index.embeddings.base import Embedder
 
 def _torch_available() -> bool:
     try:
-        import torch  # noqa: F401
+        import torch  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
         return True
     except (ImportError, RuntimeError):

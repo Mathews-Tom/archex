@@ -27,13 +27,13 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
 def _check_hybrid_available() -> bool:
     """Check if vector embedding dependencies are available (fastembed or sentence-transformers)."""
     try:
-        import fastembed as _fe  # noqa: F401
+        import fastembed as _fe  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
         return True
     except ImportError:
         pass
     try:
-        import sentence_transformers as _st  # noqa: F401
+        import sentence_transformers as _st  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
         return True
     except ImportError:

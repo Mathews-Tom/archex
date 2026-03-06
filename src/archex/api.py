@@ -510,9 +510,9 @@ def _compute_dynamic_budget(total_repo_tokens: int, user_budget: int) -> int:
 
 def _total_chunk_tokens(chunks: list[CodeChunk]) -> int:
     """Sum estimated tokens across all chunks."""
-    from archex.serve.context import _estimate_tokens
+    from archex.serve.context import estimate_tokens
 
-    return sum(_estimate_tokens(c) for c in chunks)
+    return sum(estimate_tokens(c) for c in chunks)
 
 
 def analyze(
@@ -687,7 +687,7 @@ def query(
                 search_results = search_results + path_boost + symbol_seeds
 
                 # Two-stage: rerank BM25 candidates with vector similarity
-                vector_results: list[tuple[object, float]] | None = None
+                vector_results: list[tuple[CodeChunk, float]] | None = None
                 if index_config.vector:
                     vector_results = _two_stage_rerank(
                         question,
@@ -811,7 +811,7 @@ def query(
             search_results = search_results + path_boost + symbol_seeds_miss
 
             # Two-stage: rerank BM25 candidates with vector similarity
-            vector_results_miss: list[tuple[object, float]] | None = None
+            vector_results_miss: list[tuple[CodeChunk, float]] | None = None
             if index_config.vector:
                 vector_results_miss = _two_stage_rerank(
                     question,

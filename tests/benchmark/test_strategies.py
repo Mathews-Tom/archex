@@ -74,7 +74,7 @@ class TestComputeNdcg:
     def test_perfect_ranking(self) -> None:
         ranked = ["a.py", "b.py", "c.py"]
         expected = ["a.py", "b.py"]
-        assert compute_ndcg(ranked, expected) == pytest.approx(1.0)
+        assert compute_ndcg(ranked, expected) == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
 
     def test_worst_ranking(self) -> None:
         ranked = ["x.py", "y.py", "z.py"]
@@ -106,7 +106,7 @@ class TestComputeMap:
     def test_perfect_ranking(self) -> None:
         ranked = ["a.py", "b.py", "c.py"]
         expected = ["a.py", "b.py"]
-        assert compute_map(ranked, expected) == pytest.approx(1.0)
+        assert compute_map(ranked, expected) == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
 
     def test_worst_ranking(self) -> None:
         ranked = ["x.py", "y.py", "z.py"]
@@ -119,7 +119,7 @@ class TestComputeMap:
         # MAP = (0.5 + 2/3) / 2 = 7/12
         ranked = ["x.py", "a.py", "b.py"]
         expected = ["a.py", "b.py"]
-        assert compute_map(ranked, expected) == pytest.approx(7.0 / 12.0)
+        assert compute_map(ranked, expected) == pytest.approx(7.0 / 12.0)  # pyright: ignore[reportUnknownMemberType]
 
     def test_empty_expected(self) -> None:
         assert compute_map(["a.py"], []) == 0.0

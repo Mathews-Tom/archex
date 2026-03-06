@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 try:
-    import tree_sitter_swift  # noqa: F401
+    import tree_sitter_swift  # noqa: F401  # pyright: ignore[reportUnusedImport,reportMissingImports]
 except ImportError:
     try:
         from tree_sitter_language_pack import get_language as _get_language

@@ -252,10 +252,10 @@ def test_all_chunks_exceed_budget_none_included() -> None:
 
 def test_estimate_tokens_fallback_on_zero_count() -> None:
     """_estimate_tokens uses word-based fallback when token_count is 0."""
-    from archex.serve.context import _estimate_tokens
+    from archex.serve.context import estimate_tokens
 
     chunk = make_chunk("c1", "a.py", content="hello world foo bar", token_count=0)
-    estimate = _estimate_tokens(chunk)
+    estimate = estimate_tokens(chunk)
     # 4 words * 1.3 ≈ 5
     assert estimate > 0
     assert estimate == int(4 * 1.3)

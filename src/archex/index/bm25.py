@@ -90,12 +90,6 @@ def escape_fts_query(query: str) -> str:
     return " AND ".join(safe) if safe else ""
 
 
-def _escape_fts_query_or(query: str) -> str:
-    """OR-join variant used as final fallback."""
-    safe = _sanitize_tokens(query)
-    return " OR ".join(safe) if safe else ""
-
-
 class BM25Index:
     """BM25 keyword index using SQLite FTS5."""
 
@@ -105,7 +99,7 @@ class BM25Index:
         store.conn.commit()
 
     def build(self, chunks: list[CodeChunk]) -> None:
-        from archex.index.chunker import _expand_identifiers
+        from archex.index.chunker import expand_identifiers
 
         conn = self._store.conn
         conn.execute(_DROP_FTS_ROWS)
@@ -113,7 +107,7 @@ class BM25Index:
             "INSERT INTO chunks_fts (chunk_id, content, symbol_name, file_path) "
             "VALUES (?, ?, ?, ?)",
             [
-                (c.id, _expand_identifiers(c.content), c.symbol_name or "", c.file_path)
+                (c.id, expand_identifiers(c.content), c.symbol_name or "", c.file_path)
                 for c in chunks
             ],
         )

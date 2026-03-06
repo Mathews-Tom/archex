@@ -40,7 +40,9 @@ class SentenceTransformerEmbedder:
             SentenceTransformer,  # pyright: ignore[reportMissingImports]
         )
 
-        from archex.index.embeddings.nomic import _best_device
+        from archex.index.embeddings.nomic import (
+            _best_device,  # pyright: ignore[reportPrivateUsage]
+        )
 
         self._model = SentenceTransformer(self._model_name, device=_best_device())
         self._dimension = self._model.get_sentence_embedding_dimension()

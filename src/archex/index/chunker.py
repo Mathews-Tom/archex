@@ -21,7 +21,7 @@ _CAMEL_SPLIT = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _SNAKE_SPLIT = re.compile(r"_+")
 
 
-def _expand_identifiers(text: str) -> str:
+def expand_identifiers(text: str) -> str:
     """Expand camelCase and snake_case identifiers into space-separated tokens for FTS5."""
     identifiers = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", text)
     fragments: list[str] = []

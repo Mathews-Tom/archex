@@ -528,4 +528,4 @@ default_strategy_registry.register(Strategy.ARCHEX_QUERY_HYBRID.value, run_arche
 default_strategy_registry.register(Strategy.ARCHEX_SYMBOL_LOOKUP.value, run_archex_symbol_lookup)
 
 # Backward-compat reference
-STRATEGY_RUNNERS = default_strategy_registry._runners
+STRATEGY_RUNNERS = default_strategy_registry._runners  # pyright: ignore[reportPrivateUsage]

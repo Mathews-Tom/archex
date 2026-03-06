@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from archex.api import _compute_top_k, analyze, compare, query
+from archex.api import (  # pyright: ignore[reportPrivateUsage]
+    _compute_top_k,
+    analyze,
+    compare,
+    query,
+)
 
 if TYPE_CHECKING:
     from archex.models import FileTreeEntry
@@ -26,7 +31,7 @@ from archex.models import (
 
 def _has_tree_sitter_swift() -> bool:
     try:
-        import tree_sitter_swift  # noqa: F401
+        import tree_sitter_swift  # noqa: F401  # pyright: ignore[reportUnusedImport,reportMissingImports]
 
         return True
     except ImportError:

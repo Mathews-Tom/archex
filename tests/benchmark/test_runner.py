@@ -145,7 +145,7 @@ class TestRunBenchmark:
 
         task, repo_path = fixture_task
         key = Strategy.RAW_GREPPED.value
-        removed = default_strategy_registry._runners.pop(key)
+        removed = default_strategy_registry._runners.pop(key)  # pyright: ignore[reportPrivateUsage]
         try:
             report = run_benchmark(
                 task,
@@ -153,7 +153,7 @@ class TestRunBenchmark:
                 repo_path=repo_path,
             )
         finally:
-            default_strategy_registry._runners[key] = removed
+            default_strategy_registry._runners[key] = removed  # pyright: ignore[reportPrivateUsage]
 
         # RAW_GREPPED was skipped; only RAW_FILES ran
         assert len(report.results) == 1

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 from fastapi.testclient import TestClient
 
 from archex.serve.app import create_app
@@ -22,7 +27,7 @@ class TestHealthEndpoint:
 
 
 class TestAnalyzeEndpoint:
-    def test_analyze_with_valid_source(self, client: TestClient, python_simple_repo) -> None:
+    def test_analyze_with_valid_source(self, client: TestClient, python_simple_repo: Path) -> None:
         response = client.post(
             "/analyze",
             json={
@@ -46,7 +51,7 @@ class TestAnalyzeEndpoint:
 
 
 class TestQueryEndpoint:
-    def test_query_with_valid_source(self, client: TestClient, python_simple_repo) -> None:
+    def test_query_with_valid_source(self, client: TestClient, python_simple_repo: Path) -> None:
         response = client.post(
             "/query",
             json={
@@ -62,7 +67,7 @@ class TestQueryEndpoint:
 
 
 class TestTreeEndpoint:
-    def test_tree_returns_valid_data(self, client: TestClient, python_simple_repo) -> None:
+    def test_tree_returns_valid_data(self, client: TestClient, python_simple_repo: Path) -> None:
         response = client.get(
             "/tree",
             params={

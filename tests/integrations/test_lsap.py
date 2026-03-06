@@ -29,7 +29,7 @@ from archex.models import (
 
 
 @pytest.fixture(autouse=True)
-def _enable_lsap(monkeypatch: pytest.MonkeyPatch) -> None:
+def _enable_lsap(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
     """Patch _lsap_available=True so tests run without lsp-client installed."""
     import archex.integrations.lsap as lsap_module
 
@@ -252,7 +252,7 @@ class TestPatternVerifier:
             ],
             imports=[],
             lines=50,
-            token_count=300,
+            tokens=300,
         )
 
     def test_boosts_confidence_with_datastore_indicators(self) -> None:

@@ -63,19 +63,19 @@ def create_app() -> FastAPI:
 
     # --- Health ---
     @app.get("/health")
-    def health() -> dict[str, str]:
+    def health() -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
         return {"status": "ok"}
 
     # --- Core API ---
     @app.post("/analyze")
-    def analyze_endpoint(req: AnalyzeRequest) -> ArchProfile:
+    def analyze_endpoint(req: AnalyzeRequest) -> ArchProfile:  # pyright: ignore[reportUnusedFunction]
         try:
             return api.analyze(req.source, req.config)
         except (FileNotFoundError, OSError, ArchexError) as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/query")
-    def query_endpoint(req: QueryRequest) -> ContextBundle:
+    def query_endpoint(req: QueryRequest) -> ContextBundle:  # pyright: ignore[reportUnusedFunction]
         try:
             return api.query(
                 req.source,
@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/compare")
-    def compare_endpoint(req: CompareRequest) -> ComparisonResult:
+    def compare_endpoint(req: CompareRequest) -> ComparisonResult:  # pyright: ignore[reportUnusedFunction]
         try:
             return api.compare(
                 req.source_a, req.source_b, dimensions=req.dimensions, config=req.config
@@ -101,7 +101,7 @@ def create_app() -> FastAPI:
 
     # --- Precision tools ---
     @app.get("/tree")
-    def tree_endpoint(local_path: str, depth: int = 5, language: str | None = None) -> FileTree:
+    def tree_endpoint(local_path: str, depth: int = 5, language: str | None = None) -> FileTree:  # pyright: ignore[reportUnusedFunction]
         source = RepoSource(local_path=local_path)
         try:
             return api.file_tree(source, max_depth=depth, language=language)
@@ -109,7 +109,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/outline")
-    def outline_endpoint(local_path: str, file: str) -> FileOutline:
+    def outline_endpoint(local_path: str, file: str) -> FileOutline:  # pyright: ignore[reportUnusedFunction]
         source = RepoSource(local_path=local_path)
         try:
             return api.file_outline(source, file)
@@ -117,7 +117,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/symbols")
-    def symbols_endpoint(local_path: str, query: str, limit: int = 20) -> list[SymbolMatch]:
+    def symbols_endpoint(local_path: str, query: str, limit: int = 20) -> list[SymbolMatch]:  # pyright: ignore[reportUnusedFunction]
         source = RepoSource(local_path=local_path)
         try:
             return api.search_symbols(source, query, limit=limit)
@@ -125,7 +125,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/symbol/{symbol_id:path}")
-    def symbol_endpoint(symbol_id: str, local_path: str) -> SymbolSource:
+    def symbol_endpoint(symbol_id: str, local_path: str) -> SymbolSource:  # pyright: ignore[reportUnusedFunction]
         source = RepoSource(local_path=local_path)
         try:
             result = api.get_symbol(source, symbol_id)
@@ -137,7 +137,7 @@ def create_app() -> FastAPI:
 
     # --- Benchmark endpoints ---
     @app.get("/benchmark/results")
-    def benchmark_results() -> dict[str, Any]:
+    def benchmark_results() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         """Return latest benchmark results if available."""
         baseline_path = Path.home() / ".archex" / "benchmark_baseline.json"
         if not baseline_path.exists():
@@ -152,7 +152,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.get("/benchmark/summary")
-    def benchmark_summary() -> dict[str, Any]:
+    def benchmark_summary() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         """Return formatted benchmark summary."""
         baseline_path = Path.home() / ".archex" / "benchmark_baseline.json"
         if not baseline_path.exists():
@@ -174,7 +174,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.get("/benchmark/gate")
-    def benchmark_gate() -> dict[str, Any]:
+    def benchmark_gate() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         """Return quality gate check result based on baseline entries."""
         baseline_path = Path.home() / ".archex" / "benchmark_baseline.json"
         if not baseline_path.exists():
@@ -211,7 +211,7 @@ def create_app() -> FastAPI:
     if static_dir.exists():
 
         @app.get("/dashboard", response_class=HTMLResponse)
-        def dashboard() -> HTMLResponse:
+        def dashboard() -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
             index_html = static_dir / "index.html"
             return HTMLResponse(content=index_html.read_text())
 
