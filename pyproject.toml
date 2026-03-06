@@ -37,7 +37,12 @@ dependencies = [
 
 [project.optional-dependencies]
 vector = ["onnxruntime>=1.17", "tokenizers>=0.15"]
-vector-torch = ["sentence-transformers>=2.6"]
+vector-fast = [
+    "fastembed>=0.4",
+]
+vector-torch = [
+    "sentence-transformers>=2.6",
+]
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.30"]
 mcp = ["mcp>=1.0"]
@@ -106,9 +111,13 @@ markers = [
 
 [dependency-groups]
 dev = [
+    "langchain-core>=0.2",
+    "llama-index-core>=0.10",
+    "mcp>=1.0",
     "numpy>=2.4.2",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
     "scipy>=1.17.1",
+    "tree-sitter-language-pack>=0.13",
 ]
