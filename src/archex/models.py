@@ -141,10 +141,10 @@ class IndexConfig(BaseModel):
 
 
 class ScoringWeights(BaseModel):
-    relevance: float = 0.6
-    structural: float = 0.15
-    type_coverage: float = 0.1
-    cohesion: float = 0.15
+    relevance: float = 0.80
+    structural: float = 0.08
+    type_coverage: float = 0.04
+    cohesion: float = 0.08
 
     @model_validator(mode="after")
     def _weights_sum_to_one(self) -> ScoringWeights:
@@ -683,6 +683,7 @@ class PipelineTiming:
     delta_succeeded: bool = False
     parse_failure_count: int = 0
     vector_used: bool = False
+    vector_build_ms: float = 0.0
     strategy: str = ""  # "full", "cached", "delta"
 
 
