@@ -22,11 +22,15 @@ if TYPE_CHECKING:
 
 _TYPE_LIKE = {SymbolKind.CLASS, SymbolKind.TYPE, SymbolKind.INTERFACE}
 
-NEIGHBOR_DECAY = 0.35
+# Direct imports (files the seed depends on) get a strong boost — same call chain.
+IMPORT_TARGET_DECAY = 0.65
+
+# Importers (files that depend on the seed) get a weaker boost — consumers, not deps.
+IMPORTER_DECAY = 0.20
 
 MIN_SCORE_RATIO = 0.30
 
-MAX_EXPANSION_FILES = 8
+MAX_EXPANSION_FILES = 10
 
 MAX_FILES = 8
 
@@ -92,6 +96,20 @@ def passthrough_context(
     )
 
 
+def _query_terms(question: str) -> set[str]:
+    """Extract lowercased content words from a query for expansion prioritization."""
+    import re
+
+    _STOP = {
+        "how", "does", "implement", "what", "handle", "manage", "function",
+        "method", "class", "module", "file", "code", "work", "used", "using",
+        "create", "make", "define", "call", "return", "type", "data", "value",
+        "the", "and", "for", "with", "from", "this", "that", "show", "find",
+    }
+    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", question)
+    return {w.lower() for w in words if w.lower() not in _STOP}
+
+
 def assemble_context(
     search_results: list[tuple[CodeChunk, float]],
     graph: DependencyGraph,
@@ -136,7 +154,9 @@ def assemble_context(
 
     candidates_found = len(search_results)
 
-    # Expand: find neighbor files via graph, prioritized by penalized seed score
+    # Expand: follow directed imports from seed files, prioritized by seed score.
+    # imports_of(file) = files this file depends on (high relevance — same call chain)
+    # imported_by(file) = files that depend on this file (moderate relevance — consumers)
     seed_file_scores: dict[str, float] = {}
     for chunk, score in search_results:
         fp = chunk.file_path
@@ -144,15 +164,34 @@ def assemble_context(
         effective = score * (0.6 if is_test else 1.0)
         seed_file_scores[fp] = max(seed_file_scores.get(fp, 0.0), effective)
 
-    neighbor_files: set[str] = set()
+    # Extract query terms for path-aware import prioritization
+    q_terms = _query_terms(question)
+
     expansion_priority: dict[str, float] = {}
     for file_path in seed_files:
         seed_score = seed_file_scores.get(file_path, 0.0)
-        for nb in graph.neighborhood(file_path, hops=1):
-            neighbor_files.add(nb)
-            expansion_priority[nb] = max(expansion_priority.get(nb, 0.0), seed_score)
-    expansion_files = neighbor_files - seed_files
-    sorted_expansion = sorted(expansion_files, key=lambda f: -expansion_priority.get(f, 0.0))
+        # Direct imports get full seed score — they're in the same call chain
+        for dep in graph.imports_of(file_path):
+            if dep not in seed_files:
+                # Boost imports whose file path matches a query term
+                path_lower = dep.lower()
+                path_match = any(t in path_lower for t in q_terms)
+                priority = seed_score * (1.5 if path_match else 1.0)
+                expansion_priority[dep] = max(
+                    expansion_priority.get(dep, 0.0), priority,
+                )
+        # Importers get half seed score — they're consumers, not dependencies
+        for imp in graph.imported_by(file_path):
+            if imp not in seed_files:
+                path_lower = imp.lower()
+                path_match = any(t in path_lower for t in q_terms)
+                priority = seed_score * (0.75 if path_match else 0.5)
+                expansion_priority[imp] = max(
+                    expansion_priority.get(imp, 0.0), priority,
+                )
+    sorted_expansion = sorted(
+        expansion_priority.keys(), key=lambda f: -expansion_priority[f],
+    )
 
     # Build chunk lookup by file
     chunks_by_file: dict[str, list[CodeChunk]] = {}
@@ -207,15 +246,28 @@ def assemble_context(
     # Candidate file set for cohesion computation
     candidate_files = {c.file_path for c in candidate_map.values()}
 
-    # Propagate BM25 relevance to graph-expansion neighbors
+    # Propagate BM25 relevance to import-expanded neighbors (directed)
     neighbor_boost: dict[str, float] = {}
     for file_path in seed_files:
         seed_score = max(
             (bm25_by_id.get(c.id, 0.0) for c in candidate_map.values() if c.file_path == file_path),
             default=0.0,
         )
-        for nb in graph.neighborhood(file_path, hops=1) - seed_files:
-            neighbor_boost[nb] = max(neighbor_boost.get(nb, 0.0), seed_score * NEIGHBOR_DECAY)
+        # Direct imports get strong boost — same call chain
+        for dep in graph.imports_of(file_path):
+            if dep not in seed_files:
+                path_lower = dep.lower()
+                path_match = any(t in path_lower for t in q_terms)
+                decay = IMPORT_TARGET_DECAY * (1.3 if path_match else 1.0)
+                neighbor_boost[dep] = max(
+                    neighbor_boost.get(dep, 0.0), seed_score * decay,
+                )
+        # Importers get weaker boost — consumers, not dependencies
+        for imp in graph.imported_by(file_path):
+            if imp not in seed_files:
+                neighbor_boost[imp] = max(
+                    neighbor_boost.get(imp, 0.0), seed_score * IMPORTER_DECAY,
+                )
 
     # Build RankedChunks
     ranked: list[RankedChunk] = []
