@@ -1,103 +1,102 @@
-"""Nomic embedding provider: local nomic-embed-code model via ONNX runtime."""
+"""Nomic embedding provider: nomic-embed-code via sentence-transformers."""
 
 from __future__ import annotations
 
-from pathlib import Path
+import logging
+import sys
 from typing import Any
 
 from archex.exceptions import ArchexIndexError
 
-_DEFAULT_MODEL_DIR = Path.home() / ".archex" / "models"
-_MODEL_NAME = "nomic-embed-code-v1"
+logger = logging.getLogger(__name__)
+
+_HF_MODEL_ID = "nomic-ai/nomic-embed-code"
+
+
+def _best_device() -> str:
+    """Pick the best available torch device: mps > cuda > cpu."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+    except ImportError:
+        pass
+    return "cpu"
 
 
 class NomicCodeEmbedder:
-    """Local embedding using nomic-embed-code ONNX model.
+    """Embedding using nomic-embed-code for code-specific semantic search.
 
-    Requires the `vector` extra: ``uv add 'archex[vector]'``
+    Uses sentence-transformers (requires ``archex[vector-torch]``) which
+    handles model download automatically on first use.
+    Automatically selects MPS/CUDA/CPU device.
     """
 
     def __init__(
         self,
-        model_dir: Path = _DEFAULT_MODEL_DIR,
+        model_name: str = _HF_MODEL_ID,
         batch_size: int = 32,
-        cache_dir: str | None = None,
     ) -> None:
-        try:
-            import onnxruntime as _ort  # pyright: ignore[reportMissingTypeStubs,reportUnusedImport]  # noqa: F401
-            import tokenizers as _tok  # pyright: ignore[reportUnusedImport]  # noqa: F401
-        except ImportError as e:
-            raise ArchexIndexError(
-                "NomicCodeEmbedder requires onnxruntime and tokenizers. "
-                "Install with: uv add 'archex[vector]'"
-            ) from e
-
-        effective_dir = Path(cache_dir).expanduser() if cache_dir is not None else model_dir
-        self._model_dir = effective_dir / _MODEL_NAME
+        self._model_name = model_name
         self._batch_size = batch_size
-        self._session: Any = None
-        self._tokenizer: Any = None
-        self._dimension = 768
+        self._model: Any = None
+        self._dimension: int | None = None
+        self._backend: str | None = None
 
     def _load_model(self) -> None:
-        """Lazy-load ONNX session and tokenizer on first encode call."""
-        if self._session is not None:
+        """Lazy-load the model on first encode call."""
+        if self._model is not None:
             return
 
-        import onnxruntime as ort  # pyright: ignore[reportMissingTypeStubs]
+        try:
+            from sentence_transformers import SentenceTransformer
 
-        model_path = self._model_dir / "model.onnx"
-        tokenizer_path = self._model_dir / "tokenizer.json"
-
-        if not model_path.exists():
-            raise ArchexIndexError(
-                f"ONNX model not found at {model_path}. "
-                f"Download nomic-embed-code to {self._model_dir}/"
+            device = _best_device()
+            print(
+                f"Loading embedding model '{self._model_name}' on {device} "
+                "(downloading if not cached)...",
+                file=sys.stderr,
+                flush=True,
             )
-        if not tokenizer_path.exists():
-            raise ArchexIndexError(
-                f"Tokenizer not found at {tokenizer_path}. "
-                f"Download nomic-embed-code tokenizer to {self._model_dir}/"
+            self._model = SentenceTransformer(
+                self._model_name, trust_remote_code=True, device=device
             )
+            self._dimension = self._model.get_sentence_embedding_dimension()
+            self._backend = "sentence-transformers"
+            logger.info(
+                "Loaded %s via sentence-transformers on %s (dim=%d)",
+                self._model_name,
+                device,
+                self._dimension,
+            )
+            return
+        except ImportError:
+            pass
 
-        self._session = ort.InferenceSession(str(model_path))  # pyright: ignore[reportUnknownMemberType]
-        tokenizer_mod: Any = __import__("tokenizers")
-        self._tokenizer = tokenizer_mod.Tokenizer.from_file(str(tokenizer_path))
-        self._tokenizer.enable_padding(length=512)
-        self._tokenizer.enable_truncation(max_length=512)
+        raise ArchexIndexError(
+            f"NomicCodeEmbedder requires sentence-transformers to load "
+            f"'{self._model_name}'. Install with: uv add 'archex[vector-torch]'"
+        )
 
     def encode(self, texts: list[str]) -> list[list[float]]:
-        """Encode texts into embedding vectors using the ONNX model."""
-        import numpy as np
-
+        """Encode texts into embedding vectors."""
         self._load_model()
 
-        all_embeddings: list[list[float]] = []
-        for i in range(0, len(texts), self._batch_size):
-            batch = texts[i : i + self._batch_size]
-            encoded: Any = self._tokenizer.encode_batch(batch)
-            input_ids: Any = np.array([e.ids for e in encoded], dtype=np.int64)
-            attention_mask: Any = np.array([e.attention_mask for e in encoded], dtype=np.int64)
-
-            outputs: Any = self._session.run(
-                None,
-                {"input_ids": input_ids, "attention_mask": attention_mask},
-            )
-            # Mean pooling over token dimension
-            token_embeddings: Any = outputs[0]
-            mask_expanded: Any = attention_mask[:, :, np.newaxis].astype(np.float32)
-            summed: Any = (token_embeddings * mask_expanded).sum(axis=1)
-            counts: Any = mask_expanded.sum(axis=1).clip(min=1e-9)
-            embeddings: Any = summed / counts
-
-            # L2 normalize
-            norms: Any = np.linalg.norm(embeddings, axis=1, keepdims=True).clip(min=1e-9)
-            normalized: Any = embeddings / norms
-            result: list[list[float]] = normalized.tolist()
-            all_embeddings.extend(result)
-
-        return all_embeddings
+        embeddings = self._model.encode(
+            texts,
+            batch_size=self._batch_size,
+            normalize_embeddings=True,
+            show_progress_bar=len(texts) > 100,
+        )
+        return embeddings.tolist()  # type: ignore[no-any-return]
 
     @property
     def dimension(self) -> int:
+        if self._dimension is None:
+            self._load_model()
+        if self._dimension is None:
+            raise ArchexIndexError("Model dimension unavailable after loading")
         return self._dimension

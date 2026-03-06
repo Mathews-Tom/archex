@@ -180,6 +180,18 @@ class DependencyGraph:
         visited.discard(node)
         return visited
 
+    def imports_of(self, node: str) -> set[str]:
+        """Return files that *node* directly imports (successors in the directed graph)."""
+        if not self._file_graph.has_node(node):  # type: ignore[misc]
+            return set()
+        return {str(s) for s in self._file_graph.successors(node)}  # type: ignore[misc]
+
+    def imported_by(self, node: str) -> set[str]:
+        """Return files that directly import *node* (predecessors in the directed graph)."""
+        if not self._file_graph.has_node(node):  # type: ignore[misc]
+            return set()
+        return {str(p) for p in self._file_graph.predecessors(node)}  # type: ignore[misc]
+
     def structural_centrality(self) -> dict[str, float]:
         """Return PageRank centrality scores for all file nodes (lazily cached)."""
         if self._centrality_cache is not None:

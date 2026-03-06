@@ -1,0 +1,19 @@
+task_id: pydantic_validators
+repo: "pydantic/pydantic"
+commit: "v2.10.5"
+languages: [python]
+question: "How does Pydantic chain and apply field validators?"
+expected_files:
+  - pydantic/_internal/_validate_call.py
+  - pydantic/_internal/_validators.py
+  - pydantic/functional_validators.py
+expected_symbols:
+  - field_validator
+  - model_validator
+  - ValidatorDecoratorInfo
+token_budget: 8192
+keywords:
+  - validator
+  - validate
+  - field
+  - decorator

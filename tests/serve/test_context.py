@@ -6,7 +6,7 @@ import json
 import xml.etree.ElementTree as ET
 
 from archex.index.graph import DependencyGraph
-from archex.models import CodeChunk, ContextBundle, SymbolKind
+from archex.models import CodeChunk, ContextBundle, Module, SymbolKind
 from archex.serve.context import assemble_context
 from archex.serve.renderers.json import render_json
 from archex.serve.renderers.markdown import render_markdown
@@ -221,3 +221,234 @@ def test_markdown_renderer_includes_chunk_header() -> None:
     bundle = _make_bundle()
     md = render_markdown(bundle)
     assert "authenticate" in md
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests
+# ---------------------------------------------------------------------------
+
+
+def test_token_budget_zero_truncates_all() -> None:
+    """token_budget=0 includes no chunks, truncated=True."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    chunk = make_chunk("c1", "a.py", token_count=10)
+    results = [(chunk, 1.0)]
+    bundle = assemble_context(results, graph, [chunk], "q", token_budget=0)
+    assert bundle.chunks == []
+    assert bundle.truncated is True
+
+
+def test_all_chunks_exceed_budget_none_included() -> None:
+    """When every chunk exceeds the budget, none are included."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    chunks = [make_chunk(f"c{i}", "a.py", token_count=1000) for i in range(3)]
+    results = [(c, float(i + 1)) for i, c in enumerate(chunks)]
+    bundle = assemble_context(results, graph, chunks, "q", token_budget=100)
+    assert bundle.chunks == []
+    assert bundle.truncated is True
+
+
+def test_estimate_tokens_fallback_on_zero_count() -> None:
+    """_estimate_tokens uses word-based fallback when token_count is 0."""
+    from archex.serve.context import estimate_tokens
+
+    chunk = make_chunk("c1", "a.py", content="hello world foo bar", token_count=0)
+    estimate = estimate_tokens(chunk)
+    # 4 words * 1.3 ≈ 5
+    assert estimate > 0
+    assert estimate == int(4 * 1.3)
+
+
+def test_graph_with_isolated_nodes_no_expansion() -> None:
+    """Graph with isolated nodes (no edges) produces no structural expansion."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    graph.add_file_node("b.py")
+    # No edges between nodes
+    chunk_a = make_chunk("ca", "a.py", token_count=10)
+    chunk_b = make_chunk("cb", "b.py", token_count=10)
+    results = [(chunk_a, 1.0)]
+    bundle = assemble_context(results, graph, [chunk_a, chunk_b], "q", token_budget=1000)
+    # b.py should NOT be included since there's no edge from a.py to b.py
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "b.py" not in included_files
+
+
+def test_empty_search_and_vector_results() -> None:
+    """Both empty search_results and empty vector_results return empty bundle."""
+    graph = DependencyGraph()
+    bundle = assemble_context([], graph, [], "q", token_budget=1000, vector_results=[])
+    assert bundle.chunks == []
+    assert bundle.token_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Cohesion signal tests
+# ---------------------------------------------------------------------------
+
+
+def test_cohesion_signal_boosts_co_module_files() -> None:
+    """Two files in the same module → cohesion > 0."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    graph.add_file_node("b.py")
+    graph.add_file_edge("a.py", "b.py", kind="imports")
+    c_a = make_chunk("ca", "a.py", token_count=10)
+    c_b = make_chunk("cb", "b.py", token_count=10)
+    mod = Module(
+        name="core",
+        root_path=".",
+        files=["a.py", "b.py"],
+        cohesion_score=0.8,
+    )
+    results = [(c_a, 1.0), (c_b, 0.5)]
+    bundle = assemble_context(
+        results,
+        graph,
+        [c_a, c_b],
+        "q",
+        token_budget=1000,
+        modules=[mod],
+    )
+    for rc in bundle.chunks:
+        assert rc.cohesion_score > 0.0
+
+
+def test_cohesion_signal_zero_without_modules() -> None:
+    """No modules param → cohesion_score = 0.0."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    chunk = make_chunk("c1", "a.py", token_count=10)
+    results = [(chunk, 1.0)]
+    bundle = assemble_context(results, graph, [chunk], "q", token_budget=1000)
+    for rc in bundle.chunks:
+        assert rc.cohesion_score == 0.0
+
+
+def test_cohesion_signal_zero_for_low_cohesion_module() -> None:
+    """module.cohesion_score = 0.0 → signal = 0.0."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    chunk = make_chunk("c1", "a.py", token_count=10)
+    mod = Module(name="low", root_path=".", files=["a.py"], cohesion_score=0.0)
+    results = [(chunk, 1.0)]
+    bundle = assemble_context(
+        results,
+        graph,
+        [chunk],
+        "q",
+        token_budget=1000,
+        modules=[mod],
+    )
+    for rc in bundle.chunks:
+        assert rc.cohesion_score == 0.0
+
+
+def test_signal_agreement_computed_with_vector() -> None:
+    """Both BM25 and vector results → agreement ∈ [0, 1]."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    graph.add_file_node("b.py")
+    c_a = make_chunk("ca", "a.py", token_count=10)
+    c_b = make_chunk("cb", "b.py", token_count=10)
+    bm25_results = [(c_a, 1.0)]
+    vec_results = [(c_a, 0.9), (c_b, 0.5)]
+    bundle = assemble_context(
+        bm25_results,
+        graph,
+        [c_a, c_b],
+        "q",
+        token_budget=1000,
+        vector_results=vec_results,
+    )
+    assert bundle.retrieval_metadata.signal_agreement is not None
+    assert 0.0 <= bundle.retrieval_metadata.signal_agreement <= 1.0
+
+
+def test_signal_agreement_none_without_vector() -> None:
+    """BM25 only → agreement is None."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    chunk = make_chunk("c1", "a.py", token_count=10)
+    results = [(chunk, 1.0)]
+    bundle = assemble_context(results, graph, [chunk], "q", token_budget=1000)
+    assert bundle.retrieval_metadata.signal_agreement is None
+
+
+def test_ranked_chunk_carries_cohesion_score() -> None:
+    """RankedChunk has cohesion_score field."""
+    from archex.models import RankedChunk
+
+    chunk = make_chunk("c1", "a.py", token_count=10)
+    rc = RankedChunk(chunk=chunk, cohesion_score=0.5)
+    assert rc.cohesion_score == 0.5
+
+
+# ---------------------------------------------------------------------------
+# BM25 propagation tests
+# ---------------------------------------------------------------------------
+
+
+def test_neighbor_of_high_bm25_seed_gets_relevance() -> None:
+    """Neighbor of a high-BM25 seed gets propagated relevance > 0."""
+    graph = make_graph_with_edges()
+    # auth.py → models.py edge exists
+    auth_chunk = make_chunk("c_auth", "auth.py", token_count=10)
+    models_chunk = make_chunk("c_models", "models.py", token_count=10)
+    # Only auth.py is a BM25 hit
+    results = [(auth_chunk, 5.0)]
+    bundle = assemble_context(results, graph, [auth_chunk, models_chunk], "q", token_budget=1000)
+    # models.py is a neighbor — should get propagated relevance
+    models_rc = next((rc for rc in bundle.chunks if rc.chunk.file_path == "models.py"), None)
+    assert models_rc is not None
+    assert models_rc.relevance_score > 0.0
+
+
+def test_direct_hit_outranks_neighbor() -> None:
+    """Direct BM25 hit has higher relevance than its neighbor."""
+    graph = make_graph_with_edges()
+    auth_chunk = make_chunk("c_auth", "auth.py", token_count=10)
+    models_chunk = make_chunk("c_models", "models.py", token_count=10)
+    results = [(auth_chunk, 5.0)]
+    bundle = assemble_context(results, graph, [auth_chunk, models_chunk], "q", token_budget=1000)
+    auth_rc = next(rc for rc in bundle.chunks if rc.chunk.file_path == "auth.py")
+    models_rc = next(rc for rc in bundle.chunks if rc.chunk.file_path == "models.py")
+    assert auth_rc.relevance_score > models_rc.relevance_score
+
+
+def test_isolated_node_unaffected_by_propagation() -> None:
+    """Node with no graph edges gets no propagated relevance."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    graph.add_file_node("b.py")
+    # No edges
+    chunk_a = make_chunk("ca", "a.py", token_count=10)
+    chunk_b = make_chunk("cb", "b.py", token_count=10)
+    results = [(chunk_a, 5.0)]
+    bundle = assemble_context(results, graph, [chunk_a, chunk_b], "q", token_budget=1000)
+    # b.py should NOT be included (no edge, no expansion)
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "b.py" not in included_files
+
+
+def test_high_relevance_low_centrality_beats_low_relevance_high_centrality() -> None:
+    """With relevance-dominant weights, BM25 signal dominates over structural centrality."""
+    graph = DependencyGraph()
+    graph.add_file_node("hub.py")
+    graph.add_file_node("leaf.py")
+    # hub.py is highly central (many edges), leaf.py is not
+    for i in range(10):
+        node = f"dep{i}.py"
+        graph.add_file_node(node)
+        graph.add_file_edge(node, "hub.py", kind="imports")
+
+    hub_chunk = make_chunk("c_hub", "hub.py", token_count=10)
+    leaf_chunk = make_chunk("c_leaf", "leaf.py", token_count=10)
+    # leaf has much higher BM25 score
+    results = [(hub_chunk, 1.0), (leaf_chunk, 10.0)]
+    all_chunks = [hub_chunk, leaf_chunk]
+    bundle = assemble_context(results, graph, all_chunks, "q", token_budget=1000)
+    scores = {rc.chunk.file_path: rc.final_score for rc in bundle.chunks}
+    assert scores.get("leaf.py", 0) > scores.get("hub.py", 0)

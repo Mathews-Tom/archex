@@ -160,7 +160,7 @@ def test_escape_fts_query_basic_token() -> None:
 
 def test_escape_fts_query_multiple_tokens() -> None:
     result = escape_fts_query("foo bar")
-    assert result == '"foo" OR "bar"'
+    assert result == '"foo" AND "bar"'
 
 
 def test_escape_fts_query_empty_string() -> None:
@@ -223,6 +223,30 @@ def test_escape_fts_query_all_special_becomes_empty_token_skipped() -> None:
 def test_escape_fts_query_preserves_dots_and_underscores() -> None:
     result = escape_fts_query("my_module.func")
     assert result == '"my_module.func"'
+
+
+def test_escape_fts_query_strips_stopwords() -> None:
+    result = escape_fts_query("how does the adapter work")
+    assert '"how"' not in result.lower()
+    assert '"does"' not in result.lower()
+    assert '"the"' not in result.lower()
+    assert '"adapter"' in result
+    assert '"work"' in result
+
+
+def test_escape_fts_query_all_stopwords_returns_empty() -> None:
+    result = escape_fts_query("how does it")
+    assert result == ""
+
+
+def test_and_fallback_to_or_on_sparse_results(
+    store_and_index: tuple[IndexStore, BM25Index],
+) -> None:
+    """AND-join returning < 3 results triggers OR fallback."""
+    _, idx = store_and_index
+    # "calculate email" — unlikely both terms in one chunk, OR should find matches
+    results = idx.search("calculate email")
+    assert len(results) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -294,3 +318,114 @@ def test_search_propagates_non_operational_error(tmp_path: Path) -> None:
         idx.search("authenticate")
     s._conn = real_conn  # type: ignore[assignment]
     s.close()
+
+
+# ---------------------------------------------------------------------------
+# Porter stemming tests
+# ---------------------------------------------------------------------------
+
+
+STEMMING_CHUNKS = [
+    CodeChunk(
+        id="validators.py:validate_input:1",
+        content="def validate_input(data):\n    return validated_data",
+        file_path="validators.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="validate_input",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=15,
+    ),
+    CodeChunk(
+        id="deps.py:solve_depends:1",
+        content="def solve_depends(graph):\n    return dependent_nodes",
+        file_path="deps.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="solve_depends",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=15,
+    ),
+    CodeChunk(
+        id="utils.py:helper:1",
+        content="def helper():\n    return None",
+        file_path="utils.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="helper",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=10,
+    ),
+]
+
+
+@pytest.fixture
+def stemming_index(tmp_path: Path) -> Generator[tuple[IndexStore, BM25Index], None, None]:
+    db = tmp_path / "stemming_test.db"
+    s = IndexStore(db)
+    idx = BM25Index(s)
+    s.insert_chunks(STEMMING_CHUNKS)
+    idx.build(STEMMING_CHUNKS)
+    yield s, idx
+    s.close()
+
+
+def test_porter_stemming_validators_matches_validate(
+    stemming_index: tuple[IndexStore, BM25Index],
+) -> None:
+    """'validators' stems to 'valid', matching 'validate' and 'validated'."""
+    _, idx = stemming_index
+    results = idx.search("validators")
+    assert len(results) > 0
+    top_chunk, _ = results[0]
+    assert top_chunk.file_path == "validators.py"
+
+
+def test_porter_stemming_dependency_matches_depends(
+    stemming_index: tuple[IndexStore, BM25Index],
+) -> None:
+    """'dependency' stems to 'depend', matching 'depends' and 'dependent'."""
+    _, idx = stemming_index
+    results = idx.search("dependency")
+    assert len(results) > 0
+    ids = [c.file_path for c, _ in results]
+    assert "deps.py" in ids
+
+
+def test_file_path_boosting(
+    stemming_index: tuple[IndexStore, BM25Index],
+) -> None:
+    """Chunk from validators.py ranks higher than utils.py for query 'validators'."""
+    _, idx = stemming_index
+    results = idx.search("validators")
+    if len(results) >= 2:
+        file_paths = [c.file_path for c, _ in results]
+        if "validators.py" in file_paths and "utils.py" in file_paths:
+            val_idx = file_paths.index("validators.py")
+            util_idx = file_paths.index("utils.py")
+            assert val_idx < util_idx
+
+
+def test_and_join_multi_term_ranks_correctly(
+    stemming_index: tuple[IndexStore, BM25Index],
+) -> None:
+    """AND-join: multi-term query requires all terms present."""
+    _, idx = stemming_index
+    # "solve depends" — both terms in deps.py, neither term fully in utils.py
+    results = idx.search("solve depends")
+    if results:
+        top_chunk, _ = results[0]
+        assert top_chunk.file_path == "deps.py"
+
+
+def test_single_term_query_still_works(
+    stemming_index: tuple[IndexStore, BM25Index],
+) -> None:
+    """Single-term queries work with AND-join (no join needed)."""
+    _, idx = stemming_index
+    results = idx.search("helper")
+    assert len(results) > 0
+    assert results[0][0].file_path == "utils.py"

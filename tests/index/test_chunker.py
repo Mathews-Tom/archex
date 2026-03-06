@@ -625,3 +625,53 @@ def test_blank_lines_only_file_level_skipped() -> None:
 
     file_chunks = [c for c in chunks if c.symbol_name is None]
     assert file_chunks == [], f"Expected no file-level chunks, got: {file_chunks}"
+
+
+# ---------------------------------------------------------------------------
+# _expand_identifiers tests
+# ---------------------------------------------------------------------------
+
+
+def test_expand_identifiers_camel_case() -> None:
+    from archex.index.chunker import expand_identifiers
+
+    result = expand_identifiers("ValidatorDecoratorInfo")
+    assert "validator" in result.lower()
+    assert "decorator" in result.lower()
+    assert "info" in result.lower()
+
+
+def test_expand_identifiers_snake_case() -> None:
+    from archex.index.chunker import expand_identifiers
+
+    result = expand_identifiers("solve_dependencies")
+    assert "solve" in result.lower()
+    assert "dependencies" in result.lower()
+
+
+def test_expand_identifiers_mixed() -> None:
+    from archex.index.chunker import expand_identifiers
+
+    result = expand_identifiers("get_dependant")
+    assert "get" in result.lower()
+    assert "dependant" in result.lower()
+
+
+def test_expand_identifiers_no_identifiers() -> None:
+    from archex.index.chunker import expand_identifiers
+
+    text = "just some lowercase words"
+    result = expand_identifiers(text)
+    # Still has the original text, may have fragments appended
+    assert text in result
+
+
+def test_expand_identifiers_short_filtered() -> None:
+    from archex.index.chunker import expand_identifiers
+
+    # "a" and "x" are ≤2 chars and should be filtered from fragments
+    result = expand_identifiers("a = x + MyVar")
+    fragments = result.split("\n")[-1] if "\n" in result else ""
+    # Single char fragments should not appear as standalone tokens
+    assert " a " not in f" {fragments} "
+    assert " x " not in f" {fragments} "

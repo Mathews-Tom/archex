@@ -26,6 +26,7 @@ class BenchmarkTask(BaseModel):
     expected_symbols: list[str] = []
     token_budget: int = 8192
     keywords: list[str] = []
+    languages: list[str] | None = None
 
 
 class BenchmarkResult(BaseModel):
@@ -38,7 +39,13 @@ class BenchmarkResult(BaseModel):
     precision: float
     f1_score: float = 0.0
     mrr: float = 0.0
+    ndcg: float = 0.0
+    map_score: float = 0.0
     symbol_recall: float = 0.0
+    tokens_input: int = 0
+    tokens_output: int = 0
+    token_efficiency: float = 0.0
+    tokens_raw_baseline: int = 0
     savings_vs_raw: float
     wall_time_ms: float
     cached: bool

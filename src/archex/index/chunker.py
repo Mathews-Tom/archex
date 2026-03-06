@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Protocol, runtime_checkable
 
 import tiktoken
@@ -15,6 +16,21 @@ from archex.models import (
     SymbolKind,
     make_symbol_id,
 )
+
+_CAMEL_SPLIT = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+_SNAKE_SPLIT = re.compile(r"_+")
+
+
+def expand_identifiers(text: str) -> str:
+    """Expand camelCase and snake_case identifiers into space-separated tokens for FTS5."""
+    identifiers = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", text)
+    fragments: list[str] = []
+    for ident in identifiers:
+        parts = _CAMEL_SPLIT.split(ident)
+        for part in parts:
+            fragments.extend(_SNAKE_SPLIT.split(part))
+    unique = {f.lower() for f in fragments if len(f) > 1}
+    return text + "\n" + " ".join(sorted(unique)) if unique else text
 
 
 @runtime_checkable

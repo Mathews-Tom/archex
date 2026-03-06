@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>archex Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e1e4e8; padding: 2rem; }
+        h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #58a6ff; }
+        h2 { font-size: 1.1rem; margin: 1.5rem 0 0.75rem; color: #8b949e; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+        .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
+        .badge-pass { background: #238636; color: #fff; }
+        .badge-fail { background: #da3633; color: #fff; }
+        .badge-unknown { background: #484f58; color: #e1e4e8; }
+        table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+        th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #21262d; }
+        th { color: #8b949e; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+        th:hover { color: #58a6ff; }
+        td { font-size: 0.9rem; }
+        .metric { font-variant-numeric: tabular-nums; }
+        .loading { color: #484f58; font-style: italic; }
+        .error { color: #f85149; }
+        #health-status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.5rem; }
+        .status-ok { background: #3fb950; }
+        .status-error { background: #f85149; }
+    </style>
+</head>
+<body>
+    <h1><span id="health-status" class="status-error"></span>archex Dashboard</h1>
+
+    <div class="card">
+        <h2>Quality Gate</h2>
+        <div id="gate-status" class="loading">Loading...</div>
+    </div>
+
+    <div class="card">
+        <h2>Benchmark Results</h2>
+        <div id="results-table" class="loading">Loading...</div>
+    </div>
+
+    <div class="card">
+        <h2>Summary</h2>
+        <div id="summary" class="loading">Loading...</div>
+    </div>
+
+    <script>
+        async function fetchJSON(url) {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            return res.json();
+        }
+
+        async function loadHealth() {
+            try {
+                await fetchJSON('/health');
+                document.getElementById('health-status').className = 'status-ok';
+            } catch {
+                document.getElementById('health-status').className = 'status-error';
+            }
+        }
+
+        async function loadGate() {
+            const el = document.getElementById('gate-status');
+            try {
+                const data = await fetchJSON('/benchmark/gate');
+                if (data.passed === true) {
+                    el.innerHTML = '<span class="badge badge-pass">PASSED</span>';
+                } else if (data.passed === false) {
+                    el.innerHTML = '<span class="badge badge-fail">FAILED</span> ' + (data.reason || '');
+                } else {
+                    el.innerHTML = '<span class="badge badge-unknown">UNKNOWN</span> ' + (data.reason || JSON.stringify(data));
+                }
+            } catch (e) {
+                el.innerHTML = '<span class="badge badge-unknown">N/A</span> No benchmark data';
+            }
+        }
+
+        async function loadResults() {
+            const el = document.getElementById('results-table');
+            try {
+                const data = await fetchJSON('/benchmark/results');
+                if (!data.results || data.results.length === 0) {
+                    el.textContent = data.message || 'No results available';
+                    return;
+                }
+                const cols = Object.keys(data.results[0]);
+                let html = '<table><thead><tr>';
+                cols.forEach(c => html += `<th>${c}</th>`);
+                html += '</tr></thead><tbody>';
+                data.results.forEach(r => {
+                    html += '<tr>';
+                    cols.forEach(c => {
+                        const v = r[c];
+                        const formatted = typeof v === 'number' ? v.toFixed(4) : String(v ?? '');
+                        html += `<td class="metric">${formatted}</td>`;
+                    });
+                    html += '</tr>';
+                });
+                html += '</tbody></table>';
+                el.innerHTML = html;
+            } catch (e) {
+                el.innerHTML = '<span class="error">Failed to load results</span>';
+            }
+        }
+
+        async function loadSummary() {
+            const el = document.getElementById('summary');
+            try {
+                const data = await fetchJSON('/benchmark/summary');
+                el.innerHTML = `<pre style="white-space:pre-wrap;color:#c9d1d9;">${data.summary || 'No summary available'}</pre>`;
+            } catch {
+                el.innerHTML = '<span class="error">Failed to load summary</span>';
+            }
+        }
+
+        loadHealth();
+        loadGate();
+        loadResults();
+        loadSummary();
+    </script>
+</body>
+</html>

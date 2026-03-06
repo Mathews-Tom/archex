@@ -1,5 +1,9 @@
-"""Renderer registry: dispatch output formatting to XML, Markdown, and JSON renderers."""
+"""Renderers package: XML, JSON, and Markdown output formatters."""
 
 from __future__ import annotations
 
-# TODO: Implement in Phase 3
+from archex.serve.renderers.json import render_json
+from archex.serve.renderers.markdown import render_markdown
+from archex.serve.renderers.xml import render_xml
+
+__all__ = ["render_json", "render_markdown", "render_xml"]

@@ -2,4 +2,6 @@
 
 from __future__ import annotations
 
-# TODO: Implement in Phase 3
+from archex.serve.app import create_app
+
+__all__ = ["create_app"]

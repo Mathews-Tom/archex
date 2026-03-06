@@ -131,6 +131,16 @@ class IndexStore:
             + _CREATE_IDX_EDGES_SOURCE
             + _CREATE_IDX_EDGES_TARGET
         )
+        # Create BM25 FTS table so delete operations are safe without prior BM25Index init
+        cur.executescript("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                chunk_id UNINDEXED,
+                content,
+                symbol_name,
+                file_path,
+                tokenize='porter unicode61'
+            );
+        """)
         self._conn.commit()
 
     def _insert_chunks_no_commit(self, chunks: list[CodeChunk]) -> None:
@@ -380,6 +390,18 @@ class IndexStore:
             unique,
         ).fetchone()
         return int(row[0])
+
+    def search_chunks_by_path_keyword(
+        self,
+        keyword: str,
+        limit: int = 50,
+    ) -> list[CodeChunk]:
+        """Find chunks whose file_path contains keyword as exact substring (case-insensitive)."""
+        cur = self._conn.execute(
+            f"{_CHUNK_SELECT} WHERE LOWER(file_path) LIKE ? LIMIT ?",
+            (f"%{keyword.lower()}%", limit),
+        )
+        return [_row_to_chunk(row) for row in cur.fetchall()]
 
     def get_edges(self) -> list[Edge]:
         cur = self._conn.execute("SELECT source, target, kind, location FROM edges")

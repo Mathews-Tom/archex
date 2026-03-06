@@ -147,7 +147,6 @@ def test_sqlite_round_trip(tmp_path: Path) -> None:
 
 class TestUpdateFiles:
     def test_removes_node_and_edges(self) -> None:
-
         parsed = [
             ParsedFile(path="a.py", language="python"),
             ParsedFile(path="b.py", language="python"),
@@ -186,7 +185,6 @@ class TestUpdateFiles:
         assert graph.file_edge_count == 1
 
     def test_invalidates_centrality(self) -> None:
-
         parsed = [
             ParsedFile(path="a.py", language="python"),
             ParsedFile(path="b.py", language="python"),

@@ -145,6 +145,45 @@ class VectorIndex:
         self._chunk_ids = chunk_ids
         self._chunks_by_id = {c.id: c for c in chunks}
 
+    def rerank(
+        self,
+        query: str,
+        candidates: list[CodeChunk],
+        embedder: Embedder,
+    ) -> list[tuple[CodeChunk, float]]:
+        """Embed only the candidate chunks and query, return sorted by cosine similarity.
+
+        Two-stage retrieval: BM25 generates candidates, this method reranks them
+        using dense vector similarity. Embeds len(candidates)+1 texts instead of
+        the full corpus — orders of magnitude faster than build()+search().
+        """
+        if not candidates:
+            return []
+
+        texts = [query] + [c.content for c in candidates]
+        encode_np = getattr(embedder, "encode_ndarray", None)
+        if encode_np is not None:
+            vecs = encode_np(texts)
+        else:
+            vecs = np.array(embedder.encode(texts), dtype=np.float32)
+
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-9)
+        vecs = vecs / norms
+
+        query_vec = vecs[0]
+        candidate_vecs = vecs[1:]
+
+        similarities = candidate_vecs @ query_vec
+        order = np.argsort(similarities)[::-1]
+
+        results: list[tuple[CodeChunk, float]] = []
+        for idx in order:
+            score = float(similarities[int(idx)])
+            if score > 0:
+                results.append((candidates[int(idx)], score))
+        return results
+
     @property
     def size(self) -> int:
         """Number of indexed chunks."""

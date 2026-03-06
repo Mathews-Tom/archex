@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import re
 import sqlite3
@@ -17,26 +18,76 @@ _CREATE_FTS = """
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     chunk_id UNINDEXED,
     content,
-    symbol_name
+    symbol_name,
+    file_path,
+    tokenize='porter unicode61'
 );
 """
 
 _DROP_FTS_ROWS = "DELETE FROM chunks_fts;"
 
+_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "do",
+        "does",
+        "for",
+        "from",
+        "has",
+        "have",
+        "how",
+        "i",
+        "if",
+        "in",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "so",
+        "that",
+        "the",
+        "this",
+        "to",
+        "was",
+        "we",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "with",
+        "you",
+    }
+)
+
+_GRADUATED_THRESHOLD = 10
+
+
+def _sanitize_tokens(query: str) -> list[str]:
+    """Extract and sanitize query tokens, stripping FTS5 operators and stopwords."""
+    safe: list[str] = []
+    for token in query.split():
+        cleaned = re.sub(r"[^a-zA-Z0-9_.]", "", token)
+        if cleaned and cleaned.lower() not in _STOPWORDS:
+            safe.append(f'"{cleaned}"')
+    return safe
+
 
 def escape_fts_query(query: str) -> str:
-    """Sanitize query tokens and join with OR for FTS5 partial matching.
-
-    Each token is stripped of all non-alphanumeric/underscore/dot characters
-    to eliminate FTS5 special operators (*, :, (), NOT, AND, OR, NEAR).
-    """
-    tokens = query.split()
-    safe: list[str] = []
-    for token in tokens:
-        cleaned = re.sub(r"[^a-zA-Z0-9_.]", "", token)
-        if cleaned:
-            safe.append(f'"{cleaned}"')
-    return " OR ".join(safe)
+    """Sanitize query tokens and AND-join for FTS5 precise matching."""
+    safe = _sanitize_tokens(query)
+    return " AND ".join(safe) if safe else ""
 
 
 class BM25Index:
@@ -48,40 +99,107 @@ class BM25Index:
         store.conn.commit()
 
     def build(self, chunks: list[CodeChunk]) -> None:
+        from archex.index.chunker import expand_identifiers
+
         conn = self._store.conn
         conn.execute(_DROP_FTS_ROWS)
         conn.executemany(
-            "INSERT INTO chunks_fts (chunk_id, content, symbol_name) VALUES (?, ?, ?)",
-            [(c.id, c.content, c.symbol_name or "") for c in chunks],
+            "INSERT INTO chunks_fts (chunk_id, content, symbol_name, file_path) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (c.id, expand_identifiers(c.content), c.symbol_name or "", c.file_path)
+                for c in chunks
+            ],
         )
         conn.commit()
 
-    def search(self, query: str, top_k: int = 20) -> list[tuple[CodeChunk, float]]:
-        if not query.strip():
-            return []
-
-        escaped = escape_fts_query(query)
-        if not escaped:
-            return []
-
+    def _execute_fts(
+        self,
+        escaped: str,
+        top_k: int,
+    ) -> list[tuple[str, float]]:
+        """Run a single FTS5 MATCH query, returning (chunk_id, score) pairs."""
         conn = self._store.conn
         try:
             cur = conn.execute(
-                "SELECT chunk_id, bm25(chunks_fts) AS score "
+                "SELECT chunk_id, bm25(chunks_fts, 1.0, 2.0, 1.5) AS score "
                 "FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY score LIMIT ?",
                 (escaped, top_k),
             )
         except sqlite3.OperationalError:
             logger.warning("FTS5 query failed for: %s", escaped, exc_info=True)
             return []
+        return [(str(row[0]), float(row[1])) for row in cur.fetchall()]
 
-        rows = cur.fetchall()
+    def _graduated_search(
+        self,
+        tokens: list[str],
+        top_k: int,
+    ) -> list[tuple[str, float]]:
+        """Graduated fallback: AND-all → AND-subsets → OR-all.
+
+        1. AND all terms — if >= threshold results, return
+        2. Drop one term at a time (N-1 subsets), merge results
+        3. If still < threshold, try pairs of terms, merge
+        4. Final fallback: OR all terms
+        """
+        # Stage 1: AND all terms
+        if len(tokens) >= 2:
+            and_query = " AND ".join(tokens)
+            rows = self._execute_fts(and_query, top_k)
+            if len(rows) >= _GRADUATED_THRESHOLD:
+                return rows
+
+        # Stage 2: drop one term at a time (N-1 subsets)
+        merged: dict[str, float] = {}
+        if len(tokens) >= 3:
+            for subset in itertools.combinations(tokens, len(tokens) - 1):
+                sub_query = " AND ".join(subset)
+                sub_rows = self._execute_fts(sub_query, top_k)
+                for cid, score in sub_rows:
+                    # Keep the best score per chunk across subsets
+                    if cid not in merged or score < merged[cid]:  # FTS5 scores are negative
+                        merged[cid] = score
+            if len(merged) >= _GRADUATED_THRESHOLD:
+                return sorted(merged.items(), key=lambda x: x[1])[:top_k]
+
+        # Stage 3: pairs of terms
+        if len(tokens) >= 4:
+            for pair in itertools.combinations(tokens, 2):
+                pair_query = " AND ".join(pair)
+                pair_rows = self._execute_fts(pair_query, top_k)
+                for cid, score in pair_rows:
+                    if cid not in merged or score < merged[cid]:
+                        merged[cid] = score
+            if len(merged) >= _GRADUATED_THRESHOLD:
+                return sorted(merged.items(), key=lambda x: x[1])[:top_k]
+
+        # Stage 4: OR all terms
+        or_query = " OR ".join(tokens)
+        or_rows = self._execute_fts(or_query, top_k)
+        # Merge OR results with anything we found earlier
+        for cid, score in or_rows:
+            if cid not in merged or score < merged[cid]:
+                merged[cid] = score
+
+        return sorted(merged.items(), key=lambda x: x[1])[:top_k]
+
+    def search(self, query: str, top_k: int = 20) -> list[tuple[CodeChunk, float]]:
+        if not query.strip():
+            return []
+
+        tokens = _sanitize_tokens(query)
+        if not tokens:
+            return []
+
+        rows = self._graduated_search(tokens, top_k)
+
         if not rows:
             return []
 
         # Batch-fetch all chunks in one query instead of N individual lookups
-        chunk_ids = [str(row[0]) for row in rows]
-        score_map = {str(row[0]): -float(row[1]) for row in rows}
+        chunk_ids = [cid for cid, _ in rows]
+        score_map = {cid: -score for cid, score in rows}
         fetched = self._store.get_chunks_by_ids(chunk_ids)
 
         results: list[tuple[CodeChunk, float]] = []

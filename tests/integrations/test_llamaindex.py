@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytest.importorskip("llama_index.core", reason="llama-index-core not installed")
+
 from archex.exceptions import ArchexIndexError
 from archex.models import (
     CodeChunk,

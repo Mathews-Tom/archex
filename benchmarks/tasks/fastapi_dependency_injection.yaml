@@ -1,0 +1,19 @@
+task_id: fastapi_dependency_injection
+repo: "tiangolo/fastapi"
+commit: "0.115.6"
+languages: [python]
+question: "How does FastAPI implement dependency injection for route handlers?"
+expected_files:
+  - fastapi/dependencies/utils.py
+  - fastapi/dependencies/models.py
+  - fastapi/routing.py
+expected_symbols:
+  - solve_dependencies
+  - Dependant
+  - get_dependant
+token_budget: 8192
+keywords:
+  - dependency
+  - injection
+  - depends
+  - resolve

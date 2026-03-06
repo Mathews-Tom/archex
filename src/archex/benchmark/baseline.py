@@ -16,6 +16,9 @@ class BaselineEntry(BaseModel):
     precision: float
     f1_score: float
     mrr: float
+    ndcg: float = 0.0
+    map_score: float = 0.0
+    token_efficiency: float = 0.0
 
 
 class Baseline(BaseModel):
@@ -50,6 +53,9 @@ def save_baseline(
                     precision=r.precision,
                     f1_score=r.f1_score,
                     mrr=r.mrr,
+                    ndcg=r.ndcg,
+                    map_score=r.map_score,
+                    token_efficiency=r.token_efficiency,
                 )
             )
     return Baseline(
@@ -64,7 +70,7 @@ def load_baseline(data: dict[str, object]) -> Baseline:
     return Baseline.model_validate(data)
 
 
-_METRICS = ("recall", "precision", "f1_score", "mrr")
+_METRICS = ("recall", "precision", "f1_score", "mrr", "ndcg", "map_score", "token_efficiency")
 _DEFAULT_TOLERANCE = 0.05
 
 

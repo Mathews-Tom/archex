@@ -15,6 +15,9 @@ class QualityThresholds(BaseModel):
     min_precision: float = 0.3
     min_f1: float = 0.4
     min_mrr: float = 0.3
+    min_ndcg: float = 0.3
+    min_map: float = 0.3
+    min_token_efficiency: float = 0.0
 
 
 class GateViolation(BaseModel):
@@ -38,6 +41,9 @@ def check_gate(
         ("precision", thresholds.min_precision),
         ("f1_score", thresholds.min_f1),
         ("mrr", thresholds.min_mrr),
+        ("ndcg", thresholds.min_ndcg),
+        ("map_score", thresholds.min_map),
+        ("token_efficiency", thresholds.min_token_efficiency),
     ]
 
     violations: list[GateViolation] = []

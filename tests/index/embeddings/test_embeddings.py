@@ -12,6 +12,15 @@ from archex.exceptions import ArchexIndexError
 from archex.index.embeddings.base import Embedder
 
 
+def _torch_available() -> bool:
+    try:
+        import torch  # noqa: F401  # pyright: ignore[reportUnusedImport]
+
+        return True
+    except (ImportError, RuntimeError):
+        return False
+
+
 class HashEmbedder:
     """Deterministic test embedder that produces vectors from content hashes."""
 
@@ -69,88 +78,58 @@ class TestEmbedderProtocol:
 
 class TestNomicCodeEmbedder:
     def test_import_error_raises_archex_index_error(self) -> None:
+        """_load_model raises ArchexIndexError when sentence-transformers is missing."""
         import builtins
 
         original_import: Any = builtins.__import__
 
         def mock_import(name: str, *args: Any, **kwargs: Any) -> object:
-            if name in ("onnxruntime", "tokenizers"):
+            if name == "sentence_transformers":
                 raise ImportError(f"No module named '{name}'")
             return original_import(name, *args, **kwargs)
 
-        with patch("builtins.__import__", side_effect=mock_import):
-            # Reload to trigger the import check
-            import importlib
+        from archex.index.embeddings.nomic import NomicCodeEmbedder
 
-            from archex.index.embeddings import nomic
-
-            with pytest.raises(ArchexIndexError, match="onnxruntime"):
-                importlib.reload(nomic)
-                nomic.NomicCodeEmbedder()
-
-    def test_load_model_missing_onnx_file_raises(self, tmp_path: Any) -> None:
-        """_load_model raises ArchexIndexError when model.onnx is missing."""
-        from unittest.mock import MagicMock
-
-        mock_ort = MagicMock()
-        mock_tok = MagicMock()
-        with patch.dict("sys.modules", {"onnxruntime": mock_ort, "tokenizers": mock_tok}):
-            from archex.index.embeddings.nomic import NomicCodeEmbedder
-
-            embedder = NomicCodeEmbedder(model_dir=tmp_path)
-            with pytest.raises(ArchexIndexError, match="ONNX model not found"):
-                embedder._load_model()  # pyright: ignore[reportPrivateUsage]
-
-    def test_load_model_missing_tokenizer_raises(self, tmp_path: Any) -> None:
-        """_load_model raises ArchexIndexError when tokenizer.json is missing."""
-        from unittest.mock import MagicMock
-
-        model_dir = tmp_path / "nomic-embed-code-v1"
-        model_dir.mkdir(parents=True)
-        (model_dir / "model.onnx").write_text("fake")
-
-        mock_ort = MagicMock()
-        mock_tok = MagicMock()
-        with patch.dict("sys.modules", {"onnxruntime": mock_ort, "tokenizers": mock_tok}):
-            from archex.index.embeddings.nomic import NomicCodeEmbedder
-
-            embedder = NomicCodeEmbedder(model_dir=tmp_path)
-            with pytest.raises(ArchexIndexError, match="Tokenizer not found"):
-                embedder._load_model()  # pyright: ignore[reportPrivateUsage]
-
-    def test_load_model_success(self, tmp_path: Any) -> None:
-        """_load_model succeeds when both model.onnx and tokenizer.json exist."""
-        from unittest.mock import MagicMock
-
-        model_dir = tmp_path / "nomic-embed-code-v1"
-        model_dir.mkdir(parents=True)
-        (model_dir / "model.onnx").write_text("fake")
-        (model_dir / "tokenizer.json").write_text("fake")
-
-        mock_ort = MagicMock()
-        mock_tok_module = MagicMock()
-        with patch.dict("sys.modules", {"onnxruntime": mock_ort, "tokenizers": mock_tok_module}):
-            from archex.index.embeddings.nomic import NomicCodeEmbedder
-
-            embedder = NomicCodeEmbedder(model_dir=tmp_path)
+        embedder = NomicCodeEmbedder()
+        with (
+            patch("builtins.__import__", side_effect=mock_import),
+            pytest.raises(ArchexIndexError, match="sentence-transformers"),
+        ):
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
-        assert embedder._session is not None  # pyright: ignore[reportPrivateUsage]
-        assert embedder._tokenizer is not None  # pyright: ignore[reportPrivateUsage]
-
-    def test_dimension_property_returns_768(self) -> None:
-        """dimension property returns 768."""
+    def test_load_model_success(self) -> None:
+        """_load_model succeeds with sentence-transformers mocked."""
         from unittest.mock import MagicMock
 
-        mock_ort = MagicMock()
-        mock_tok = MagicMock()
-        with patch.dict("sys.modules", {"onnxruntime": mock_ort, "tokenizers": mock_tok}):
+        import numpy as np
+
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 768
+        mock_model.encode.return_value = np.array([[0.1, 0.2]])
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
             from archex.index.embeddings.nomic import NomicCodeEmbedder
 
             embedder = NomicCodeEmbedder()
-            assert embedder.dimension == 768
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+        assert embedder._model is not None  # pyright: ignore[reportPrivateUsage]
+        assert embedder._backend == "sentence-transformers"  # pyright: ignore[reportPrivateUsage]
+
+    def test_default_model_name(self) -> None:
+        """Default model name is nomic-ai/nomic-embed-code."""
+        from archex.index.embeddings.nomic import NomicCodeEmbedder
+
+        embedder = NomicCodeEmbedder()
+        assert embedder._model_name == "nomic-ai/nomic-embed-code"  # pyright: ignore[reportPrivateUsage]
 
 
+@pytest.mark.skipif(
+    not _torch_available(),
+    reason="torch runtime broken or not installed",
+)
 class TestSentenceTransformerEmbedder:
     def test_import_error_raises_archex_index_error(self) -> None:
         import builtins
@@ -242,6 +221,60 @@ class TestSentenceTransformerEmbedder:
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
         mock_st_module.SentenceTransformer.assert_called_once()
+
+
+class TestFastEmbedder:
+    def test_import_error_raises_archex_index_error(self) -> None:
+        """_load_model raises ArchexIndexError when fastembed is missing."""
+        import builtins
+
+        original_import: Any = builtins.__import__
+
+        def mock_import(name: str, *args: Any, **kwargs: Any) -> object:
+            if name == "fastembed":
+                raise ImportError(f"No module named '{name}'")
+            return original_import(name, *args, **kwargs)
+
+        from archex.index.embeddings.fast import FastEmbedder
+
+        embedder = FastEmbedder()
+        with (
+            patch("builtins.__import__", side_effect=mock_import),
+            pytest.raises(ArchexIndexError, match="fastembed"),
+        ):
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+    def test_load_model_success(self) -> None:
+        """_load_model succeeds with fastembed mocked."""
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
+        mock_fe_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.embed.return_value = iter([np.array([0.1, 0.2, 0.3])])
+        mock_fe_module.TextEmbedding.return_value = mock_model
+
+        with patch.dict("sys.modules", {"fastembed": mock_fe_module}):
+            from archex.index.embeddings.fast import FastEmbedder
+
+            embedder = FastEmbedder()
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+        assert embedder._model is not None  # pyright: ignore[reportPrivateUsage]
+        assert embedder._dimension == 3  # pyright: ignore[reportPrivateUsage]
+
+    def test_default_model_name(self) -> None:
+        from archex.index.embeddings.fast import FastEmbedder
+
+        embedder = FastEmbedder()
+        assert embedder._model_name == "jinaai/jina-embeddings-v2-base-code"  # pyright: ignore[reportPrivateUsage]
+
+    def test_protocol_conformance(self) -> None:
+        from archex.index.embeddings.fast import FastEmbedder
+
+        embedder = FastEmbedder()
+        assert isinstance(embedder, Embedder)
 
 
 class TestAPIEmbedder:

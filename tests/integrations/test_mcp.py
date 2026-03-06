@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytest.importorskip("mcp", reason="mcp not installed")
+
 from archex.integrations.mcp import (
     build_server,
     handle_analyze_repo,

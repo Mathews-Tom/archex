@@ -167,79 +167,46 @@ class TestParallelImportParsing:
 
 
 class TestNomicEmbedderCaching:
-    def test_cache_dir_parameter_overrides_model_dir(self, tmp_path: Path) -> None:
-        """cache_dir parameter sets the effective model directory."""
-        cache = tmp_path / "my_cache"
+    def test_load_model_is_idempotent(self) -> None:
+        """Calling _load_model() twice does not recreate the model."""
+        from archex.index.embeddings.nomic import NomicCodeEmbedder
 
-        with (
-            patch("archex.index.embeddings.nomic.NomicCodeEmbedder.__init__") as mock_init,
-        ):
-            mock_init.return_value = None
+        embedder = NomicCodeEmbedder()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 768
+        embedder._model = mock_model
+        embedder._dimension = 768
+        embedder._backend = "sentence-transformers"
 
-            from archex.index.embeddings.nomic import NomicCodeEmbedder
+        embedder._load_model()
+        assert embedder._model is mock_model
 
-            embedder = NomicCodeEmbedder.__new__(NomicCodeEmbedder)
-            embedder._batch_size = 32
-            embedder._session = None
-            embedder._tokenizer = None
-            embedder._dimension = 768
-            embedder._model_dir = cache / "nomic-embed-code-v1"
+    def test_custom_model_name(self) -> None:
+        """model_name parameter is stored correctly."""
+        from archex.index.embeddings.nomic import NomicCodeEmbedder
 
-            assert embedder._model_dir == cache / "nomic-embed-code-v1"
+        embedder = NomicCodeEmbedder(model_name="custom/model")
+        assert embedder._model_name == "custom/model"
 
-    def test_cache_dir_string_expands_home(self, tmp_path: Path) -> None:
-        """cache_dir as string is expanded (expanduser) and used as base."""
-        with (
-            patch("onnxruntime.InferenceSession"),
-            patch("tokenizers.Tokenizer"),
-            patch.dict("sys.modules", {"onnxruntime": MagicMock(), "tokenizers": MagicMock()}),
-        ):
-            from archex.index.embeddings.nomic import NomicCodeEmbedder
+    def test_default_model_is_nomic_embed_code(self) -> None:
+        """Default model is nomic-ai/nomic-embed-code."""
+        from archex.index.embeddings.nomic import NomicCodeEmbedder
 
-            embedder = NomicCodeEmbedder(cache_dir=str(tmp_path))
-            assert embedder._model_dir == tmp_path / "nomic-embed-code-v1"
+        embedder = NomicCodeEmbedder()
+        assert embedder._model_name == "nomic-ai/nomic-embed-code"
 
-    def test_default_model_dir_used_when_no_cache_dir(self) -> None:
-        """Without cache_dir, model_dir defaults to ~/.archex/models."""
-        with patch.dict("sys.modules", {"onnxruntime": MagicMock(), "tokenizers": MagicMock()}):
-            from archex.index.embeddings.nomic import _DEFAULT_MODEL_DIR, NomicCodeEmbedder
-
-            embedder = NomicCodeEmbedder()
-            assert embedder._model_dir == _DEFAULT_MODEL_DIR / "nomic-embed-code-v1"
-
-    def test_encode_processes_in_batches(self) -> None:
-        """encode() iterates in batch_size chunks, calling session.run per batch."""
+    def test_encode_delegates_to_model(self) -> None:
+        """encode() delegates to the sentence-transformers model."""
         import numpy as np
 
-        with patch.dict("sys.modules", {"onnxruntime": MagicMock(), "tokenizers": MagicMock()}):
-            from archex.index.embeddings.nomic import NomicCodeEmbedder
+        from archex.index.embeddings.nomic import NomicCodeEmbedder
 
-            embedder = NomicCodeEmbedder(batch_size=4)
+        embedder = NomicCodeEmbedder(batch_size=4)
 
-        # Set up a mock tokenizer that returns proper encoded objects
-        def make_encoded(batch: list[str]) -> list[MagicMock]:
-            result = []
-            for _ in batch:
-                e = MagicMock()
-                e.ids = [1] * 8
-                e.attention_mask = [1] * 8
-                result.append(e)
-            return result
-
-        mock_tokenizer = MagicMock()
-        mock_tokenizer.encode_batch.side_effect = make_encoded
-
-        # session.run returns token_embeddings shape (batch, seq, dim)
-        def fake_run(_names: object, inputs: dict) -> list:
-            batch = inputs["input_ids"].shape[0]
-            return [np.ones((batch, 8, 768), dtype=np.float32)]
-
-        mock_session = MagicMock()
-        mock_session.run.side_effect = fake_run
-
-        # Inject mocks directly — bypass _load_model
-        embedder._session = mock_session
-        embedder._tokenizer = mock_tokenizer
+        mock_model = MagicMock()
+        mock_model.encode.return_value = np.ones((10, 768), dtype=np.float32)
+        embedder._model = mock_model
+        embedder._backend = "sentence-transformers"
 
         texts = [f"text {i}" for i in range(10)]
         results = embedder.encode(texts)
@@ -247,8 +214,7 @@ class TestNomicEmbedderCaching:
         assert len(results) == 10
         for vec in results:
             assert len(vec) == 768
-        # With batch_size=4 and 10 texts, expect 3 session.run calls
-        assert mock_session.run.call_count == 3
+        mock_model.encode.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -446,11 +412,13 @@ class TestGetEmbedder:
         assert _get_embedder(IndexConfig()) is None
         assert _get_embedder(IndexConfig(embedder="")) is None
 
-    def test_returns_none_for_unknown_embedder(self) -> None:
+    def test_raises_for_unknown_embedder(self) -> None:
         from archex.api import _get_embedder
+        from archex.exceptions import ConfigError
         from archex.models import IndexConfig
 
-        assert _get_embedder(IndexConfig(embedder="custom_api")) is None
+        with pytest.raises(ConfigError, match="Unknown embedder"):
+            _get_embedder(IndexConfig(embedder="custom_api"))
 
     def test_creates_nomic_embedder(self) -> None:
         from archex.api import _get_embedder

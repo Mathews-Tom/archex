@@ -1,10 +1,11 @@
 task_id: archex_delta_indexing
 repo: "."
 commit: "HEAD"
+languages: [python]
 question: "How does delta indexing detect and apply changes?"
 expected_files:
   - src/archex/index/delta.py
-  - src/archex/index/cache.py
+  - src/archex/cache.py
   - src/archex/api.py
 expected_symbols:
   - compute_delta

@@ -80,3 +80,27 @@ def csharp_simple_repo(tmp_path: Path) -> Path:
 def swift_simple_repo(tmp_path: Path) -> Path:
     """Copy tests/fixtures/swift_simple to a temp dir and initialise a git repo."""
     return _init_fixture_repo(tmp_path, "swift_simple")
+
+
+@pytest.fixture
+def typescript_simple_repo(tmp_path: Path) -> Path:
+    """Copy tests/fixtures/typescript_simple to a temp dir and initialise a git repo."""
+    return _init_fixture_repo(tmp_path, "typescript_simple")
+
+
+@pytest.fixture
+def rust_simple_repo(tmp_path: Path) -> Path:
+    """Copy tests/fixtures/rust_simple to a temp dir and initialise a git repo."""
+    return _init_fixture_repo(tmp_path, "rust_simple")
+
+
+@pytest.fixture
+def go_simple_repo(tmp_path: Path) -> Path:
+    """Copy tests/fixtures/go_simple to a temp dir and initialise a git repo."""
+    return _init_fixture_repo(tmp_path, "go_simple")
+
+
+@pytest.fixture
+def monorepo_simple_repo(tmp_path: Path) -> Path:
+    """Copy tests/fixtures/monorepo_simple to a temp dir and initialise a git repo."""
+    return _init_fixture_repo(tmp_path, "monorepo_simple")

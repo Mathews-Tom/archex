@@ -1,11 +1,12 @@
 task_id: archex_query_pipeline
 repo: "."
 commit: "HEAD"
+languages: [python]
 question: "How does archex implement the query pipeline?"
 expected_files:
   - src/archex/api.py
   - src/archex/index/bm25.py
-  - src/archex/index/context.py
+  - src/archex/serve/context.py
 expected_symbols:
   - query
   - BM25Index

@@ -50,7 +50,7 @@ from archex.parse import (
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.providers.base import get_provider
 from archex.serve.compare import compare_repos
-from archex.serve.context import assemble_context
+from archex.serve.context import assemble_context, passthrough_context
 from archex.serve.profile import build_profile
 
 if TYPE_CHECKING:
@@ -69,6 +69,7 @@ def _full_index(
     cache: CacheManager,
     cache_key: str,
     timing: PipelineTiming | None,
+    index_config: IndexConfig | None = None,
 ) -> IndexStore:
     """Run the full acquire → parse → chunk → store pipeline."""
     t_acq = time.perf_counter()
@@ -90,8 +91,8 @@ def _full_index(
 
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
-        index_config = IndexConfig()
-        file_chunker: Chunker = ASTChunker(config=index_config)
+        effective_index_config = index_config or IndexConfig()
+        file_chunker: Chunker = ASTChunker(config=effective_index_config)
         sources: dict[str, bytes] = {}
         for f in files:
             try:
@@ -130,6 +131,7 @@ def _ensure_index(
     source: RepoSource,
     config: Config | None = None,
     timing: PipelineTiming | None = None,
+    index_config: IndexConfig | None = None,
 ) -> IndexStore:
     """Ensure the repo is indexed and return an open IndexStore.
 
@@ -206,7 +208,7 @@ def _ensure_index(
                     logger.info("Delta indexing failed, falling back to full re-index")
 
     # Path 3: Full re-index
-    return _full_index(source, config, cache, cache_key, timing)
+    return _full_index(source, config, cache, cache_key, timing, index_config=index_config)
 
 
 def _chunk_to_symbol_source(chunk: CodeChunk) -> SymbolSource:
@@ -261,14 +263,16 @@ _plugin_bootstrap_strict: bool | None = None
 
 
 def _bootstrap_plugins(strict: bool = False) -> None:
-    """Load adapter and pattern plugins once per process."""
+    """Load adapter, pattern, and embedder plugins once per process."""
     global _plugin_bootstrap_strict
     if _plugin_bootstrap_strict is not None and (not strict or _plugin_bootstrap_strict):
         return  # already loaded at equal or higher strictness
     default_adapter_registry.load_entry_points(strict=strict)
     from archex.analyze.patterns import default_registry
+    from archex.index.embeddings import default_embedder_registry
 
     default_registry.load_entry_points(strict=strict)
+    default_embedder_registry.load_entry_points(strict=strict)
     _plugin_bootstrap_strict = strict
 
 
@@ -302,6 +306,213 @@ def _acquire(
 def _build_adapters() -> dict[str, LanguageAdapter]:
     """Build the registry of language adapters from the default registry."""
     return default_adapter_registry.build_all()
+
+
+def _compute_top_k(total_chunks: int) -> int:
+    """Scale BM25 candidate pool with repo size."""
+    if total_chunks <= 100:
+        return 30
+    if total_chunks <= 500:
+        return 50
+    if total_chunks <= 2000:
+        return 100
+    return 150
+
+
+_PATH_NOISE = frozenset(
+    {
+        "how",
+        "does",
+        "implement",
+        "what",
+        "handle",
+        "manage",
+        "function",
+        "method",
+        "class",
+        "module",
+        "file",
+        "code",
+        "work",
+        "used",
+        "using",
+        "create",
+        "make",
+        "define",
+        "call",
+        "return",
+        "type",
+        "data",
+        "value",
+    }
+)
+
+
+_STEM_SUFFIXES = ("ors", "ers", "ing", "tion", "ment", "ness", "ity", "ies", "ous")
+
+_SYMBOL_NOISE = _PATH_NOISE | frozenset(
+    {
+        "implement",
+        "show",
+        "find",
+        "look",
+        "search",
+        "describe",
+        "explain",
+        "this",
+        "that",
+        "with",
+        "from",
+        "into",
+        "have",
+        "been",
+        "does",
+        "where",
+        "which",
+        "when",
+        "will",
+        "also",
+        "each",
+        "some",
+    }
+)
+
+
+def _extract_path_terms(question: str) -> list[str]:
+    """Extract terms from a query that might match file/directory names.
+
+    Returns terms sorted longest-first so more specific terms (e.g. "validators")
+    get priority over generic ones (e.g. "pydantic") when the boost limit is hit.
+    Also generates stem variants by stripping common suffixes (e.g. "validators"
+    → "validat") to match related file names like "_validate_call.py".
+    """
+    import re
+
+    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{3,}", question)
+    raw = [w.lower() for w in words if w.lower() not in _PATH_NOISE and len(w) >= 4]
+    seen: set[str] = set()
+    terms: list[str] = []
+    for t in raw:
+        if t not in seen:
+            seen.add(t)
+            terms.append(t)
+        for suffix in _STEM_SUFFIXES:
+            if t.endswith(suffix) and len(t) - len(suffix) >= 4:
+                stem = t[: -len(suffix)]
+                if stem not in seen:
+                    seen.add(stem)
+                    terms.append(stem)
+    terms.sort(key=len, reverse=True)
+    return terms
+
+
+def _file_path_boost(
+    store: IndexStore,
+    question: str,
+    existing_ids: set[str],
+    max_bm25_score: float = 1.0,
+    max_boost_chunks: int = 30,
+) -> list[tuple[CodeChunk, float]]:
+    """Find chunks whose file_path contains query terms as exact substrings.
+
+    Terms are searched longest-first (from _extract_path_terms) so specific terms
+    like "validators" get priority over generic ones like "pydantic". Boost score
+    is 0.5× max BM25 so path-matched chunks compete without dominating.
+    """
+    terms = _extract_path_terms(question)
+    boosted: list[tuple[CodeChunk, float]] = []
+    seen: set[str] = set(existing_ids)
+    boost_score = max_bm25_score * 0.5
+
+    for term in terms:
+        for chunk in store.search_chunks_by_path_keyword(term, limit=20):
+            if chunk.id not in seen:
+                seen.add(chunk.id)
+                boosted.append((chunk, boost_score))
+            if len(boosted) >= max_boost_chunks:
+                return boosted
+
+    return boosted
+
+
+def _symbol_search_seeds(
+    store: IndexStore,
+    question: str,
+    max_bm25_score: float = 1.0,
+    max_symbol_chunks: int = 20,
+) -> list[tuple[CodeChunk, float]]:
+    """Find chunks by matching query terms against symbol names via FTS5.
+
+    Symbol matches are high-confidence seeds — they represent exact structural
+    hits (like an LSP "go to definition"). Only keeps results where the
+    symbol_name or qualified_name actually contains the search term (ignoring
+    file_path-only matches which are noise).
+
+    Boost score is 1.2× max BM25 so symbol-matched chunks rank above pure
+    keyword hits.
+    """
+    import re
+
+    words = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", question)
+    filtered = [w.lower() for w in words if w.lower() not in _SYMBOL_NOISE and len(w) >= 3]
+    # Generate snake_case combinations of adjacent terms
+    # e.g. "field validators" → "field_validator", "field_validators"
+    bigrams: list[str] = []
+    for i in range(len(filtered) - 1):
+        bigrams.append(f"{filtered[i]}_{filtered[i + 1]}")
+    # Only use bigrams (specific) and long single terms (>= 6 chars, less generic)
+    terms = bigrams + [t for t in filtered if len(t) >= 6]
+
+    seen: set[str] = set()
+    seeds: list[tuple[CodeChunk, float]] = []
+    # Low boost — just enough to become a seed file for import expansion.
+    # The real value is getting their files into seed_files, not competing
+    # for top file slots directly.
+    boost_score = max_bm25_score * 0.15
+
+    for term in terms:
+        chunks = store.search_symbols(term, limit=20)
+        for chunk in chunks:
+            # Only keep if symbol_name or qualified_name actually matches the term
+            # (file_path-only matches from FTS5 are noise)
+            name_lower = (chunk.symbol_name or "").lower()
+            qname_lower = (chunk.qualified_name or "").lower()
+            if term not in name_lower and term not in qname_lower:
+                continue
+            if chunk.id not in seen:
+                seen.add(chunk.id)
+                seeds.append((chunk, boost_score))
+            if len(seeds) >= max_symbol_chunks:
+                return seeds
+
+    return seeds
+
+
+def _compute_dynamic_budget(total_repo_tokens: int, user_budget: int) -> int:
+    """Scale token budget proportional to repo size.
+
+    - total ≤ budget: return total (passthrough — everything fits)
+    - budget < total ≤ 3× budget: linear ramp from total down to budget
+    - total > 3× budget: return user_budget (full retrieval mode)
+
+    This prevents noise inflation on small repos while preserving full
+    retrieval capacity for large ones.
+    """
+    if total_repo_tokens <= user_budget:
+        return total_repo_tokens
+    cap = user_budget * 3
+    if total_repo_tokens >= cap:
+        return user_budget
+    # Linear interpolation: at 1× → total_repo_tokens, at 3× → user_budget
+    t = (total_repo_tokens - user_budget) / (cap - user_budget)
+    return int(total_repo_tokens * (1.0 - t) + user_budget * t)
+
+
+def _total_chunk_tokens(chunks: list[CodeChunk]) -> int:
+    """Sum estimated tokens across all chunks."""
+    from archex.serve.context import estimate_tokens
+
+    return sum(estimate_tokens(c) for c in chunks)
 
 
 def analyze(
@@ -418,6 +629,7 @@ def query(
         config = Config()
     if index_config is None:
         index_config = IndexConfig()
+    _bootstrap_plugins()
 
     t0 = time.perf_counter()
     cache = CacheManager(cache_dir=config.cache_dir)
@@ -437,34 +649,53 @@ def query(
             try:
                 if timing is not None:
                     timing.cached = True
-                bm25 = BM25Index(store)
                 cached_chunks = store.get_chunks()
+                total_repo_tokens = _total_chunk_tokens(cached_chunks)
+                effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget)
+
+                # Passthrough: entire repo fits within budget
+                if effective_budget >= total_repo_tokens:
+                    pt = passthrough_context(cached_chunks, question, effective_budget)
+                    if timing is not None:
+                        timing.strategy = "passthrough"
+                    pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
+                    logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
+                    if timing is not None:
+                        timing.total_ms = _elapsed_ms(t0)
+                    return pt
+
+                bm25 = BM25Index(store)
                 if cached_chunks:
                     bm25.build(cached_chunks)
                 stored_edges = store.get_edges()
                 graph = DependencyGraph.from_edges(stored_edges)
 
-                vector_results: list[tuple[object, float]] | None = None
-                if index_config.vector:
-                    vec_path = cache.vector_path(cache_key)
-                    if vec_path.exists():
-                        from archex.index.vector import VectorIndex
-
-                        vec_idx = VectorIndex()
-                        vec_idx.load(
-                            vec_path,
-                            cached_chunks,
-                            embedder_name=index_config.embedder or "",
-                            vector_dim=0,
-                        )
-                        embedder = _get_embedder(index_config)
-                        if embedder is not None:
-                            vector_results = vec_idx.search(question, embedder, top_k=50)  # type: ignore[assignment]
-                            if timing is not None:
-                                timing.vector_used = True
-
+                top_k = _compute_top_k(len(cached_chunks))
                 t_search = time.perf_counter()
-                search_results = bm25.search(question, top_k=50)
+                search_results = bm25.search(question, top_k=top_k)
+                # Supplement with file-path keyword matches
+                bm25_ids = {c.id for c, _ in search_results}
+                max_bm25 = max((s for _, s in search_results), default=1.0)
+                path_boost = _file_path_boost(store, question, bm25_ids, max_bm25_score=max_bm25)
+                # Symbol seeds: add matched files as expansion seeds (low boost)
+                all_existing = bm25_ids | {c.id for c, _ in path_boost}
+                symbol_seeds = [
+                    (c, s)
+                    for c, s in _symbol_search_seeds(store, question, max_bm25_score=max_bm25)
+                    if c.id not in all_existing
+                ]
+                search_results = search_results + path_boost + symbol_seeds
+
+                # Two-stage: rerank BM25 candidates with vector similarity
+                vector_results: list[tuple[CodeChunk, float]] | None = None
+                if index_config.vector:
+                    vector_results = _two_stage_rerank(
+                        question,
+                        search_results,
+                        index_config,
+                        timing,
+                    )
+
                 if timing is not None:
                     timing.search_ms = _elapsed_ms(t_search)
                 bundle = assemble_context(
@@ -472,7 +703,7 @@ def query(
                     graph=graph,
                     all_chunks=cached_chunks,
                     question=question,
-                    token_budget=token_budget,
+                    token_budget=effective_budget,
                     vector_results=vector_results,  # type: ignore[arg-type]
                     scoring_weights=scoring_weights,
                 )
@@ -528,6 +759,9 @@ def query(
         all_chunks = file_chunker.chunk_files(parsed_files, sources)
         logger.info("Chunked into %d chunks in %.0fms", len(all_chunks), _elapsed_ms(t4))
 
+        total_repo_tokens = _total_chunk_tokens(all_chunks)
+        effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget)
+
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
 
@@ -540,27 +774,7 @@ def query(
             if timing is not None:
                 timing.index_ms = _elapsed_ms(t4)
 
-            # Build vector index if configured
-            vector_results_miss: list[tuple[object, float]] | None = None
-            if index_config.vector:
-                embedder = _get_embedder(index_config)
-                if embedder is not None:
-                    from archex.index.vector import VectorIndex
-
-                    t5 = time.perf_counter()
-                    vec_idx = VectorIndex()
-                    vec_idx.build(all_chunks, embedder)  # type: ignore[arg-type]
-                    vector_results_miss = vec_idx.search(question, embedder, top_k=50)  # type: ignore[assignment]
-                    if timing is not None:
-                        timing.vector_used = True
-                    logger.info("Vector index built in %.0fms", _elapsed_ms(t5))
-
-                    if config.cache:
-                        vec_idx.save(
-                            cache.vector_path(cache_key),
-                            embedder_name=index_config.embedder or "",
-                            vector_dim=vec_idx.dim,
-                        )
+            top_k = _compute_top_k(len(all_chunks))
 
             if config.cache:
                 commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
@@ -571,8 +785,41 @@ def query(
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
                 cache.put(cache_key, db_path)
 
+            # Passthrough: entire repo fits within budget
+            if effective_budget >= total_repo_tokens:
+                pt = passthrough_context(all_chunks, question, effective_budget)
+                if timing is not None:
+                    timing.strategy = "passthrough"
+                    timing.total_ms = _elapsed_ms(t0)
+                pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
+                logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
+                return pt
+
             t6 = time.perf_counter()
-            search_results = bm25.search(question, top_k=50)
+            search_results = bm25.search(question, top_k=top_k)
+            # Supplement with file-path keyword matches
+            bm25_ids = {c.id for c, _ in search_results}
+            max_bm25 = max((s for _, s in search_results), default=1.0)
+            path_boost = _file_path_boost(store, question, bm25_ids, max_bm25_score=max_bm25)
+            # Symbol seeds: add matched files as expansion seeds (low boost)
+            all_existing_miss = bm25_ids | {c.id for c, _ in path_boost}
+            symbol_seeds_miss = [
+                (c, s)
+                for c, s in _symbol_search_seeds(store, question, max_bm25_score=max_bm25)
+                if c.id not in all_existing_miss
+            ]
+            search_results = search_results + path_boost + symbol_seeds_miss
+
+            # Two-stage: rerank BM25 candidates with vector similarity
+            vector_results_miss: list[tuple[CodeChunk, float]] | None = None
+            if index_config.vector:
+                vector_results_miss = _two_stage_rerank(
+                    question,
+                    search_results,
+                    index_config,
+                    timing,
+                )
+
             if timing is not None:
                 timing.search_ms = _elapsed_ms(t6)
             bundle = assemble_context(
@@ -580,7 +827,7 @@ def query(
                 graph=graph,
                 all_chunks=all_chunks,
                 question=question,
-                token_budget=token_budget,
+                token_budget=effective_budget,
                 vector_results=vector_results_miss,  # type: ignore[arg-type]
                 scoring_weights=scoring_weights,
             )
@@ -599,20 +846,43 @@ def query(
         cleanup()
 
 
-def _get_embedder(index_config: IndexConfig) -> object | None:
-    """Create an embedder from index_config, or return None if not configured."""
-    if not index_config.embedder:
+_RERANK_MAX_CANDIDATES = 50
+
+
+def _two_stage_rerank(
+    question: str,
+    bm25_results: list[tuple[CodeChunk, float]],
+    index_config: IndexConfig,
+    timing: PipelineTiming | None,
+) -> list[tuple[CodeChunk, float]] | None:
+    """Rerank BM25 candidates using vector similarity (two-stage retrieval).
+
+    Embeds only the top BM25 candidate chunks + query instead of the full corpus.
+    Caps at _RERANK_MAX_CANDIDATES to bound embedding latency.
+    """
+    embedder = _get_embedder(index_config)
+    if embedder is None:
         return None
-    if index_config.embedder == "nomic":
-        from archex.index.embeddings.nomic import NomicCodeEmbedder
 
-        return NomicCodeEmbedder()
-    if index_config.embedder == "sentence_transformers":
-        from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+    from archex.index.vector import VectorIndex
 
-        return SentenceTransformerEmbedder()
-    # API embedder requires additional config — not created here
-    return None
+    candidates = [chunk for chunk, _ in bm25_results[:_RERANK_MAX_CANDIDATES]]
+    t_vec = time.perf_counter()
+    vec_idx = VectorIndex()
+    vector_results = vec_idx.rerank(question, candidates, embedder)  # type: ignore[arg-type]
+    rerank_ms = _elapsed_ms(t_vec)
+    if timing is not None:
+        timing.vector_used = True
+        timing.vector_build_ms = rerank_ms
+    logger.info("Two-stage rerank (%d candidates) in %.0fms", len(candidates), rerank_ms)
+    return vector_results  # type: ignore[return-value]
+
+
+def _get_embedder(index_config: IndexConfig) -> object | None:
+    """Create an embedder from index_config via the EmbedderRegistry."""
+    from archex.index.embeddings import default_embedder_registry
+
+    return default_embedder_registry.create(index_config)
 
 
 def compare(

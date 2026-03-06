@@ -40,7 +40,11 @@ class SentenceTransformerEmbedder:
             SentenceTransformer,  # pyright: ignore[reportMissingImports]
         )
 
-        self._model = SentenceTransformer(self._model_name)
+        from archex.index.embeddings.nomic import (
+            _best_device,  # pyright: ignore[reportPrivateUsage]
+        )
+
+        self._model = SentenceTransformer(self._model_name, device=_best_device())
         self._dimension = self._model.get_sentence_embedding_dimension()
 
     def encode(self, texts: list[str]) -> list[list[float]]:

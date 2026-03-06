@@ -37,3 +37,7 @@ class DeltaIndexError(ArchexError):
 
 class ConfigError(ArchexError):
     """Raised when configuration is invalid or missing."""
+
+
+class LSAPError(ArchexError):
+    """Raised when LSAP/LSP client operations fail."""

@@ -1,5 +1,11 @@
 # archex
 
+[![CI](https://github.com/determ-ai/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/determ-ai/archex/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
+[![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Coverage](https://codecov.io/gh/determ-ai/archex/graph/badge.svg)](https://codecov.io/gh/determ-ai/archex)
+
 Architecture extraction and codebase intelligence for the agentic era.
 
 archex is a Python library and CLI that transforms any Git repository into structured architectural intelligence and token-budget-aware code context. It serves two consumers from a single index: **human architects** receive an `ArchProfile` with module boundaries, dependency graphs, detected patterns, and interface surfaces; **AI agents** receive a `ContextBundle` with relevance-ranked, syntax-aligned code chunks assembled to fit within a specified token budget.
@@ -38,6 +44,7 @@ The core package handles all 8 languages, structural analysis, and BM25 retrieva
 uv tool install "archex[mcp]"        # MCP server (Claude Code / Claude Desktop)
 uv add "archex[langchain]"           # LangChain retriever
 uv add "archex[llamaindex]"          # LlamaIndex retriever
+uv add "archex[lsap]"               # LSP enrichment (Python 3.12+, lsp-client)
 ```
 
 **Hybrid retrieval** (vector embeddings + BM25):
@@ -244,35 +251,129 @@ bundle = query(
 agent_context = bundle.to_prompt(format="xml")
 ```
 
-### Token Efficiency
+### When to Use archex
 
-Measured across 10 popular open-source repositories (Flask, Requests, FastAPI, Django, Express, Got, Gin, actix-web, Oak, httpx) spanning Python, JavaScript, TypeScript, Go, and Rust — from 35 files to 2,332 files:
+**archex gives AI agents structural priors about codebases they've never seen.**
 
-| Repository | Language | Files | Repo Tokens | Raw Baseline | archex Output | Savings |
-| ---------- | -------- | ----: | ----------: | -----------: | ------------: | ------: |
-| flask      | Python   |    80 |        182K |         797K |           55K |   93.1% |
-| requests   | Python   |    35 |        131K |         631K |           20K |   96.9% |
-| fastapi    | Python   |   941 |        774K |       3,235K |          512K |   84.2% |
-| django     | Python   | 2,332 |      7,196K |      28,964K |          540K |   98.1% |
-| express    | JS       |   141 |        136K |         569K |           19K |   96.6% |
-| got        | TS       |    77 |        198K |         864K |           14K |   98.4% |
-| gin        | Go       |    99 |        190K |         852K |           63K |   92.6% |
-| actix-web  | Rust     |   313 |        619K |       2,585K |           37K |   98.6% |
-| oak        | TS       |    61 |        112K |         502K |           16K |   96.9% |
-| httpx      | Python   |    57 |        172K |         769K |           61K |   92.1% |
+When an agent encounters a new codebase, it has two options: explore file-by-file (expensive, slow, high risk of missing context) or receive a pre-computed structural map (cheap, fast, complete). archex is the pre-computed map.
 
-**Median savings: 96.8%.** Raw baseline = sum of raw file tokens each operation would require without archex. archex output = sum of structured responses across all 8 API operations (`file_tree`, `analyze`, `file_outline`, `search_symbols`, `get_symbol`, `get_symbols_batch`, `query`, `compare`). Token budget: 8,192.
+| Capability                        | archex                                        | archex + LSAP                                | Claude Code                        | LSP                          |
+| --------------------------------- | --------------------------------------------- | -------------------------------------------- | ---------------------------------- | ---------------------------- |
+| Cold-start codebase understanding | **Yes** — pre-computed structural map         | **Yes** — structural + semantic              | Slow — sequential file exploration | No — requires active session |
+| Semantic type resolution          | No — syntactic (tree-sitter)                  | **Yes** — LSP hover, references, definitions | Via LLM reasoning                  | **Yes** — compiler-grade     |
+| Token-budget context assembly     | **Yes** — ranked, packed, dependency-expanded | **Yes** — enriched with type context         | No — agent manually selects        | No — not designed for this   |
+| Cross-repo structural comparison  | **Yes** — 6 dimensions, no LLM                | **Yes**                                      | No                                 | No                           |
+| Real-time editing support         | No                                            | No                                           | No                                 | **Yes**                      |
+| Offline / CI-embeddable           | **Yes**                                       | Partially — needs running language server    | No                                 | Partially                    |
+| Works with any agent framework    | **Yes** — CLI, MCP, Python API                | **Yes** — async Python API                   | Claude-specific                    | Editor-specific              |
 
-Per-operation breakdown:
+### LSAP Enrichment (opt-in)
 
-| Operation          | Typical Savings | What it replaces                                    |
-| ------------------ | --------------- | --------------------------------------------------- |
-| `file_tree()`      | 95–99%          | Reading entire repo to understand structure         |
-| `analyze()`        | 82–99%          | Manual exploration of modules, patterns, interfaces |
-| `compare()`        | 79–99%          | Reading both repos end-to-end                       |
-| `query()`          | 66–96%          | Multi-file search and backtracking                  |
-| `get_symbol()`     | 49–87%          | Reading entire file to extract one function         |
-| `search_symbols()` | 68–96%          | Grepping + reading matching files                   |
+archex symbols can be enriched with LSP type information via `archex[lsap]`. This is opt-in — the core pipeline remains syntactic-only.
+
+```python
+from lsp_client import PyrightClient
+from archex.api import get_symbol
+from archex.integrations.lsap import LSAPEnrichedLookup
+from archex.models import RepoSource
+
+# Caller manages the language server lifecycle.
+async with PyrightClient("./my-project") as client:
+    lookup = LSAPEnrichedLookup(lsp_client=client)
+    symbol = get_symbol(RepoSource(local_path="./my-project"), "src/repo.py::get_user#method")
+    enriched = await lookup.enrich_symbol(symbol)
+    print(enriched.lsap_enrichment.hover.type_signature)
+    print(f"{enriched.lsap_enrichment.reference_count} references")
+```
+
+### MCP Co-Tool Configuration
+
+archex and an LSP MCP server can run as sibling tools, giving agents both structural context and precision type operations:
+
+```json
+{
+  "mcpServers": {
+    "archex": {
+      "command": "archex",
+      "args": ["mcp"]
+    },
+    "lsp": {
+      "command": "lsp-cli",
+      "args": ["--language", "python", "--root", "./my-project"]
+    }
+  }
+}
+```
+
+**Workflow:** archex for structural context (modules, patterns, ranked chunks) → LSP MCP for precision follow-ups (type resolution, find references, go-to-definition).
+
+**Concrete workflows:**
+
+- **Before agent explores new repo**: `archex query ./repo "auth system" --budget 8K` → context bundle → feed to agent's first prompt
+- **Before a code review**: `archex analyze ./pr-branch` → architectural impact summary
+- **CI gate**: `archex compare ./main ./feature-branch --dimensions api_surface,error_handling` → detect architectural drift
+
+### Benchmarks
+
+#### Retrieval Quality
+
+`query()` retrieval quality measured against human-annotated expected files across 11 benchmark tasks (4 self-referential archex tasks + 7 external open-source repos). Token budget: 8,192. Strategy: BM25.
+
+| Task                         | Repository          | Language | Recall | Precision |    F1 |  MRR |
+| ---------------------------- | ------------------- | -------- | -----: | --------: | ----: | ---: |
+| httpx_pooling                | encode/httpx        | Python   |   1.00 |     0.231 | 0.375 | 1.00 |
+| mini_redis_async             | tokio-rs/mini-redis | Rust     |   1.00 |     0.176 | 0.300 | 1.00 |
+| click_decorators             | pallets/click       | Python   |   0.67 |     0.286 | 0.400 | 1.00 |
+| gin_routing                  | gin-gonic/gin       | Go       |   0.67 |     0.083 | 0.148 | 0.08 |
+| fastapi_dependency_injection | tiangolo/fastapi    | Python   |   0.33 |     0.143 | 0.200 | 1.00 |
+| express_middleware           | expressjs/express   | JS       |   0.33 |     0.056 | 0.095 | 0.08 |
+| pydantic_validators          | pydantic/pydantic   | Python   |   0.00 |     0.000 | 0.000 | 0.00 |
+| archex_adapter_registry      | . (self)            | Python   |   0.67 |     0.067 | 0.121 | 1.00 |
+| archex_delta_indexing        | . (self)            | Python   |   0.67 |     0.111 | 0.190 | 0.50 |
+| archex_pattern_detection     | . (self)            | Python   |   0.50 |     0.053 | 0.095 | 0.20 |
+| archex_query_pipeline        | . (self)            | Python   |   0.33 |     0.040 | 0.071 | 0.02 |
+
+**Median recall: 0.67. Median MRR: 0.50. Median F1: 0.148.**
+
+> **How to read this:** Recall measures what fraction of expected files appear in the context bundle. Precision measures what fraction of returned chunks are from expected files (low by design — archex includes dependency-expanded context beyond the strict expected set). MRR measures how early the first relevant file appears in the ranked results (1.0 = first position). Raw results in [`benchmarks/results/`](benchmarks/results/).
+>
+> **Honest assessment:** Recall is moderate — archex finds 2 of 3 expected files in the median case. MRR is strong for well-scoped queries (httpx, click, mini-redis, fastapi) but weak for broad queries (express, archex_query_pipeline) and large codebases with generic terminology (pydantic — 0% recall across 240+ files). Precision is structurally low because the 8K token budget packs dependency-expanded chunks beyond the strict expected set. BM25-only retrieval is the primary bottleneck; hybrid retrieval (BM25 + vector embeddings) is expected to improve recall on large repos where lexical matching alone cannot disambiguate.
+
+#### Token Efficiency
+
+Token savings measured across 10 open-source repositories (from [`showcase_results.log`](showcase_results.log)) spanning Python, JavaScript, TypeScript, Go, and Rust — from 35 files to 2,332 files:
+
+**`query()` — context retrieval (the operation agents use most):**
+
+| Repository | Language | Files | Repo Tokens | query() Raw | query() Output | query() Savings |
+| ---------- | -------- | ----: | ----------: | ----------: | -------------: | --------------: |
+| flask      | Python   |    80 |        182K |         68K |          8,158 |           88.0% |
+| requests   | Python   |    35 |        131K |        104K |          7,823 |           92.5% |
+| fastapi    | Python   |   941 |        774K |        137K |          7,964 |           94.2% |
+| django     | Python   | 2,332 |      7,196K |        179K |          8,128 |           95.5% |
+| express    | JS       |   141 |        136K |         23K |          7,925 |           66.1% |
+| got        | TS       |    77 |        198K |         72K |          7,959 |           88.9% |
+| gin        | Go       |    99 |        190K |         92K |          5,670 |           93.9% |
+| actix-web  | Rust     |   313 |        619K |        107K |          7,926 |           92.6% |
+| oak        | TS       |    61 |        112K |         55K |          7,821 |           85.8% |
+| httpx      | Python   |    57 |        172K |         70K |          7,975 |           88.6% |
+
+**Median query() savings: 90.8%.** "query() Raw" = tokens an agent would read by loading every file matching the query's language filter.
+
+> **What this measures and what it doesn't:** Token savings measures compression ratio — how much less data archex sends compared to reading raw files. It does not measure retrieval quality. See the retrieval quality table above for recall, precision, and MRR.
+
+**Per-operation breakdown (all 10 repos):**
+
+| Operation          | Savings Range | Median | What it replaces                                    |
+| ------------------ | ------------- | -----: | --------------------------------------------------- |
+| `file_tree()`      | 94.9–99.1%    |  98.3% | Reading entire repo to understand structure         |
+| `analyze()`        | 81.7–99.3%    |  96.7% | Manual exploration of modules, patterns, interfaces |
+| `compare()`        | 79.1–99.7%    |  97.8% | Reading both repos end-to-end                       |
+| `query()`          | 66.1–95.5%    |  90.8% | Multi-file search and backtracking                  |
+| `get_symbol()`     | 48.4–87.1%    |  61.7% | Reading entire file to extract one function         |
+| `search_symbols()` | 85.9–96.1%    |  91.0% | Grepping + reading matching files                   |
+
+> **Aggregate numbers:** Summing raw tokens across all 8 operations gives a per-repo "total savings" of 84–99% (median 96.8%). This aggregate inflates the picture because it includes `compare()` (which counts both repos' tokens) and treats all operations as a single atomic call. The per-operation breakdown above is more honest.
 
 ## CLI Reference
 

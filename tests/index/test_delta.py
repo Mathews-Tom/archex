@@ -514,3 +514,87 @@ class TestComputeMtimeDelta:
             assert manifest.current_commit == "mtime"
         finally:
             store.close()
+
+
+# ---------------------------------------------------------------------------
+# Additional edge case tests
+# ---------------------------------------------------------------------------
+
+
+class TestComputeDeltaEdgeCases:
+    def test_unreachable_current_commit_raises(self, delta_test_repo: Path) -> None:
+        """Unreachable current commit raises DeltaIndexError."""
+        base = _git_head(delta_test_repo)
+        with pytest.raises(DeltaIndexError):
+            compute_delta(delta_test_repo, base, "deadbeef" * 5)
+
+    def test_manifest_properties_on_additions_only(self, delta_test_repo: Path) -> None:
+        """Manifest with only additions has correct property values."""
+        base = _git_head(delta_test_repo)
+        (delta_test_repo / "new1.py").write_text("x = 1\n")
+        (delta_test_repo / "new2.py").write_text("y = 2\n")
+        _git(delta_test_repo, "add", ".")
+        _git(delta_test_repo, "commit", "-m", "add two files")
+        current = _git_head(delta_test_repo)
+
+        manifest = compute_delta(delta_test_repo, base, current)
+        assert len(manifest.added_files) == 2
+        assert manifest.modified_files == []
+        assert manifest.deleted_files == []
+        assert manifest.renamed_files == []
+
+
+class TestComputeMtimeDeltaEdgeCases:
+    def test_mtime_equal_to_last_indexed_not_modified(self, tmp_path: Path) -> None:
+        """File with mtime == last_indexed_at is NOT detected as modified (strict >)."""
+        py_file = tmp_path / "exact.py"
+        py_file.write_text("x = 1\n")
+        mtime = py_file.stat().st_mtime
+
+        db = tmp_path / "test.db"
+        store = IndexStore(db)
+        try:
+            chunk = CodeChunk(
+                id="exact.py::x#variable",
+                content="x = 1",
+                file_path="exact.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            )
+            store.insert_chunks([chunk])
+            # Set last_indexed_at to exactly the file's mtime
+            manifest = compute_mtime_delta(tmp_path, store, mtime)
+            modified = [c for c in manifest.changes if c.status == ChangeStatus.MODIFIED]
+            assert not any(c.path == "exact.py" for c in modified)
+        finally:
+            store.close()
+
+    def test_oserror_on_stat_skips_file(self, tmp_path: Path) -> None:
+        """File that raises OSError on stat is silently skipped."""
+        # Create a file, index it, then remove it to simulate deletion/OSError
+        py_file = tmp_path / "perm.py"
+        py_file.write_text("z = 3\n")
+
+        db = tmp_path / "test.db"
+        store = IndexStore(db)
+        try:
+            chunk = CodeChunk(
+                id="perm.py::z#variable",
+                content="z = 3",
+                file_path="perm.py",
+                start_line=1,
+                end_line=1,
+                language="python",
+            )
+            store.insert_chunks([chunk])
+
+            # Remove the file to simulate OSError on stat
+            py_file.unlink()
+
+            # Should detect as deleted, not crash
+            manifest = compute_mtime_delta(tmp_path, store, time.time() - 10)
+            deleted = [c for c in manifest.changes if c.status == ChangeStatus.DELETED]
+            assert any(c.path == "perm.py" for c in deleted)
+        finally:
+            store.close()

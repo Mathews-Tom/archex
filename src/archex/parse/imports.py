@@ -129,13 +129,21 @@ def resolve_imports(
     return import_map
 
 
+_SOURCE_PREFIXES = ("src/", "lib/", "source/")
+
+
 def build_file_map(files: list[DiscoveredFile]) -> dict[str, str]:
     """Build module_path → file_path mapping for internal import resolution.
+
+    Registers both the full path key and a stripped key when files live under
+    standard source directories (src/, lib/, source/).  This allows resolving
+    ``from archex.api import ...`` even when the file path is ``src/archex/api.py``.
 
     Examples:
       "models.py"          → {"models": "models.py"}
       "services/auth.py"   → {"services.auth": "services/auth.py"}
       "services/__init__.py" → {"services": "services/__init__.py"}
+      "src/archex/api.py"  → {"src.archex.api": ..., "archex.api": ...}
     """
     file_map: dict[str, str] = {}
 
@@ -145,16 +153,29 @@ def build_file_map(files: list[DiscoveredFile]) -> dict[str, str]:
         normalized = path.replace(os.sep, "/")
 
         if normalized.endswith("/__init__.py"):
-            # Package init: key is the package path as dotted module
             package_path = normalized[: -len("/__init__.py")]
             module_key = package_path.replace("/", ".")
         elif normalized.endswith(".py"):
             module_key = normalized[:-3].replace("/", ".")
         else:
-            # Non-Python files: use path without extension as key
             base, _ = os.path.splitext(normalized)
             module_key = base.replace("/", ".")
 
         file_map[module_key] = path
+
+        # Also register with source-directory prefix stripped
+        for prefix in _SOURCE_PREFIXES:
+            if normalized.startswith(prefix):
+                stripped = normalized[len(prefix) :]
+                if stripped.endswith("/__init__.py"):
+                    stripped_key = stripped[: -len("/__init__.py")].replace("/", ".")
+                elif stripped.endswith(".py"):
+                    stripped_key = stripped[:-3].replace("/", ".")
+                else:
+                    stripped_key, _ = os.path.splitext(stripped)
+                    stripped_key = stripped_key.replace("/", ".")
+                if stripped_key not in file_map:
+                    file_map[stripped_key] = path
+                break
 
     return file_map

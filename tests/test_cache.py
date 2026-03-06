@@ -302,3 +302,70 @@ class TestFindStoreForSource:
         result = cache.find_store_for_source(source)
         # No commit_hash row → result should be None
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests
+# ---------------------------------------------------------------------------
+
+
+class TestCacheEdgeCases:
+    def test_clean_zero_hours_removes_all(self, cache: CacheManager, sample_db: Path) -> None:
+        """clean(max_age_hours=0) removes every entry."""
+        cache.put(KEY_A, sample_db)
+        cache.put(KEY_B, sample_db)
+        removed = cache.clean(max_age_hours=0)
+        assert removed == 2
+        assert cache.get(KEY_A) is None
+        assert cache.get(KEY_B) is None
+
+    def test_invalidate_idempotent(self, cache: CacheManager, sample_db: Path) -> None:
+        """Double invalidate does not raise."""
+        cache.put(KEY_A, sample_db)
+        cache.invalidate(KEY_A)
+        cache.invalidate(KEY_A)  # second call should be safe
+        assert cache.get(KEY_A) is None
+
+    def test_put_nonexistent_source_db(self, cache: CacheManager, tmp_path: Path) -> None:
+        """put() with nonexistent source file propagates error."""
+        missing = tmp_path / "does_not_exist.db"
+        with pytest.raises((FileNotFoundError, OSError)):
+            cache.put(KEY_A, missing)
+
+    def test_list_entries_with_corrupt_meta(self, cache: CacheManager, sample_db: Path) -> None:
+        """list_entries handles corrupt .meta file without crashing."""
+        cache.put(KEY_A, sample_db)
+        # Corrupt the meta file
+        meta = cache.meta_path(KEY_A)
+        meta.write_text("not_a_float_timestamp")
+        entries = cache.list_entries()
+        # Should either return the entry (with default time) or skip it, but not crash
+        assert isinstance(entries, list)
+
+    def test_cache_key_with_head_override(self, tmp_path: Path) -> None:
+        """cache_key with head_override produces deterministic, different key."""
+        cm = CacheManager(cache_dir=str(tmp_path))
+        source = RepoSource(url="https://example.com/repo.git")
+        k1 = cm.cache_key(source, head_override="abc123")
+        k2 = cm.cache_key(source, head_override="abc123")
+        k3 = cm.cache_key(source, head_override="def456")
+        assert k1 == k2  # deterministic
+        assert k1 != k3  # different overrides produce different keys
+
+    def test_find_store_corrupt_db_skipped(self, cache: CacheManager, tmp_path: Path) -> None:
+        """find_store_for_source skips corrupt .db files gracefully."""
+        import shutil
+
+        bad_db = tmp_path / "corrupt.db"
+        bad_db.write_text("not a sqlite database")
+        key = "a" * 64
+        # Manually place the corrupt file in cache
+        cache_db = cache.db_path(key)
+        cache_db.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(bad_db, cache_db)
+        cache.meta_path(key).write_text(str(time.time()))
+
+        source = RepoSource(url="https://example.com/repo.git")
+        # Should not crash, just return None
+        result = cache.find_store_for_source(source)
+        assert result is None

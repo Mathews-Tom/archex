@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from archex.analyze.patterns import (
     PatternRegistry,
     _confidence,  # pyright: ignore[reportPrivateUsage]
+    _method_names,  # pyright: ignore[reportPrivateUsage]
     detect_patterns,
 )
 from archex.index.graph import DependencyGraph
@@ -256,6 +257,142 @@ def test_event_bus_partial_only_emit() -> None:
     assert event_bus is not None
     symbols_found = {ev.symbol for ev in event_bus.evidence}
     assert "Emitter" in symbols_found
+
+
+# ---------------------------------------------------------------------------
+# Strategy fallback: protocol found, concretes via method matching
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _method_names case normalization
+# ---------------------------------------------------------------------------
+
+
+def test_method_names_returns_lowercase() -> None:
+    file_path = "test.py"
+    symbols = [
+        _make_symbol("MyClass", SymbolKind.CLASS, file_path, 1, 10),
+        _make_symbol("SetNext", SymbolKind.METHOD, file_path, 2, 3, parent="MyClass"),
+        _make_symbol("Process", SymbolKind.METHOD, file_path, 4, 5, parent="MyClass"),
+        _make_symbol("handleRequest", SymbolKind.METHOD, file_path, 6, 7, parent="MyClass"),
+    ]
+    names = _method_names("MyClass", symbols)  # pyright: ignore[reportPrivateUsage]
+    assert names == {"setnext", "process", "handlerequest"}
+
+
+# ---------------------------------------------------------------------------
+# Cross-language detection (case-insensitive matching)
+# ---------------------------------------------------------------------------
+
+
+def test_middleware_detects_pascalcase_methods() -> None:
+    """Go-style PascalCase methods like SetNext/Handle should trigger middleware detection."""
+    file_path = "handler.go"
+    symbols = [
+        _make_symbol("BaseHandler", SymbolKind.CLASS, file_path, 1, 10),
+        _make_symbol("SetNext", SymbolKind.METHOD, file_path, 2, 4, parent="BaseHandler"),
+        _make_symbol("Handle", SymbolKind.METHOD, file_path, 5, 8, parent="BaseHandler"),
+        _make_symbol("AuthHandler", SymbolKind.CLASS, file_path, 12, 20),
+        _make_symbol("Handle", SymbolKind.METHOD, file_path, 13, 18, parent="AuthHandler"),
+    ]
+    pf = ParsedFile(path=file_path, language="go", symbols=symbols)
+    names = _pattern_names([pf])
+    assert "middleware_chain" in names
+
+
+def test_repository_detects_camelcase_methods() -> None:
+    """Java-style camelCase CRUD methods should trigger repository detection."""
+    file_path = "UserRepository.java"
+    symbols = [
+        _make_symbol("UserRepository", SymbolKind.CLASS, file_path, 1, 20),
+        _make_symbol("findById", SymbolKind.METHOD, file_path, 2, 4, parent="UserRepository"),
+        _make_symbol("findAll", SymbolKind.METHOD, file_path, 5, 7, parent="UserRepository"),
+        _make_symbol("save", SymbolKind.METHOD, file_path, 8, 10, parent="UserRepository"),
+        _make_symbol("delete", SymbolKind.METHOD, file_path, 11, 13, parent="UserRepository"),
+    ]
+    pf = ParsedFile(path=file_path, language="java", symbols=symbols)
+    names = _pattern_names([pf])
+    assert "repository" in names
+
+
+# ---------------------------------------------------------------------------
+# False-positive rejection
+# ---------------------------------------------------------------------------
+
+
+def test_repository_rejects_utility_with_get_all() -> None:
+    """A class with only get+all but no repo-indicating name should NOT trigger repository."""
+    file_path = "utils.py"
+    symbols = [
+        _make_symbol("ConfigManager", SymbolKind.CLASS, file_path, 1, 10),
+        _make_symbol("get", SymbolKind.METHOD, file_path, 2, 4, parent="ConfigManager"),
+        _make_symbol("all", SymbolKind.METHOD, file_path, 5, 7, parent="ConfigManager"),
+    ]
+    pf = ParsedFile(path=file_path, language="python", symbols=symbols)
+    names = _pattern_names([pf])
+    assert "repository" not in names
+
+
+def test_repository_accepts_named_repo_with_two_methods() -> None:
+    """A class named *Repository with 2 CRUD methods SHOULD trigger."""
+    file_path = "repo.py"
+    symbols = [
+        _make_symbol("UserRepository", SymbolKind.CLASS, file_path, 1, 10),
+        _make_symbol("get", SymbolKind.METHOD, file_path, 2, 4, parent="UserRepository"),
+        _make_symbol("save", SymbolKind.METHOD, file_path, 5, 7, parent="UserRepository"),
+    ]
+    pf = ParsedFile(path=file_path, language="python", symbols=symbols)
+    names = _pattern_names([pf])
+    assert "repository" in names
+
+
+def test_event_bus_rejects_on_only_generic_class() -> None:
+    """A class with only 'on' method and generic name should NOT trigger event bus."""
+    file_path = "widget.py"
+    symbols = [
+        _make_symbol("ButtonWidget", SymbolKind.CLASS, file_path, 1, 10),
+        _make_symbol("on", SymbolKind.METHOD, file_path, 2, 4, parent="ButtonWidget"),
+    ]
+    pf = ParsedFile(path=file_path, language="python", symbols=symbols)
+    names = _pattern_names([pf])
+    assert "event_bus" not in names
+
+
+def test_event_bus_accepts_on_with_event_class_name() -> None:
+    """A class named *EventBus with only 'on' SHOULD still trigger."""
+    file_path = "events.py"
+    symbols = [
+        _make_symbol("CustomEventBus", SymbolKind.CLASS, file_path, 1, 10),
+        _make_symbol("on", SymbolKind.METHOD, file_path, 2, 4, parent="CustomEventBus"),
+    ]
+    pf = ParsedFile(path=file_path, language="python", symbols=symbols)
+    names = _pattern_names([pf])
+    assert "event_bus" in names
+
+
+def test_middleware_rejects_process_only_generic_class() -> None:
+    """A class with only 'process' and no chain-indicating name should NOT trigger middleware."""
+    file_path = "processor.py"
+    symbols = [
+        _make_symbol("DataProcessor", SymbolKind.CLASS, file_path, 1, 10),
+        _make_symbol("process", SymbolKind.METHOD, file_path, 2, 4, parent="DataProcessor"),
+    ]
+    pf = ParsedFile(path=file_path, language="python", symbols=symbols)
+    names = _pattern_names([pf])
+    assert "middleware_chain" not in names
+
+
+def test_middleware_accepts_process_with_handler_name() -> None:
+    """A class named *Handler with 'handle' SHOULD trigger middleware (chain participant)."""
+    file_path = "handlers.py"
+    symbols = [
+        _make_symbol("RequestHandler", SymbolKind.CLASS, file_path, 1, 10),
+        _make_symbol("handle", SymbolKind.METHOD, file_path, 2, 4, parent="RequestHandler"),
+    ]
+    pf = ParsedFile(path=file_path, language="python", symbols=symbols)
+    names = _pattern_names([pf])
+    assert "middleware_chain" in names
 
 
 # ---------------------------------------------------------------------------

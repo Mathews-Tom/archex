@@ -1,0 +1,49 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run benchmarks (self-referential tasks)
+        run: |
+          uv run archex benchmark run benchmarks/tasks/ \
+            --strategies bm25 \
+            --output benchmarks/results/latest.json \
+            --filter "archex_*"
+
+      - name: Quality gate
+        run: uv run archex benchmark gate benchmarks/results/latest.json
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          cp benchmarks/results/latest.json "benchmarks/results/${TIMESTAMP}.json"
+          git add benchmarks/results/
+          git diff --cached --quiet || git commit -m "benchmark: update results ${TIMESTAMP}"
+          git push

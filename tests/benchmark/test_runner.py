@@ -30,8 +30,8 @@ class TestAvailableStrategies:
         assert Strategy.RAW_FILES in AVAILABLE_STRATEGIES
         assert Strategy.RAW_GREPPED in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY in AVAILABLE_STRATEGIES
-        # Hybrid and symbol_lookup are not in the default set
-        assert Strategy.ARCHEX_QUERY_HYBRID not in AVAILABLE_STRATEGIES
+        # Hybrid is in the default set (skipped at runtime if deps missing)
+        assert Strategy.ARCHEX_QUERY_HYBRID in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_SYMBOL_LOOKUP not in AVAILABLE_STRATEGIES
 
 
@@ -140,12 +140,12 @@ class TestRunBenchmark:
         self,
         fixture_task: tuple[BenchmarkTask, Path],
     ) -> None:
-        """A strategy missing from STRATEGY_RUNNERS is logged and skipped."""
-        from archex.benchmark.strategies import STRATEGY_RUNNERS
+        """A strategy missing from the registry is logged and skipped."""
+        from archex.benchmark.strategies import default_strategy_registry
 
         task, repo_path = fixture_task
-        # Temporarily remove RAW_GREPPED from the dispatch dict
-        removed = STRATEGY_RUNNERS.pop(Strategy.RAW_GREPPED)
+        key = Strategy.RAW_GREPPED.value
+        removed = default_strategy_registry._runners.pop(key)  # pyright: ignore[reportPrivateUsage]
         try:
             report = run_benchmark(
                 task,
@@ -153,7 +153,7 @@ class TestRunBenchmark:
                 repo_path=repo_path,
             )
         finally:
-            STRATEGY_RUNNERS[Strategy.RAW_GREPPED] = removed
+            default_strategy_registry._runners[key] = removed  # pyright: ignore[reportPrivateUsage]
 
         # RAW_GREPPED was skipped; only RAW_FILES ran
         assert len(report.results) == 1
@@ -185,12 +185,12 @@ class TestCloneAtCommit:
 
         assert needs_cleanup is True
         assert path.exists()
-        # First call: git clone; second call: git checkout
-        assert len(calls) == 2
+        # Shallow clone with --branch succeeds (returncode=0), so only 1 call.
+        assert len(calls) == 1
         assert "clone" in calls[0]
         assert "https://github.com/owner/repo.git" in calls[0]
-        assert "checkout" in calls[1]
-        assert "abc123" in calls[1]
+        assert "--depth" in calls[0]
+        assert "abc123" in calls[0]
 
         # Cleanup
         import shutil

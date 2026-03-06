@@ -11,7 +11,8 @@ from pathlib import Path
 
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
-from archex.benchmark.strategies import STRATEGY_RUNNERS
+from archex.benchmark.strategies import default_strategy_registry
+from archex.exceptions import ArchexIndexError
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,42 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
     Strategy.RAW_FILES,
     Strategy.RAW_GREPPED,
     Strategy.ARCHEX_QUERY,
+    Strategy.ARCHEX_QUERY_HYBRID,
 ]
 
 
+def _check_hybrid_available() -> bool:
+    """Check if vector embedding dependencies are available (fastembed or sentence-transformers)."""
+    try:
+        import fastembed as _fe  # noqa: F401  # pyright: ignore[reportUnusedImport]
+
+        return True
+    except ImportError:
+        pass
+    try:
+        import sentence_transformers as _st  # noqa: F401  # pyright: ignore[reportUnusedImport]
+
+        return True
+    except ImportError:
+        return False
+
+
 def clone_at_commit(repo_slug: str, commit: str) -> tuple[Path, bool]:
-    """Clone a GitHub repo and checkout a specific commit. Returns (path, needs_cleanup)."""
+    """Clone a GitHub repo and checkout a specific commit/tag. Returns (path, needs_cleanup)."""
     url = f"https://github.com/{repo_slug}.git"
+    target = Path(tempfile.mkdtemp(prefix="archex-bench-"))
+
+    # Try shallow clone at ref (works for tags and branches, much faster)
+    result = subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", "--branch", commit, url, str(target)],
+        capture_output=True,
+        timeout=300,
+    )
+    if result.returncode == 0:
+        return target, True
+
+    # Fallback: full clone + checkout (needed for bare commit hashes)
+    shutil.rmtree(target, ignore_errors=True)
     target = Path(tempfile.mkdtemp(prefix="archex-bench-"))
     subprocess.run(
         ["git", "clone", "--quiet", url, str(target)],
@@ -50,6 +81,8 @@ def run_benchmark(
     """Run a benchmark task across strategies. Clones repo if repo_path not provided."""
     if strategies is None:
         strategies = list(AVAILABLE_STRATEGIES)
+        if not _check_hybrid_available():
+            strategies = [s for s in strategies if s != Strategy.ARCHEX_QUERY_HYBRID]
 
     needs_cleanup = False
     if repo_path is None:
@@ -61,7 +94,7 @@ def run_benchmark(
     try:
         results: list[BenchmarkResult] = []
         for strategy in strategies:
-            runner = STRATEGY_RUNNERS.get(strategy)
+            runner = default_strategy_registry.get(strategy)
             if runner is None:
                 logger.warning("No runner for strategy %s, skipping", strategy)
                 continue
@@ -73,7 +106,7 @@ def run_benchmark(
                     f"recall={result.recall:.2f}, {result.wall_time_ms:.0f}ms",
                     file=sys.stderr,
                 )
-            except NotImplementedError as exc:
+            except (NotImplementedError, ArchexIndexError) as exc:
                 logger.info("Skipping %s: %s", strategy.value, exc)
                 print(f"  [{strategy.value}] skipped: {exc}", file=sys.stderr)
 

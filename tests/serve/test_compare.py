@@ -526,3 +526,37 @@ class TestCompareCLIExtended:
             )
         assert result.exit_code == 0, result.output
         assert captured["dimensions"] == ["error_handling", "concurrency"]
+
+
+# ---------------------------------------------------------------------------
+# Additional edge case tests
+# ---------------------------------------------------------------------------
+
+
+class TestCompareEdgeCasesExtended:
+    def test_identical_profiles_show_comparable(self) -> None:
+        """Comparing identical profiles shows comparable in all dimensions."""
+        profile = _make_profile(patterns=[_error_pattern()])
+        result = compare_repos(profile, profile, dimensions=["error_handling"])
+        dim = result.dimensions[0]
+        assert any("comparable" in t for t in dim.trade_offs)
+
+    def test_validate_dimensions_invalid_raises(self) -> None:
+        """validate_dimensions raises ValueError for unknown dimension."""
+        from archex.serve.compare import validate_dimensions
+
+        with pytest.raises(ValueError, match="Unsupported dimensions"):
+            validate_dimensions(["nonexistent_dimension"])
+
+    def test_validate_dimensions_mixed_valid_invalid_raises(self) -> None:
+        """validate_dimensions raises even if some dimensions are valid."""
+        from archex.serve.compare import validate_dimensions
+
+        with pytest.raises(ValueError, match="Unsupported dimensions"):
+            validate_dimensions(["error_handling", "invalid_dim"])
+
+    def test_validate_dimensions_empty_passes(self) -> None:
+        """validate_dimensions with empty list does not raise."""
+        from archex.serve.compare import validate_dimensions
+
+        validate_dimensions([])  # should not raise
