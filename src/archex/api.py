@@ -40,6 +40,7 @@ from archex.models import (
     SymbolSource,
     Visibility,
 )
+from archex.observe import PipelineTrace, StepTiming
 from archex.parse import (
     TreeSitterEngine,
     build_file_map,
@@ -634,11 +635,15 @@ def query(
     scoring_weights: ScoringWeights | None = None,
     chunker: Chunker | None = None,
     timing: PipelineTiming | None = None,
+    trace: PipelineTrace | None = None,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
     Runs the full pipeline: acquire → parse → chunk → index → search → assemble.
     On cache hit, skips the full parse: loads chunks and graph from the cached store.
+
+    When trace is provided, records step-level timings (acquire, parse, index,
+    search, assemble) into the PipelineTrace for structured observability.
     """
     if config is None:
         config = Config()
@@ -647,6 +652,9 @@ def query(
     _bootstrap_plugins()
 
     t0 = time.perf_counter()
+    if trace is not None:
+        trace.operation = "query"
+        trace.start_ns = time.perf_counter_ns()
     cache = CacheManager(cache_dir=config.cache_dir)
     cache_key = cache.cache_key(source)
 
@@ -664,6 +672,8 @@ def query(
             try:
                 if timing is not None:
                     timing.cached = True
+                if trace is not None:
+                    trace.metadata["cache_hit"] = True
 
                 # Use persisted corpus stats — avoids full-chunk hydration
                 stored_tokens = store.get_metadata("repo_total_tokens")
@@ -682,10 +692,15 @@ def query(
                     pt = passthrough_context(cached_chunks, question, effective_budget)
                     if timing is not None:
                         timing.strategy = "passthrough"
+                    if trace is not None:
+                        trace.metadata["strategy"] = "passthrough"
                     pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
                     logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
                     if timing is not None:
                         timing.total_ms = _elapsed_ms(t0)
+                    if trace is not None:
+                        trace.end_ns = time.perf_counter_ns()
+                        trace.log_summary()
                     return pt
 
                 bm25 = BM25Index(store)
@@ -720,6 +735,20 @@ def query(
 
                 if timing is not None:
                     timing.search_ms = _elapsed_ms(t_search)
+                if trace is not None:
+                    trace.add_step(
+                        StepTiming(
+                            name="search",
+                            start_ns=int(t_search * 1_000_000_000),
+                            end_ns=time.perf_counter_ns(),
+                            metadata={
+                                "bm25_results": len(search_results),
+                                "path_boost": len(path_boost),
+                                "symbol_seeds": len(symbol_seeds),
+                                "top_k": top_k,
+                            },
+                        )
+                    )
                 # Hydrate all chunks for expansion — needed by assemble_context
                 all_chunks_cached = store.get_chunks()
                 bundle = assemble_context(
@@ -730,6 +759,7 @@ def query(
                     token_budget=effective_budget,
                     vector_results=vector_results,  # type: ignore[arg-type]
                     scoring_weights=scoring_weights,
+                    trace=trace,
                 )
                 if timing is not None:
                     timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
@@ -737,18 +767,32 @@ def query(
                 logger.info("query() [cached] completed in %.0fms", _elapsed_ms(t0))
                 if timing is not None:
                     timing.total_ms = _elapsed_ms(t0)
+                if trace is not None:
+                    trace.end_ns = time.perf_counter_ns()
+                    trace.log_summary()
                 return bundle
             finally:
                 store.close()
 
     # Cache miss — full pipeline
     logger.info("Cache miss — running full pipeline")
+    if trace is not None:
+        trace.metadata["cache_hit"] = False
+
     t1 = time.perf_counter()
     repo_path, _url, _local_path, cleanup, cloned_head = _acquire(source)
     acquire_ms = _elapsed_ms(t1)
     logger.info("Acquired repo in %.0fms", acquire_ms)
     if timing is not None:
         timing.acquire_ms = acquire_ms
+    if trace is not None:
+        trace.add_step(
+            StepTiming(
+                name="acquire",
+                start_ns=int(t1 * 1_000_000_000),
+                end_ns=time.perf_counter_ns(),
+            )
+        )
     try:
         t2 = time.perf_counter()
         files = discover_files(
@@ -769,6 +813,18 @@ def query(
         logger.info("Parsed %d files in %.0fms", len(parsed_files), parse_ms)
         if timing is not None:
             timing.parse_ms = parse_ms
+        if trace is not None:
+            trace.add_step(
+                StepTiming(
+                    name="parse",
+                    start_ns=int(t3 * 1_000_000_000),
+                    end_ns=time.perf_counter_ns(),
+                    metadata={
+                        "files_discovered": len(files),
+                        "files_parsed": len(parsed_files),
+                    },
+                )
+            )
 
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
@@ -797,6 +853,18 @@ def query(
             bm25.build(all_chunks)
             if timing is not None:
                 timing.index_ms = _elapsed_ms(t4)
+            if trace is not None:
+                trace.add_step(
+                    StepTiming(
+                        name="index",
+                        start_ns=int(t4 * 1_000_000_000),
+                        end_ns=time.perf_counter_ns(),
+                        metadata={
+                            "chunks": len(all_chunks),
+                            "edges": len(edges),
+                        },
+                    )
+                )
 
             top_k = _compute_top_k(len(all_chunks))
 
@@ -826,6 +894,10 @@ def query(
                 if timing is not None:
                     timing.strategy = "passthrough"
                     timing.total_ms = _elapsed_ms(t0)
+                if trace is not None:
+                    trace.metadata["strategy"] = "passthrough"
+                    trace.end_ns = time.perf_counter_ns()
+                    trace.log_summary()
                 pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
                 logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
                 return pt
@@ -857,6 +929,20 @@ def query(
 
             if timing is not None:
                 timing.search_ms = _elapsed_ms(t6)
+            if trace is not None:
+                trace.add_step(
+                    StepTiming(
+                        name="search",
+                        start_ns=int(t6 * 1_000_000_000),
+                        end_ns=time.perf_counter_ns(),
+                        metadata={
+                            "bm25_results": len(search_results),
+                            "path_boost": len(path_boost),
+                            "symbol_seeds": len(symbol_seeds_miss),
+                            "top_k": top_k,
+                        },
+                    )
+                )
             bundle = assemble_context(
                 search_results=search_results,
                 graph=graph,
@@ -865,6 +951,7 @@ def query(
                 token_budget=effective_budget,
                 vector_results=vector_results_miss,  # type: ignore[arg-type]
                 scoring_weights=scoring_weights,
+                trace=trace,
             )
             if timing is not None:
                 timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
@@ -876,6 +963,9 @@ def query(
         logger.info("query() completed in %.0fms", _elapsed_ms(t0))
         if timing is not None:
             timing.total_ms = _elapsed_ms(t0)
+        if trace is not None:
+            trace.end_ns = time.perf_counter_ns()
+            trace.log_summary()
         return bundle
     finally:
         cleanup()

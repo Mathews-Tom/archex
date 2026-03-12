@@ -16,6 +16,7 @@ from archex.models import (
     SymbolKind,
     TypeDefinition,
 )
+from archex.observe import PipelineTrace, StepTiming
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
@@ -232,12 +233,15 @@ def assemble_context(
     vector_results: list[tuple[CodeChunk, float]] | None = None,
     scoring_weights: ScoringWeights | None = None,
     modules: list[Module] | None = None,
+    trace: PipelineTrace | None = None,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
 
     When vector_results is provided, uses Reciprocal Rank Fusion to merge BM25 and
     vector results before scoring.
     When modules is provided, computes cohesion signal per chunk.
+    When trace is provided, records step-level timings for graph_expansion, scoring,
+    and assembly phases.
     """
     assembly_start = time.perf_counter()
     weights = scoring_weights or ScoringWeights()
@@ -266,6 +270,9 @@ def assemble_context(
     seed_files: set[str] = {chunk.file_path for chunk, _ in all_results}
 
     candidates_found = len(search_results)
+
+    # --- Graph expansion phase ---
+    _expansion_start = time.perf_counter_ns()
 
     # Expand: follow directed imports from seed files, prioritized by seed score.
     # imports_of(file) = files this file depends on (high relevance — same call chain)
@@ -345,6 +352,23 @@ def assemble_context(
             break
 
     candidates_after_expansion = len(candidate_map)
+
+    if trace is not None:
+        trace.add_step(
+            StepTiming(
+                name="graph_expansion",
+                start_ns=_expansion_start,
+                end_ns=time.perf_counter_ns(),
+                metadata={
+                    "seed_files": len(seed_files),
+                    "expansion_files_added": expansion_files_added,
+                    "candidates_after_expansion": candidates_after_expansion,
+                },
+            )
+        )
+
+    # --- Scoring phase ---
+    _scoring_start = time.perf_counter_ns()
 
     # Get structural centrality scores
     centrality = graph.structural_centrality()
@@ -466,6 +490,24 @@ def assemble_context(
     chunks_dropped = len(ranked) - len(included)
     truncated = chunks_dropped > 0
 
+    if trace is not None:
+        trace.add_step(
+            StepTiming(
+                name="scoring",
+                start_ns=_scoring_start,
+                end_ns=time.perf_counter_ns(),
+                metadata={
+                    "candidates_scored": candidates_after_expansion,
+                    "files_selected": len(top_files),
+                    "chunks_included": len(included),
+                    "chunks_dropped": chunks_dropped,
+                },
+            )
+        )
+
+    # --- Assembly phase ---
+    _assembly_start = time.perf_counter_ns()
+
     # Build StructuralContext
     included_files = sorted({rc.chunk.file_path for rc in included})
     file_tree = "\n".join(included_files)
@@ -495,6 +537,20 @@ def assemble_context(
                     content=rc.chunk.content,
                 )
             )
+
+    if trace is not None:
+        trace.add_step(
+            StepTiming(
+                name="assembly",
+                start_ns=_assembly_start,
+                end_ns=time.perf_counter_ns(),
+                metadata={
+                    "included_files": len(included_files),
+                    "type_definitions": len(type_defs),
+                    "total_tokens": total_tokens,
+                },
+            )
+        )
 
     assembly_ms = (time.perf_counter() - assembly_start) * 1000
 
