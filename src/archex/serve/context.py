@@ -32,7 +32,13 @@ MIN_SCORE_RATIO = 0.30
 
 MAX_EXPANSION_FILES = 10
 
-MAX_FILES = 8
+MAX_FILES = 10
+
+# Seeds below this fraction of max normalized seed score do not trigger expansion.
+SEED_EXPANSION_MIN = 0.20
+
+# Files below this fraction of the top file's aggregate score are excluded.
+FILE_SCORE_CUTOFF = 0.12
 
 
 def estimate_tokens(chunk: CodeChunk) -> int:
@@ -191,11 +197,18 @@ def assemble_context(
         effective = score * (0.6 if is_test else 1.0)
         seed_file_scores[fp] = max(seed_file_scores.get(fp, 0.0), effective)
 
+    # Normalize seed file scores to [0, 1] for expansion gating
+    max_seed_score = max(seed_file_scores.values()) if seed_file_scores else 1.0
+    norm_seed_scores = {fp: s / max_seed_score for fp, s in seed_file_scores.items()}
+
     # Extract query terms for path-aware import prioritization
     q_terms = _query_terms(question)
 
     expansion_priority: dict[str, float] = {}
     for file_path in seed_files:
+        # Only expand from seeds above the confidence threshold
+        if norm_seed_scores.get(file_path, 0.0) < SEED_EXPANSION_MIN:
+            continue
         seed_score = seed_file_scores.get(file_path, 0.0)
         # Direct imports get full seed score — they're in the same call chain
         for dep in graph.imports_of(file_path):
@@ -276,9 +289,12 @@ def assemble_context(
     # Candidate file set for cohesion computation
     candidate_files = {c.file_path for c in candidate_map.values()}
 
-    # Propagate BM25 relevance to import-expanded neighbors (directed)
+    # Propagate BM25 relevance to import-expanded neighbors (directed).
+    # Only propagate from seeds above the expansion confidence threshold.
     neighbor_boost: dict[str, float] = {}
     for file_path in seed_files:
+        if norm_seed_scores.get(file_path, 0.0) < SEED_EXPANSION_MIN:
+            continue
         seed_score = max(
             (bm25_by_id.get(c.id, 0.0) for c in candidate_map.values() if c.file_path == file_path),
             default=0.0,
@@ -338,12 +354,20 @@ def assemble_context(
 
     ranked.sort(key=lambda r: r.final_score, reverse=True)
 
-    # File-level cap: keep only top files by aggregated score
+    # File-level ranking: aggregate per-file scores, apply score-relative cutoff,
+    # then hard-cap at MAX_FILES to limit tail noise.
     file_agg: dict[str, float] = {}
     for rc in ranked:
         fp = rc.chunk.file_path
         file_agg[fp] = file_agg.get(fp, 0.0) + rc.final_score
-    top_files = {fp for fp, _ in sorted(file_agg.items(), key=lambda x: -x[1])[:MAX_FILES]}
+    sorted_files = sorted(file_agg.items(), key=lambda x: -x[1])
+    top_file_score = sorted_files[0][1] if sorted_files else 0.0
+    score_cutoff = top_file_score * FILE_SCORE_CUTOFF
+    top_files: set[str] = set()
+    for fp, score in sorted_files[:MAX_FILES]:
+        if score < score_cutoff:
+            break
+        top_files.add(fp)
     ranked = [rc for rc in ranked if rc.chunk.file_path in top_files]
 
     # Greedy bin-packing within token budget with score cutoff
