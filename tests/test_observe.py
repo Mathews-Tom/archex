@@ -1,5 +1,6 @@
 """Tests for the archex.observe observability module."""
 
+# pyright: reportIndexIssue=false, reportArgumentType=false
 from __future__ import annotations
 
 import json
