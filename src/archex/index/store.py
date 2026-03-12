@@ -403,6 +403,26 @@ class IndexStore:
         )
         return [_row_to_chunk(row) for row in cur.fetchall()]
 
+    def get_chunks_for_files(self, file_paths: list[str]) -> list[CodeChunk]:
+        """Fetch all chunks for multiple files in a single query."""
+        if not file_paths:
+            return []
+        placeholders = ",".join("?" for _ in file_paths)
+        cur = self._conn.execute(
+            f"{_CHUNK_SELECT} WHERE file_path IN ({placeholders})", file_paths
+        )
+        return [_row_to_chunk(row) for row in cur.fetchall()]
+
+    def get_chunk_count(self) -> int:
+        """Return total number of chunks in the store."""
+        row = self._conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
+        return int(row[0])
+
+    def get_file_count(self) -> int:
+        """Return number of distinct files in the store."""
+        row = self._conn.execute("SELECT COUNT(DISTINCT file_path) FROM chunks").fetchone()
+        return int(row[0])
+
     def get_edges(self) -> list[Edge]:
         cur = self._conn.execute("SELECT source, target, kind, location FROM edges")
         return [

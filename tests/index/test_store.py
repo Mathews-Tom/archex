@@ -419,6 +419,38 @@ def test_get_files_tokens_empty_list(store: IndexStore) -> None:
     assert store.get_files_tokens([]) == 0
 
 
+def test_get_chunks_for_files(store: IndexStore) -> None:
+    store.insert_chunks(SAMPLE_CHUNKS)
+    chunks = store.get_chunks_for_files(["utils.py", "auth.py"])
+    file_paths = {c.file_path for c in chunks}
+    assert file_paths == {"utils.py", "auth.py"}
+    assert len(chunks) >= 2
+
+
+def test_get_chunks_for_files_empty(store: IndexStore) -> None:
+    store.insert_chunks(SAMPLE_CHUNKS)
+    assert store.get_chunks_for_files([]) == []
+
+
+def test_get_chunk_count(store: IndexStore) -> None:
+    store.insert_chunks(SAMPLE_CHUNKS)
+    assert store.get_chunk_count() == len(SAMPLE_CHUNKS)
+
+
+def test_get_chunk_count_empty(store: IndexStore) -> None:
+    assert store.get_chunk_count() == 0
+
+
+def test_get_file_count(store: IndexStore) -> None:
+    store.insert_chunks(SAMPLE_CHUNKS)
+    unique_files = {c.file_path for c in SAMPLE_CHUNKS}
+    assert store.get_file_count() == len(unique_files)
+
+
+def test_get_file_count_empty(store: IndexStore) -> None:
+    assert store.get_file_count() == 0
+
+
 # ---------------------------------------------------------------------------
 # Batch delta operations
 # ---------------------------------------------------------------------------
