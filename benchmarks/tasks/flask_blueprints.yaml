@@ -1,0 +1,18 @@
+task_id: flask_blueprints
+repo: pallets/flask
+commit: "3.1.0"
+category: external-framework
+languages: [python]
+question: "How does Flask implement blueprints for modular applications?"
+expected_files:
+  - src/flask/sansio/blueprints.py
+  - src/flask/blueprints.py
+  - src/flask/app.py
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - blueprint
+  - register
+  - url_prefix
+  - deferred
+  - scaffold

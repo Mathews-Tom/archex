@@ -1,0 +1,21 @@
+task_id: archex_scoring
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex score and rank retrieval candidates?"
+expected_files:
+  - src/archex/serve/context.py
+  - src/archex/index/bm25.py
+  - src/archex/api.py
+expected_symbols:
+  - assemble_context
+  - BM25Index
+  - query
+token_budget: 8192
+keywords:
+  - score
+  - rank
+  - relevance
+  - weight
+  - candidates

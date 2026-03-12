@@ -1,0 +1,18 @@
+task_id: react_hooks
+repo: facebook/react
+commit: "v19.0.0"
+category: external-large
+languages: [javascript]
+question: "How does React implement the hooks state management system?"
+expected_files:
+  - packages/react-reconciler/src/ReactFiberHooks.js
+  - packages/react/src/ReactHooks.js
+  - packages/react-reconciler/src/ReactFiberWorkLoop.js
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - hook
+  - useState
+  - dispatcher
+  - fiber
+  - state

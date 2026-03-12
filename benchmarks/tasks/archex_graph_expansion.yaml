@@ -1,0 +1,21 @@
+task_id: archex_graph_expansion
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex expand search results using the dependency graph?"
+expected_files:
+  - src/archex/index/graph.py
+  - src/archex/serve/context.py
+  - src/archex/parse/imports.py
+expected_symbols:
+  - build_import_graph
+  - assemble_context
+  - build_file_map
+token_budget: 8192
+keywords:
+  - graph
+  - expand
+  - import
+  - dependency
+  - edges

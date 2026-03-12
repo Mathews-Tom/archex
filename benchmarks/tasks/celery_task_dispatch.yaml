@@ -1,0 +1,18 @@
+task_id: celery_task_dispatch
+repo: celery/celery
+commit: "v5.4.0"
+category: external-large
+languages: [python]
+question: "How does Celery dispatch and execute distributed tasks?"
+expected_files:
+  - celery/app/task.py
+  - celery/app/amqp.py
+  - celery/worker/strategy.py
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - task
+  - dispatch
+  - apply_async
+  - execute
+  - worker

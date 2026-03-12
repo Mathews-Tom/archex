@@ -1,0 +1,18 @@
+task_id: sqlalchemy_sessions
+repo: sqlalchemy/sqlalchemy
+commit: "rel_2_0_36"
+category: external-large
+languages: [python]
+question: "How does SQLAlchemy manage database sessions and unit of work?"
+expected_files:
+  - lib/sqlalchemy/orm/session.py
+  - lib/sqlalchemy/orm/unitofwork.py
+  - lib/sqlalchemy/orm/persistence.py
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - session
+  - unit_of_work
+  - flush
+  - identity_map
+  - transaction

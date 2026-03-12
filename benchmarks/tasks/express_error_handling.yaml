@@ -1,0 +1,18 @@
+task_id: express_error_handling
+repo: expressjs/express
+commit: "4.21.2"
+category: architecture-broad
+languages: [javascript]
+question: "How does express handle errors in the middleware chain?"
+expected_files:
+  - lib/router/layer.js
+  - lib/router/index.js
+  - lib/application.js
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - error
+  - middleware
+  - next
+  - handler
+  - stack

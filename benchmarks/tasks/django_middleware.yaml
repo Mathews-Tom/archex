@@ -1,0 +1,18 @@
+task_id: django_middleware
+repo: django/django
+commit: "5.1.4"
+category: architecture-broad
+languages: [python]
+question: "How does Django implement the middleware chain for request/response processing?"
+expected_files:
+  - django/core/handlers/base.py
+  - django/core/handlers/wsgi.py
+  - django/middleware/common.py
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - middleware
+  - chain
+  - request
+  - response
+  - handler
