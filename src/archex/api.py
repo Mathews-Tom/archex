@@ -649,12 +649,23 @@ def query(
             try:
                 if timing is not None:
                     timing.cached = True
-                cached_chunks = store.get_chunks()
-                total_repo_tokens = _total_chunk_tokens(cached_chunks)
+
+                # Use persisted corpus stats — avoids full-chunk hydration
+                stored_tokens = store.get_metadata("repo_total_tokens")
+                total_repo_tokens = (
+                    int(stored_tokens)
+                    if stored_tokens is not None
+                    else store.get_total_tokens()
+                )
+                stored_count = store.get_metadata("chunk_count")
+                chunk_count = (
+                    int(stored_count) if stored_count is not None else len(store.get_chunks())
+                )
                 effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget)
 
                 # Passthrough: entire repo fits within budget
                 if effective_budget >= total_repo_tokens:
+                    cached_chunks = store.get_chunks()
                     pt = passthrough_context(cached_chunks, question, effective_budget)
                     if timing is not None:
                         timing.strategy = "passthrough"
@@ -665,12 +676,10 @@ def query(
                     return pt
 
                 bm25 = BM25Index(store)
-                if cached_chunks:
-                    bm25.build(cached_chunks)
                 stored_edges = store.get_edges()
                 graph = DependencyGraph.from_edges(stored_edges)
 
-                top_k = _compute_top_k(len(cached_chunks))
+                top_k = _compute_top_k(chunk_count)
                 t_search = time.perf_counter()
                 search_results = bm25.search(question, top_k=top_k)
                 # Supplement with file-path keyword matches
@@ -698,10 +707,12 @@ def query(
 
                 if timing is not None:
                     timing.search_ms = _elapsed_ms(t_search)
+                # Hydrate all chunks for expansion — needed by assemble_context
+                all_chunks_cached = store.get_chunks()
                 bundle = assemble_context(
                     search_results=search_results,
                     graph=graph,
-                    all_chunks=cached_chunks,
+                    all_chunks=all_chunks_cached,
                     question=question,
                     token_budget=effective_budget,
                     vector_results=vector_results,  # type: ignore[arg-type]
@@ -775,6 +786,12 @@ def query(
                 timing.index_ms = _elapsed_ms(t4)
 
             top_k = _compute_top_k(len(all_chunks))
+
+            # Persist corpus stats for fast warm-query access
+            store.set_metadata("repo_total_tokens", str(total_repo_tokens))
+            store.set_metadata("chunk_count", str(len(all_chunks)))
+            file_count = len({c.file_path for c in all_chunks})
+            store.set_metadata("file_count", str(file_count))
 
             if config.cache:
                 commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""

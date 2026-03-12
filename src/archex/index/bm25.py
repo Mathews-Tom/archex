@@ -98,6 +98,12 @@ class BM25Index:
         store.conn.execute(_CREATE_FTS)
         store.conn.commit()
 
+    @property
+    def has_data(self) -> bool:
+        """Check if FTS table already has indexed rows (avoids rebuild on cache hit)."""
+        row = self._store.conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()
+        return bool(row and row[0] > 0)
+
     def build(self, chunks: list[CodeChunk]) -> None:
         from archex.index.chunker import expand_identifiers
 
