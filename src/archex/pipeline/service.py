@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from archex.acquire import discover_files
 from archex.exceptions import ParseError
-from archex.index.chunker import ASTChunker
 from archex.parse import (
     TreeSitterEngine,
     build_file_map,
@@ -17,11 +16,11 @@ from archex.parse import (
     parse_imports,
     resolve_imports,
 )
+from archex.pipeline.chunker import ASTChunker
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from archex.index.chunker import Chunker
     from archex.models import (
         CodeChunk,
         Config,
@@ -31,6 +30,7 @@ if TYPE_CHECKING:
         ParsedFile,
     )
     from archex.parse.adapters import LanguageAdapter
+    from archex.pipeline.chunker import Chunker
 
 
 @dataclass

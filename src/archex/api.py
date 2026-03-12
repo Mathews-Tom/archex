@@ -18,7 +18,6 @@ from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
 from archex.exceptions import DeltaIndexError
 from archex.index.bm25 import BM25Index
-from archex.index.chunker import ASTChunker, Chunker
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
 from archex.models import (
@@ -48,6 +47,7 @@ from archex.parse import (
     resolve_imports,
 )
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
+from archex.pipeline.chunker import ASTChunker, Chunker
 from archex.providers.base import get_provider
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
