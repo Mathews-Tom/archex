@@ -39,6 +39,9 @@ gantt
     section Enhancements
     Delta Indexing                       :done, e5, 2026-03-02, 1d
     Expanded Language Support            :done, e7, 2026-03-03, 2d
+
+    section Improvement Plan
+    8-Phase Retrieval Quality       :done, ip1, 2026-03-07, 6d
 ```
 
 | Phase                                    | Duration | Goal                                                                            | Key Deliverable                                          | Status      |
@@ -52,6 +55,7 @@ gantt
 | **6 — Harden, Optimize, Polish, Extend** | ~1 week  | Security hardening, performance optimization, code polish, extensibility APIs   | v0.3.0 — 538 tests, 84% coverage, plugin entry points    | ✅ Complete |
 | **7 — Refactor + Test Coverage**         | ~1 day   | Source simplification, error handling, adapter dedup, 90% test coverage         | v0.4.0 — 641 tests, 90% coverage, shared ts_node module  | ✅ Complete |
 | **Enhancements — Delta + Languages**     | ~3 days  | Delta indexing, Java/Kotlin/C#/Swift adapters, JVM helpers, pipeline service    | v0.5.0 — 1274 tests, 92% coverage, 8 language adapters   | ✅ Complete |
+| **8-Phase Improvement Plan**             | 6 days   | Benchmark-driven retrieval quality, observability, test coverage                | 25-task benchmark corpus, quality gates, 92% coverage     | ✅ Complete |
 
 ---
 

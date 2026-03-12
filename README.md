@@ -22,6 +22,12 @@ archex is a Python library and CLI that transforms any Git repository into struc
 - **Performance** — cache-first query (skips parse on cache hit), delta indexing, parallel parsing, parallel compare, git-aware cache keys; warm queries under 150ms
 - **Extensibility** — plugin APIs for language adapters, pattern detectors, chunkers, and scoring weights via entry points and protocols
 - **Security** — input validation on git URLs/branches, FTS5 query escaping, cache key validation, `allow_pickle=False` for vector persistence
+- **Pipeline observability** — opt-in `PipelineTrace` with step-level timing for retrieve, expand, score, assemble stages
+- **Unified artifact pipeline** — `produce_artifacts()` single entry point for parse, import-resolve, chunk, edge-build
+- **Query normalization** — camelCase/snake_case splitting, bigram compound generation, architecture-intent synonym expansion
+- **Quality gates** — CI-embeddable threshold checks for recall, precision, F1, MRR with latency warnings
+- **Expansion gating** — weak BM25 seeds (below 10% of max) don't trigger graph expansion; score-relative file cutoff removes noise
+- **25-task benchmark corpus** — 6 self-referential + 19 external repos across Python, Go, Rust, JS/TS, covering 5 difficulty categories
 - **LLM-optional** — entire structural pipeline runs without API calls; LLM enrichment is opt-in
 
 ## Installation
@@ -317,27 +323,68 @@ archex and an LSP MCP server can run as sibling tools, giving agents both struct
 
 #### Retrieval Quality
 
-`query()` retrieval quality measured against human-annotated expected files across 11 benchmark tasks (4 self-referential archex tasks + 7 external open-source repos). Token budget: 8,192. Strategy: BM25.
+`query()` retrieval quality measured against human-annotated expected files across 25 benchmark tasks (6 self-referential archex tasks + 19 external open-source repos). Token budget: 8,192. Strategy: BM25.
 
-| Task                         | Repository          | Language | Recall | Precision |    F1 |  MRR |
-| ---------------------------- | ------------------- | -------- | -----: | --------: | ----: | ---: |
-| httpx_pooling                | encode/httpx        | Python   |   1.00 |     0.231 | 0.375 | 1.00 |
-| mini_redis_async             | tokio-rs/mini-redis | Rust     |   1.00 |     0.176 | 0.300 | 1.00 |
-| click_decorators             | pallets/click       | Python   |   0.67 |     0.286 | 0.400 | 1.00 |
-| gin_routing                  | gin-gonic/gin       | Go       |   0.67 |     0.083 | 0.148 | 0.08 |
-| fastapi_dependency_injection | tiangolo/fastapi    | Python   |   0.33 |     0.143 | 0.200 | 1.00 |
-| express_middleware           | expressjs/express   | JS       |   0.33 |     0.056 | 0.095 | 0.08 |
-| pydantic_validators          | pydantic/pydantic   | Python   |   0.00 |     0.000 | 0.000 | 0.00 |
-| archex_adapter_registry      | . (self)            | Python   |   0.67 |     0.067 | 0.121 | 1.00 |
-| archex_delta_indexing        | . (self)            | Python   |   0.67 |     0.111 | 0.190 | 0.50 |
-| archex_pattern_detection     | . (self)            | Python   |   0.50 |     0.053 | 0.095 | 0.20 |
-| archex_query_pipeline        | . (self)            | Python   |   0.33 |     0.040 | 0.071 | 0.02 |
+**Perfect recall (1.00):**
 
-**Median recall: 0.67. Median MRR: 0.50. Median F1: 0.148.**
+| Task                    | Recall | Precision |    F1 |  MRR |
+| ----------------------- | -----: | --------: | ----: | ---: |
+| httpx_pooling           |   1.00 |      0.38 |  0.55 | 1.00 |
+| mini_redis_async        |   1.00 |      0.50 |  0.67 | 0.50 |
+| archex_pattern_detection|   1.00 |      0.25 |  0.40 | 1.00 |
+| gin_routing             |   1.00 |      0.50 |  0.67 | 1.00 |
+| go_gin_middleware        |   1.00 |      0.38 |  0.55 | 0.50 |
+| requests_sessions       |   1.00 |      0.43 |  0.60 | 1.00 |
+
+**High recall (0.67):**
+
+| Task                    | Recall | Precision |    F1 |  MRR |
+| ----------------------- | -----: | --------: | ----: | ---: |
+| archex_adapter_registry |   0.67 |      0.25 |  0.36 | 1.00 |
+| archex_graph_expansion  |   0.67 |      0.33 |  0.44 | 1.00 |
+| archex_scoring          |   0.67 |      0.25 |  0.36 | 1.00 |
+| click_decorators        |   0.67 |      0.29 |  0.40 | 1.00 |
+| express_error_handling  |   0.67 |      0.25 |  0.36 | 1.00 |
+| fastapi_routing         |   0.67 |      0.40 |  0.50 | 1.00 |
+| flask_blueprints        |   0.67 |      0.40 |  0.50 | 0.50 |
+| pydantic_validators     |   0.67 |      0.25 |  0.36 | 0.17 |
+
+**Moderate recall (0.33-0.50):**
+
+| Task                         | Recall | Precision |    F1 |  MRR |
+| ---------------------------- | -----: | --------: | ----: | ---: |
+| pytest_fixtures              |   0.50 |      0.14 |  0.22 | 1.00 |
+| archex_delta_indexing        |   0.33 |      0.12 |  0.18 | 1.00 |
+| celery_task_dispatch         |   0.33 |      0.14 |  0.20 | 0.25 |
+| django_middleware            |   0.33 |      0.17 |  0.22 | 1.00 |
+| express_middleware           |   0.33 |      0.12 |  0.18 | 0.25 |
+| fastapi_dependency_injection |   0.33 |      0.25 |  0.29 | 1.00 |
+| react_hooks                  |   0.33 |      0.12 |  0.18 | 0.14 |
+| rust_tokio_runtime           |   0.33 |      0.14 |  0.20 | 0.33 |
+| sqlalchemy_sessions          |   0.33 |      0.14 |  0.20 | 0.50 |
+| archex_query_pipeline        |   0.00 |      0.00 |  0.00 | 0.00 |
+
+**Zero recall:**
+
+| Task                         | Recall | Precision |    F1 |  MRR |
+| ---------------------------- | -----: | --------: | ----: | ---: |
+| django_orm_queries           |   0.00 |      0.00 |  0.00 | 0.00 |
+
+**Summary (BM25, 25 tasks): Mean Recall: 0.58, Mean F1: 0.34, Mean MRR: 0.69, Mean nDCG: 0.52, Mean MAP: 0.40. Avg token savings: 40.2%.**
+
+**By category:**
+
+| Category           | Tasks | Recall | Precision |   F1 |  MRR |
+| ------------------ | ----: | -----: | --------: | ---: | ---: |
+| external-framework |     9 |   0.80 |      0.36 | 0.50 | 0.80 |
+| architecture-broad |     3 |   0.67 |      0.26 | 0.38 | 0.83 |
+| self               |     6 |   0.56 |      0.20 | 0.29 | 0.83 |
+| framework-semantic |     2 |   0.33 |      0.19 | 0.23 | 0.62 |
+| external-large     |     5 |   0.27 |      0.11 | 0.16 | 0.25 |
 
 > **How to read this:** Recall measures what fraction of expected files appear in the context bundle. Precision measures what fraction of returned chunks are from expected files (low by design — archex includes dependency-expanded context beyond the strict expected set). MRR measures how early the first relevant file appears in the ranked results (1.0 = first position). Raw results in [`benchmarks/results/`](benchmarks/results/).
 >
-> **Honest assessment:** Recall is moderate — archex finds 2 of 3 expected files in the median case. MRR is strong for well-scoped queries (httpx, click, mini-redis, fastapi) but weak for broad queries (express, archex_query_pipeline) and large codebases with generic terminology (pydantic — 0% recall across 240+ files). Precision is structurally low because the 8K token budget packs dependency-expanded chunks beyond the strict expected set. BM25-only retrieval is the primary bottleneck; hybrid retrieval (BM25 + vector embeddings) is expected to improve recall on large repos where lexical matching alone cannot disambiguate.
+> **Honest assessment:** archex excels at mid-size framework repos (80% recall for external-framework tasks) where BM25 keyword matching aligns well with file content and query vocabulary. Self-referential tasks and architecture-broad queries also perform well (MRR 0.83). The primary weakness is very large codebases (django, react, sqlalchemy) where BM25 alone cannot disambiguate generic vocabulary across hundreds of files — external-large recall drops to 27%. Precision remains structurally low because the 8K token budget packs dependency-expanded chunks beyond the strict expected set.
 
 #### Token Efficiency
 
@@ -473,14 +520,17 @@ Manage the local analysis cache.
 
 Benchmark retrieval strategies against real repositories.
 
-| Subcommand | Description                                       |
-| ---------- | ------------------------------------------------- |
-| `run`      | Run benchmarks across strategies                  |
-| `report`   | Generate formatted reports from results           |
-| `delta`    | Delta indexing benchmarks (speedup + correctness) |
-| `baseline` | Manage baselines for regression detection         |
-| `gate`     | Check results against quality thresholds          |
-| `validate` | Validate benchmark task definitions               |
+| Subcommand         | Description                                      |
+| ------------------ | ------------------------------------------------ |
+| `run`              | Run benchmarks across strategies                 |
+| `report`           | Generate formatted reports from results          |
+| `gate`             | Check results against quality thresholds         |
+| `validate`         | Validate benchmark task definitions              |
+| `baseline save`    | Save current results as golden baseline          |
+| `baseline compare` | Compare current results against a saved baseline |
+| `delta run`        | Run delta indexing benchmarks                    |
+| `delta gate`       | Check delta results against thresholds           |
+| `delta report`     | Generate delta benchmark reports                 |
 
 ## Extensibility
 
@@ -513,7 +563,7 @@ Detector signature: `(list[ParsedFile], DependencyGraph) -> DetectedPattern | No
 Implement the `Chunker` protocol and pass it to `query()`:
 
 ```python
-from archex.index.chunker import Chunker
+from archex.pipeline.chunker import Chunker
 
 class MyChunker:
     def chunk_file(self, parsed_file, source): ...
@@ -584,7 +634,7 @@ git clone https://github.com/determ-ai/archex.git
 cd archex
 uv sync --all-extras
 
-# Run tests (1274 tests, 92% coverage)
+# Run tests (1541 tests, 92% coverage, 85% minimum enforced)
 uv run pytest
 
 # Lint and format

@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.6.0 (2026-03-12)
+
+### Retrieval Quality (8-Phase Improvement Plan)
+
+**Measurement Repair**
+- Deduplicate ranked files before computing MRR, nDCG, MAP in benchmark strategies
+- Add benchmark fields: seed_files, expanded_files, unique_ranked_files, expansion_ratio, seed_precision, seed_recall
+- Persist PipelineTiming breakdowns in benchmark results
+- Split benchmark summaries by category bucket (self, external-framework, external-large, architecture-broad, framework-semantic)
+
+**Cache & Performance**
+- Read-only warm-cache queries: skip FTS rebuild on cache hit
+- Remote HEAD resolution via `git ls-remote` for URL sources
+- Structured JSON cache metadata with backward-compatible parsing
+
+**Retrieval Precision**
+- Expansion gating: seeds below 10% of max BM25 score don't trigger graph expansion
+- Score-relative file cutoff (FILE_SCORE_CUTOFF=0.15): files below 15% of top file excluded
+- MAX_EXPANSION_FILES reduced from 10 to 5
+
+**Retrieval Recall**
+- Query normalization: camelCase/snake_case splitting, bigram compound generation
+- Architecture-intent synonym expansion (8 keyword categories)
+- Symbol exact-match boost raised to 0.60x (from 0.15x for partial matches)
+
+**Quality Gates & Benchmark Expansion**
+- Quality gate with configurable thresholds: recall>=0.60, precision>=0.20, F1>=0.30, MRR>=0.55
+- Latency warning system (warn_latency_ms=5000.0)
+- Benchmark corpus expanded from 11 to 25 tasks across 5 difficulty categories
+- Parallel CI benchmark jobs (BM25 and hybrid strategies)
+
+### Unified Artifact Pipeline
+- Chunker moved from `index/` to `pipeline/` as canonical location (backward-compat shim at old path)
+- `produce_artifacts()` unified entry point: parse -> import-resolve -> chunk -> edge-build
+- `ArtifactBundle` dataclass for typed pipeline output
+
+### Observability
+- `observe.py` stdlib-only module: `PipelineTrace`, `StepTiming`, `TraceCollector`
+- `traced_step` / `traced_operation` context managers for timing pipeline steps
+- Instrumented `api.query()` and `serve.context.assemble_context()` with step-level tracing
+- Service role documentation in `api.py` (6 roles: acquisition, parsing, indexing, retrieval, analysis, observability)
+
+### Test Coverage
+- 85% coverage threshold enforced in pytest configuration
+- Coverage: 90% -> 92.52% with 29 new tests
+- BM25 graduated fallback stages 2-4 now covered
+- Full query -> assemble_context -> render pipeline integration tests
+- Pipeline service parse + chunk fully covered
+
+### Stats
+- 1541 tests, 92% coverage (85% minimum enforced)
+- 25 benchmark tasks across Python, Go, Rust, JS/TS
+- BM25 mean recall: 0.58, mean MRR: 0.69 (across 25 tasks)
+
 ## 0.5.0 (2026-03-04)
 
 ### Delta Indexing
