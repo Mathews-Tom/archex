@@ -24,4 +24,4 @@ class ArtifactBundle:
     resolved_imports: dict[str, list[ImportStatement]]
     chunks: list[CodeChunk]
     edges: list[Edge]
-    sources: dict[str, bytes] = field(default_factory=dict, repr=False)
+    sources: dict[str, bytes] = field(default_factory=lambda: {}, repr=False)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from archex.models import Config, EdgeKind, IndexConfig
-from archex.parse.adapters import default_adapter_registry
+from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.models import ArtifactBundle
 from archex.pipeline.service import (
     ParseArtifacts,
@@ -18,7 +18,7 @@ FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 PYTHON_SIMPLE = FIXTURES_DIR / "python_simple"
 
 
-def _adapters() -> dict[str, object]:
+def _adapters() -> dict[str, LanguageAdapter]:
     return default_adapter_registry.build_all()
 
 
