@@ -445,6 +445,10 @@ def _file_path_boost(
     return boosted
 
 
+_SYMBOL_EXACT_BOOST = 0.60
+_SYMBOL_PARTIAL_BOOST = 0.15
+
+
 def _symbol_search_seeds(
     store: IndexStore,
     question: str,
@@ -453,13 +457,15 @@ def _symbol_search_seeds(
 ) -> list[tuple[CodeChunk, float]]:
     """Find chunks by matching query terms against symbol names via FTS5.
 
-    Symbol matches are high-confidence seeds — they represent exact structural
-    hits (like an LSP "go to definition"). Only keeps results where the
-    symbol_name or qualified_name actually contains the search term (ignoring
-    file_path-only matches which are noise).
+    Differentiates between two confidence levels:
+    - Exact symbol_name match (case-insensitive equality): high-confidence seed,
+      boosted at 0.60× max BM25.  Handles queries like "dependency injection"
+      finding symbols literally named "depend" or "inject".
+    - Partial / qualified-name match: low-confidence seed, boosted at 0.15×
+      max BM25.  Gets the file into seed_files for import expansion without
+      competing directly for top file slots.
 
-    Boost score is 1.2× max BM25 so symbol-matched chunks rank above pure
-    keyword hits.
+    File_path-only matches from FTS5 are discarded as noise.
     """
     import re
 
@@ -475,10 +481,6 @@ def _symbol_search_seeds(
 
     seen: set[str] = set()
     seeds: list[tuple[CodeChunk, float]] = []
-    # Low boost — just enough to become a seed file for import expansion.
-    # The real value is getting their files into seed_files, not competing
-    # for top file slots directly.
-    boost_score = max_bm25_score * 0.15
 
     for term in terms:
         chunks = store.search_symbols(term, limit=20)
@@ -489,9 +491,12 @@ def _symbol_search_seeds(
             qname_lower = (chunk.qualified_name or "").lower()
             if term not in name_lower and term not in qname_lower:
                 continue
+            # Exact symbol_name equality → high-confidence seed
+            exact_match = name_lower == term
+            score = max_bm25_score * (_SYMBOL_EXACT_BOOST if exact_match else _SYMBOL_PARTIAL_BOOST)
             if chunk.id not in seen:
                 seen.add(chunk.id)
-                seeds.append((chunk, boost_score))
+                seeds.append((chunk, score))
             if len(seeds) >= max_symbol_chunks:
                 return seeds
 
