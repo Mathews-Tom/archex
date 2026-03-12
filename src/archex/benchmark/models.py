@@ -17,6 +17,14 @@ class Strategy(StrEnum):
     ARCHEX_SYMBOL_LOOKUP = "archex_symbol_lookup"
 
 
+class TaskCategory(StrEnum):
+    SELF = "self"
+    EXTERNAL_FRAMEWORK = "external-framework"
+    EXTERNAL_LARGE = "external-large"
+    ARCHITECTURE_BROAD = "architecture-broad"
+    FRAMEWORK_SEMANTIC = "framework-semantic"
+
+
 class BenchmarkTask(BaseModel):
     task_id: str
     repo: str
@@ -27,6 +35,7 @@ class BenchmarkTask(BaseModel):
     token_budget: int = 8192
     keywords: list[str] = []
     languages: list[str] | None = None
+    category: TaskCategory | None = None
 
 
 class BenchmarkResult(BaseModel):
@@ -51,6 +60,14 @@ class BenchmarkResult(BaseModel):
     cached: bool
     timing: PipelineTiming | None = None
     timestamp: str
+    # Seed vs expansion diagnostics
+    unique_ranked_files: int = 0
+    seed_files: list[str] = []
+    expanded_files: list[str] = []
+    expansion_ratio: float = 0.0
+    seed_recall: float = 0.0
+    seed_precision: float = 0.0
+    category: TaskCategory | None = None
 
 
 class BenchmarkReport(BaseModel):

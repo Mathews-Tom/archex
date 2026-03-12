@@ -347,23 +347,111 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
 
-def _archex_token_fields(
+class _ArchexFields:
+    """Aggregated fields extracted from a ContextBundle for benchmark results."""
+
+    __slots__ = (
+        "tokens_input",
+        "tokens_output",
+        "token_efficiency",
+        "tokens_raw_baseline",
+        "symbol_recall",
+        "unique_ranked_files",
+        "seed_files",
+        "expanded_files",
+        "expansion_ratio",
+        "seed_recall",
+        "seed_precision",
+    )
+
+    def __init__(
+        self,
+        *,
+        tokens_input: int,
+        tokens_output: int,
+        token_efficiency: float,
+        tokens_raw_baseline: int,
+        symbol_recall: float,
+        unique_ranked_files: int,
+        seed_files: list[str],
+        expanded_files: list[str],
+        expansion_ratio: float,
+        seed_recall: float,
+        seed_precision: float,
+    ) -> None:
+        self.tokens_input = tokens_input
+        self.tokens_output = tokens_output
+        self.token_efficiency = token_efficiency
+        self.tokens_raw_baseline = tokens_raw_baseline
+        self.symbol_recall = symbol_recall
+        self.unique_ranked_files = unique_ranked_files
+        self.seed_files = seed_files
+        self.expanded_files = expanded_files
+        self.expansion_ratio = expansion_ratio
+        self.seed_recall = seed_recall
+        self.seed_precision = seed_precision
+
+
+def _archex_fields(
     bundle: object,
     task: BenchmarkTask,
     repo_path: Path,
-) -> tuple[int, int, float, int, float]:
-    """Compute token efficiency fields from a ContextBundle and task."""
+) -> _ArchexFields:
+    """Compute token efficiency and seed/expansion diagnostic fields."""
     from archex.models import ContextBundle
 
     assert isinstance(bundle, ContextBundle)
-    unique_files = list({c.chunk.file_path for c in bundle.chunks})
+    unique_files = _deduplicate_ranked(
+        [c.chunk.file_path for c in bundle.chunks]
+    )
     tokens_input = count_file_tokens(repo_path, unique_files)
     tokens_output = bundle.token_count
     token_efficiency = tokens_output / tokens_input if tokens_input > 0 else 0.0
     tokens_raw_baseline = count_file_tokens(repo_path, task.expected_files)
     result_symbols = {c.chunk.symbol_name for c in bundle.chunks if c.chunk.symbol_name}
     symbol_recall = compute_symbol_recall(result_symbols, task.expected_symbols)
-    return tokens_input, tokens_output, token_efficiency, tokens_raw_baseline, symbol_recall
+
+    # Seed vs expansion: candidates_found is the BM25 seed count,
+    # candidates_after_expansion includes graph-expanded chunks.
+    meta = bundle.retrieval_metadata
+    seed_count = meta.candidates_found
+
+    # Build seed file list from first `seed_count` unique chunk file paths
+    all_chunk_files = [c.chunk.file_path for c in bundle.chunks]
+    seen: set[str] = set()
+    seed_files: list[str] = []
+    expanded_files: list[str] = []
+    # Chunks are ordered by score; first seed_count entries in candidate_map
+    # correspond to BM25 seeds. We use unique_files order as proxy.
+    seed_file_set: set[str] = set()
+    for fp in all_chunk_files:
+        if fp not in seen:
+            seen.add(fp)
+            if len(seed_file_set) < seed_count:
+                seed_files.append(fp)
+                seed_file_set.add(fp)
+            else:
+                expanded_files.append(fp)
+
+    expansion_ratio = (
+        len(expanded_files) / len(seed_files) if seed_files else 0.0
+    )
+    seed_recall_val = compute_recall(set(seed_files), task.expected_files)
+    seed_precision_val = compute_precision(set(seed_files), task.expected_files)
+
+    return _ArchexFields(
+        tokens_input=tokens_input,
+        tokens_output=tokens_output,
+        token_efficiency=token_efficiency,
+        tokens_raw_baseline=tokens_raw_baseline,
+        symbol_recall=symbol_recall,
+        unique_ranked_files=len(unique_files),
+        seed_files=seed_files,
+        expanded_files=expanded_files,
+        expansion_ratio=expansion_ratio,
+        seed_recall=seed_recall_val,
+        seed_precision=seed_precision_val,
+    )
 
 
 def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
@@ -386,8 +474,8 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         timing=timing,
     )
 
-    result_files = {c.chunk.file_path for c in bundle.chunks}
     ranked_files = [c.chunk.file_path for c in bundle.chunks]
+    result_files = set(_deduplicate_ranked(ranked_files))
     wall_ms = (time.perf_counter() - t0) * 1000
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
@@ -395,19 +483,17 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     mrr_val = compute_mrr(ranked_files, task.expected_files)
     ndcg_val = compute_ndcg(ranked_files, task.expected_files)
     map_val = compute_map(ranked_files, task.expected_files)
-    tokens_input, tokens_output, token_efficiency, tokens_raw_baseline, sym_recall = (
-        _archex_token_fields(bundle, task, repo_path)
-    )
+    af = _archex_fields(bundle, task, repo_path)
 
     return BenchmarkResult(
         task_id=task.task_id,
         strategy=Strategy.ARCHEX_QUERY,
         tokens_total=bundle.token_count,
-        tokens_input=tokens_input,
-        tokens_output=tokens_output,
-        token_efficiency=token_efficiency,
-        tokens_raw_baseline=tokens_raw_baseline,
-        symbol_recall=sym_recall,
+        tokens_input=af.tokens_input,
+        tokens_output=af.tokens_output,
+        token_efficiency=af.token_efficiency,
+        tokens_raw_baseline=af.tokens_raw_baseline,
+        symbol_recall=af.symbol_recall,
         tool_calls=1,
         files_accessed=len(result_files),
         recall=recall,
@@ -421,6 +507,13 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         cached=timing.cached,
         timing=timing,
         timestamp=now_iso(),
+        unique_ranked_files=af.unique_ranked_files,
+        seed_files=af.seed_files,
+        expanded_files=af.expanded_files,
+        expansion_ratio=af.expansion_ratio,
+        seed_recall=af.seed_recall,
+        seed_precision=af.seed_precision,
+        category=task.category,
     )
 
 
@@ -444,8 +537,8 @@ def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         timing=timing,
     )
 
-    result_files = {c.chunk.file_path for c in bundle.chunks}
     ranked_files = [c.chunk.file_path for c in bundle.chunks]
+    result_files = set(_deduplicate_ranked(ranked_files))
     wall_ms = (time.perf_counter() - t0) * 1000
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
@@ -453,19 +546,17 @@ def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     mrr_val = compute_mrr(ranked_files, task.expected_files)
     ndcg_val = compute_ndcg(ranked_files, task.expected_files)
     map_val = compute_map(ranked_files, task.expected_files)
-    tokens_input, tokens_output, token_efficiency, tokens_raw_baseline, sym_recall = (
-        _archex_token_fields(bundle, task, repo_path)
-    )
+    af = _archex_fields(bundle, task, repo_path)
 
     return BenchmarkResult(
         task_id=task.task_id,
         strategy=Strategy.ARCHEX_QUERY_HYBRID,
         tokens_total=bundle.token_count,
-        tokens_input=tokens_input,
-        tokens_output=tokens_output,
-        token_efficiency=token_efficiency,
-        tokens_raw_baseline=tokens_raw_baseline,
-        symbol_recall=sym_recall,
+        tokens_input=af.tokens_input,
+        tokens_output=af.tokens_output,
+        token_efficiency=af.token_efficiency,
+        tokens_raw_baseline=af.tokens_raw_baseline,
+        symbol_recall=af.symbol_recall,
         tool_calls=1,
         files_accessed=len(result_files),
         recall=recall,
@@ -479,6 +570,13 @@ def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         cached=timing.cached,
         timing=timing,
         timestamp=now_iso(),
+        unique_ranked_files=af.unique_ranked_files,
+        seed_files=af.seed_files,
+        expanded_files=af.expanded_files,
+        expansion_ratio=af.expansion_ratio,
+        seed_recall=af.seed_recall,
+        seed_precision=af.seed_precision,
+        category=task.category,
     )
 
 
