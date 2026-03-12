@@ -30,15 +30,15 @@ IMPORTER_DECAY = 0.20
 
 MIN_SCORE_RATIO = 0.30
 
-MAX_EXPANSION_FILES = 10
+MAX_EXPANSION_FILES = 5
 
-MAX_FILES = 10
+MAX_FILES = 8
 
 # Seeds below this fraction of max normalized seed score do not trigger expansion.
-SEED_EXPANSION_MIN = 0.20
+SEED_EXPANSION_MIN = 0.10
 
 # Files below this fraction of the top file's aggregate score are excluded.
-FILE_SCORE_CUTOFF = 0.12
+FILE_SCORE_CUTOFF = 0.15
 
 
 def estimate_tokens(chunk: CodeChunk) -> int:
