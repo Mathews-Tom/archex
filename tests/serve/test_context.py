@@ -504,3 +504,81 @@ def test_high_relevance_low_centrality_beats_low_relevance_high_centrality() -> 
     bundle = assemble_context(results, graph, all_chunks, "q", token_budget=1000)
     scores = {rc.chunk.file_path: rc.final_score for rc in bundle.chunks}
     assert scores.get("leaf.py", 0) > scores.get("hub.py", 0)
+
+
+# ---------------------------------------------------------------------------
+# Vector-seed retrieval tests
+# ---------------------------------------------------------------------------
+
+
+def test_vector_only_seed_surfaces_via_assemble_context() -> None:
+    """BM25 returns file A, vector returns file B; both appear in the bundle.
+
+    This verifies that vector_results are merged as independent seeds into
+    assemble_context and that graph expansion from vector seeds works correctly.
+    File A imports B — so B must appear at minimum via graph expansion when A
+    is a BM25 seed.  With vector_results supplying B directly, B also acts as
+    its own seed regardless of graph structure.
+    """
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    graph.add_file_node("b.py")
+    graph.add_file_node("c.py")
+    # a.py → b.py (import edge); b.py → c.py
+    graph.add_file_edge("a.py", "b.py", kind="imports")
+    graph.add_file_edge("b.py", "c.py", kind="imports")
+
+    chunk_a = make_chunk("ca", "a.py", token_count=10)
+    chunk_b = make_chunk("cb", "b.py", token_count=10)
+    chunk_c = make_chunk("cc", "c.py", token_count=10)
+
+    # BM25 only knows about a.py; vector only knows about b.py
+    bm25_results = [(chunk_a, 5.0)]
+    vec_results = [(chunk_b, 0.8)]
+    all_chunks = [chunk_a, chunk_b, chunk_c]
+
+    bundle = assemble_context(
+        search_results=bm25_results,
+        graph=graph,
+        all_chunks=all_chunks,
+        question="how does a import b?",
+        token_budget=1000,
+        vector_results=vec_results,
+    )
+
+    included = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "a.py" in included, "BM25 seed a.py must be in bundle"
+    assert "b.py" in included, "vector seed b.py must be in bundle"
+    # c.py reachable via graph expansion from b.py seed
+    assert "c.py" in included, "graph expansion from b.py seed must include c.py"
+
+
+def test_vector_only_recovery_when_bm25_empty() -> None:
+    """When BM25 returns nothing, vector results alone seed the bundle.
+
+    This is the critical edge case for external-large repos where BM25 produces
+    zero results but the vector index can still locate the relevant file.
+    """
+    graph = DependencyGraph()
+    graph.add_file_node("needle.py")
+    graph.add_file_node("other.py")
+    # No edge between them — other.py must not appear via expansion
+
+    chunk_needle = make_chunk("c_needle", "needle.py", token_count=10)
+    chunk_other = make_chunk("c_other", "other.py", token_count=10)
+
+    vec_results = [(chunk_needle, 0.9)]
+
+    bundle = assemble_context(
+        search_results=[],
+        graph=graph,
+        all_chunks=[chunk_needle, chunk_other],
+        question="find the needle",
+        token_budget=1000,
+        vector_results=vec_results,
+    )
+
+    assert len(bundle.chunks) > 0, "bundle must be non-empty when vector results exist"
+    included = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "needle.py" in included, "vector-only seed needle.py must appear in bundle"
+    assert "other.py" not in included, "isolated other.py must not appear"

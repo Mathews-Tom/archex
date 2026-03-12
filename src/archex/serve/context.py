@@ -283,6 +283,14 @@ def assemble_context(
         is_test = fp.startswith("test") or "/test" in fp
         effective = score * (0.6 if is_test else 1.0)
         seed_file_scores[fp] = max(seed_file_scores.get(fp, 0.0), effective)
+    # Include vector-only seeds so they can gate expansion independently of BM25.
+    if vector_results:
+        for chunk, score in vector_results:
+            fp = chunk.file_path
+            if fp not in seed_file_scores:
+                is_test = fp.startswith("test") or "/test" in fp
+                effective = score * (0.6 if is_test else 1.0)
+                seed_file_scores[fp] = effective
 
     # Normalize seed file scores to [0, 1] for expansion gating
     max_seed_score = max(seed_file_scores.values()) if seed_file_scores else 1.0
@@ -335,6 +343,12 @@ def assemble_context(
     candidate_map: dict[str, CodeChunk] = {}
     for chunk, _ in search_results:
         candidate_map[chunk.id] = chunk
+    # Vector-only seeds: add their chunks so they participate in scoring even when
+    # BM25 returned nothing for that file.
+    if vector_results:
+        for chunk, _ in vector_results:
+            if chunk.id not in candidate_map:
+                candidate_map[chunk.id] = chunk
     expansion_files_added = 0
     for file_path in sorted_expansion:
         if file_path.startswith("test") or "/test" in file_path:

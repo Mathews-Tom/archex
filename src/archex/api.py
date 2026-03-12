@@ -558,6 +558,65 @@ def _symbol_search_seeds(
     return seeds
 
 
+def _bm25_search_with_boosts(
+    bm25: BM25Index,
+    store: IndexStore,
+    question: str,
+    top_k: int,
+) -> tuple[
+    list[tuple[CodeChunk, float]],
+    list[tuple[CodeChunk, float]],
+    list[tuple[CodeChunk, float]],
+]:
+    """Run BM25 search plus file-path and symbol-seed boosts.
+
+    Returns (search_results, path_boost, symbol_seeds) as separate lists so
+    callers can record individual counts for observability, then combine them.
+    """
+    results = bm25.search(question, top_k=top_k)
+    bm25_ids = {c.id for c, _ in results}
+    max_bm25 = max((s for _, s in results), default=1.0)
+    path_boost = _file_path_boost(store, question, bm25_ids, max_bm25_score=max_bm25)
+    all_existing = bm25_ids | {c.id for c, _ in path_boost}
+    symbol_seeds = [
+        (c, s)
+        for c, s in _symbol_search_seeds(store, question, max_bm25_score=max_bm25)
+        if c.id not in all_existing
+    ]
+    return results, path_boost, symbol_seeds
+
+
+def _vector_search_precomputed(
+    npz_path: Path,
+    all_chunks: list[CodeChunk],
+    question: str,
+    index_config: IndexConfig,
+    top_k: int,
+) -> list[tuple[CodeChunk, float]] | None:
+    """Run independent vector search against a pre-computed .npz index.
+
+    Returns None when vector is disabled, the embedder is unavailable, or the
+    .npz file does not exist.
+    """
+    if not index_config.vector:
+        return None
+    if not npz_path.exists():
+        return None
+    embedder = _get_embedder(index_config)
+    if embedder is None:
+        return None
+    from archex.index.vector import VectorIndex
+
+    vec_idx = VectorIndex()
+    vec_idx.load(
+        npz_path,
+        all_chunks,
+        embedder_name=index_config.embedder or "",
+        vector_dim=embedder.dimension,
+    )
+    return vec_idx.search(question, embedder, top_k=top_k)
+
+
 def _compute_dynamic_budget(total_repo_tokens: int, user_budget: int) -> int:
     """Scale token budget proportional to repo size.
 
@@ -772,55 +831,50 @@ def query(
                 graph = DependencyGraph.from_edges(stored_edges)
 
                 top_k = _compute_top_k(chunk_count)
+                # Pre-load all chunks into memory before parallel search so the
+                # vector thread has no dependency on the SQLite store connection.
+                all_chunks_cached = store.get_chunks()
+
                 t_search = time.perf_counter()
-                search_results = bm25.search(question, top_k=top_k)
-                # Supplement with file-path keyword matches
-                bm25_ids = {c.id for c, _ in search_results}
-                max_bm25 = max((s for _, s in search_results), default=1.0)
-                path_boost = _file_path_boost(store, question, bm25_ids, max_bm25_score=max_bm25)
-                # Symbol seeds: add matched files as expansion seeds (low boost)
-                all_existing = bm25_ids | {c.id for c, _ in path_boost}
-                symbol_seeds = [
-                    (c, s)
-                    for c, s in _symbol_search_seeds(store, question, max_bm25_score=max_bm25)
-                    if c.id not in all_existing
-                ]
-                search_results = search_results + path_boost + symbol_seeds
+                cached_npz = cache.vector_path(cache_key)
+                # Run vector search in a background thread while BM25 runs on the
+                # calling thread.  BM25 must stay on the creating thread because
+                # SQLite connections are not thread-safe; the vector path uses only
+                # pre-loaded numpy arrays and requires no store access.
+                with ThreadPoolExecutor(max_workers=1) as _pool:
+                    _vec_future = _pool.submit(
+                        _vector_search_precomputed,
+                        cached_npz,
+                        all_chunks_cached,
+                        question,
+                        index_config,
+                        top_k,
+                    )
+                    _bm25_raw, path_boost, symbol_seeds = _bm25_search_with_boosts(
+                        bm25, store, question, top_k
+                    )
+                    vector_results: list[tuple[CodeChunk, float]] | None = _vec_future.result()
 
-                # Two-stage: use pre-computed vector index or fall back to rerank
-                vector_results: list[tuple[CodeChunk, float]] | None = None
-                if index_config.vector:
-                    cached_npz = cache.vector_path(cache_key)
-                    if cached_npz.exists():
-                        embedder = _get_embedder(index_config)
-                        if embedder is not None:
-                            from archex.index.vector import VectorIndex
+                search_results = _bm25_raw + path_boost + symbol_seeds
 
-                            t_vec_cached = time.perf_counter()
-                            cached_chunks = store.get_chunks()
-                            vec_idx_cached = VectorIndex()
-                            vec_idx_cached.load(
-                                cached_npz,
-                                cached_chunks,
-                                embedder_name=index_config.embedder or "",
-                                vector_dim=embedder.dimension,
-                            )
-                            vector_results = vec_idx_cached.search(question, embedder, top_k=top_k)
-                            if timing is not None:
-                                timing.vector_used = True
-                                timing.vector_build_ms = _elapsed_ms(t_vec_cached)
-                            logger.info(
-                                "Vector search (pre-computed cached, %d chunks) in %.0fms",
-                                vec_idx_cached.size,
-                                _elapsed_ms(t_vec_cached),
-                            )
-                    else:
-                        vector_results = _two_stage_rerank(
-                            question,
-                            search_results,
-                            index_config,
-                            timing,
-                        )
+                # Fall back to rerank when pre-computed .npz is absent
+                if vector_results is None and index_config.vector:
+                    vector_results = _two_stage_rerank(
+                        question,
+                        search_results,
+                        index_config,
+                        timing,
+                    )
+
+                t_vec_cached = t_search  # timing reference for logging below
+                if vector_results is not None and timing is not None:
+                    timing.vector_used = True
+                    timing.vector_build_ms = _elapsed_ms(t_vec_cached)
+                if vector_results is not None:
+                    logger.info(
+                        "Vector search (pre-computed cached, parallel) in %.0fms",
+                        _elapsed_ms(t_search),
+                    )
 
                 if timing is not None:
                     timing.search_ms = _elapsed_ms(t_search)
@@ -838,8 +892,6 @@ def query(
                             },
                         )
                     )
-                # Hydrate all chunks for expansion — needed by assemble_context
-                all_chunks_cached = store.get_chunks()
                 bundle = assemble_context(
                     search_results=search_results,
                     graph=graph,
@@ -1021,52 +1073,48 @@ def query(
                 return pt
 
             t6 = time.perf_counter()
-            search_results = bm25.search(question, top_k=top_k)
-            # Supplement with file-path keyword matches
-            bm25_ids = {c.id for c, _ in search_results}
-            max_bm25 = max((s for _, s in search_results), default=1.0)
-            path_boost = _file_path_boost(store, question, bm25_ids, max_bm25_score=max_bm25)
-            # Symbol seeds: add matched files as expansion seeds (low boost)
-            all_existing_miss = bm25_ids | {c.id for c, _ in path_boost}
-            symbol_seeds_miss = [
-                (c, s)
-                for c, s in _symbol_search_seeds(store, question, max_bm25_score=max_bm25)
-                if c.id not in all_existing_miss
-            ]
-            search_results = search_results + path_boost + symbol_seeds_miss
+            # all_chunks already loaded above for graph building; pass it to the
+            # vector thread so the vector path has no SQLite store dependency.
+            # BM25 must stay on the calling thread — SQLite connections are not
+            # thread-safe.  Vector search runs in a background thread (pure numpy).
+            _miss_npz: Path = (
+                _precomputed_vector_path
+                if _precomputed_vector_path is not None
+                else Path("/nonexistent/__no_npz__")
+            )
+            with ThreadPoolExecutor(max_workers=1) as _pool:
+                _vec_future = _pool.submit(
+                    _vector_search_precomputed,
+                    _miss_npz,
+                    all_chunks,
+                    question,
+                    index_config,
+                    top_k,
+                )
+                _bm25_raw, path_boost, symbol_seeds_miss = _bm25_search_with_boosts(
+                    bm25, store, question, top_k
+                )
+                vector_results_miss: list[tuple[CodeChunk, float]] | None = _vec_future.result()
 
-            # Two-stage: use pre-computed vector index or fall back to rerank
-            vector_results_miss: list[tuple[CodeChunk, float]] | None = None
-            if index_config.vector:
-                if _precomputed_vector_path is not None and _precomputed_vector_path.exists():
-                    embedder = _get_embedder(index_config)
-                    if embedder is not None:
-                        from archex.index.vector import VectorIndex
+            search_results = _bm25_raw + path_boost + symbol_seeds_miss
 
-                        t_vec_q = time.perf_counter()
-                        vec_idx_q = VectorIndex()
-                        vec_idx_q.load(
-                            _precomputed_vector_path,
-                            all_chunks,
-                            embedder_name=index_config.embedder or "",
-                            vector_dim=embedder.dimension,
-                        )
-                        vector_results_miss = vec_idx_q.search(question, embedder, top_k=top_k)
-                        if timing is not None:
-                            timing.vector_used = True
-                            timing.vector_build_ms = _elapsed_ms(t_vec_q)
-                        logger.info(
-                            "Vector search (pre-computed, %d chunks) in %.0fms",
-                            vec_idx_q.size,
-                            _elapsed_ms(t_vec_q),
-                        )
-                else:
-                    vector_results_miss = _two_stage_rerank(
-                        question,
-                        search_results,
-                        index_config,
-                        timing,
-                    )
+            # Fall back to rerank when pre-computed .npz is absent
+            if vector_results_miss is None and index_config.vector:
+                vector_results_miss = _two_stage_rerank(
+                    question,
+                    search_results,
+                    index_config,
+                    timing,
+                )
+
+            if vector_results_miss is not None and timing is not None:
+                timing.vector_used = True
+                timing.vector_build_ms = _elapsed_ms(t6)
+            if vector_results_miss is not None:
+                logger.info(
+                    "Vector search (pre-computed, parallel) in %.0fms",
+                    _elapsed_ms(t6),
+                )
 
             if timing is not None:
                 timing.search_ms = _elapsed_ms(t6)
