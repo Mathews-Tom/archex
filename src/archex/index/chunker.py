@@ -1,5 +1,6 @@
 """Backward-compatibility re-exports — canonical module is archex.pipeline.chunker."""
 
+# pyright: reportPrivateUsage=false
 from archex.pipeline.chunker import (  # noqa: F401
     ASTChunker,
     Chunker,
