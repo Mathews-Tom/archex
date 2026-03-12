@@ -37,7 +37,6 @@ class VectorIndex:
 
         texts = [c.content for c in chunks]
         raw_embeddings = embedder.encode(texts)
-
         vectors = np.array(raw_embeddings, dtype=np.float32)
 
         # L2 normalize for cosine similarity via dot product

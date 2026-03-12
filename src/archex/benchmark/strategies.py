@@ -521,7 +521,7 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     t0 = time.perf_counter()
     timing = PipelineTiming()
     source = RepoSource(local_path=str(repo_path))
-    config = Config(cache=False, languages=task.languages)
+    config = Config(cache=True, languages=task.languages)
     index_config = IndexConfig(bm25=False, vector=True, embedder="fastembed")
 
     bundle = query(
@@ -584,7 +584,7 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     t0 = time.perf_counter()
     timing = PipelineTiming()
     source = RepoSource(local_path=str(repo_path))
-    config = Config(cache=False, languages=task.languages)
+    config = Config(cache=True, languages=task.languages)
     index_config = IndexConfig(vector=True, embedder="fastembed")
 
     bundle = query(
