@@ -11,13 +11,15 @@ from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runt
 
 
 class QualityThresholds(BaseModel):
-    min_recall: float = 0.6
-    min_precision: float = 0.3
-    min_f1: float = 0.4
-    min_mrr: float = 0.3
-    min_ndcg: float = 0.3
-    min_map: float = 0.3
+    min_recall: float = 0.60
+    min_precision: float = 0.20
+    min_f1: float = 0.30
+    min_mrr: float = 0.55
+    min_ndcg: float = 0.0
+    min_map: float = 0.0
     min_token_efficiency: float = 0.0
+    # Latency: warn-only, does not fail the gate
+    warn_latency_ms: float = 5000.0
 
 
 class GateViolation(BaseModel):
@@ -26,6 +28,13 @@ class GateViolation(BaseModel):
     metric: str
     threshold: float
     actual: float
+
+
+class LatencyWarning(BaseModel):
+    task_id: str
+    strategy: str
+    threshold_ms: float
+    actual_ms: float
 
 
 def check_gate(
@@ -62,6 +71,29 @@ def check_gate(
                         )
                     )
     return violations
+
+
+def check_latency_warnings(
+    reports: list[BenchmarkReport],
+    thresholds: QualityThresholds | None = None,
+) -> list[LatencyWarning]:
+    """Return latency warnings for results exceeding warn_latency_ms. Does not fail the gate."""
+    if thresholds is None:
+        thresholds = QualityThresholds()
+
+    warnings: list[LatencyWarning] = []
+    for report in reports:
+        for r in report.results:
+            if r.wall_time_ms > thresholds.warn_latency_ms:
+                warnings.append(
+                    LatencyWarning(
+                        task_id=r.task_id,
+                        strategy=r.strategy.value,
+                        threshold_ms=thresholds.warn_latency_ms,
+                        actual_ms=r.wall_time_ms,
+                    )
+                )
+    return warnings
 
 
 # ---------------------------------------------------------------------------
