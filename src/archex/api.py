@@ -1,4 +1,40 @@
-"""Top-level public API: analyze, query, and compare entry points."""
+"""Top-level public API: analyze, query, and compare entry points.
+
+Service roles and pipeline phases
+==================================
+
+Each public function orchestrates a sequence of distinct service roles:
+
+**Acquisition** — Resolve a RepoSource to a local path on disk.
+  Input:  RepoSource (url or local_path)
+  Output: (repo_path: Path, cleanup: Callable)
+  Module: archex.acquire
+
+**Parsing** — Discover files, extract symbols, resolve imports.
+  Input:  repo_path, Config
+  Output: ParseArtifacts (files, parsed_files, resolved_imports)
+  Module: archex.parse, archex.pipeline.service
+
+**Indexing** — Chunk code, build BM25/vector indices, persist to SQLite.
+  Input:  ParseArtifacts, IndexConfig
+  Output: IndexStore (open handle to chunk/edge/FTS5 database)
+  Module: archex.index
+
+**Retrieval** — Search the index, expand via dependency graph, score, assemble.
+  Input:  IndexStore, question, token_budget, ScoringWeights
+  Output: ContextBundle (ranked chunks within token budget)
+  Module: archex.serve.context
+
+**Analysis** — Detect modules, patterns, interfaces, decisions from parsed code.
+  Input:  ParsedFiles, DependencyGraph
+  Output: ArchProfile
+  Module: archex.analyze, archex.serve.profile
+
+**Observability** — Optional PipelineTrace records step-level timings.
+  Input:  PipelineTrace (optional)
+  Output: Trace populated with StepTiming records; logged at DEBUG level
+  Module: archex.observe
+"""
 
 from __future__ import annotations
 
@@ -39,6 +75,7 @@ from archex.models import (
     SymbolSource,
     Visibility,
 )
+from archex.observe import PipelineTrace, StepTiming
 from archex.parse import (
     TreeSitterEngine,
     build_file_map,
@@ -59,7 +96,7 @@ if TYPE_CHECKING:
     from archex.models import ComparisonResult
 
 # ---------------------------------------------------------------------------
-# Shared helpers for Tier 1 precision tools
+# Acquisition + Indexing — shared helpers for all entry points
 # ---------------------------------------------------------------------------
 
 
@@ -71,7 +108,12 @@ def _full_index(
     timing: PipelineTiming | None,
     index_config: IndexConfig | None = None,
 ) -> IndexStore:
-    """Run the full acquire → parse → chunk → store pipeline."""
+    """Run the full acquire → parse → chunk → store pipeline.
+
+    Combines acquisition, parsing, and indexing phases into a single
+    IndexStore. Used when no cache hit is available and delta indexing
+    is not applicable.
+    """
     t_acq = time.perf_counter()
     repo_path, _url, _local_path, cleanup, cloned_head = _acquire(source)
     if timing is not None:
@@ -293,7 +335,14 @@ def _elapsed_ms(start: float) -> float:
 def _acquire(
     source: RepoSource,
 ) -> tuple[Path, str | None, str | None, Callable[[], None], str | None]:
-    """Resolve a RepoSource to a local path, returning a cleanup callable and cloned HEAD."""
+    """Acquisition phase: resolve a RepoSource to a local filesystem path.
+
+    Returns:
+        (repo_path, url, local_path, cleanup_fn, cloned_head_commit)
+
+    The cleanup_fn removes any temporary directory created for URL clones.
+    For local paths, cleanup_fn is a no-op.
+    """
     if source.url and (source.url.startswith("http://") or source.url.startswith("https://")):
         target_dir = tempfile.mkdtemp()
 
@@ -316,6 +365,11 @@ def _acquire(
 def _build_adapters() -> dict[str, LanguageAdapter]:
     """Build the registry of language adapters from the default registry."""
     return default_adapter_registry.build_all()
+
+
+# ---------------------------------------------------------------------------
+# Retrieval — search augmentation helpers (path boost, symbol seeds, reranking)
+# ---------------------------------------------------------------------------
 
 
 def _compute_top_k(total_chunks: int) -> int:
@@ -530,15 +584,25 @@ def _total_chunk_tokens(chunks: list[CodeChunk]) -> int:
     return sum(estimate_tokens(c) for c in chunks)
 
 
+# ---------------------------------------------------------------------------
+# Public entry points — orchestrate acquisition → indexing → retrieval/analysis
+# ---------------------------------------------------------------------------
+
+
 def analyze(
     source: RepoSource,
     config: Config | None = None,
     timing: PipelineTiming | None = None,
 ) -> ArchProfile:
-    """Acquire, parse, index, and analyze a repository.
+    """Acquire, parse, and analyze a repository, returning an ArchProfile.
 
-    Runs the full pipeline: acquire → parse → graph → modules → patterns → interfaces
-    → optional LLM enrichment → profile assembly.
+    Pipeline phases:
+      1. Acquisition — clone or open local repo
+      2. Parsing — discover files, extract symbols, resolve imports
+      3. Analysis — detect modules, patterns, interfaces, infer decisions
+      4. (Optional) LLM enrichment via configured provider
+
+    The optional ``timing`` parameter records per-phase millisecond breakdowns.
     """
     if config is None:
         config = Config()
@@ -634,11 +698,15 @@ def query(
     scoring_weights: ScoringWeights | None = None,
     chunker: Chunker | None = None,
     timing: PipelineTiming | None = None,
+    trace: PipelineTrace | None = None,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
     Runs the full pipeline: acquire → parse → chunk → index → search → assemble.
     On cache hit, skips the full parse: loads chunks and graph from the cached store.
+
+    When trace is provided, records step-level timings (acquire, parse, index,
+    search, assemble) into the PipelineTrace for structured observability.
     """
     if config is None:
         config = Config()
@@ -647,6 +715,9 @@ def query(
     _bootstrap_plugins()
 
     t0 = time.perf_counter()
+    if trace is not None:
+        trace.operation = "query"
+        trace.start_ns = time.perf_counter_ns()
     cache = CacheManager(cache_dir=config.cache_dir)
     cache_key = cache.cache_key(source)
 
@@ -664,6 +735,8 @@ def query(
             try:
                 if timing is not None:
                     timing.cached = True
+                if trace is not None:
+                    trace.metadata["cache_hit"] = True
 
                 # Use persisted corpus stats — avoids full-chunk hydration
                 stored_tokens = store.get_metadata("repo_total_tokens")
@@ -682,10 +755,15 @@ def query(
                     pt = passthrough_context(cached_chunks, question, effective_budget)
                     if timing is not None:
                         timing.strategy = "passthrough"
+                    if trace is not None:
+                        trace.metadata["strategy"] = "passthrough"
                     pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
                     logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
                     if timing is not None:
                         timing.total_ms = _elapsed_ms(t0)
+                    if trace is not None:
+                        trace.end_ns = time.perf_counter_ns()
+                        trace.log_summary()
                     return pt
 
                 bm25 = BM25Index(store)
@@ -720,6 +798,20 @@ def query(
 
                 if timing is not None:
                     timing.search_ms = _elapsed_ms(t_search)
+                if trace is not None:
+                    trace.add_step(
+                        StepTiming(
+                            name="search",
+                            start_ns=int(t_search * 1_000_000_000),
+                            end_ns=time.perf_counter_ns(),
+                            metadata={
+                                "bm25_results": len(search_results),
+                                "path_boost": len(path_boost),
+                                "symbol_seeds": len(symbol_seeds),
+                                "top_k": top_k,
+                            },
+                        )
+                    )
                 # Hydrate all chunks for expansion — needed by assemble_context
                 all_chunks_cached = store.get_chunks()
                 bundle = assemble_context(
@@ -730,6 +822,7 @@ def query(
                     token_budget=effective_budget,
                     vector_results=vector_results,  # type: ignore[arg-type]
                     scoring_weights=scoring_weights,
+                    trace=trace,
                 )
                 if timing is not None:
                     timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
@@ -737,18 +830,32 @@ def query(
                 logger.info("query() [cached] completed in %.0fms", _elapsed_ms(t0))
                 if timing is not None:
                     timing.total_ms = _elapsed_ms(t0)
+                if trace is not None:
+                    trace.end_ns = time.perf_counter_ns()
+                    trace.log_summary()
                 return bundle
             finally:
                 store.close()
 
     # Cache miss — full pipeline
     logger.info("Cache miss — running full pipeline")
+    if trace is not None:
+        trace.metadata["cache_hit"] = False
+
     t1 = time.perf_counter()
     repo_path, _url, _local_path, cleanup, cloned_head = _acquire(source)
     acquire_ms = _elapsed_ms(t1)
     logger.info("Acquired repo in %.0fms", acquire_ms)
     if timing is not None:
         timing.acquire_ms = acquire_ms
+    if trace is not None:
+        trace.add_step(
+            StepTiming(
+                name="acquire",
+                start_ns=int(t1 * 1_000_000_000),
+                end_ns=time.perf_counter_ns(),
+            )
+        )
     try:
         t2 = time.perf_counter()
         files = discover_files(
@@ -769,6 +876,18 @@ def query(
         logger.info("Parsed %d files in %.0fms", len(parsed_files), parse_ms)
         if timing is not None:
             timing.parse_ms = parse_ms
+        if trace is not None:
+            trace.add_step(
+                StepTiming(
+                    name="parse",
+                    start_ns=int(t3 * 1_000_000_000),
+                    end_ns=time.perf_counter_ns(),
+                    metadata={
+                        "files_discovered": len(files),
+                        "files_parsed": len(parsed_files),
+                    },
+                )
+            )
 
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
@@ -797,6 +916,18 @@ def query(
             bm25.build(all_chunks)
             if timing is not None:
                 timing.index_ms = _elapsed_ms(t4)
+            if trace is not None:
+                trace.add_step(
+                    StepTiming(
+                        name="index",
+                        start_ns=int(t4 * 1_000_000_000),
+                        end_ns=time.perf_counter_ns(),
+                        metadata={
+                            "chunks": len(all_chunks),
+                            "edges": len(edges),
+                        },
+                    )
+                )
 
             top_k = _compute_top_k(len(all_chunks))
 
@@ -826,6 +957,10 @@ def query(
                 if timing is not None:
                     timing.strategy = "passthrough"
                     timing.total_ms = _elapsed_ms(t0)
+                if trace is not None:
+                    trace.metadata["strategy"] = "passthrough"
+                    trace.end_ns = time.perf_counter_ns()
+                    trace.log_summary()
                 pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
                 logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
                 return pt
@@ -857,6 +992,20 @@ def query(
 
             if timing is not None:
                 timing.search_ms = _elapsed_ms(t6)
+            if trace is not None:
+                trace.add_step(
+                    StepTiming(
+                        name="search",
+                        start_ns=int(t6 * 1_000_000_000),
+                        end_ns=time.perf_counter_ns(),
+                        metadata={
+                            "bm25_results": len(search_results),
+                            "path_boost": len(path_boost),
+                            "symbol_seeds": len(symbol_seeds_miss),
+                            "top_k": top_k,
+                        },
+                    )
+                )
             bundle = assemble_context(
                 search_results=search_results,
                 graph=graph,
@@ -865,6 +1014,7 @@ def query(
                 token_budget=effective_budget,
                 vector_results=vector_results_miss,  # type: ignore[arg-type]
                 scoring_weights=scoring_weights,
+                trace=trace,
             )
             if timing is not None:
                 timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
@@ -876,6 +1026,9 @@ def query(
         logger.info("query() completed in %.0fms", _elapsed_ms(t0))
         if timing is not None:
             timing.total_ms = _elapsed_ms(t0)
+        if trace is not None:
+            trace.end_ns = time.perf_counter_ns()
+            trace.log_summary()
         return bundle
     finally:
         cleanup()
@@ -928,7 +1081,8 @@ def compare(
 ) -> ComparisonResult:
     """Analyze two repositories and return a ComparisonResult.
 
-    Uses ThreadPoolExecutor to run both analyses concurrently.
+    Runs two parallel ``analyze()`` pipelines (acquisition → parsing → analysis)
+    then delegates to ``compare_repos()`` for dimension-by-dimension comparison.
     """
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_a = executor.submit(analyze, source_a, config)
