@@ -173,8 +173,12 @@ def format_bucketed_summary(reports: list[BenchmarkReport]) -> str:
             entries = strategy_metrics[name]
             count = len(entries)
 
-            def _avg(key: str) -> float:
-                return sum(e[key] for e in entries) / count
+            def _avg(
+                key: str,
+                _entries: list[dict[str, float]] = entries,
+                _count: int = count,
+            ) -> float:
+                return sum(e[key] for e in _entries) / _count
 
             tbl.append(
                 f"| {name} "
