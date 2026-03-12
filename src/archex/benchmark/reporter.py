@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -109,6 +110,90 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
         )
 
     lines.append("")
+    return "\n".join(lines)
+
+
+def format_bucketed_summary(reports: list[BenchmarkReport]) -> str:
+    """Render per-category aggregated summaries alongside the global summary.
+
+    Groups tasks by their category (from task YAML) and produces a table
+    per category plus a global table, preventing weak categories from hiding
+    in overall averages.
+    """
+    if not reports:
+        return "No benchmark results."
+
+    lines: list[str] = []
+    lines.append("# Bucketed Benchmark Summary")
+    lines.append(f"**Tasks:** {len(reports)}")
+    lines.append("")
+
+    # Group reports by category derived from result entries
+    buckets: dict[str, list[BenchmarkReport]] = defaultdict(list)
+    for report in reports:
+        # Derive category from the first archex result that has one,
+        # or fall back to "uncategorized"
+        cat = "uncategorized"
+        for r in report.results:
+            if r.category is not None:
+                cat = r.category.value
+                break
+        buckets[cat].append(report)
+
+    def _summary_table(label: str, bucket_reports: list[BenchmarkReport]) -> list[str]:
+        tbl: list[str] = []
+        tbl.append(f"## {label} ({len(bucket_reports)} tasks)")
+        tbl.append("")
+
+        strategy_metrics: dict[str, list[dict[str, float]]] = defaultdict(list)
+        for report in bucket_reports:
+            for r in report.results:
+                strategy_metrics[r.strategy.value].append(
+                    {
+                        "recall": r.recall,
+                        "precision": r.precision,
+                        "f1": r.f1_score,
+                        "mrr": r.mrr,
+                        "ndcg": r.ndcg,
+                        "map": r.map_score,
+                        "seed_recall": r.seed_recall,
+                        "seed_precision": r.seed_precision,
+                    }
+                )
+
+        tbl.append(
+            "| Strategy | Recall | Precision | F1 | MRR | nDCG | MAP "
+            "| Seed Recall | Seed Precision | Tasks |"
+        )
+        tbl.append(
+            "|----------|--------|-----------|------|------|------|------"
+            "|-------------|----------------|-------|"
+        )
+        for name in sorted(strategy_metrics.keys()):
+            entries = strategy_metrics[name]
+            count = len(entries)
+
+            def _avg(key: str) -> float:
+                return sum(e[key] for e in entries) / count
+
+            tbl.append(
+                f"| {name} "
+                f"| {_avg('recall'):.2f} | {_avg('precision'):.2f} "
+                f"| {_avg('f1'):.2f} | {_avg('mrr'):.2f} "
+                f"| {_avg('ndcg'):.2f} | {_avg('map'):.2f} "
+                f"| {_avg('seed_recall'):.2f} | {_avg('seed_precision'):.2f} "
+                f"| {count} |"
+            )
+        tbl.append("")
+        return tbl
+
+    # Global summary first
+    lines.extend(_summary_table("All Tasks", reports))
+
+    # Per-bucket summaries
+    for cat in sorted(buckets.keys()):
+        lines.extend(_summary_table(cat, buckets[cat]))
+
     return "\n".join(lines)
 
 

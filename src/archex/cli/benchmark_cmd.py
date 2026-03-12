@@ -18,6 +18,7 @@ from archex.benchmark.gate import (
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, DeltaBenchmarkResult, Strategy
 from archex.benchmark.reporter import (
+    format_bucketed_summary,
     format_delta_summary,
     format_json,
     format_markdown,
@@ -108,6 +109,7 @@ def report_cmd(output_format: str, input_dir: str) -> None:
         for report in reports:
             click.echo(format_markdown(report))
         click.echo(format_summary(reports))
+        click.echo(format_bucketed_summary(reports))
 
 
 @benchmark_cmd.command("validate")

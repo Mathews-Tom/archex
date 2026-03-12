@@ -1,6 +1,7 @@
 task_id: pydantic_validators
 repo: "pydantic/pydantic"
 commit: "v2.10.5"
+category: external-framework
 languages: [python]
 question: "How does Pydantic chain and apply field validators?"
 expected_files:

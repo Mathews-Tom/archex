@@ -1,6 +1,7 @@
 task_id: fastapi_dependency_injection
 repo: "tiangolo/fastapi"
 commit: "0.115.6"
+category: framework-semantic
 languages: [python]
 question: "How does FastAPI implement dependency injection for route handlers?"
 expected_files:

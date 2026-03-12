@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy
+from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy, TaskCategory
 from archex.benchmark.reporter import (
+    format_bucketed_summary,
     format_json,
     format_markdown,
     format_strategy_comparison,
@@ -20,6 +21,7 @@ def _make_result(
     tokens_input: int = 2000,
     tokens_output: int = 1000,
     token_efficiency: float = 0.5,
+    category: TaskCategory | None = None,
 ) -> BenchmarkResult:
     return BenchmarkResult(
         task_id="test",
@@ -36,6 +38,7 @@ def _make_result(
         wall_time_ms=50.0,
         cached=False,
         timestamp="2025-01-01T00:00:00Z",
+        category=category,
     )
 
 
@@ -150,3 +153,37 @@ class TestFormatStrategyComparison:
         report = _make_report()
         result = format_strategy_comparison([report])
         assert "Best Strategy per Metric" in result
+
+
+class TestFormatBucketedSummary:
+    def test_empty_reports(self) -> None:
+        assert "No benchmark results" in format_bucketed_summary([])
+
+    def test_uncategorized_fallback(self) -> None:
+        result = format_bucketed_summary([_make_report()])
+        assert "uncategorized" in result
+
+    def test_categorized_reports(self) -> None:
+        r_self = _make_result(Strategy.ARCHEX_QUERY, recall=0.9, category=TaskCategory.SELF)
+        r_ext = _make_result(
+            Strategy.ARCHEX_QUERY, recall=0.5, category=TaskCategory.EXTERNAL_FRAMEWORK
+        )
+        report_self = BenchmarkReport(
+            task_id="self_task",
+            repo=".",
+            question="q",
+            results=[r_self],
+            baseline_tokens=1000,
+        )
+        report_ext = BenchmarkReport(
+            task_id="ext_task",
+            repo="owner/repo",
+            question="q",
+            results=[r_ext],
+            baseline_tokens=1000,
+        )
+        output = format_bucketed_summary([report_self, report_ext])
+        assert "self (1 tasks)" in output
+        assert "external-framework (1 tasks)" in output
+        assert "All Tasks (2 tasks)" in output
+        assert "Seed Recall" in output

@@ -1,6 +1,7 @@
 task_id: archex_pattern_detection
 repo: "."
 commit: "HEAD"
+category: self
 languages: [python]
 question: "How does archex detect architectural patterns?"
 expected_files:
