@@ -50,7 +50,7 @@ jobs:
           name: benchmark-results-bm25
           path: benchmarks/results/bm25/
 
-  benchmark-hybrid:
+  benchmark-fusion:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -70,30 +70,30 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Run benchmarks (hybrid, all tasks)
+      - name: Run benchmarks (fusion, all tasks)
         run: |
           uv run archex benchmark run \
             --tasks-dir benchmarks/tasks \
-            --output benchmarks/results/hybrid \
-            --strategy archex_query_hybrid
+            --output benchmarks/results/fusion \
+            --strategy archex_query_fusion
 
-      - name: Quality gate (hybrid)
+      - name: Quality gate (fusion)
         run: |
           uv run archex benchmark gate \
-            --input benchmarks/results/hybrid \
+            --input benchmarks/results/fusion \
             --min-recall 0.60 \
             --min-f1 0.30 \
             --min-mrr 0.55
 
-      - name: Upload hybrid results
+      - name: Upload fusion results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-hybrid
-          path: benchmarks/results/hybrid/
+          name: benchmark-results-fusion
+          path: benchmarks/results/fusion/
 
   commit-results:
     runs-on: ubuntu-latest
-    needs: [benchmark-bm25, benchmark-hybrid]
+    needs: [benchmark-bm25, benchmark-fusion]
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 
     steps:
@@ -105,11 +105,11 @@ jobs:
           name: benchmark-results-bm25
           path: benchmarks/results/bm25/
 
-      - name: Download hybrid results
+      - name: Download fusion results
         uses: actions/download-artifact@v4
         with:
-          name: benchmark-results-hybrid
-          path: benchmarks/results/hybrid/
+          name: benchmark-results-fusion
+          path: benchmarks/results/fusion/
 
       - name: Commit results
         run: |

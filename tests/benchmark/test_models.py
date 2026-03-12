@@ -18,7 +18,8 @@ class TestStrategy:
         assert Strategy.RAW_FILES == "raw_files"
         assert Strategy.RAW_GREPPED == "raw_grepped"
         assert Strategy.ARCHEX_QUERY == "archex_query"
-        assert Strategy.ARCHEX_QUERY_HYBRID == "archex_query_hybrid"
+        assert Strategy.ARCHEX_QUERY_VECTOR == "archex_query_vector"
+        assert Strategy.ARCHEX_QUERY_FUSION == "archex_query_fusion"
         assert Strategy.ARCHEX_SYMBOL_LOOKUP == "archex_symbol_lookup"
 
     def test_enum_from_value(self) -> None:

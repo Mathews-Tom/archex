@@ -513,8 +513,71 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
 
-def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
-    """archex hybrid query strategy: BM25 + vector retrieval."""
+def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Pure vector retrieval strategy: vector search without BM25."""
+    from archex.api import query
+    from archex.models import Config, IndexConfig
+
+    t0 = time.perf_counter()
+    timing = PipelineTiming()
+    source = RepoSource(local_path=str(repo_path))
+    config = Config(cache=False, languages=task.languages)
+    index_config = IndexConfig(bm25=False, vector=True, embedder="fastembed")
+
+    bundle = query(
+        source,
+        task.question,
+        token_budget=task.token_budget,
+        config=config,
+        index_config=index_config,
+        timing=timing,
+    )
+
+    ranked_files = [c.chunk.file_path for c in bundle.chunks]
+    result_files = set(_deduplicate_ranked(ranked_files))
+    wall_ms = (time.perf_counter() - t0) * 1000
+    recall = compute_recall(result_files, task.expected_files)
+    precision = compute_precision(result_files, task.expected_files)
+    f1 = compute_f1(recall, precision)
+    mrr_val = compute_mrr(ranked_files, task.expected_files)
+    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
+    map_val = compute_map(ranked_files, task.expected_files)
+    af = _archex_fields(bundle, task, repo_path)
+
+    return BenchmarkResult(
+        task_id=task.task_id,
+        strategy=Strategy.ARCHEX_QUERY_VECTOR,
+        tokens_total=bundle.token_count,
+        tokens_input=af.tokens_input,
+        tokens_output=af.tokens_output,
+        token_efficiency=af.token_efficiency,
+        tokens_raw_baseline=af.tokens_raw_baseline,
+        symbol_recall=af.symbol_recall,
+        tool_calls=1,
+        files_accessed=len(result_files),
+        recall=recall,
+        precision=precision,
+        f1_score=f1,
+        mrr=mrr_val,
+        ndcg=ndcg_val,
+        map_score=map_val,
+        savings_vs_raw=0.0,  # backfilled by runner
+        wall_time_ms=wall_ms,
+        cached=timing.cached,
+        timing=timing,
+        timestamp=now_iso(),
+        unique_ranked_files=af.unique_ranked_files,
+        seed_files=af.seed_files,
+        expanded_files=af.expanded_files,
+        expansion_ratio=af.expansion_ratio,
+        seed_recall=af.seed_recall,
+        seed_precision=af.seed_precision,
+        category=task.category,
+    )
+
+
+def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Full fusion strategy: BM25 + independent vector + confidence-aware RRF."""
     from archex.api import query
     from archex.models import Config, IndexConfig
 
@@ -546,7 +609,7 @@ def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
 
     return BenchmarkResult(
         task_id=task.task_id,
-        strategy=Strategy.ARCHEX_QUERY_HYBRID,
+        strategy=Strategy.ARCHEX_QUERY_FUSION,
         tokens_total=bundle.token_count,
         tokens_input=af.tokens_input,
         tokens_output=af.tokens_output,
@@ -634,8 +697,6 @@ default_strategy_registry = StrategyRegistry()
 default_strategy_registry.register(Strategy.RAW_FILES.value, run_raw_files)
 default_strategy_registry.register(Strategy.RAW_GREPPED.value, run_raw_grepped)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY.value, run_archex_query)
-default_strategy_registry.register(Strategy.ARCHEX_QUERY_HYBRID.value, run_archex_query_hybrid)
+default_strategy_registry.register(Strategy.ARCHEX_QUERY_VECTOR.value, run_archex_query_vector)
+default_strategy_registry.register(Strategy.ARCHEX_QUERY_FUSION.value, run_archex_query_fusion)
 default_strategy_registry.register(Strategy.ARCHEX_SYMBOL_LOOKUP.value, run_archex_symbol_lookup)
-
-# Backward-compat reference
-STRATEGY_RUNNERS = default_strategy_registry._runners  # pyright: ignore[reportPrivateUsage]

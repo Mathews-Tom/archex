@@ -20,6 +20,15 @@ class QualityThresholds(BaseModel):
     min_token_efficiency: float = 0.0
     # Latency: warn-only, does not fail the gate
     warn_latency_ms: float = 5000.0
+    # Strategies exempt from gate checks (results are informational only)
+    gate_exempt_strategies: set[str] = {
+        "raw_files",
+        "raw_grepped",
+        "archex_query_vector",
+        "archex_symbol_lookup",
+    }
+    # Per-strategy threshold overrides; keyed by strategy value string
+    strategy_thresholds: dict[str, QualityThresholds] = {}
 
 
 class GateViolation(BaseModel):
@@ -37,34 +46,46 @@ class LatencyWarning(BaseModel):
     actual_ms: float
 
 
+def _gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
+    return [
+        ("recall", t.min_recall),
+        ("precision", t.min_precision),
+        ("f1_score", t.min_f1),
+        ("mrr", t.min_mrr),
+        ("ndcg", t.min_ndcg),
+        ("map_score", t.min_map),
+        ("token_efficiency", t.min_token_efficiency),
+    ]
+
+
 def check_gate(
     reports: list[BenchmarkReport],
     thresholds: QualityThresholds | None = None,
 ) -> list[GateViolation]:
-    """Check all results against quality thresholds. Returns list of violations."""
+    """Check all results against quality thresholds. Returns list of violations.
+
+    Results whose strategy is in ``thresholds.gate_exempt_strategies`` are
+    skipped entirely. When ``thresholds.strategy_thresholds`` contains an entry
+    for a strategy, those per-strategy thresholds are used instead of the
+    default ones.
+    """
     if thresholds is None:
         thresholds = QualityThresholds()
-
-    checks = [
-        ("recall", thresholds.min_recall),
-        ("precision", thresholds.min_precision),
-        ("f1_score", thresholds.min_f1),
-        ("mrr", thresholds.min_mrr),
-        ("ndcg", thresholds.min_ndcg),
-        ("map_score", thresholds.min_map),
-        ("token_efficiency", thresholds.min_token_efficiency),
-    ]
 
     violations: list[GateViolation] = []
     for report in reports:
         for r in report.results:
-            for metric_name, threshold_val in checks:
+            strategy_val = r.strategy.value
+            if strategy_val in thresholds.gate_exempt_strategies:
+                continue
+            effective = thresholds.strategy_thresholds.get(strategy_val, thresholds)
+            for metric_name, threshold_val in _gate_checks(effective):
                 actual = getattr(r, metric_name)
                 if actual < threshold_val:
                     violations.append(
                         GateViolation(
                             task_id=r.task_id,
-                            strategy=r.strategy.value,
+                            strategy=strategy_val,
                             metric=metric_name,
                             threshold=threshold_val,
                             actual=actual,

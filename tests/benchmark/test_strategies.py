@@ -19,7 +19,8 @@ from archex.benchmark.strategies import (
     count_file_tokens,
     extract_keywords,
     run_archex_query,
-    run_archex_query_hybrid,
+    run_archex_query_fusion,
+    run_archex_query_vector,
     run_archex_symbol_lookup,
     run_raw_files,
     run_raw_grepped,
@@ -320,7 +321,7 @@ class TestRunArchexQuery:
 
 
 class _StubEmbedder:
-    """Deterministic stub embedder for hybrid tests without onnxruntime."""
+    """Deterministic stub embedder for vector/fusion tests without onnxruntime."""
 
     @property
     def dimension(self) -> int:
@@ -341,8 +342,8 @@ def _stub_get_embedder(_index_config: object) -> _StubEmbedder:
     return _StubEmbedder()
 
 
-class TestRunArchexQueryHybrid:
-    def test_hybrid_strategy(self, python_simple_repo: Path) -> None:
+class TestRunArchexQueryVector:
+    def test_vector_strategy(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
             task_id="test",
             repo="test/repo",
@@ -352,15 +353,15 @@ class TestRunArchexQueryHybrid:
             token_budget=4096,
         )
         with patch("archex.api._get_embedder", _stub_get_embedder):
-            result = run_archex_query_hybrid(task, python_simple_repo)
-        assert result.strategy == Strategy.ARCHEX_QUERY_HYBRID
+            result = run_archex_query_vector(task, python_simple_repo)
+        assert result.strategy == Strategy.ARCHEX_QUERY_VECTOR
         assert result.tokens_total >= 0
         assert result.tool_calls == 1
         assert result.timing is not None
         assert 0.0 <= result.recall <= 1.0
         assert 0.0 <= result.precision <= 1.0
 
-    def test_hybrid_recall_precision(self, python_simple_repo: Path) -> None:
+    def test_vector_recall_precision(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
             task_id="test",
             repo="test/repo",
@@ -370,8 +371,42 @@ class TestRunArchexQueryHybrid:
             token_budget=8192,
         )
         with patch("archex.api._get_embedder", _stub_get_embedder):
-            result = run_archex_query_hybrid(task, python_simple_repo)
-        # Should return files and compute metrics
+            result = run_archex_query_vector(task, python_simple_repo)
+        assert result.files_accessed >= 0
+        assert isinstance(result.recall, float)
+        assert isinstance(result.precision, float)
+
+
+class TestRunArchexQueryFusion:
+    def test_fusion_strategy(self, python_simple_repo: Path) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=4096,
+        )
+        with patch("archex.api._get_embedder", _stub_get_embedder):
+            result = run_archex_query_fusion(task, python_simple_repo)
+        assert result.strategy == Strategy.ARCHEX_QUERY_FUSION
+        assert result.tokens_total >= 0
+        assert result.tool_calls == 1
+        assert result.timing is not None
+        assert 0.0 <= result.recall <= 1.0
+        assert 0.0 <= result.precision <= 1.0
+
+    def test_fusion_recall_precision(self, python_simple_repo: Path) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="authentication login service",
+            expected_files=["services/auth.py", "main.py"],
+            token_budget=8192,
+        )
+        with patch("archex.api._get_embedder", _stub_get_embedder):
+            result = run_archex_query_fusion(task, python_simple_repo)
         assert result.files_accessed >= 0
         assert isinstance(result.recall, float)
         assert isinstance(result.precision, float)

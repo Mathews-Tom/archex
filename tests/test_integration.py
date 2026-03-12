@@ -163,10 +163,10 @@ class TestQueryEndToEnd:
         assert isinstance(bundle, ContextBundle)
 
 
-class TestQueryHybrid:
-    """Query with vector=True using a mock embedder."""
+class TestQueryVector:
+    """Query with vector=True configuration."""
 
-    def test_hybrid_query_no_embedder_falls_back(self, python_simple_repo: Path) -> None:
+    def test_vector_query_no_embedder_falls_back(self, python_simple_repo: Path) -> None:
         source = RepoSource(local_path=str(python_simple_repo))
         # vector=True but no embedder configured → falls back to bm25-only
         index_cfg = IndexConfig(vector=True, embedder=None)

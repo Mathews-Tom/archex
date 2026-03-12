@@ -20,11 +20,15 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
     Strategy.RAW_FILES,
     Strategy.RAW_GREPPED,
     Strategy.ARCHEX_QUERY,
-    Strategy.ARCHEX_QUERY_HYBRID,
+    Strategy.ARCHEX_QUERY_FUSION,
 ]
 
+_VECTOR_STRATEGIES: frozenset[Strategy] = frozenset(
+    {Strategy.ARCHEX_QUERY_VECTOR, Strategy.ARCHEX_QUERY_FUSION}
+)
 
-def _check_hybrid_available() -> bool:
+
+def _check_vector_available() -> bool:
     """Check if vector embedding dependencies are available (fastembed or sentence-transformers)."""
     try:
         import fastembed as _fe  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -81,8 +85,8 @@ def run_benchmark(
     """Run a benchmark task across strategies. Clones repo if repo_path not provided."""
     if strategies is None:
         strategies = list(AVAILABLE_STRATEGIES)
-        if not _check_hybrid_available():
-            strategies = [s for s in strategies if s != Strategy.ARCHEX_QUERY_HYBRID]
+        if not _check_vector_available():
+            strategies = [s for s in strategies if s not in _VECTOR_STRATEGIES]
 
     needs_cleanup = False
     if repo_path is None:
