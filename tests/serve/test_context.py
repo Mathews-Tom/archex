@@ -433,6 +433,58 @@ def test_isolated_node_unaffected_by_propagation() -> None:
     assert "b.py" not in included_files
 
 
+def test_weak_seed_does_not_expand() -> None:
+    """A single weak seed does not trigger expansion into neighbors."""
+    graph = DependencyGraph()
+    graph.add_file_node("weak.py")
+    graph.add_file_node("neighbor.py")
+    graph.add_file_edge("weak.py", "neighbor.py", kind="imports")
+    weak_chunk = make_chunk("c_weak", "weak.py", token_count=10)
+    # Also add a strong seed on a different file so weak.py is proportionally low
+    graph.add_file_node("strong.py")
+    strong_chunk = make_chunk("c_strong", "strong.py", token_count=10)
+    neighbor_chunk = make_chunk("c_neighbor", "neighbor.py", token_count=10)
+    # strong.py has score 10.0, weak.py has score 0.5 (5% of max → below SEED_EXPANSION_MIN)
+    results = [(strong_chunk, 10.0), (weak_chunk, 0.5)]
+    all_chunks = [strong_chunk, weak_chunk, neighbor_chunk]
+    bundle = assemble_context(results, graph, all_chunks, "q", token_budget=1000)
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    # neighbor.py should NOT appear — weak.py was below the expansion threshold
+    assert "neighbor.py" not in included_files
+
+
+def test_strong_seed_does_expand() -> None:
+    """A strong seed triggers expansion into its imports."""
+    graph = DependencyGraph()
+    graph.add_file_node("strong.py")
+    graph.add_file_node("dep.py")
+    graph.add_file_edge("strong.py", "dep.py", kind="imports")
+    strong_chunk = make_chunk("c_strong", "strong.py", token_count=10)
+    dep_chunk = make_chunk("c_dep", "dep.py", token_count=10)
+    results = [(strong_chunk, 5.0)]
+    bundle = assemble_context(results, graph, [strong_chunk, dep_chunk], "q", token_budget=1000)
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "dep.py" in included_files
+
+
+def test_file_score_cutoff_excludes_low_files() -> None:
+    """Files with aggregate score far below the top file are excluded."""
+    graph = DependencyGraph()
+    for name in ["top.py", "mid.py", "low.py"]:
+        graph.add_file_node(name)
+    top_chunk = make_chunk("c_top", "top.py", token_count=10)
+    mid_chunk = make_chunk("c_mid", "mid.py", token_count=10)
+    low_chunk = make_chunk("c_low", "low.py", token_count=10)
+    # top has very high score, low has negligible score
+    results = [(top_chunk, 100.0), (mid_chunk, 30.0), (low_chunk, 0.5)]
+    all_chunks = [top_chunk, mid_chunk, low_chunk]
+    bundle = assemble_context(results, graph, all_chunks, "q", token_budget=1000)
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "top.py" in included_files
+    # low.py should be excluded by FILE_SCORE_CUTOFF
+    assert "low.py" not in included_files
+
+
 def test_high_relevance_low_centrality_beats_low_relevance_high_centrality() -> None:
     """With relevance-dominant weights, BM25 signal dominates over structural centrality."""
     graph = DependencyGraph()
