@@ -131,6 +131,8 @@ class IndexConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
+        if not self.bm25 and not self.vector:
+            raise ValueError("At least one of bm25 or vector must be enabled")
         if self.chunk_max_tokens <= 0:
             raise ValueError("chunk_max_tokens must be > 0")
         if self.chunk_min_tokens < 0:
@@ -529,6 +531,8 @@ class RetrievalMetadata(BaseModel):
     retrieval_time_ms: float = 0.0
     assembly_time_ms: float = 0.0
     signal_agreement: float | None = None
+    fusion_bm25_weight: float | None = None
+    fusion_vector_weight: float | None = None
 
 
 class ContextBundle(BaseModel):

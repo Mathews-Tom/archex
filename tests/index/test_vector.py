@@ -10,7 +10,7 @@ import pytest
 
 from archex.exceptions import ArchexIndexError
 from archex.index.store import IndexStore
-from archex.index.vector import VectorIndex, reciprocal_rank_fusion
+from archex.index.vector import VectorIndex, confidence_weighted_rrf, reciprocal_rank_fusion
 from archex.models import CodeChunk, SymbolKind
 
 if TYPE_CHECKING:
@@ -436,3 +436,94 @@ class TestVectorPersistenceRoundTrip:
             assert store.vector_index_path == expected
         finally:
             store.close()
+
+
+class TestConfidenceWeightedRRF:
+    """Tests for confidence_weighted_rrf weight adaptation."""
+
+    def _make_results(
+        self,
+        chunks: list[CodeChunk],
+        scores: list[float],
+    ) -> list[tuple[CodeChunk, float]]:
+        return list(zip(chunks, scores, strict=True))
+
+    def test_high_agreement_favors_bm25(self) -> None:
+        """signal_agreement > 0.7 → bm25_weight=0.70, vector_weight=0.30."""
+        bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
+        vec = self._make_results(SAMPLE_CHUNKS[:2], [0.9, 0.8])
+        _, bw, vw = confidence_weighted_rrf(bm25, vec, signal_agreement=0.8, bm25_score_cv=0.5)
+        assert bw == 0.70
+        assert vw == 0.30
+
+    def test_low_agreement_favors_vector(self) -> None:
+        """signal_agreement < 0.3 → bm25_weight=0.35, vector_weight=0.65."""
+        bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
+        vec = self._make_results(SAMPLE_CHUNKS[2:], [0.9, 0.8])
+        _, bw, vw = confidence_weighted_rrf(bm25, vec, signal_agreement=0.1, bm25_score_cv=0.5)
+        assert bw == 0.35
+        assert vw == 0.65
+
+    def test_medium_agreement_low_cv_favors_vector(self) -> None:
+        """Medium agreement with low BM25 CV (<=0.3) → bm25=0.40, vector=0.60."""
+        bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
+        vec = self._make_results(SAMPLE_CHUNKS[1:3], [0.9, 0.8])
+        _, bw, vw = confidence_weighted_rrf(bm25, vec, signal_agreement=0.5, bm25_score_cv=0.2)
+        assert bw == 0.40
+        assert vw == 0.60
+
+    def test_medium_agreement_high_cv_equal_weights(self) -> None:
+        """Medium agreement with high BM25 CV (>0.3) → bm25=0.50, vector=0.50."""
+        bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
+        vec = self._make_results(SAMPLE_CHUNKS[1:3], [0.9, 0.8])
+        _, bw, vw = confidence_weighted_rrf(bm25, vec, signal_agreement=0.5, bm25_score_cv=0.6)
+        assert bw == 0.50
+        assert vw == 0.50
+
+    def test_weights_sum_to_one(self) -> None:
+        """BM25 and vector weights always sum to 1.0 across all branches."""
+        cases = [
+            (0.8, 0.5),  # high agreement
+            (0.5, 0.6),  # medium + high CV
+            (0.5, 0.2),  # medium + low CV
+            (0.1, 0.5),  # low agreement
+            (0.3, 0.3),  # boundary: agreement exactly 0.3
+            (0.7, 0.3),  # boundary: agreement exactly 0.7
+        ]
+        bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
+        vec = self._make_results(SAMPLE_CHUNKS[:2], [0.9, 0.8])
+        for agreement, cv in cases:
+            _, bw, vw = confidence_weighted_rrf(
+                bm25,
+                vec,
+                signal_agreement=agreement,
+                bm25_score_cv=cv,
+            )
+            assert abs(bw + vw - 1.0) < 1e-9, f"weights don't sum to 1 for {agreement=}, {cv=}"
+
+    def test_fused_results_deduplicate_chunks(self) -> None:
+        """Chunks appearing in both lists are deduplicated."""
+        bm25 = self._make_results([SAMPLE_CHUNKS[0]], [5.0])
+        vec = self._make_results([SAMPLE_CHUNKS[0]], [0.9])
+        fused, _, _ = confidence_weighted_rrf(bm25, vec, signal_agreement=0.8, bm25_score_cv=0.5)
+        assert len(fused) == 1
+
+    def test_fused_results_sorted_descending(self) -> None:
+        """Fused results are sorted by score descending."""
+        bm25 = self._make_results(SAMPLE_CHUNKS[:3], [5.0, 3.0, 1.0])
+        vec = self._make_results(SAMPLE_CHUNKS[:3], [0.9, 0.8, 0.7])
+        fused, _, _ = confidence_weighted_rrf(bm25, vec, signal_agreement=0.5, bm25_score_cv=0.4)
+        fused_scores = [s for _, s in fused]
+        assert fused_scores == sorted(fused_scores, reverse=True)
+
+    def test_empty_bm25_returns_vector_only(self) -> None:
+        """Empty BM25 results: fused output comes entirely from vector results."""
+        vec = self._make_results(SAMPLE_CHUNKS[:2], [0.9, 0.8])
+        fused, _, _ = confidence_weighted_rrf([], vec, signal_agreement=0.0, bm25_score_cv=0.0)
+        assert len(fused) == 2
+
+    def test_empty_vector_returns_bm25_only(self) -> None:
+        """Empty vector results: fused output comes entirely from BM25 results."""
+        bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
+        fused, _, _ = confidence_weighted_rrf(bm25, [], signal_agreement=0.0, bm25_score_cv=0.5)
+        assert len(fused) == 2
