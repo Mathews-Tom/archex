@@ -102,17 +102,20 @@ def run_benchmark(
             if runner is None:
                 logger.warning("No runner for strategy %s, skipping", strategy)
                 continue
+            _label = f"  [{strategy.value}]"
             try:
+                print(f"{_label} running...", end="", file=sys.stderr, flush=True)
                 result = runner(task, repo_path)
                 results.append(result)
-                print(
-                    f"  [{strategy.value}] {result.tokens_total:,} tokens, "
-                    f"recall={result.recall:.2f}, {result.wall_time_ms:.0f}ms",
-                    file=sys.stderr,
+                _msg = (
+                    f"{_label} {result.tokens_total:,} tokens, "
+                    f"recall={result.recall:.2f}, {result.wall_time_ms:.0f}ms"
                 )
+                print(f"\r{_msg:<60}", file=sys.stderr)
             except (NotImplementedError, ArchexIndexError) as exc:
                 logger.info("Skipping %s: %s", strategy.value, exc)
-                print(f"  [{strategy.value}] skipped: {exc}", file=sys.stderr)
+                _msg = f"{_label} skipped: {exc}"
+                print(f"\r{_msg:<60}", file=sys.stderr)
 
         # Compute baseline and backfill savings_vs_raw
         baseline_tokens = 0
@@ -156,8 +159,8 @@ def run_all(
     output_dir.mkdir(parents=True, exist_ok=True)
     reports: list[BenchmarkReport] = []
 
-    for task in tasks:
-        print(f"Running benchmark: {task.task_id} ({task.repo})", file=sys.stderr)
+    for i, task in enumerate(tasks, 1):
+        print(f"[{i}/{len(tasks)}] {task.task_id} ({task.repo})", file=sys.stderr)
         task_repo_path: Path | None = None
         if task.repo == ".":
             task_repo_path = Path.cwd()
