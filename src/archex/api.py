@@ -93,6 +93,7 @@ from archex.serve.profile import build_profile
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from archex.index.embeddings.base import Embedder
     from archex.models import ComparisonResult
 
 # ---------------------------------------------------------------------------
@@ -1145,7 +1146,7 @@ def _two_stage_rerank(
     return vector_results  # type: ignore[return-value]
 
 
-def _get_embedder(index_config: IndexConfig) -> object | None:
+def _get_embedder(index_config: IndexConfig) -> Embedder | None:
     """Create an embedder from index_config via the EmbedderRegistry."""
     from archex.index.embeddings import default_embedder_registry
 

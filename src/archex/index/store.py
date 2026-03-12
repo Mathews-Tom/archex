@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archex.models import CodeChunk, Edge, EdgeKind, SymbolKind
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from types import TracebackType
-else:
-    from pathlib import Path
 
 
 _CREATE_CHUNKS = """
