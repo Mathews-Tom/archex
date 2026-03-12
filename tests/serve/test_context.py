@@ -507,6 +507,66 @@ def test_high_relevance_low_centrality_beats_low_relevance_high_centrality() -> 
 
 
 # ---------------------------------------------------------------------------
+# Fusion diagnostics tests
+# ---------------------------------------------------------------------------
+
+
+def test_fusion_weights_recorded_in_metadata_with_vector_results() -> None:
+    """When vector_results is provided, fusion_bm25_weight and fusion_vector_weight are set."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    graph.add_file_node("b.py")
+    c_a = make_chunk("ca", "a.py", token_count=10)
+    c_b = make_chunk("cb", "b.py", token_count=10)
+    bm25_results = [(c_a, 5.0)]
+    vec_results = [(c_b, 0.9)]
+    bundle = assemble_context(
+        bm25_results,
+        graph,
+        [c_a, c_b],
+        "q",
+        token_budget=1000,
+        vector_results=vec_results,
+    )
+    meta = bundle.retrieval_metadata
+    assert meta.fusion_bm25_weight is not None
+    assert meta.fusion_vector_weight is not None
+    assert abs(meta.fusion_bm25_weight + meta.fusion_vector_weight - 1.0) < 1e-9
+
+
+def test_fusion_weights_none_without_vector_results() -> None:
+    """BM25-only retrieval leaves fusion weights as None."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    chunk = make_chunk("c1", "a.py", token_count=10)
+    results = [(chunk, 1.0)]
+    bundle = assemble_context(results, graph, [chunk], "q", token_budget=1000)
+    assert bundle.retrieval_metadata.fusion_bm25_weight is None
+    assert bundle.retrieval_metadata.fusion_vector_weight is None
+
+
+def test_fusion_weights_reflect_high_agreement() -> None:
+    """When BM25 and vector agree completely, bm25_weight=0.70."""
+    graph = DependencyGraph()
+    graph.add_file_node("a.py")
+    c = make_chunk("ca", "a.py", token_count=10)
+    # Perfect agreement: both signals return the same file
+    bm25_results = [(c, 5.0)]
+    vec_results = [(c, 0.9)]
+    bundle = assemble_context(
+        bm25_results,
+        graph,
+        [c],
+        "q",
+        token_budget=1000,
+        vector_results=vec_results,
+    )
+    meta = bundle.retrieval_metadata
+    assert meta.fusion_bm25_weight == 0.70
+    assert meta.fusion_vector_weight == 0.30
+
+
+# ---------------------------------------------------------------------------
 # Vector-seed retrieval tests
 # ---------------------------------------------------------------------------
 

@@ -213,3 +213,63 @@ def reciprocal_rank_fusion(
 
     sorted_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
     return [(chunk_map[cid], scores[cid]) for cid in sorted_ids]
+
+
+def bm25_score_cv(bm25_results: list[tuple[CodeChunk, float]], top_n: int = 10) -> float:
+    """Compute coefficient of variation of BM25 top-N scores.
+
+    Low CV indicates flat BM25 scores (vocabulary ambiguity — no clear winner).
+    High CV indicates a clear BM25 signal with well-separated scores.
+    Returns 0.0 when fewer than 2 results are present or mean is near zero.
+    """
+    scores = [score for _, score in bm25_results[:top_n]]
+    if len(scores) < 2:
+        return 0.0
+    arr = np.array(scores, dtype=np.float64)
+    mean = float(arr.mean())
+    if mean < 1e-9:
+        return 0.0
+    return float(arr.std() / mean)
+
+
+def confidence_weighted_rrf(
+    bm25_results: list[tuple[CodeChunk, float]],
+    vector_results: list[tuple[CodeChunk, float]],
+    signal_agreement: float,
+    bm25_score_cv: float,
+    k: int = 60,
+) -> tuple[list[tuple[CodeChunk, float]], float, float]:
+    """Merge BM25 and vector results using weighted Reciprocal Rank Fusion.
+
+    Weight schedule:
+    - agreement > 0.7: bm25=0.70, vector=0.30 (both agree, trust faster signal)
+    - 0.3-0.7, CV > 0.3: bm25=0.50, vector=0.50 (mixed, clear BM25 spread)
+    - 0.3-0.7, CV <= 0.3: bm25=0.40, vector=0.60 (mixed, flat BM25, vector disambiguates)
+    - agreement < 0.3: bm25=0.35, vector=0.65 (strong disagreement, vector has novel hits)
+
+    Returns (fused_results, bm25_weight, vector_weight).
+    """
+    if signal_agreement > 0.7:
+        bm25_weight, vector_weight = 0.70, 0.30
+    elif signal_agreement >= 0.3:
+        if bm25_score_cv > 0.3:
+            bm25_weight, vector_weight = 0.50, 0.50
+        else:
+            bm25_weight, vector_weight = 0.40, 0.60
+    else:
+        bm25_weight, vector_weight = 0.35, 0.65
+
+    scores: dict[str, float] = {}
+    chunk_map: dict[str, CodeChunk] = {}
+
+    for rank, (chunk, _) in enumerate(bm25_results):
+        scores[chunk.id] = scores.get(chunk.id, 0.0) + bm25_weight / (k + rank + 1)
+        chunk_map[chunk.id] = chunk
+
+    for rank, (chunk, _) in enumerate(vector_results):
+        scores[chunk.id] = scores.get(chunk.id, 0.0) + vector_weight / (k + rank + 1)
+        chunk_map[chunk.id] = chunk
+
+    sorted_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
+    fused = [(chunk_map[cid], scores[cid]) for cid in sorted_ids]
+    return fused, bm25_weight, vector_weight

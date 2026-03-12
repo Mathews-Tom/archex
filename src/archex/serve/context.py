@@ -255,14 +255,30 @@ def assemble_context(
             retrieval_metadata=RetrievalMetadata(strategy=strategy),
         )
 
-    # Merge BM25 + vector via RRF when both are available
+    # Merge BM25 + vector via confidence-weighted RRF when both are available
+    fusion_bm25_weight: float | None = None
+    fusion_vector_weight: float | None = None
     if vector_results:
-        from archex.index.vector import reciprocal_rank_fusion
+        from archex.index.vector import bm25_score_cv, confidence_weighted_rrf
 
-        merged = reciprocal_rank_fusion(search_results, vector_results, k=60)
+        # Compute signal_agreement (Jaccard of BM25 top-20 and vector top-20 file paths)
+        # before fusion so weights can adapt to agreement level.
+        _k_agree = 20
+        _bm25_top_k = {chunk.file_path for chunk, _ in search_results[:_k_agree]}
+        _vec_top_k = {chunk.file_path for chunk, _ in vector_results[:_k_agree]}
+        _union = _bm25_top_k | _vec_top_k
+        signal_agreement_pre: float = len(_bm25_top_k & _vec_top_k) / len(_union) if _union else 0.0
+
+        # Compute BM25 score CV from raw (pre-normalization) scores
+        bm25_cv = bm25_score_cv(search_results)
+
+        merged, fusion_bm25_weight, fusion_vector_weight = confidence_weighted_rrf(
+            search_results, vector_results, signal_agreement_pre, bm25_cv, k=60
+        )
         max_score = max(score for _, score in merged) or 1.0
         bm25_by_id: dict[str, float] = {chunk.id: score / max_score for chunk, score in merged}
     else:
+        signal_agreement_pre = 0.0
         # Normalize BM25 scores to [0, 1]
         max_score = max(score for _, score in search_results) or 1.0
         bm25_by_id = {chunk.id: score / max_score for chunk, score in search_results}
@@ -394,15 +410,8 @@ def assemble_context(
             for fp in mod.files:
                 file_to_module[fp] = mod
 
-    # Compute signal agreement (Jaccard of BM25 top-K and vector top-K)
-    signal_agreement: float | None = None
-    if vector_results:
-        k = 20
-        bm25_top_k = {chunk.file_path for chunk, _ in search_results[:k]}
-        vec_top_k = {chunk.file_path for chunk, _ in vector_results[:k]}
-        union = bm25_top_k | vec_top_k
-        if union:
-            signal_agreement = len(bm25_top_k & vec_top_k) / len(union)
+    # Signal agreement was computed pre-fusion; carry it forward for metadata
+    signal_agreement: float | None = signal_agreement_pre if vector_results else None
 
     # Candidate file set for cohesion computation
     candidate_files = {c.file_path for c in candidate_map.values()}
@@ -576,6 +585,8 @@ def assemble_context(
         strategy=strategy,
         assembly_time_ms=assembly_ms,
         signal_agreement=signal_agreement,
+        fusion_bm25_weight=fusion_bm25_weight,
+        fusion_vector_weight=fusion_vector_weight,
     )
 
     return ContextBundle(
