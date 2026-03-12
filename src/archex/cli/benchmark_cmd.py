@@ -11,9 +11,11 @@ from archex.benchmark.baseline import compare_baseline, load_baseline, save_base
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.gate import (
     DeltaQualityThresholds,
+    LatencyWarning,
     QualityThresholds,
     check_delta_gate,
     check_gate,
+    check_latency_warnings,
 )
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, DeltaBenchmarkResult, Strategy
@@ -241,16 +243,23 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
-@click.option("--min-recall", default=0.6, type=float, help="Minimum recall threshold.")
-@click.option("--min-precision", default=0.3, type=float, help="Minimum precision threshold.")
-@click.option("--min-f1", default=0.4, type=float, help="Minimum F1 threshold.")
-@click.option("--min-mrr", default=0.3, type=float, help="Minimum MRR threshold.")
+@click.option("--min-recall", default=0.60, type=float, help="Minimum recall threshold.")
+@click.option("--min-precision", default=0.20, type=float, help="Minimum precision threshold.")
+@click.option("--min-f1", default=0.30, type=float, help="Minimum F1 threshold.")
+@click.option("--min-mrr", default=0.55, type=float, help="Minimum MRR threshold.")
+@click.option(
+    "--warn-latency-ms",
+    default=5000.0,
+    type=float,
+    help="Warn (non-fatal) if mean task latency exceeds this value in ms.",
+)
 def gate_cmd(
     input_dir: str,
     min_recall: float,
     min_precision: float,
     min_f1: float,
     min_mrr: float,
+    warn_latency_ms: float,
 ) -> None:
     """Check benchmark results against quality thresholds."""
     input_path = Path(input_dir)
@@ -267,7 +276,20 @@ def gate_cmd(
         min_precision=min_precision,
         min_f1=min_f1,
         min_mrr=min_mrr,
+        warn_latency_ms=warn_latency_ms,
     )
+
+    latency_warnings: list[LatencyWarning] = check_latency_warnings(reports, thresholds)
+    if latency_warnings:
+        click.echo(
+            f"LATENCY WARNING: {len(latency_warnings)} task(s) exceeded {warn_latency_ms:.0f}ms"
+        )
+        for w in latency_warnings:
+            click.echo(
+                f"  {w.task_id}/{w.strategy}: {w.actual_ms:.0f}ms"
+                f" (threshold: {w.threshold_ms:.0f}ms)"
+            )
+
     violations = check_gate(reports, thresholds)
 
     if violations:

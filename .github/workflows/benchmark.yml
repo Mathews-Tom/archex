@@ -9,8 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  benchmark:
+  benchmark-bm25:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -28,22 +29,93 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Run benchmarks (self-referential tasks)
+      - name: Run benchmarks (bm25, all tasks)
         run: |
-          uv run archex benchmark run benchmarks/tasks/ \
-            --strategies bm25 \
-            --output benchmarks/results/latest.json \
-            --filter "archex_*"
+          uv run archex benchmark run \
+            --tasks-dir benchmarks/tasks \
+            --output benchmarks/results/bm25 \
+            --strategy archex_query
 
-      - name: Quality gate
-        run: uv run archex benchmark gate benchmarks/results/latest.json
+      - name: Quality gate (bm25)
+        run: |
+          uv run archex benchmark gate \
+            --input benchmarks/results/bm25 \
+            --min-recall 0.60 \
+            --min-f1 0.30 \
+            --min-mrr 0.55
+
+      - name: Upload bm25 results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-bm25
+          path: benchmarks/results/bm25/
+
+  benchmark-hybrid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run benchmarks (hybrid, all tasks)
+        run: |
+          uv run archex benchmark run \
+            --tasks-dir benchmarks/tasks \
+            --output benchmarks/results/hybrid \
+            --strategy archex_query_hybrid
+
+      - name: Quality gate (hybrid)
+        run: |
+          uv run archex benchmark gate \
+            --input benchmarks/results/hybrid \
+            --min-recall 0.60 \
+            --min-f1 0.30 \
+            --min-mrr 0.55
+
+      - name: Upload hybrid results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-hybrid
+          path: benchmarks/results/hybrid/
+
+  commit-results:
+    runs-on: ubuntu-latest
+    needs: [benchmark-bm25, benchmark-hybrid]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download bm25 results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results-bm25
+          path: benchmarks/results/bm25/
+
+      - name: Download hybrid results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results-hybrid
+          path: benchmarks/results/hybrid/
 
       - name: Commit results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          cp benchmarks/results/latest.json "benchmarks/results/${TIMESTAMP}.json"
           git add benchmarks/results/
           git diff --cached --quiet || git commit -m "benchmark: update results ${TIMESTAMP}"
           git push

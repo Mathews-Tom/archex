@@ -1,0 +1,18 @@
+task_id: requests_sessions
+repo: psf/requests
+commit: "v2.32.3"
+category: external-framework
+languages: [python]
+question: "How does requests manage HTTP sessions and connection pooling?"
+expected_files:
+  - src/requests/sessions.py
+  - src/requests/adapters.py
+  - src/requests/models.py
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - session
+  - pool
+  - adapter
+  - connection
+  - mount

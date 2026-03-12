@@ -1,0 +1,18 @@
+task_id: django_orm_queries
+repo: django/django
+commit: "5.1.4"
+category: external-large
+languages: [python]
+question: "How does Django's ORM build and execute SQL queries?"
+expected_files:
+  - django/db/models/sql/query.py
+  - django/db/models/sql/compiler.py
+  - django/db/models/query.py
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - queryset
+  - sql
+  - compiler
+  - execute
+  - build

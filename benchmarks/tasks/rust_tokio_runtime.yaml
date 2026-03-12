@@ -1,0 +1,18 @@
+task_id: rust_tokio_runtime
+repo: tokio-rs/tokio
+commit: "tokio-1.42.0"
+category: external-large
+languages: [rust]
+question: "How does tokio implement the async task runtime and scheduler?"
+expected_files:
+  - tokio/src/runtime/mod.rs
+  - tokio/src/runtime/scheduler/mod.rs
+  - tokio/src/runtime/task/mod.rs
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - runtime
+  - scheduler
+  - task
+  - spawn
+  - poll

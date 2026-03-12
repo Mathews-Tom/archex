@@ -1,0 +1,18 @@
+task_id: fastapi_routing
+repo: tiangolo/fastapi
+commit: "0.115.6"
+category: external-framework
+languages: [python]
+question: "How does FastAPI handle route registration and path parameter parsing?"
+expected_files:
+  - fastapi/routing.py
+  - fastapi/applications.py
+  - fastapi/params.py
+expected_symbols: []
+token_budget: 8192
+keywords:
+  - route
+  - path
+  - parameter
+  - register
+  - endpoint
