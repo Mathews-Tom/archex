@@ -431,7 +431,9 @@ class TestIsStale:
     def test_old_entry_is_stale(self, cache: CacheManager, sample_db: Path) -> None:
         cache.put(KEY_A, sample_db)
         old_ts = time.time() - 48 * 3600
-        meta_data = json.dumps({"created_at": str(old_ts), "resolved_commit": "", "source_identity": ""})
+        meta_data = json.dumps(
+            {"created_at": str(old_ts), "resolved_commit": "", "source_identity": ""}
+        )
         cache.meta_path(KEY_A).write_text(meta_data)
         assert cache.is_stale(KEY_A, max_age_hours=24) is True
 

@@ -118,8 +118,10 @@ def _full_index(
             store.set_metadata("indexed_at", str(time.time()))
             store.conn.execute("PRAGMA wal_checkpoint(FULL)")
             cache.put(
-                cache_key, db_path,
-                resolved_commit=commit, source_identity=identity,
+                cache_key,
+                db_path,
+                resolved_commit=commit,
+                source_identity=identity,
             )
         if timing is not None:
             timing.index_ms = _elapsed_ms(t_idx)
@@ -197,7 +199,8 @@ def _ensure_index(
                         store.set_metadata("indexed_at", str(time.time()))
                         store.conn.execute("PRAGMA wal_checkpoint(FULL)")
                         cache.put(
-                            cache_key, db_path,
+                            cache_key,
+                            db_path,
                             resolved_commit=current_commit,
                             source_identity=identity,
                         )
@@ -791,8 +794,10 @@ def query(
                 store.set_metadata("indexed_at", str(time.time()))
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
                 cache.put(
-                    cache_key, db_path,
-                    resolved_commit=commit, source_identity=identity,
+                    cache_key,
+                    db_path,
+                    resolved_commit=commit,
+                    source_identity=identity,
                 )
 
             # Passthrough: entire repo fits within budget
