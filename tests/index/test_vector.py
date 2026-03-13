@@ -455,12 +455,12 @@ class TestConfidenceWeightedRRF:
         return list(zip(chunks, scores, strict=True))
 
     def test_high_agreement_favors_bm25(self) -> None:
-        """signal_agreement > 0.7 → bm25_weight=0.70, vector_weight=0.30."""
+        """signal_agreement > 0.7 → bm25_weight=0.85, vector_weight=0.15."""
         bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
         vec = self._make_results(SAMPLE_CHUNKS[:2], [0.9, 0.8])
         _, bw, vw = confidence_weighted_rrf(bm25, vec, signal_agreement=0.8, bm25_score_cv=0.5)
-        assert bw == 0.70
-        assert vw == 0.30
+        assert bw == 0.85
+        assert vw == 0.15
 
     def test_low_agreement_favors_vector(self) -> None:
         """signal_agreement < 0.3 → bm25_weight=0.35, vector_weight=0.65."""

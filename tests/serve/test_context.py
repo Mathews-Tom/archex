@@ -570,7 +570,7 @@ def test_fusion_weights_none_without_vector_results() -> None:
 
 
 def test_fusion_weights_reflect_high_agreement() -> None:
-    """When BM25 and vector agree completely, bm25_weight=0.70."""
+    """When BM25 and vector agree completely, bm25_weight=0.85."""
     graph = DependencyGraph()
     for name in ("a.py", "b.py", "c.py"):
         graph.add_file_node(name)
@@ -587,8 +587,8 @@ def test_fusion_weights_reflect_high_agreement() -> None:
         vector_results=vec_results,
     )
     meta = bundle.retrieval_metadata
-    assert meta.fusion_bm25_weight == 0.70
-    assert meta.fusion_vector_weight == 0.30
+    assert meta.fusion_bm25_weight == 0.85
+    assert meta.fusion_vector_weight == 0.15
 
 
 # ---------------------------------------------------------------------------

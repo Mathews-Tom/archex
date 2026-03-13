@@ -282,7 +282,7 @@ def confidence_weighted_rrf(
     """Merge BM25 and vector results using weighted Reciprocal Rank Fusion.
 
     Weight schedule:
-    - agreement > 0.7: bm25=0.70, vector=0.30 (both agree, trust faster signal)
+    - agreement > 0.7: bm25=0.85, vector=0.15 (both agree, trust faster signal)
     - 0.3-0.7, CV > 0.3: bm25=0.50, vector=0.50 (mixed, clear BM25 spread)
     - 0.3-0.7, CV <= 0.3: bm25=0.40, vector=0.60 (mixed, flat BM25, vector disambiguates)
     - agreement < 0.3: bm25=0.35, vector=0.65 (strong disagreement, vector has novel hits)
@@ -290,7 +290,7 @@ def confidence_weighted_rrf(
     Returns (fused_results, bm25_weight, vector_weight).
     """
     if signal_agreement > 0.7:
-        bm25_weight, vector_weight = 0.70, 0.30
+        bm25_weight, vector_weight = 0.85, 0.15
     elif signal_agreement >= 0.3:
         if bm25_score_cv > 0.3:
             bm25_weight, vector_weight = 0.50, 0.50
