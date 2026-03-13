@@ -231,6 +231,47 @@ def bm25_score_cv(bm25_results: list[tuple[CodeChunk, float]], top_n: int = 10) 
     return float(arr.std() / mean)
 
 
+def should_fuse(
+    bm25_results: list[tuple[CodeChunk, float]],
+    vector_results: list[tuple[CodeChunk, float]],
+    *,
+    cv_threshold: float = 0.5,
+    agreement_threshold: float = 0.6,
+    min_results: int = 3,
+) -> tuple[bool, str]:
+    """Decide whether to apply fusion based on BM25 confidence signals.
+
+    Returns (should_apply, reason) where reason explains the decision.
+
+    Fusion is SKIPPED when:
+    - BM25 score CV > cv_threshold (clear score separation — BM25 is confident)
+      AND signal agreement > agreement_threshold (both signals agree, so vector adds no info)
+    - Fewer than min_results from either signal
+
+    Fusion is APPLIED when:
+    - BM25 CV is low (flat scores — vocabulary ambiguity)
+    - OR signal agreement is low (signals disagree — vector found different files)
+    """
+    if len(bm25_results) < min_results:
+        return False, f"too_few_bm25_results:{len(bm25_results)}"
+    if not vector_results or len(vector_results) < min_results:
+        return False, f"too_few_vector_results:{len(vector_results) if vector_results else 0}"
+
+    cv = bm25_score_cv(bm25_results)
+
+    # Compute signal agreement (Jaccard of top-20 file paths)
+    k_agree = 20
+    bm25_top = {chunk.file_path for chunk, _ in bm25_results[:k_agree]}
+    vec_top = {chunk.file_path for chunk, _ in vector_results[:k_agree]}
+    union = bm25_top | vec_top
+    agreement = len(bm25_top & vec_top) / len(union) if union else 0.0
+
+    if cv > cv_threshold and agreement > agreement_threshold:
+        return False, f"bm25_confident:cv={cv:.3f},agreement={agreement:.3f}"
+
+    return True, f"fusion_needed:cv={cv:.3f},agreement={agreement:.3f}"
+
+
 def confidence_weighted_rrf(
     bm25_results: list[tuple[CodeChunk, float]],
     vector_results: list[tuple[CodeChunk, float]],

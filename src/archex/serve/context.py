@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,8 @@ from archex.observe import PipelineTrace, StepTiming
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
+
+logger = logging.getLogger(__name__)
 
 _TYPE_LIKE = {SymbolKind.CLASS, SymbolKind.TYPE, SymbolKind.INTERFACE}
 
@@ -143,15 +146,24 @@ _QUERY_STOP = frozenset(
 # These expand BM25 misses caused by vocabulary gaps between natural-language queries
 # and the actual identifiers/comments in source files.
 _ARCH_SYNONYMS: dict[str, list[str]] = {
-    "pipeline": ["workflow", "chain", "process"],
-    "middleware": ["handler", "interceptor", "filter"],
-    "registry": ["register", "catalog", "factory"],
-    "adapter": ["plugin", "connector", "driver"],
-    "injection": ["inject", "resolve", "depend"],
-    "routing": ["route", "router", "dispatch"],
-    "indexing": ["index", "reindex", "delta"],
-    "dependency": ["depend", "resolve", "inject"],
+    "pipeline": ["workflow", "chain", "process", "pipe", "stage"],
+    "middleware": ["handler", "interceptor", "filter", "hook"],
+    "registry": ["register", "catalog", "factory", "provider"],
+    "adapter": ["plugin", "connector", "driver", "bridge"],
+    "injection": ["inject", "resolve", "depend", "wire"],
+    "routing": ["route", "router", "dispatch", "endpoint", "path"],
+    "indexing": ["index", "reindex", "delta", "catalog"],
+    "dependency": ["depend", "resolve", "inject", "require"],
+    "query": ["search", "retrieve", "lookup", "find", "fetch"],
+    "session": ["connection", "pool", "client", "transport"],
+    "hook": ["callback", "listener", "subscriber", "event"],
+    "orm": ["model", "schema", "mapper", "table", "entity"],
+    "task": ["job", "worker", "celery", "dispatch", "execute"],
+    "runtime": ["scheduler", "executor", "loop", "spawn"],
 }
+
+# Architecture keywords that trigger 2-hop expansion.
+_ARCH_KEYWORDS = frozenset(_ARCH_SYNONYMS.keys())
 
 
 def _split_compound_token(token: str) -> list[str]:
@@ -224,6 +236,37 @@ def _query_terms(question: str) -> set[str]:
     return expanded
 
 
+def _adaptive_max_files(
+    file_scores: list[tuple[str, float]],
+    default: int = MAX_FILES,
+) -> int:
+    """Reduce MAX_FILES when BM25 has clear score separation.
+
+    When the top file score is >3x the median score, reduce to 5.
+    When >5x, reduce to 4.
+    Otherwise keep the default of 8.
+    """
+    if len(file_scores) < 3:
+        return min(default, len(file_scores))
+    scores = [s for _, s in file_scores]
+    top = scores[0]
+    median = scores[len(scores) // 2]
+    if median <= 0:
+        return default
+    ratio = top / median
+    if ratio > 5.0:
+        return 4
+    if ratio > 3.0:
+        return 5
+    return default
+
+
+def _is_architecture_query(question: str) -> bool:
+    """Return True if the query contains any architecture keyword."""
+    q_lower = question.lower()
+    return any(kw in q_lower for kw in _ARCH_KEYWORDS)
+
+
 def assemble_context(
     search_results: list[tuple[CodeChunk, float]],
     graph: DependencyGraph,
@@ -234,6 +277,7 @@ def assemble_context(
     scoring_weights: ScoringWeights | None = None,
     modules: list[Module] | None = None,
     trace: PipelineTrace | None = None,
+    expansion_min_override: float | None = None,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
 
@@ -242,6 +286,8 @@ def assemble_context(
     When modules is provided, computes cohesion signal per chunk.
     When trace is provided, records step-level timings for graph_expansion, scoring,
     and assembly phases.
+    When expansion_min_override is provided, uses it instead of SEED_EXPANSION_MIN
+    for expansion gating (useful for architecture-broad queries with flat BM25 scores).
     """
     assembly_start = time.perf_counter()
     weights = scoring_weights or ScoringWeights()
@@ -258,34 +304,54 @@ def assemble_context(
     # Merge BM25 + vector via confidence-weighted RRF when both are available
     fusion_bm25_weight: float | None = None
     fusion_vector_weight: float | None = None
+    fusion_skipped = False
+    fusion_skip_reason = ""
+    bm25_cv_val: float | None = None
     if vector_results:
-        from archex.index.vector import bm25_score_cv, confidence_weighted_rrf
+        from archex.index.vector import bm25_score_cv, confidence_weighted_rrf, should_fuse
 
-        # Compute signal_agreement (Jaccard of BM25 top-20 and vector top-20 file paths)
-        # before fusion so weights can adapt to agreement level.
-        _k_agree = 20
-        _bm25_top_k = {chunk.file_path for chunk, _ in search_results[:_k_agree]}
-        _vec_top_k = {chunk.file_path for chunk, _ in vector_results[:_k_agree]}
-        _union = _bm25_top_k | _vec_top_k
-        signal_agreement_pre: float = len(_bm25_top_k & _vec_top_k) / len(_union) if _union else 0.0
+        # Gate fusion: skip when BM25 is confident and signals agree.
+        # Always fuse when BM25 is empty — vector is the only signal.
+        fuse, fuse_reason = should_fuse(search_results, vector_results)
+        bm25_cv_val = bm25_score_cv(search_results)
 
-        # Compute BM25 score CV from raw (pre-normalization) scores
-        bm25_cv = bm25_score_cv(search_results)
+        if fuse or not search_results:
+            # Compute signal_agreement (Jaccard of BM25 top-20 and vector top-20 file paths)
+            _k_agree = 20
+            _bm25_top_k = {chunk.file_path for chunk, _ in search_results[:_k_agree]}
+            _vec_top_k = {chunk.file_path for chunk, _ in vector_results[:_k_agree]}
+            _union = _bm25_top_k | _vec_top_k
+            signal_agreement_pre: float = len(_bm25_top_k & _vec_top_k) / len(_union) if _union else 0.0
 
-        merged, fusion_bm25_weight, fusion_vector_weight = confidence_weighted_rrf(
-            search_results, vector_results, signal_agreement_pre, bm25_cv, k=60
-        )
-        max_score = max(score for _, score in merged) or 1.0
-        bm25_by_id: dict[str, float] = {chunk.id: score / max_score for chunk, score in merged}
+            merged, fusion_bm25_weight, fusion_vector_weight = confidence_weighted_rrf(
+                search_results, vector_results, signal_agreement_pre, bm25_cv_val, k=60
+            )
+            max_score = max(score for _, score in merged) or 1.0
+            bm25_by_id: dict[str, float] = {chunk.id: score / max_score for chunk, score in merged}
+            logger.debug("Fusion applied: %s", fuse_reason)
+        else:
+            # BM25 is confident — skip fusion, use BM25 results only
+            signal_agreement_pre = 0.0
+            fusion_skipped = True
+            fusion_skip_reason = fuse_reason
+            strategy = "bm25+graph"  # downgrade strategy label
+            max_score = max((score for _, score in search_results), default=1.0) or 1.0
+            bm25_by_id = {chunk.id: score / max_score for chunk, score in search_results}
+            logger.debug("Fusion skipped: %s", fuse_reason)
     else:
         signal_agreement_pre = 0.0
         # Normalize BM25 scores to [0, 1]
         max_score = max(score for _, score in search_results) or 1.0
         bm25_by_id = {chunk.id: score / max_score for chunk, score in search_results}
-    all_results = search_results + (vector_results or [])
+    # When fusion is skipped, exclude vector results from seeds to avoid noise
+    effective_vector = vector_results if (vector_results and not fusion_skipped) else []
+    all_results = search_results + effective_vector
     seed_files: set[str] = {chunk.file_path for chunk, _ in all_results}
 
     candidates_found = len(search_results)
+
+    # Effective expansion threshold: caller override takes precedence over constant.
+    effective_expansion_min = expansion_min_override if expansion_min_override is not None else SEED_EXPANSION_MIN
 
     # --- Graph expansion phase ---
     _expansion_start = time.perf_counter_ns()
@@ -315,10 +381,35 @@ def assemble_context(
     # Extract query terms for path-aware import prioritization
     q_terms = _query_terms(question)
 
+    # Determine whether this is an architecture query (enables 2-hop expansion)
+    is_arch_query = _is_architecture_query(question)
+
+    # Expansion diagnostic logging
+    qualifying_seeds = [
+        fp for fp in seed_files if norm_seed_scores.get(fp, 0.0) >= effective_expansion_min
+    ]
+    expansion_eligible_seeds = len(qualifying_seeds)
+    logger.debug(
+        "graph_expansion: %d/%d seed files qualify (threshold=%.3f)",
+        len(qualifying_seeds),
+        len(seed_files),
+        effective_expansion_min,
+    )
+    for fp in qualifying_seeds:
+        imports_of_count = len(list(graph.imports_of(fp)))
+        imported_by_count = len(list(graph.imported_by(fp)))
+        logger.debug(
+            "  seed %s (norm_score=%.3f): imports_of=%d imported_by=%d",
+            fp,
+            norm_seed_scores[fp],
+            imports_of_count,
+            imported_by_count,
+        )
+
     expansion_priority: dict[str, float] = {}
     for file_path in seed_files:
         # Only expand from seeds above the confidence threshold
-        if norm_seed_scores.get(file_path, 0.0) < SEED_EXPANSION_MIN:
+        if norm_seed_scores.get(file_path, 0.0) < effective_expansion_min:
             continue
         seed_score = seed_file_scores.get(file_path, 0.0)
         # Direct imports get full seed score — they're in the same call chain
@@ -342,6 +433,17 @@ def assemble_context(
                     expansion_priority.get(imp, 0.0),
                     priority,
                 )
+
+    total_expansion_candidates = len(expansion_priority)
+    if total_expansion_candidates == 0:
+        logger.warning(
+            "graph_expansion: zero candidates found. seed_files=%s norm_scores=%s",
+            list(seed_files),
+            {fp: f"{norm_seed_scores.get(fp, 0.0):.3f}" for fp in seed_files},
+        )
+    else:
+        logger.debug("graph_expansion: %d total expansion candidates", total_expansion_candidates)
+
     sorted_expansion = sorted(
         expansion_priority.keys(),
         key=lambda f: -expansion_priority[f],
@@ -366,6 +468,7 @@ def assemble_context(
             if chunk.id not in candidate_map:
                 candidate_map[chunk.id] = chunk
     expansion_files_added = 0
+    hop1_files_added: list[str] = []
     for file_path in sorted_expansion:
         if file_path.startswith("test") or "/test" in file_path:
             continue
@@ -378,8 +481,47 @@ def assemble_context(
                     break
         if added > 0:
             expansion_files_added += 1
+            hop1_files_added.append(file_path)
         if expansion_files_added >= MAX_EXPANSION_FILES:
             break
+
+    # 2-hop expansion for architecture queries: follow imports_of for top hop-1 candidates
+    if is_arch_query and hop1_files_added:
+        remaining_budget = MAX_EXPANSION_FILES - expansion_files_added
+        if remaining_budget > 0:
+            hop2_priority: dict[str, float] = {}
+            for hop1_fp in hop1_files_added:
+                hop1_score = expansion_priority.get(hop1_fp, 0.0)
+                for dep in graph.imports_of(hop1_fp):
+                    if dep not in seed_files and dep not in set(hop1_files_added):
+                        path_lower = dep.lower()
+                        path_match = any(t in path_lower for t in q_terms)
+                        priority = hop1_score * (1.5 if path_match else 1.0)
+                        hop2_priority[dep] = max(hop2_priority.get(dep, 0.0), priority)
+
+            sorted_hop2 = sorted(hop2_priority.keys(), key=lambda f: -hop2_priority[f])
+            hop2_added = 0
+            for file_path in sorted_hop2:
+                if file_path.startswith("test") or "/test" in file_path:
+                    continue
+                if hop2_added >= remaining_budget:
+                    break
+                added = 0
+                for chunk in chunks_by_file.get(file_path, []):
+                    if chunk.id not in candidate_map:
+                        candidate_map[chunk.id] = chunk
+                        added += 1
+                        if added >= max_per_file:
+                            break
+                if added > 0:
+                    hop2_added += 1
+                    expansion_files_added += 1
+
+            logger.debug(
+                "graph_expansion 2-hop: arch_query=True, hop2_candidates=%d, hop2_added=%d",
+                len(hop2_priority),
+                hop2_added,
+            )
 
     candidates_after_expansion = len(candidate_map)
 
@@ -420,7 +562,7 @@ def assemble_context(
     # Only propagate from seeds above the expansion confidence threshold.
     neighbor_boost: dict[str, float] = {}
     for file_path in seed_files:
-        if norm_seed_scores.get(file_path, 0.0) < SEED_EXPANSION_MIN:
+        if norm_seed_scores.get(file_path, 0.0) < effective_expansion_min:
             continue
         seed_score = max(
             (bm25_by_id.get(c.id, 0.0) for c in candidate_map.values() if c.file_path == file_path),
@@ -482,7 +624,7 @@ def assemble_context(
     ranked.sort(key=lambda r: r.final_score, reverse=True)
 
     # File-level ranking: aggregate per-file scores, apply score-relative cutoff,
-    # then hard-cap at MAX_FILES to limit tail noise.
+    # then hard-cap at adaptive MAX_FILES to limit tail noise.
     file_agg: dict[str, float] = {}
     for rc in ranked:
         fp = rc.chunk.file_path
@@ -491,7 +633,8 @@ def assemble_context(
     top_file_score = sorted_files[0][1] if sorted_files else 0.0
     score_cutoff = top_file_score * FILE_SCORE_CUTOFF
     top_files: set[str] = set()
-    for fp, score in sorted_files[:MAX_FILES]:
+    adaptive_max = _adaptive_max_files(sorted_files)
+    for fp, score in sorted_files[:adaptive_max]:
         if score < score_cutoff:
             break
         top_files.add(fp)
@@ -587,6 +730,12 @@ def assemble_context(
         signal_agreement=signal_agreement,
         fusion_bm25_weight=fusion_bm25_weight,
         fusion_vector_weight=fusion_vector_weight,
+        expansion_eligible_seeds=expansion_eligible_seeds,
+        expansion_candidates_found=len(expansion_priority),
+        expansion_files_added=expansion_files_added,
+        fusion_skipped=fusion_skipped,
+        fusion_skip_reason=fusion_skip_reason,
+        bm25_cv=bm25_cv_val,
     )
 
     return ContextBundle(

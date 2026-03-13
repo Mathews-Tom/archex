@@ -533,6 +533,15 @@ class RetrievalMetadata(BaseModel):
     signal_agreement: float | None = None
     fusion_bm25_weight: float | None = None
     fusion_vector_weight: float | None = None
+    # Expansion diagnostics
+    expansion_eligible_seeds: int = 0
+    expansion_candidates_found: int = 0
+    expansion_files_added: int = 0
+    # Fusion gating
+    fusion_skipped: bool = False
+    fusion_skip_reason: str = ""
+    bm25_cv: float | None = None
+    lexical_confidence: str = ""  # "high", "medium", "low"
 
 
 class ContextBundle(BaseModel):
