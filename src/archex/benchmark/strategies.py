@@ -536,6 +536,13 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     ranked_files = [c.chunk.file_path for c in bundle.chunks]
     result_files = set(_deduplicate_ranked(ranked_files))
     wall_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "Strategy %s for %s: cached=%s, wall_time=%.1fms",
+        "archex_query_vector",
+        task.task_id,
+        timing.cached,
+        wall_ms,
+    )
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
     f1 = compute_f1(recall, precision)
@@ -599,6 +606,13 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     ranked_files = [c.chunk.file_path for c in bundle.chunks]
     result_files = set(_deduplicate_ranked(ranked_files))
     wall_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "Strategy %s for %s: cached=%s, wall_time=%.1fms",
+        "archex_query_fusion",
+        task.task_id,
+        timing.cached,
+        wall_ms,
+    )
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
     f1 = compute_f1(recall, precision)
