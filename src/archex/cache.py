@@ -30,14 +30,25 @@ class CacheManager:
     # Key helpers
     # ------------------------------------------------------------------
 
-    def cache_key(self, source: RepoSource, *, head_override: str | None = None) -> str:
+    def cache_key(
+        self,
+        source: RepoSource,
+        *,
+        head_override: str | None = None,
+        stable_identity: str | None = None,
+    ) -> str:
         """Derive a stable SHA256 cache key from the source identity and resolved ref.
+
+        When stable_identity is provided, it overrides the default identity derived
+        from source.url or source.local_path. This is used by benchmarks to ensure
+        that the same upstream repo always maps to the same cache key, regardless
+        of which temp directory it was cloned into.
 
         For local repos: resolves HEAD via git rev-parse.
         For remote URLs with explicit commit: uses the pinned commit.
         For remote URLs without commit: resolves HEAD via git ls-remote.
         """
-        identity = source.url or source.local_path or ""
+        identity = stable_identity or source.url or source.local_path or ""
         commit = (
             source.commit
             or head_override
@@ -127,6 +138,7 @@ class CacheManager:
         *,
         resolved_commit: str | None = None,
         source_identity: str | None = None,
+        stable_identity: str | None = None,
     ) -> Path:
         """Copy source_db into the cache and record metadata. Return cache path."""
         import json
@@ -138,6 +150,7 @@ class CacheManager:
             "created_at": str(time.time()),
             "resolved_commit": resolved_commit or "",
             "source_identity": source_identity or "",
+            "stable_identity": stable_identity or "",
         }
         meta.write_text(json.dumps(meta_data))
         return dest
