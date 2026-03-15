@@ -1,4 +1,4 @@
-"""Tests for analyze/modules.py: module boundary detection via Louvain clustering."""
+"""Tests for analyze/modules.py: module boundary detection via graph clustering."""
 
 from __future__ import annotations
 
@@ -149,8 +149,8 @@ def test_infer_module_name_common_prefix() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_detect_modules_louvain_fallback() -> None:
-    """When louvain_communities raises NetworkXError, all files collapse into one module."""
+def test_detect_modules_community_detection_fallback() -> None:
+    """When community detection raises NetworkXError, all files collapse into one module."""
     from unittest.mock import patch
 
     import networkx as nx  # type: ignore[import-untyped]
@@ -163,7 +163,7 @@ def test_detect_modules_louvain_fallback() -> None:
     graph.add_file_edge("pkg/a.py", "pkg/b.py")
 
     with patch(
-        "archex.analyze.modules.louvain_communities",
+        "archex.analyze.modules._run_leiden_communities",
         side_effect=nx.NetworkXError("fail"),
     ):
         modules = detect_modules(graph, [pf_a, pf_b])
@@ -172,8 +172,8 @@ def test_detect_modules_louvain_fallback() -> None:
     assert set(modules[0].files) == {"pkg/a.py", "pkg/b.py"}
 
 
-def test_detect_modules_louvain_unexpected_error_propagates() -> None:
-    """Unexpected errors from louvain_communities must propagate, not be silently caught."""
+def test_detect_modules_community_detection_unexpected_error_propagates() -> None:
+    """Unexpected errors from community detection must propagate, not be silently caught."""
     from unittest.mock import patch
 
     pf_a = ParsedFile(path="pkg/a.py", language="python", lines=5)
@@ -184,10 +184,33 @@ def test_detect_modules_louvain_unexpected_error_propagates() -> None:
     graph.add_file_edge("pkg/a.py", "pkg/b.py")
 
     with (
-        patch("archex.analyze.modules.louvain_communities", side_effect=TypeError("unexpected")),
+        patch(
+            "archex.analyze.modules._run_leiden_communities",
+            side_effect=TypeError("unexpected"),
+        ),
         pytest.raises(TypeError, match="unexpected"),
     ):
         detect_modules(graph, [pf_a, pf_b])
+
+
+def test_detect_modules_uses_leiden_partition_when_available() -> None:
+    from unittest.mock import patch
+
+    pf_a = ParsedFile(path="pkg/a.py", language="python", lines=5)
+    pf_b = ParsedFile(path="pkg/b.py", language="python", lines=8)
+    graph = DependencyGraph()
+    graph.add_file_node("pkg/a.py")
+    graph.add_file_node("pkg/b.py")
+    graph.add_file_edge("pkg/a.py", "pkg/b.py")
+
+    with patch(
+        "archex.analyze.modules._run_leiden_communities",
+        return_value=[{"pkg/a.py", "pkg/b.py"}],
+    ):
+        modules = detect_modules(graph, [pf_a, pf_b])
+
+    assert len(modules) == 1
+    assert set(modules[0].files) == {"pkg/a.py", "pkg/b.py"}
 
 
 def test_detect_modules_single_node_graph() -> None:

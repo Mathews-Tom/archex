@@ -11,7 +11,7 @@ from archex.exceptions import ArchexIndexError
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "jinaai/jina-embeddings-v2-base-code"
+_DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 
 
 class FastEmbedder:
@@ -56,14 +56,28 @@ class FastEmbedder:
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         self._load_model()
-        embeddings = list(self._model.embed(texts, batch_size=self._batch_size))
+        embeddings = self._embed_with_progress(texts)
         return [e.tolist() for e in embeddings]
 
     def encode_ndarray(self, texts: list[str]) -> np.ndarray:
         """Encode texts and return a numpy array directly, skipping list conversion."""
         self._load_model()
-        embeddings = list(self._model.embed(texts, batch_size=self._batch_size))
+        embeddings = self._embed_with_progress(texts)
         return np.array(embeddings, dtype=np.float32)
+
+    def _embed_with_progress(self, texts: list[str]) -> list[np.ndarray]:
+        """Embed texts with batch progress logging for long-running jobs."""
+        total = len(texts)
+        if total <= self._batch_size * 2:
+            return list(self._model.embed(texts, batch_size=self._batch_size))
+
+        results: list[np.ndarray] = []
+        for i in range(0, total, self._batch_size):
+            batch = texts[i : i + self._batch_size]
+            results.extend(self._model.embed(batch, batch_size=self._batch_size))
+            done = min(i + self._batch_size, total)
+            logger.info("Embedding chunks: %d/%d (%.0f%%)", done, total, done / total * 100)
+        return results
 
     @property
     def dimension(self) -> int:

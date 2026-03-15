@@ -10,7 +10,12 @@ import pytest
 
 from archex.exceptions import ArchexIndexError
 from archex.index.store import IndexStore
-from archex.index.vector import VectorIndex, confidence_weighted_rrf, reciprocal_rank_fusion
+from archex.index.vector import (
+    VectorIndex,
+    confidence_weighted_rrf,
+    reciprocal_rank_fusion,
+    should_fuse,
+)
 from archex.models import CodeChunk, SymbolKind
 
 if TYPE_CHECKING:
@@ -449,12 +454,12 @@ class TestConfidenceWeightedRRF:
         return list(zip(chunks, scores, strict=True))
 
     def test_high_agreement_favors_bm25(self) -> None:
-        """signal_agreement > 0.7 → bm25_weight=0.70, vector_weight=0.30."""
+        """signal_agreement > 0.7 → bm25_weight=0.85, vector_weight=0.15."""
         bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
         vec = self._make_results(SAMPLE_CHUNKS[:2], [0.9, 0.8])
         _, bw, vw = confidence_weighted_rrf(bm25, vec, signal_agreement=0.8, bm25_score_cv=0.5)
-        assert bw == 0.70
-        assert vw == 0.30
+        assert bw == 0.85
+        assert vw == 0.15
 
     def test_low_agreement_favors_vector(self) -> None:
         """signal_agreement < 0.3 → bm25_weight=0.35, vector_weight=0.65."""
@@ -527,3 +532,116 @@ class TestConfidenceWeightedRRF:
         bm25 = self._make_results(SAMPLE_CHUNKS[:2], [5.0, 3.0])
         fused, _, _ = confidence_weighted_rrf(bm25, [], signal_agreement=0.0, bm25_score_cv=0.5)
         assert len(fused) == 2
+
+
+def _make_chunks_with_paths(paths: list[str]) -> list[tuple[CodeChunk, float]]:
+    """Build (chunk, score) pairs with distinct file paths for should_fuse tests."""
+    results: list[tuple[CodeChunk, float]] = []
+    for i, path in enumerate(paths):
+        chunk = CodeChunk(
+            id=f"{path}:fn:{i}",
+            content=f"def fn_{i}(): pass",
+            file_path=path,
+            start_line=1,
+            end_line=1,
+            symbol_name=f"fn_{i}",
+            symbol_kind=SymbolKind.FUNCTION,
+            language="python",
+            token_count=10,
+        )
+        # Descending scores so CV can be controlled via score spread
+        results.append((chunk, float(10 - i)))
+    return results
+
+
+class TestShouldFuse:
+    """Tests for the should_fuse() gating function."""
+
+    def test_high_cv_high_agreement_skips_fusion(self) -> None:
+        """BM25 CV > threshold AND agreement > threshold → skip fusion (BM25 confident)."""
+        # Same 5 paths in both lists → high Jaccard; wide score spread → high CV
+        paths = ["a.py", "b.py", "c.py", "d.py", "e.py"]
+        bm25 = _make_chunks_with_paths(paths)
+        # Manually override scores for high CV (large spread)
+        bm25 = [(c, float(score * 10)) for c, score in bm25]  # scores: 90, 80, 70, 60, 50
+        vec = _make_chunks_with_paths(paths)
+
+        apply, reason = should_fuse(bm25, vec, cv_threshold=0.1, agreement_threshold=0.5)
+        assert not apply
+        assert reason.startswith("bm25_confident:")
+
+    def test_low_cv_low_agreement_applies_fusion(self) -> None:
+        """BM25 CV below threshold AND agreement below threshold → apply fusion."""
+        bm25_paths = ["a.py", "b.py", "c.py", "d.py", "e.py"]
+        vec_paths = ["x.py", "y.py", "z.py", "w.py", "v.py"]
+        # Flat scores → low CV
+        bm25 = [(c, 1.0) for c, _ in _make_chunks_with_paths(bm25_paths)]
+        vec = _make_chunks_with_paths(vec_paths)
+
+        apply, reason = should_fuse(bm25, vec)
+        assert apply
+        assert reason.startswith("fusion_needed:")
+
+    def test_high_cv_low_agreement_applies_fusion(self) -> None:
+        """High CV but low agreement → apply fusion (signals disagree, vector has novel hits)."""
+        bm25_paths = ["a.py", "b.py", "c.py", "d.py", "e.py"]
+        vec_paths = ["x.py", "y.py", "z.py", "w.py", "v.py"]
+        # Wide score spread → high CV
+        bm25 = [
+            (c, float((5 - i) * 100))
+            for i, (c, _) in enumerate(_make_chunks_with_paths(bm25_paths))
+        ]
+        vec = _make_chunks_with_paths(vec_paths)
+
+        apply, reason = should_fuse(bm25, vec, cv_threshold=0.1, agreement_threshold=0.99)
+        assert apply
+        assert reason.startswith("fusion_needed:")
+
+    def test_low_cv_high_agreement_applies_fusion(self) -> None:
+        """Low CV AND high agreement → apply fusion (BM25 ambiguous, even if signals agree)."""
+        paths = ["a.py", "b.py", "c.py", "d.py", "e.py"]
+        # Flat scores → low CV
+        bm25 = [(c, 1.0) for c, _ in _make_chunks_with_paths(paths)]
+        vec = _make_chunks_with_paths(paths)
+
+        apply, reason = should_fuse(bm25, vec, cv_threshold=0.5, agreement_threshold=0.5)
+        assert apply
+        assert reason.startswith("fusion_needed:")
+
+    def test_too_few_bm25_results_skips_fusion(self) -> None:
+        """Fewer than min_results BM25 results → skip fusion."""
+        bm25 = _make_chunks_with_paths(["a.py", "b.py"])  # only 2
+        vec = _make_chunks_with_paths(["a.py", "b.py", "c.py", "d.py"])
+
+        apply, reason = should_fuse(bm25, vec, min_results=3)
+        assert not apply
+        assert reason.startswith("too_few_bm25_results:")
+        assert "2" in reason
+
+    def test_too_few_vector_results_skips_fusion(self) -> None:
+        """Fewer than min_results vector results → skip fusion."""
+        bm25 = _make_chunks_with_paths(["a.py", "b.py", "c.py", "d.py"])
+        vec = _make_chunks_with_paths(["x.py"])  # only 1
+
+        apply, reason = should_fuse(bm25, vec, min_results=3)
+        assert not apply
+        assert reason.startswith("too_few_vector_results:")
+        assert "1" in reason
+
+    def test_empty_vector_results_skips_fusion(self) -> None:
+        """Empty vector list → skip fusion."""
+        bm25 = _make_chunks_with_paths(["a.py", "b.py", "c.py", "d.py"])
+
+        apply, reason = should_fuse(bm25, [], min_results=3)
+        assert not apply
+        assert reason.startswith("too_few_vector_results:0")
+
+    def test_returns_tuple_of_bool_and_str(self) -> None:
+        """Return type is always (bool, str)."""
+        bm25 = _make_chunks_with_paths(["a.py", "b.py", "c.py"])
+        vec = _make_chunks_with_paths(["a.py", "b.py", "c.py"])
+        result = should_fuse(bm25, vec)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], bool)
+        assert isinstance(result[1], str)

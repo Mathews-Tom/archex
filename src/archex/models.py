@@ -55,6 +55,19 @@ class ChangeStatus(StrEnum):
     RENAMED = "R"
 
 
+class VectorMode(StrEnum):
+    RAW = "raw"
+    SURROGATE = "surrogate"
+
+
+class RetrievalPolicy(StrEnum):
+    AUTO = "auto"
+    BM25_ONLY = "bm25_only"
+    VECTOR_ONLY = "vector_only"
+    HYBRID = "hybrid"
+    CROSS_LAYER = "cross_layer"
+
+
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
@@ -125,6 +138,9 @@ class IndexConfig(BaseModel):
     bm25: bool = True
     vector: bool = False
     embedder: str | None = None
+    vector_mode: VectorMode = VectorMode.RAW
+    surrogate_version: str = "v1"
+    retrieval_policy: RetrievalPolicy = RetrievalPolicy.AUTO
     chunk_max_tokens: int = 500
     chunk_min_tokens: int = 50
     token_encoding: str = "cl100k_base"
@@ -139,6 +155,8 @@ class IndexConfig(BaseModel):
             raise ValueError("chunk_min_tokens must be >= 0")
         if self.chunk_min_tokens > self.chunk_max_tokens:
             raise ValueError("chunk_min_tokens must be <= chunk_max_tokens")
+        if not self.surrogate_version.strip():
+            raise ValueError("surrogate_version must not be empty")
         return self
 
 
@@ -305,6 +323,13 @@ class CodeChunk(BaseModel):
     visibility: str | None = None
     signature: str | None = None
     docstring: str | None = None
+
+
+class ChunkSurrogate(BaseModel):
+    chunk_id: str
+    file_path: str
+    surrogate_text: str
+    surrogate_version: str = "v1"
 
 
 class Edge(BaseModel):
@@ -533,6 +558,17 @@ class RetrievalMetadata(BaseModel):
     signal_agreement: float | None = None
     fusion_bm25_weight: float | None = None
     fusion_vector_weight: float | None = None
+    # Expansion diagnostics
+    expansion_eligible_seeds: int = 0
+    expansion_candidates_found: int = 0
+    expansion_files_added: int = 0
+    # Fusion gating
+    fusion_skipped: bool = False
+    fusion_skip_reason: str = ""
+    bm25_cv: float | None = None
+    lexical_confidence: str = ""  # "high", "medium", "low"
+    vector_mode: VectorMode = VectorMode.RAW
+    surrogate_version: str | None = None
 
 
 class ContextBundle(BaseModel):

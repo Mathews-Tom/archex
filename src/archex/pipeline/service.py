@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from archex.models import (
+        ChunkSurrogate,
         CodeChunk,
         Config,
         DiscoveredFile,
@@ -34,6 +36,9 @@ if TYPE_CHECKING:
     from archex.parse.adapters import LanguageAdapter
     from archex.pipeline.chunker import Chunker
     from archex.pipeline.models import ArtifactBundle
+
+
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
 
 
 @dataclass
@@ -91,6 +96,60 @@ def build_chunks(
                 raise ParseError(f"Failed to read file: {f.absolute_path}") from err
             continue
     return file_chunker.chunk_files(parsed_files, sources)
+
+
+def _surrogate_identifier_anchors(content: str, limit: int = 8) -> list[str]:
+    """Extract a bounded identifier set for surrogate lexical grounding."""
+    anchors: list[str] = []
+    for match in _IDENTIFIER_RE.findall(content):
+        if match not in anchors:
+            anchors.append(match)
+        if len(anchors) >= limit:
+            break
+    return anchors
+
+
+def build_chunk_surrogates(
+    chunks: list[CodeChunk],
+    *,
+    version: str = "v1",
+) -> list[ChunkSurrogate]:
+    """Build deterministic retrieval surrogates for semantic routing."""
+    from archex.models import ChunkSurrogate
+
+    surrogates: list[ChunkSurrogate] = []
+    for chunk in chunks:
+        fields = [
+            f"path: {chunk.file_path}",
+            f"language: {chunk.language}",
+            f"lines: {chunk.start_line}-{chunk.end_line}",
+        ]
+        if chunk.symbol_kind is not None:
+            fields.append(f"kind: {chunk.symbol_kind}")
+        if chunk.symbol_name:
+            fields.append(f"symbol: {chunk.symbol_name}")
+        if chunk.qualified_name:
+            fields.append(f"qualified: {chunk.qualified_name}")
+        if chunk.signature:
+            fields.append(f"signature: {chunk.signature}")
+        if chunk.visibility:
+            fields.append(f"visibility: {chunk.visibility}")
+        if chunk.imports_context:
+            fields.append(f"imports: {chunk.imports_context}")
+        if chunk.docstring:
+            fields.append(f"doc: {chunk.docstring.strip()}")
+        anchors = _surrogate_identifier_anchors(chunk.content)
+        if anchors:
+            fields.append(f"anchors: {' '.join(anchors)}")
+        surrogates.append(
+            ChunkSurrogate(
+                chunk_id=chunk.id,
+                file_path=chunk.file_path,
+                surrogate_text="\n".join(fields),
+                surrogate_version=version,
+            )
+        )
+    return surrogates
 
 
 def _read_sources(

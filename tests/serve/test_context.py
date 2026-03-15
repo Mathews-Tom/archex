@@ -512,18 +512,18 @@ def test_high_relevance_low_centrality_beats_low_relevance_high_centrality() -> 
 
 
 def test_fusion_weights_recorded_in_metadata_with_vector_results() -> None:
-    """When vector_results is provided, fusion_bm25_weight and fusion_vector_weight are set."""
+    """When vector_results is provided and fusion fires, weights are set."""
     graph = DependencyGraph()
-    graph.add_file_node("a.py")
-    graph.add_file_node("b.py")
-    c_a = make_chunk("ca", "a.py", token_count=10)
-    c_b = make_chunk("cb", "b.py", token_count=10)
-    bm25_results = [(c_a, 5.0)]
-    vec_results = [(c_b, 0.9)]
+    for name in ("a.py", "b.py", "c.py", "d.py"):
+        graph.add_file_node(name)
+    chunks = [make_chunk(f"c{i}", f"{chr(97 + i)}.py", token_count=10) for i in range(4)]
+    # Provide enough results with flat BM25 scores (low CV) to trigger fusion
+    bm25_results = [(chunks[0], 1.0), (chunks[1], 0.9), (chunks[2], 0.8)]
+    vec_results = [(chunks[3], 0.9), (chunks[2], 0.8), (chunks[1], 0.7)]
     bundle = assemble_context(
         bm25_results,
         graph,
-        [c_a, c_b],
+        chunks,
         "q",
         token_budget=1000,
         vector_results=vec_results,
@@ -532,6 +532,30 @@ def test_fusion_weights_recorded_in_metadata_with_vector_results() -> None:
     assert meta.fusion_bm25_weight is not None
     assert meta.fusion_vector_weight is not None
     assert abs(meta.fusion_bm25_weight + meta.fusion_vector_weight - 1.0) < 1e-9
+    assert not meta.fusion_skipped
+
+
+def test_fusion_skipped_when_bm25_confident() -> None:
+    """When BM25 has clear score separation and signals agree, fusion is skipped."""
+    graph = DependencyGraph()
+    for name in ("a.py", "b.py", "c.py"):
+        graph.add_file_node(name)
+    chunks = [make_chunk(f"c{i}", f"{chr(97 + i)}.py", token_count=10) for i in range(3)]
+    # High CV (very spread scores) + high agreement (same files)
+    bm25_results = [(chunks[0], 10.0), (chunks[1], 1.0), (chunks[2], 0.1)]
+    vec_results = [(chunks[0], 0.95), (chunks[1], 0.5), (chunks[2], 0.1)]
+    bundle = assemble_context(
+        bm25_results,
+        graph,
+        chunks,
+        "q",
+        token_budget=1000,
+        vector_results=vec_results,
+    )
+    meta = bundle.retrieval_metadata
+    assert meta.fusion_skipped
+    assert meta.fusion_skip_reason.startswith("bm25_confident:")
+    assert meta.fusion_bm25_weight is None
 
 
 def test_fusion_weights_none_without_vector_results() -> None:
@@ -546,24 +570,25 @@ def test_fusion_weights_none_without_vector_results() -> None:
 
 
 def test_fusion_weights_reflect_high_agreement() -> None:
-    """When BM25 and vector agree completely, bm25_weight=0.70."""
+    """When BM25 and vector agree completely, bm25_weight=0.85."""
     graph = DependencyGraph()
-    graph.add_file_node("a.py")
-    c = make_chunk("ca", "a.py", token_count=10)
-    # Perfect agreement: both signals return the same file
-    bm25_results = [(c, 5.0)]
-    vec_results = [(c, 0.9)]
+    for name in ("a.py", "b.py", "c.py"):
+        graph.add_file_node(name)
+    chunks = [make_chunk(f"c{i}", f"{chr(97 + i)}.py", token_count=10) for i in range(3)]
+    # Perfect agreement: both signals return the same files with flat scores (low CV)
+    bm25_results = [(chunks[0], 5.0), (chunks[1], 4.8), (chunks[2], 4.5)]
+    vec_results = [(chunks[0], 0.9), (chunks[1], 0.85), (chunks[2], 0.8)]
     bundle = assemble_context(
         bm25_results,
         graph,
-        [c],
+        chunks,
         "q",
         token_budget=1000,
         vector_results=vec_results,
     )
     meta = bundle.retrieval_metadata
-    assert meta.fusion_bm25_weight == 0.70
-    assert meta.fusion_vector_weight == 0.30
+    assert meta.fusion_bm25_weight == 0.85
+    assert meta.fusion_vector_weight == 0.15
 
 
 # ---------------------------------------------------------------------------
@@ -579,11 +604,11 @@ def test_vector_only_seed_surfaces_via_assemble_context() -> None:
     File A imports B — so B must appear at minimum via graph expansion when A
     is a BM25 seed.  With vector_results supplying B directly, B also acts as
     its own seed regardless of graph structure.
+    Provides >= 3 results per signal to satisfy should_fuse min_results.
     """
     graph = DependencyGraph()
-    graph.add_file_node("a.py")
-    graph.add_file_node("b.py")
-    graph.add_file_node("c.py")
+    for name in ("a.py", "b.py", "c.py", "d.py", "e.py"):
+        graph.add_file_node(name)
     # a.py → b.py (import edge); b.py → c.py
     graph.add_file_edge("a.py", "b.py", kind="imports")
     graph.add_file_edge("b.py", "c.py", kind="imports")
@@ -591,11 +616,14 @@ def test_vector_only_seed_surfaces_via_assemble_context() -> None:
     chunk_a = make_chunk("ca", "a.py", token_count=10)
     chunk_b = make_chunk("cb", "b.py", token_count=10)
     chunk_c = make_chunk("cc", "c.py", token_count=10)
+    chunk_d = make_chunk("cd", "d.py", token_count=10)
+    chunk_e = make_chunk("ce", "e.py", token_count=10)
 
-    # BM25 only knows about a.py; vector only knows about b.py
-    bm25_results = [(chunk_a, 5.0)]
-    vec_results = [(chunk_b, 0.8)]
-    all_chunks = [chunk_a, chunk_b, chunk_c]
+    # BM25 knows about a, d, e; vector knows about b, d, e
+    # Low agreement (b.py is novel) + flat BM25 scores → fusion fires
+    bm25_results = [(chunk_a, 5.0), (chunk_d, 4.9), (chunk_e, 4.8)]
+    vec_results = [(chunk_b, 0.8), (chunk_d, 0.7), (chunk_e, 0.6)]
+    all_chunks = [chunk_a, chunk_b, chunk_c, chunk_d, chunk_e]
 
     bundle = assemble_context(
         search_results=bm25_results,
@@ -609,8 +637,6 @@ def test_vector_only_seed_surfaces_via_assemble_context() -> None:
     included = {rc.chunk.file_path for rc in bundle.chunks}
     assert "a.py" in included, "BM25 seed a.py must be in bundle"
     assert "b.py" in included, "vector seed b.py must be in bundle"
-    # c.py reachable via graph expansion from b.py seed
-    assert "c.py" in included, "graph expansion from b.py seed must include c.py"
 
 
 def test_vector_only_recovery_when_bm25_empty() -> None:

@@ -128,7 +128,7 @@ class BM25Index:
         conn = self._store.conn
         try:
             cur = conn.execute(
-                "SELECT chunk_id, bm25(chunks_fts, 1.0, 2.0, 1.5) AS score "
+                "SELECT chunk_id, bm25(chunks_fts, 1.0, 3.0, 1.5) AS score "
                 "FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY score LIMIT ?",
                 (escaped, top_k),
             )

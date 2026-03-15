@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from archex.index.store import IndexStore
-from archex.models import CodeChunk, Edge, EdgeKind, SymbolKind
+from archex.models import ChunkSurrogate, CodeChunk, Edge, EdgeKind, SymbolKind
 
 SAMPLE_CHUNKS = [
     CodeChunk(
@@ -73,6 +73,19 @@ SAMPLE_EDGES = [
     Edge(source="utils.py", target="auth.py", kind=EdgeKind.CALLS, location="utils.py:12"),
 ]
 
+SAMPLE_SURROGATES = [
+    ChunkSurrogate(
+        chunk_id="utils.py:calculate_sum:5",
+        file_path="utils.py",
+        surrogate_text="path: utils.py\nsymbol: calculate_sum\nanchors: calculate_sum return",
+    ),
+    ChunkSurrogate(
+        chunk_id="auth.py:authenticate:10",
+        file_path="auth.py",
+        surrogate_text="path: auth.py\nsymbol: authenticate\nanchors: authenticate password",
+    ),
+]
+
 
 @pytest.fixture
 def store(tmp_path: Path) -> Generator[IndexStore, None, None]:
@@ -88,6 +101,28 @@ def test_insert_and_get_all_chunks(store: IndexStore) -> None:
     assert len(result) == 3
     ids = {c.id for c in result}
     assert ids == {c.id for c in SAMPLE_CHUNKS}
+
+
+def test_insert_and_get_chunk_surrogates(store: IndexStore) -> None:
+    store.insert_chunk_surrogates(SAMPLE_SURROGATES)
+    result = store.get_chunk_surrogates()
+    assert len(result) == 2
+    assert {s.chunk_id for s in result} == {s.chunk_id for s in SAMPLE_SURROGATES}
+
+
+def test_chunk_surrogates_deleted_with_file(store: IndexStore) -> None:
+    store.insert_chunk_surrogates(SAMPLE_SURROGATES)
+    store.delete_chunks_for_files(["auth.py"])
+    remaining = store.get_chunk_surrogates()
+    assert [s.file_path for s in remaining] == ["utils.py"]
+
+
+def test_chunk_surrogate_file_paths_updated_on_rename(store: IndexStore) -> None:
+    store.insert_chunk_surrogates(SAMPLE_SURROGATES)
+    store.update_file_paths("auth.py", "security/auth.py")
+    renamed = store.get_chunk_surrogates_for_file("security/auth.py")
+    assert len(renamed) == 1
+    assert renamed[0].chunk_id == "auth.py:authenticate:10"
 
 
 def test_data_integrity_round_trip(store: IndexStore) -> None:
@@ -286,7 +321,7 @@ def test_fresh_store_does_not_need_reindex(store: IndexStore) -> None:
 
 
 def test_fresh_store_has_schema_version(store: IndexStore) -> None:
-    assert store.get_metadata("schema_version") == "2"
+    assert store.get_metadata("schema_version") == "3"
 
 
 def test_migrated_store_with_null_symbol_ids_needs_reindex(tmp_path: Path) -> None:
@@ -323,7 +358,7 @@ def test_migrated_store_with_null_symbol_ids_needs_reindex(tmp_path: Path) -> No
 
     with IndexStore(db) as s:
         assert s.needs_reindex() is True
-        assert s.get_metadata("schema_version") == "2"
+        assert s.get_metadata("schema_version") == "3"
 
 
 def test_clear_reindex_flag(tmp_path: Path) -> None:

@@ -12,7 +12,8 @@ import pytest
 from archex.exceptions import DeltaIndexError
 from archex.index.delta import apply_delta, compute_delta, compute_mtime_delta
 from archex.index.store import IndexStore
-from archex.models import ChangeStatus, CodeChunk, Config
+from archex.models import ChangeStatus, CodeChunk, Config, IndexConfig
+from archex.pipeline.service import build_chunk_surrogates
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
@@ -172,7 +173,6 @@ class TestApplyDelta:
         from archex.index.bm25 import BM25Index
         from archex.index.chunker import ASTChunker
         from archex.index.graph import DependencyGraph
-        from archex.models import IndexConfig
         from archex.parse import (
             TreeSitterEngine,
             build_file_map,
@@ -204,6 +204,7 @@ class TestApplyDelta:
         db_path = tmp_path / "test_index.db"
         store = IndexStore(db_path)
         store.insert_chunks(chunks)
+        store.insert_chunk_surrogates(build_chunk_surrogates(chunks))
         store.insert_edges(graph.file_edges())
         bm25 = BM25Index(store)
         bm25.build(chunks)
@@ -237,6 +238,31 @@ class TestApplyDelta:
         finally:
             store.close()
 
+    def test_modified_rebuilds_chunk_surrogates(
+        self,
+        delta_test_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        from archex.index.graph import DependencyGraph
+
+        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        assert isinstance(graph, DependencyGraph)
+        try:
+            base = _git_head(delta_test_repo)
+            (delta_test_repo / "utils.py").write_text("def brand_new_util():\n    return 42\n")
+            _git(delta_test_repo, "add", ".")
+            _git(delta_test_repo, "commit", "-m", "modify utils")
+            current = _git_head(delta_test_repo)
+
+            manifest = compute_delta(delta_test_repo, base, current)
+            apply_delta(store, graph, manifest, delta_test_repo, Config(cache=False))
+
+            surrogates = store.get_chunk_surrogates_for_file("utils.py")
+            assert surrogates
+            assert any("brand_new_util" in surrogate.surrogate_text for surrogate in surrogates)
+        finally:
+            store.close()
+
     def test_added_inserts_chunks(self, delta_test_repo: Path, tmp_path: Path) -> None:
         from archex.index.graph import DependencyGraph
 
@@ -256,6 +282,30 @@ class TestApplyDelta:
             chunks = store.get_chunks_for_file("brand_new.py")
             assert len(chunks) > 0
             assert meta.files_added == 1
+        finally:
+            store.close()
+
+    def test_deleted_file_removes_chunk_surrogates(
+        self,
+        delta_test_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        from archex.index.graph import DependencyGraph
+
+        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        assert isinstance(graph, DependencyGraph)
+        try:
+            assert store.get_chunk_surrogates_for_file("utils.py")
+            base = _git_head(delta_test_repo)
+            (delta_test_repo / "utils.py").unlink()
+            _git(delta_test_repo, "add", ".")
+            _git(delta_test_repo, "commit", "-m", "delete utils")
+            current = _git_head(delta_test_repo)
+
+            manifest = compute_delta(delta_test_repo, base, current)
+            apply_delta(store, graph, manifest, delta_test_repo, Config(cache=False))
+
+            assert store.get_chunk_surrogates_for_file("utils.py") == []
         finally:
             store.close()
 

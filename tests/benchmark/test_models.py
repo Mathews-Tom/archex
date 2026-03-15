@@ -19,7 +19,9 @@ class TestStrategy:
         assert Strategy.RAW_GREPPED == "raw_grepped"
         assert Strategy.ARCHEX_QUERY == "archex_query"
         assert Strategy.ARCHEX_QUERY_VECTOR == "archex_query_vector"
+        assert Strategy.SURROGATE_VECTOR == "surrogate_vector"
         assert Strategy.ARCHEX_QUERY_FUSION == "archex_query_fusion"
+        assert Strategy.CROSS_LAYER_FUSION == "cross_layer_fusion"
         assert Strategy.ARCHEX_SYMBOL_LOOKUP == "archex_symbol_lookup"
 
     def test_enum_from_value(self) -> None:
@@ -92,6 +94,8 @@ class TestBenchmarkResult:
         assert result.tokens_total == 1000
         assert result.timing is None
         assert result.symbol_recall == 0.0
+        assert result.vector_mode == "raw"
+        assert result.cache_state == "cold"
 
     def test_with_timing(self) -> None:
         from archex.models import PipelineTiming

@@ -22,8 +22,10 @@ from archex.benchmark.strategies import (
     run_archex_query_fusion,
     run_archex_query_vector,
     run_archex_symbol_lookup,
+    run_cross_layer_fusion,
     run_raw_files,
     run_raw_grepped,
+    run_surrogate_vector,
 )
 
 if TYPE_CHECKING:
@@ -410,6 +412,40 @@ class TestRunArchexQueryFusion:
         assert result.files_accessed >= 0
         assert isinstance(result.recall, float)
         assert isinstance(result.precision, float)
+
+
+class TestRunSurrogateVector:
+    def test_surrogate_vector_strategy(self, python_simple_repo: Path) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does authentication work?",
+            expected_files=["services/auth.py"],
+            token_budget=4096,
+        )
+        with patch("archex.api._get_embedder", _stub_get_embedder):
+            result = run_surrogate_vector(task, python_simple_repo)
+        assert result.strategy == Strategy.SURROGATE_VECTOR
+        assert result.vector_mode == "surrogate"
+        assert result.surrogate_version == "v1"
+
+
+class TestRunCrossLayerFusion:
+    def test_cross_layer_fusion_strategy(self, python_simple_repo: Path) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does authentication work?",
+            expected_files=["services/auth.py", "main.py"],
+            token_budget=4096,
+        )
+        with patch("archex.api._get_embedder", _stub_get_embedder):
+            result = run_cross_layer_fusion(task, python_simple_repo)
+        assert result.strategy == Strategy.CROSS_LAYER_FUSION
+        assert result.vector_mode == "surrogate"
+        assert result.surrogate_version == "v1"
 
 
 class TestRunArchexSymbolLookup:

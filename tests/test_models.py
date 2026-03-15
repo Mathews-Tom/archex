@@ -18,10 +18,12 @@ from archex.models import (
     RankedChunk,
     RepoMetadata,
     RepoSource,
+    RetrievalPolicy,
     ScoringWeights,
     Symbol,
     SymbolKind,
     SymbolRef,
+    VectorMode,
     Visibility,
 )
 
@@ -45,6 +47,16 @@ def test_edge_kind_members() -> None:
     assert EdgeKind.CALLS == "calls"
     assert EdgeKind.INHERITS == "inherits"
     assert EdgeKind.IMPLEMENTS == "implements"
+
+
+def test_vector_mode_members() -> None:
+    assert VectorMode.RAW == "raw"
+    assert VectorMode.SURROGATE == "surrogate"
+
+
+def test_retrieval_policy_members() -> None:
+    assert RetrievalPolicy.AUTO == "auto"
+    assert RetrievalPolicy.CROSS_LAYER == "cross_layer"
 
 
 def test_pattern_category_members() -> None:
@@ -470,6 +482,12 @@ class TestIndexConfigValidation:
         config = IndexConfig()
         assert config.chunk_max_tokens == 500
         assert config.chunk_min_tokens == 50
+        assert config.vector_mode == VectorMode.RAW
+        assert config.retrieval_policy == RetrievalPolicy.AUTO
+
+    def test_surrogate_version_must_not_be_empty(self) -> None:
+        with pytest.raises(ValueError, match="surrogate_version must not be empty"):
+            IndexConfig(surrogate_version="   ")
 
     def test_chunk_max_tokens_zero_raises(self) -> None:
         with pytest.raises(ValueError, match="chunk_max_tokens must be > 0"):

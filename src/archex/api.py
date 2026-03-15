@@ -52,12 +52,13 @@ from archex.analyze.interfaces import extract_interfaces
 from archex.analyze.modules import detect_modules
 from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
-from archex.exceptions import DeltaIndexError
+from archex.exceptions import ArchexIndexError, DeltaIndexError
 from archex.index.bm25 import BM25Index
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
 from archex.models import (
     ArchProfile,
+    ChunkSurrogate,
     CodeChunk,
     Config,
     ContextBundle,
@@ -73,6 +74,7 @@ from archex.models import (
     SymbolMatch,
     SymbolOutline,
     SymbolSource,
+    VectorMode,
     Visibility,
 )
 from archex.observe import PipelineTrace, StepTiming
@@ -85,6 +87,7 @@ from archex.parse import (
 )
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.chunker import ASTChunker, Chunker
+from archex.pipeline.service import build_chunk_surrogates
 from archex.providers.base import get_provider
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
@@ -150,6 +153,12 @@ def _full_index(
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
         store.insert_chunks(all_chunks)
+        store.insert_chunk_surrogates(
+            build_chunk_surrogates(
+                all_chunks,
+                version=effective_index_config.surrogate_version,
+            )
+        )
         edges = graph.file_edges()
         store.insert_edges(edges)
 
@@ -235,7 +244,14 @@ def _ensure_index(
                             timing.delta_attempted = True
                         store = IndexStore(db_path)
                         graph = DependencyGraph.from_edges(store.get_edges())
-                        delta_meta = apply_delta(store, graph, manifest, repo_path, config)
+                        delta_meta = apply_delta(
+                            store,
+                            graph,
+                            manifest,
+                            repo_path,
+                            config,
+                            index_config=index_config,
+                        )
                         identity = source.url or source.local_path or ""
                         store.set_metadata("commit_hash", current_commit)
                         store.set_metadata("source_identity", identity)
@@ -608,13 +624,42 @@ def _vector_search_precomputed(
     from archex.index.vector import VectorIndex
 
     vec_idx = VectorIndex()
-    vec_idx.load(
-        npz_path,
-        all_chunks,
-        embedder_name=index_config.embedder or "",
-        vector_dim=embedder.dimension,
-    )
+    try:
+        vec_idx.load(
+            npz_path,
+            all_chunks,
+            embedder_name=index_config.embedder or "",
+            vector_dim=embedder.dimension,
+            vector_mode=index_config.vector_mode,
+            surrogate_version=index_config.surrogate_version,
+        )
+    except ArchexIndexError:
+        return None
     return vec_idx.search(question, embedder, top_k=top_k)
+
+
+def _surrogate_lookup(
+    store: IndexStore | None,
+    chunks: list[CodeChunk],
+    index_config: IndexConfig,
+) -> dict[str, ChunkSurrogate] | None:
+    """Load or synthesize surrogate text for surrogate-mode vector retrieval."""
+    if index_config.vector_mode != VectorMode.SURROGATE:
+        return None
+    stored_by_id: dict[str, ChunkSurrogate] = {}
+    if store is not None:
+        stored_by_id = {
+            surrogate.chunk_id: surrogate
+            for surrogate in store.get_chunk_surrogates([chunk.id for chunk in chunks])
+        }
+    missing = [chunk for chunk in chunks if chunk.id not in stored_by_id]
+    if missing:
+        for surrogate in build_chunk_surrogates(
+            missing,
+            version=index_config.surrogate_version,
+        ):
+            stored_by_id[surrogate.chunk_id] = surrogate
+    return stored_by_id
 
 
 def _compute_dynamic_budget(total_repo_tokens: int, user_budget: int) -> int:
@@ -834,9 +879,14 @@ def query(
                 # Pre-load all chunks into memory before parallel search so the
                 # vector thread has no dependency on the SQLite store connection.
                 all_chunks_cached = store.get_chunks()
+                surrogate_lookup = _surrogate_lookup(store, all_chunks_cached, index_config)
 
                 t_search = time.perf_counter()
-                cached_npz = cache.vector_path(cache_key)
+                cached_npz = cache.vector_path(
+                    cache_key,
+                    vector_mode=index_config.vector_mode,
+                    surrogate_version=index_config.surrogate_version,
+                )
                 # Run vector search in a background thread while BM25 runs on the
                 # calling thread.  BM25 must stay on the creating thread because
                 # SQLite connections are not thread-safe; the vector path uses only
@@ -863,12 +913,23 @@ def query(
 
                 # Fall back to rerank when pre-computed .npz is absent
                 if vector_results is None and index_config.vector:
-                    vector_results = _two_stage_rerank(
-                        question,
-                        search_results,
-                        index_config,
-                        timing,
-                    )
+                    if search_results:
+                        vector_results = _two_stage_rerank(
+                            question,
+                            search_results,
+                            index_config,
+                            timing,
+                            surrogates_by_chunk_id=surrogate_lookup,
+                        )
+                    else:
+                        vector_results = _vector_search_in_memory(
+                            question,
+                            all_chunks_cached,
+                            index_config,
+                            timing,
+                            top_k=top_k,
+                            surrogates_by_chunk_id=surrogate_lookup,
+                        )
 
                 t_vec_cached = t_search  # timing reference for logging below
                 if vector_results is not None and timing is not None:
@@ -905,6 +966,12 @@ def query(
                     vector_results=vector_results,  # type: ignore[arg-type]
                     scoring_weights=scoring_weights,
                     trace=trace,
+                )
+                bundle.retrieval_metadata.vector_mode = index_config.vector_mode
+                bundle.retrieval_metadata.surrogate_version = (
+                    index_config.surrogate_version
+                    if index_config.vector_mode == VectorMode.SURROGATE
+                    else None
                 )
                 if timing is not None:
                     timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
@@ -989,10 +1056,16 @@ def query(
 
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
+        chunk_surrogates = build_chunk_surrogates(
+            all_chunks,
+            version=index_config.surrogate_version,
+        )
+        surrogate_lookup = {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
 
         try:
             bm25 = BM25Index(store)
             store.insert_chunks(all_chunks)
+            store.insert_chunk_surrogates(chunk_surrogates)
             edges = graph.file_edges()
             store.insert_edges(edges)
             bm25.build(all_chunks)
@@ -1006,14 +1079,30 @@ def query(
 
                     t_vec_build = time.perf_counter()
                     vec_idx = VectorIndex()
-                    vec_idx.build(all_chunks, embedder)
+                    vec_idx.build(
+                        all_chunks,
+                        embedder,
+                        surrogates_by_chunk_id=surrogate_lookup,
+                        vector_mode=index_config.vector_mode,
+                    )
                     npz_path = (
-                        cache.vector_path(cache_key) if config.cache else store.vector_index_path
+                        cache.vector_path(
+                            cache_key,
+                            vector_mode=index_config.vector_mode,
+                            surrogate_version=index_config.surrogate_version,
+                        )
+                        if config.cache
+                        else store.vector_index_path_for(
+                            vector_mode=index_config.vector_mode,
+                            surrogate_version=index_config.surrogate_version,
+                        )
                     )
                     vec_idx.save(
                         npz_path,
                         embedder_name=index_config.embedder or "",
                         vector_dim=embedder.dimension,
+                        vector_mode=index_config.vector_mode,
+                        surrogate_version=index_config.surrogate_version,
                     )
                     _precomputed_vector_path = npz_path
                     vec_build_ms = _elapsed_ms(t_vec_build)
@@ -1108,12 +1197,23 @@ def query(
 
             # Fall back to rerank when pre-computed .npz is absent
             if vector_results_miss is None and index_config.vector:
-                vector_results_miss = _two_stage_rerank(
-                    question,
-                    search_results,
-                    index_config,
-                    timing,
-                )
+                if search_results:
+                    vector_results_miss = _two_stage_rerank(
+                        question,
+                        search_results,
+                        index_config,
+                        timing,
+                        surrogates_by_chunk_id=surrogate_lookup,
+                    )
+                else:
+                    vector_results_miss = _vector_search_in_memory(
+                        question,
+                        all_chunks,
+                        index_config,
+                        timing,
+                        top_k=top_k,
+                        surrogates_by_chunk_id=surrogate_lookup,
+                    )
 
             if vector_results_miss is not None and timing is not None:
                 timing.vector_used = True
@@ -1150,6 +1250,12 @@ def query(
                 scoring_weights=scoring_weights,
                 trace=trace,
             )
+            bundle.retrieval_metadata.vector_mode = index_config.vector_mode
+            bundle.retrieval_metadata.surrogate_version = (
+                index_config.surrogate_version
+                if index_config.vector_mode == VectorMode.SURROGATE
+                else None
+            )
             if timing is not None:
                 timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
             bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
@@ -1176,6 +1282,8 @@ def _two_stage_rerank(
     bm25_results: list[tuple[CodeChunk, float]],
     index_config: IndexConfig,
     timing: PipelineTiming | None,
+    *,
+    surrogates_by_chunk_id: dict[str, ChunkSurrogate] | None = None,
 ) -> list[tuple[CodeChunk, float]] | None:
     """Rerank BM25 candidates using vector similarity (two-stage retrieval).
 
@@ -1191,12 +1299,51 @@ def _two_stage_rerank(
     candidates = [chunk for chunk, _ in bm25_results[:_RERANK_MAX_CANDIDATES]]
     t_vec = time.perf_counter()
     vec_idx = VectorIndex()
-    vector_results = vec_idx.rerank(question, candidates, embedder)  # type: ignore[arg-type]
+    vector_results = vec_idx.rerank(
+        question,
+        candidates,
+        embedder,  # type: ignore[arg-type]
+        surrogates_by_chunk_id=surrogates_by_chunk_id,
+        vector_mode=index_config.vector_mode,
+    )
     rerank_ms = _elapsed_ms(t_vec)
     if timing is not None:
         timing.vector_used = True
         timing.vector_build_ms = rerank_ms
     logger.info("Two-stage rerank (%d candidates) in %.0fms", len(candidates), rerank_ms)
+    return vector_results  # type: ignore[return-value]
+
+
+def _vector_search_in_memory(
+    question: str,
+    all_chunks: list[CodeChunk],
+    index_config: IndexConfig,
+    timing: PipelineTiming | None,
+    *,
+    top_k: int,
+    surrogates_by_chunk_id: dict[str, ChunkSurrogate] | None = None,
+) -> list[tuple[CodeChunk, float]] | None:
+    """Build an in-memory vector index when no persisted artifact is available."""
+    embedder = _get_embedder(index_config)
+    if embedder is None:
+        return None
+
+    from archex.index.vector import VectorIndex
+
+    t_vec = time.perf_counter()
+    vec_idx = VectorIndex()
+    vec_idx.build(
+        all_chunks,
+        embedder,  # type: ignore[arg-type]
+        surrogates_by_chunk_id=surrogates_by_chunk_id,
+        vector_mode=index_config.vector_mode,
+    )
+    vector_results = vec_idx.search(question, embedder, top_k=top_k)  # type: ignore[arg-type]
+    build_ms = _elapsed_ms(t_vec)
+    if timing is not None:
+        timing.vector_used = True
+        timing.vector_build_ms = build_ms
+    logger.info("In-memory vector search (%d chunks) in %.0fms", len(all_chunks), build_ms)
     return vector_results  # type: ignore[return-value]
 
 

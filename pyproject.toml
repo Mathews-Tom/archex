@@ -40,6 +40,10 @@ vector = ["onnxruntime>=1.17", "tokenizers>=0.15"]
 vector-fast = [
     "fastembed>=0.4",
 ]
+graph = [
+    "python-igraph>=0.11",
+    "leidenalg>=0.10",
+]
 vector-torch = [
     "sentence-transformers>=2.6",
 ]
@@ -50,7 +54,7 @@ langchain = ["langchain-core>=0.2"]
 llamaindex = ["llama-index-core>=0.10"]
 lsap = ["lsp-client>=0.3; python_version >= '3.12'"]
 language-pack = ["tree-sitter-language-pack>=0.13"]
-all = ["archex[vector,openai,anthropic,mcp,langchain,llamaindex,language-pack]"]
+all = ["archex[vector,graph,openai,anthropic,mcp,langchain,llamaindex,language-pack]"]
 web = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",

@@ -18,6 +18,7 @@ from archex.models import (
     FileChange,
     IndexConfig,
 )
+from archex.pipeline.service import build_chunk_surrogates
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
@@ -119,6 +120,7 @@ def apply_delta(
     manifest: DeltaManifest,
     repo_path: Path,
     config: Config,
+    index_config: IndexConfig | None = None,
 ) -> DeltaMeta:
     """Apply a delta manifest to an existing index store and graph.
 
@@ -171,6 +173,8 @@ def apply_delta(
 
     new_chunks: list[CodeChunk] = []
     new_edges: list[Edge] = []
+    new_surrogates = []
+    effective_index_config = index_config or IndexConfig()
 
     if reprocess:
         all_files = discover_files(
@@ -190,8 +194,7 @@ def apply_delta(
             file_languages = {f.path: f.language for f in all_files}
             resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
 
-            index_config = IndexConfig()
-            chunker = ASTChunker(config=index_config)
+            chunker = ASTChunker(config=effective_index_config)
             sources: dict[str, bytes] = {}
             for f in changed_files:
                 try:
@@ -199,6 +202,10 @@ def apply_delta(
                 except OSError:
                     continue
             new_chunks = chunker.chunk_files(parsed_files, sources)
+            new_surrogates = build_chunk_surrogates(
+                new_chunks,
+                version=effective_index_config.surrogate_version,
+            )
 
             new_edges = [
                 Edge(
@@ -221,7 +228,12 @@ def apply_delta(
 
         remove_paths = list(set(manifest.modified_files))
         if remove_paths or new_chunks:
-            store.delete_and_insert_for_files(remove_paths, new_chunks, new_edges)
+            store.delete_and_insert_for_files(
+                remove_paths,
+                new_chunks,
+                new_edges,
+                new_surrogates,
+            )
 
     # 4. Update dependency graph
     removed_graph_paths = set(manifest.modified_files + manifest.deleted_files)

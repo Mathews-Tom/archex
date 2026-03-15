@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from archex.exceptions import ArchexIndexError
+from archex.models import ChunkSurrogate, VectorMode
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,7 +28,14 @@ class VectorIndex:
         self._chunk_ids: list[str] = []
         self._chunks_by_id: dict[str, CodeChunk] = {}
 
-    def build(self, chunks: list[CodeChunk], embedder: Embedder) -> None:
+    def build(
+        self,
+        chunks: list[CodeChunk],
+        embedder: Embedder,
+        *,
+        surrogates_by_chunk_id: dict[str, ChunkSurrogate] | None = None,
+        vector_mode: VectorMode = VectorMode.RAW,
+    ) -> None:
         """Encode all chunks and store normalized vectors."""
         if not chunks:
             self._vectors = None
@@ -35,9 +43,17 @@ class VectorIndex:
             self._chunks_by_id = {}
             return
 
-        texts = [c.content for c in chunks]
+        texts = [
+            surrogates_by_chunk_id[c.id].surrogate_text
+            if (
+                vector_mode == VectorMode.SURROGATE
+                and surrogates_by_chunk_id
+                and c.id in surrogates_by_chunk_id
+            )
+            else c.content
+            for c in chunks
+        ]
         raw_embeddings = embedder.encode(texts)
-
         vectors = np.array(raw_embeddings, dtype=np.float32)
 
         # L2 normalize for cosine similarity via dot product
@@ -91,7 +107,15 @@ class VectorIndex:
             return int(self._vectors.shape[1])
         return 0
 
-    def save(self, path: Path, *, embedder_name: str = "", vector_dim: int = 0) -> None:
+    def save(
+        self,
+        path: Path,
+        *,
+        embedder_name: str = "",
+        vector_dim: int = 0,
+        vector_mode: VectorMode = VectorMode.RAW,
+        surrogate_version: str = "v1",
+    ) -> None:
         """Save vectors and chunk IDs to a compressed numpy file."""
         if self._vectors is None:
             raise ArchexIndexError("Cannot save empty vector index")
@@ -102,6 +126,7 @@ class VectorIndex:
             vectors=self._vectors,
             chunk_ids=np.array(self._chunk_ids, dtype="U512"),
             embedder_meta=np.array([embedder_name, str(vector_dim)], dtype="U256"),
+            vector_meta=np.array([str(vector_mode), surrogate_version], dtype="U256"),
         )
 
     def load(
@@ -111,6 +136,8 @@ class VectorIndex:
         *,
         embedder_name: str = "",
         vector_dim: int = 0,
+        vector_mode: VectorMode = VectorMode.RAW,
+        surrogate_version: str = "v1",
     ) -> None:
         """Load vectors from disk and rebuild the chunk lookup map."""
         if not path.exists():
@@ -140,6 +167,17 @@ class VectorIndex:
                     raise ArchexIndexError(
                         f"Vector dim mismatch: cached={stored_dim}, current={vector_dim}"
                     )
+        if "vector_meta" in data:
+            stored_mode, stored_version = [str(v) for v in data["vector_meta"][:2]]
+            if stored_mode and stored_mode != str(vector_mode):
+                raise ArchexIndexError(
+                    f"Vector mode mismatch: cached={stored_mode}, current={vector_mode}"
+                )
+            if stored_mode == str(VectorMode.SURROGATE) and stored_version != surrogate_version:
+                raise ArchexIndexError(
+                    "Surrogate version mismatch: "
+                    f"cached={stored_version}, current={surrogate_version}"
+                )
 
         self._vectors = vectors
         self._chunk_ids = chunk_ids
@@ -150,6 +188,9 @@ class VectorIndex:
         query: str,
         candidates: list[CodeChunk],
         embedder: Embedder,
+        *,
+        surrogates_by_chunk_id: dict[str, ChunkSurrogate] | None = None,
+        vector_mode: VectorMode = VectorMode.RAW,
     ) -> list[tuple[CodeChunk, float]]:
         """Embed only the candidate chunks and query, return sorted by cosine similarity.
 
@@ -160,7 +201,16 @@ class VectorIndex:
         if not candidates:
             return []
 
-        texts = [query] + [c.content for c in candidates]
+        texts = [query] + [
+            surrogates_by_chunk_id[c.id].surrogate_text
+            if (
+                vector_mode == VectorMode.SURROGATE
+                and surrogates_by_chunk_id
+                and c.id in surrogates_by_chunk_id
+            )
+            else c.content
+            for c in candidates
+        ]
         encode_np = getattr(embedder, "encode_ndarray", None)
         if encode_np is not None:
             vecs = encode_np(texts)
@@ -232,6 +282,47 @@ def bm25_score_cv(bm25_results: list[tuple[CodeChunk, float]], top_n: int = 10) 
     return float(arr.std() / mean)
 
 
+def should_fuse(
+    bm25_results: list[tuple[CodeChunk, float]],
+    vector_results: list[tuple[CodeChunk, float]],
+    *,
+    cv_threshold: float = 0.5,
+    agreement_threshold: float = 0.6,
+    min_results: int = 3,
+) -> tuple[bool, str]:
+    """Decide whether to apply fusion based on BM25 confidence signals.
+
+    Returns (should_apply, reason) where reason explains the decision.
+
+    Fusion is SKIPPED when:
+    - BM25 score CV > cv_threshold (clear score separation — BM25 is confident)
+      AND signal agreement > agreement_threshold (both signals agree, so vector adds no info)
+    - Fewer than min_results from either signal
+
+    Fusion is APPLIED when:
+    - BM25 CV is low (flat scores — vocabulary ambiguity)
+    - OR signal agreement is low (signals disagree — vector found different files)
+    """
+    if len(bm25_results) < min_results:
+        return False, f"too_few_bm25_results:{len(bm25_results)}"
+    if not vector_results or len(vector_results) < min_results:
+        return False, f"too_few_vector_results:{len(vector_results) if vector_results else 0}"
+
+    cv = bm25_score_cv(bm25_results)
+
+    # Compute signal agreement (Jaccard of top-20 file paths)
+    k_agree = 20
+    bm25_top = {chunk.file_path for chunk, _ in bm25_results[:k_agree]}
+    vec_top = {chunk.file_path for chunk, _ in vector_results[:k_agree]}
+    union = bm25_top | vec_top
+    agreement = len(bm25_top & vec_top) / len(union) if union else 0.0
+
+    if cv > cv_threshold and agreement > agreement_threshold:
+        return False, f"bm25_confident:cv={cv:.3f},agreement={agreement:.3f}"
+
+    return True, f"fusion_needed:cv={cv:.3f},agreement={agreement:.3f}"
+
+
 def confidence_weighted_rrf(
     bm25_results: list[tuple[CodeChunk, float]],
     vector_results: list[tuple[CodeChunk, float]],
@@ -242,7 +333,7 @@ def confidence_weighted_rrf(
     """Merge BM25 and vector results using weighted Reciprocal Rank Fusion.
 
     Weight schedule:
-    - agreement > 0.7: bm25=0.70, vector=0.30 (both agree, trust faster signal)
+    - agreement > 0.7: bm25=0.85, vector=0.15 (both agree, trust faster signal)
     - 0.3-0.7, CV > 0.3: bm25=0.50, vector=0.50 (mixed, clear BM25 spread)
     - 0.3-0.7, CV <= 0.3: bm25=0.40, vector=0.60 (mixed, flat BM25, vector disambiguates)
     - agreement < 0.3: bm25=0.35, vector=0.65 (strong disagreement, vector has novel hits)
@@ -250,7 +341,7 @@ def confidence_weighted_rrf(
     Returns (fused_results, bm25_weight, vector_weight).
     """
     if signal_agreement > 0.7:
-        bm25_weight, vector_weight = 0.70, 0.30
+        bm25_weight, vector_weight = 0.85, 0.15
     elif signal_agreement >= 0.3:
         if bm25_score_cv > 0.3:
             bm25_weight, vector_weight = 0.50, 0.50

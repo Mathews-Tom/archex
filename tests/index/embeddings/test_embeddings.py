@@ -268,7 +268,7 @@ class TestFastEmbedder:
         from archex.index.embeddings.fast import FastEmbedder
 
         embedder = FastEmbedder()
-        assert embedder._model_name == "jinaai/jina-embeddings-v2-base-code"  # pyright: ignore[reportPrivateUsage]
+        assert embedder._model_name == "BAAI/bge-small-en-v1.5"  # pyright: ignore[reportPrivateUsage]
 
     def test_protocol_conformance(self) -> None:
         from archex.index.embeddings.fast import FastEmbedder

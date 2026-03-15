@@ -530,3 +530,87 @@ class TestCacheKeyRemoteResolution:
         expected_identity = "https://github.com/example/repo.git"
         expected_key = hashlib.sha256(expected_identity.encode()).hexdigest()
         assert key == expected_key
+
+
+# ---------------------------------------------------------------------------
+# stable_identity parameter
+# ---------------------------------------------------------------------------
+
+
+class TestStableIdentity:
+    def test_same_url_and_commit_different_local_paths_produce_same_key(
+        self, tmp_path: Path
+    ) -> None:
+        """Two RepoSources with different local_paths but same url+commit produce identical keys."""
+        cm = CacheManager(cache_dir=str(tmp_path))
+        source_a = RepoSource(
+            local_path="/tmp/bench_run_1/django",
+            url="https://github.com/django/django",
+            commit="abc123def456",
+        )
+        source_b = RepoSource(
+            local_path="/tmp/bench_run_2/django",
+            url="https://github.com/django/django",
+            commit="abc123def456",
+        )
+        # Both sources have the same url+commit, so cache_key must agree
+        with patch.object(CacheManager, "git_head", return_value=None):
+            key_a = cm.cache_key(source_a)
+            key_b = cm.cache_key(source_b)
+        assert key_a == key_b
+
+    def test_stable_identity_overrides_local_path(self, tmp_path: Path) -> None:
+        """stable_identity parameter takes precedence over source.url and source.local_path."""
+        cm = CacheManager(cache_dir=str(tmp_path))
+        source = RepoSource(local_path="/tmp/some_temp_dir/repo")
+        stable = "https://github.com/example/repo"
+        with patch.object(CacheManager, "git_head", return_value=None):
+            key_with = cm.cache_key(source, stable_identity=stable)
+        expected = hashlib.sha256(stable.encode()).hexdigest()
+        assert key_with == expected
+
+    def test_stable_identity_overrides_url(self, tmp_path: Path) -> None:
+        """stable_identity wins over source.url when both are set."""
+        cm = CacheManager(cache_dir=str(tmp_path))
+        source = RepoSource(url="https://github.com/other/repo")
+        stable = "https://github.com/canonical/repo"
+        with patch.object(CacheManager, "resolve_remote_head", return_value=None):
+            key_stable = cm.cache_key(source, stable_identity=stable)
+        expected = hashlib.sha256(stable.encode()).hexdigest()
+        assert key_stable == expected
+
+    def test_local_path_only_source_still_works(self, tmp_path: Path) -> None:
+        """Backward compat: RepoSource with only local_path produces a valid key."""
+        cm = CacheManager(cache_dir=str(tmp_path))
+        source = RepoSource(local_path="/home/user/myproject")
+        with patch.object(CacheManager, "git_head", return_value=None):
+            key = cm.cache_key(source)
+        expected = hashlib.sha256(b"/home/user/myproject").hexdigest()
+        assert key == expected
+        assert len(key) == 64
+
+    def test_put_stores_stable_identity_in_metadata(
+        self, cache: CacheManager, sample_db: Path
+    ) -> None:
+        """put() with stable_identity stores it in the .meta JSON."""
+        key = hashlib.sha256(b"stable_test").hexdigest()
+        cache.put(
+            key,
+            sample_db,
+            resolved_commit="abc123",
+            source_identity="/tmp/run1/repo",
+            stable_identity="https://github.com/example/repo",
+        )
+        meta = cache.get_meta(key)
+        assert meta["stable_identity"] == "https://github.com/example/repo"
+        assert meta["source_identity"] == "/tmp/run1/repo"
+        assert meta["resolved_commit"] == "abc123"
+
+    def test_put_without_stable_identity_stores_empty_string(
+        self, cache: CacheManager, sample_db: Path
+    ) -> None:
+        """put() without stable_identity stores empty string for backward compat."""
+        key = hashlib.sha256(b"no_stable").hexdigest()
+        cache.put(key, sample_db)
+        meta = cache.get_meta(key)
+        assert meta["stable_identity"] == ""

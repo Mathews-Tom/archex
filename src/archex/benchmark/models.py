@@ -6,7 +6,11 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from archex.models import DeltaMeta, PipelineTiming  # noqa: TCH001 — Pydantic needs at runtime
+from archex.models import (  # noqa: TCH001 — Pydantic needs at runtime
+    DeltaMeta,
+    PipelineTiming,
+    VectorMode,
+)
 
 
 class Strategy(StrEnum):
@@ -14,7 +18,9 @@ class Strategy(StrEnum):
     RAW_GREPPED = "raw_grepped"
     ARCHEX_QUERY = "archex_query"
     ARCHEX_QUERY_VECTOR = "archex_query_vector"
+    SURROGATE_VECTOR = "surrogate_vector"
     ARCHEX_QUERY_FUSION = "archex_query_fusion"
+    CROSS_LAYER_FUSION = "cross_layer_fusion"
     ARCHEX_SYMBOL_LOOKUP = "archex_symbol_lookup"
 
 
@@ -69,6 +75,9 @@ class BenchmarkResult(BaseModel):
     seed_recall: float = 0.0
     seed_precision: float = 0.0
     category: TaskCategory | None = None
+    vector_mode: VectorMode = VectorMode.RAW
+    surrogate_version: str | None = None
+    cache_state: str = "cold"
 
 
 class BenchmarkReport(BaseModel):
