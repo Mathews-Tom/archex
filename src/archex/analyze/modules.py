@@ -52,9 +52,9 @@ def _run_leiden_communities(g: Any) -> list[set[str]]:
     partition = cast(
         "list[list[int]]",
         leidenalg.find_partition(
-        ig_graph,
-        leidenalg.ModularityVertexPartition,
-        seed=42,
+            ig_graph,
+            leidenalg.ModularityVertexPartition,
+            seed=42,
         ),
     )
     return [{nodes[idx] for idx in community} for community in partition]
