@@ -32,6 +32,7 @@ class TestAvailableStrategies:
         assert Strategy.ARCHEX_QUERY in AVAILABLE_STRATEGIES
         # Fusion is in the default set (skipped at runtime if vector deps missing)
         assert Strategy.ARCHEX_QUERY_FUSION in AVAILABLE_STRATEGIES
+        assert Strategy.CROSS_LAYER_FUSION in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_SYMBOL_LOOKUP not in AVAILABLE_STRATEGIES
 
 

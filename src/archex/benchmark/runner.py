@@ -21,10 +21,16 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
     Strategy.RAW_GREPPED,
     Strategy.ARCHEX_QUERY,
     Strategy.ARCHEX_QUERY_FUSION,
+    Strategy.CROSS_LAYER_FUSION,
 ]
 
 _VECTOR_STRATEGIES: frozenset[Strategy] = frozenset(
-    {Strategy.ARCHEX_QUERY_VECTOR, Strategy.ARCHEX_QUERY_FUSION}
+    {
+        Strategy.ARCHEX_QUERY_VECTOR,
+        Strategy.SURROGATE_VECTOR,
+        Strategy.ARCHEX_QUERY_FUSION,
+        Strategy.CROSS_LAYER_FUSION,
+    }
 )
 
 

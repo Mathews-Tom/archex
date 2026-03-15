@@ -587,11 +587,9 @@ class IndexStore:
         surrogate_version: str = "v1",
     ) -> Path:
         """Path to a representation-specific vector index co-located with the database."""
-        suffix = f".{vector_mode}"
-        if vector_mode == "surrogate":
-            suffix += f".{surrogate_version}"
-        suffix += ".vectors.npz"
-        return Path(self._db_path).with_suffix(suffix)
+        if vector_mode == "raw":
+            return Path(self._db_path).with_suffix(".vectors.npz")
+        return Path(self._db_path).with_suffix(f".{vector_mode}.{surrogate_version}.vectors.npz")
 
     @property
     def vector_index_path(self) -> Path:

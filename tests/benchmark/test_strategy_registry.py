@@ -46,7 +46,9 @@ class TestStrategyRegistry:
         assert Strategy.RAW_GREPPED.value in names
         assert Strategy.ARCHEX_QUERY.value in names
         assert Strategy.ARCHEX_QUERY_VECTOR.value in names
+        assert Strategy.SURROGATE_VECTOR.value in names
         assert Strategy.ARCHEX_QUERY_FUSION.value in names
+        assert Strategy.CROSS_LAYER_FUSION.value in names
         assert Strategy.ARCHEX_SYMBOL_LOOKUP.value in names
 
     def test_load_entry_points_registers_runner(self) -> None:

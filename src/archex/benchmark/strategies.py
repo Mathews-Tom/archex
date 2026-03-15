@@ -431,7 +431,11 @@ def _archex_fields(
             else:
                 expanded_files.append(fp)
 
-    expansion_ratio = len(expanded_files) / len(seed_files) if seed_files else 0.0
+    expansion_ratio = (
+        meta.expansion_files_added / len(seed_files)
+        if seed_files
+        else float(meta.expansion_files_added > 0)
+    )
     seed_recall_val = compute_recall(set(seed_files), task.expected_files)
     seed_precision_val = compute_precision(set(seed_files), task.expected_files)
 
@@ -448,6 +452,10 @@ def _archex_fields(
         seed_recall=seed_recall_val,
         seed_precision=seed_precision_val,
     )
+
+
+def _cache_state(timing: PipelineTiming) -> str:
+    return "warm" if timing.cached else "cold"
 
 
 def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
@@ -510,6 +518,8 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
         category=task.category,
+        vector_mode=index_config.vector_mode,
+        cache_state=_cache_state(timing),
     )
 
 
@@ -580,6 +590,80 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
         category=task.category,
+        vector_mode=index_config.vector_mode,
+        cache_state=_cache_state(timing),
+    )
+
+
+def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Pure surrogate-vector retrieval strategy."""
+    from archex.api import query
+    from archex.models import Config, IndexConfig, RetrievalPolicy, VectorMode
+
+    t0 = time.perf_counter()
+    timing = PipelineTiming()
+    source = RepoSource(local_path=str(repo_path))
+    config = Config(cache=True, languages=task.languages)
+    index_config = IndexConfig(
+        bm25=False,
+        vector=True,
+        embedder="fastembed",
+        vector_mode=VectorMode.SURROGATE,
+        retrieval_policy=RetrievalPolicy.VECTOR_ONLY,
+    )
+
+    bundle = query(
+        source,
+        task.question,
+        token_budget=task.token_budget,
+        config=config,
+        index_config=index_config,
+        timing=timing,
+    )
+
+    ranked_files = [c.chunk.file_path for c in bundle.chunks]
+    result_files = set(_deduplicate_ranked(ranked_files))
+    wall_ms = (time.perf_counter() - t0) * 1000
+    recall = compute_recall(result_files, task.expected_files)
+    precision = compute_precision(result_files, task.expected_files)
+    f1 = compute_f1(recall, precision)
+    mrr_val = compute_mrr(ranked_files, task.expected_files)
+    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
+    map_val = compute_map(ranked_files, task.expected_files)
+    af = _archex_fields(bundle, task, repo_path)
+
+    return BenchmarkResult(
+        task_id=task.task_id,
+        strategy=Strategy.SURROGATE_VECTOR,
+        tokens_total=bundle.token_count,
+        tokens_input=af.tokens_input,
+        tokens_output=af.tokens_output,
+        token_efficiency=af.token_efficiency,
+        tokens_raw_baseline=af.tokens_raw_baseline,
+        symbol_recall=af.symbol_recall,
+        tool_calls=1,
+        files_accessed=len(result_files),
+        recall=recall,
+        precision=precision,
+        f1_score=f1,
+        mrr=mrr_val,
+        ndcg=ndcg_val,
+        map_score=map_val,
+        savings_vs_raw=0.0,
+        wall_time_ms=wall_ms,
+        cached=timing.cached,
+        timing=timing,
+        timestamp=now_iso(),
+        unique_ranked_files=af.unique_ranked_files,
+        seed_files=af.seed_files,
+        expanded_files=af.expanded_files,
+        expansion_ratio=af.expansion_ratio,
+        seed_recall=af.seed_recall,
+        seed_precision=af.seed_precision,
+        category=task.category,
+        vector_mode=index_config.vector_mode,
+        surrogate_version=index_config.surrogate_version,
+        cache_state=_cache_state(timing),
     )
 
 
@@ -650,6 +734,79 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
         category=task.category,
+        vector_mode=index_config.vector_mode,
+        cache_state=_cache_state(timing),
+    )
+
+
+def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """BM25 over raw chunks plus vector retrieval over surrogates."""
+    from archex.api import query
+    from archex.models import Config, IndexConfig, RetrievalPolicy, VectorMode
+
+    t0 = time.perf_counter()
+    timing = PipelineTiming()
+    source = RepoSource(local_path=str(repo_path))
+    config = Config(cache=True, languages=task.languages)
+    index_config = IndexConfig(
+        vector=True,
+        embedder="fastembed",
+        vector_mode=VectorMode.SURROGATE,
+        retrieval_policy=RetrievalPolicy.CROSS_LAYER,
+    )
+
+    bundle = query(
+        source,
+        task.question,
+        token_budget=task.token_budget,
+        config=config,
+        index_config=index_config,
+        timing=timing,
+    )
+
+    ranked_files = [c.chunk.file_path for c in bundle.chunks]
+    result_files = set(_deduplicate_ranked(ranked_files))
+    wall_ms = (time.perf_counter() - t0) * 1000
+    recall = compute_recall(result_files, task.expected_files)
+    precision = compute_precision(result_files, task.expected_files)
+    f1 = compute_f1(recall, precision)
+    mrr_val = compute_mrr(ranked_files, task.expected_files)
+    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
+    map_val = compute_map(ranked_files, task.expected_files)
+    af = _archex_fields(bundle, task, repo_path)
+
+    return BenchmarkResult(
+        task_id=task.task_id,
+        strategy=Strategy.CROSS_LAYER_FUSION,
+        tokens_total=bundle.token_count,
+        tokens_input=af.tokens_input,
+        tokens_output=af.tokens_output,
+        token_efficiency=af.token_efficiency,
+        tokens_raw_baseline=af.tokens_raw_baseline,
+        symbol_recall=af.symbol_recall,
+        tool_calls=1,
+        files_accessed=len(result_files),
+        recall=recall,
+        precision=precision,
+        f1_score=f1,
+        mrr=mrr_val,
+        ndcg=ndcg_val,
+        map_score=map_val,
+        savings_vs_raw=0.0,
+        wall_time_ms=wall_ms,
+        cached=timing.cached,
+        timing=timing,
+        timestamp=now_iso(),
+        unique_ranked_files=af.unique_ranked_files,
+        seed_files=af.seed_files,
+        expanded_files=af.expanded_files,
+        expansion_ratio=af.expansion_ratio,
+        seed_recall=af.seed_recall,
+        seed_precision=af.seed_precision,
+        category=task.category,
+        vector_mode=index_config.vector_mode,
+        surrogate_version=index_config.surrogate_version,
+        cache_state=_cache_state(timing),
     )
 
 
@@ -712,5 +869,7 @@ default_strategy_registry.register(Strategy.RAW_FILES.value, run_raw_files)
 default_strategy_registry.register(Strategy.RAW_GREPPED.value, run_raw_grepped)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY.value, run_archex_query)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_VECTOR.value, run_archex_query_vector)
+default_strategy_registry.register(Strategy.SURROGATE_VECTOR.value, run_surrogate_vector)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_FUSION.value, run_archex_query_fusion)
+default_strategy_registry.register(Strategy.CROSS_LAYER_FUSION.value, run_cross_layer_fusion)
 default_strategy_registry.register(Strategy.ARCHEX_SYMBOL_LOOKUP.value, run_archex_symbol_lookup)

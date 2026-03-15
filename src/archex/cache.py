@@ -124,10 +124,9 @@ class CacheManager:
     ) -> Path:
         """Return the representation-specific vector index file path for a cache key."""
         self._validate_key(key)
-        parts = [key, vector_mode]
-        if vector_mode == "surrogate":
-            parts.append(surrogate_version)
-        return self._cache_dir / f"{'.'.join(parts)}.vectors.npz"
+        if vector_mode == "raw":
+            return self._cache_dir / f"{key}.vectors.npz"
+        return self._cache_dir / f"{key}.{vector_mode}.{surrogate_version}.vectors.npz"
 
     # ------------------------------------------------------------------
     # CRUD
