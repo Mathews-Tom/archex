@@ -12,7 +12,6 @@ from archex.exceptions import ArchexIndexError
 from archex.index.store import IndexStore
 from archex.index.vector import (
     VectorIndex,
-    bm25_score_cv,
     confidence_weighted_rrf,
     reciprocal_rank_fusion,
     should_fuse,
@@ -588,7 +587,10 @@ class TestShouldFuse:
         bm25_paths = ["a.py", "b.py", "c.py", "d.py", "e.py"]
         vec_paths = ["x.py", "y.py", "z.py", "w.py", "v.py"]
         # Wide score spread → high CV
-        bm25 = [(c, float((5 - i) * 100)) for i, (c, _) in enumerate(_make_chunks_with_paths(bm25_paths))]
+        bm25 = [
+            (c, float((5 - i) * 100))
+            for i, (c, _) in enumerate(_make_chunks_with_paths(bm25_paths))
+        ]
         vec = _make_chunks_with_paths(vec_paths)
 
         apply, reason = should_fuse(bm25, vec, cv_threshold=0.1, agreement_threshold=0.99)

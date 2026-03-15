@@ -45,7 +45,11 @@ class VectorIndex:
 
         texts = [
             surrogates_by_chunk_id[c.id].surrogate_text
-            if vector_mode == VectorMode.SURROGATE and surrogates_by_chunk_id and c.id in surrogates_by_chunk_id
+            if (
+                vector_mode == VectorMode.SURROGATE
+                and surrogates_by_chunk_id
+                and c.id in surrogates_by_chunk_id
+            )
             else c.content
             for c in chunks
         ]
@@ -199,7 +203,11 @@ class VectorIndex:
 
         texts = [query] + [
             surrogates_by_chunk_id[c.id].surrogate_text
-            if vector_mode == VectorMode.SURROGATE and surrogates_by_chunk_id and c.id in surrogates_by_chunk_id
+            if (
+                vector_mode == VectorMode.SURROGATE
+                and surrogates_by_chunk_id
+                and c.id in surrogates_by_chunk_id
+            )
             else c.content
             for c in candidates
         ]

@@ -323,7 +323,9 @@ def assemble_context(
             _bm25_top_k = {chunk.file_path for chunk, _ in search_results[:_k_agree]}
             _vec_top_k = {chunk.file_path for chunk, _ in vector_results[:_k_agree]}
             _union = _bm25_top_k | _vec_top_k
-            signal_agreement_pre: float = len(_bm25_top_k & _vec_top_k) / len(_union) if _union else 0.0
+            signal_agreement_pre: float = (
+                len(_bm25_top_k & _vec_top_k) / len(_union) if _union else 0.0
+            )
 
             merged, fusion_bm25_weight, fusion_vector_weight = confidence_weighted_rrf(
                 search_results, vector_results, signal_agreement_pre, bm25_cv_val, k=60
@@ -353,7 +355,11 @@ def assemble_context(
     candidates_found = len(search_results)
 
     # Effective expansion threshold: caller override takes precedence over constant.
-    effective_expansion_min = expansion_min_override if expansion_min_override is not None else SEED_EXPANSION_MIN
+    effective_expansion_min = (
+        expansion_min_override
+        if expansion_min_override is not None
+        else SEED_EXPANSION_MIN
+    )
 
     # --- Graph expansion phase ---
     _expansion_start = time.perf_counter_ns()

@@ -184,7 +184,10 @@ def test_detect_modules_community_detection_unexpected_error_propagates() -> Non
     graph.add_file_edge("pkg/a.py", "pkg/b.py")
 
     with (
-        patch("archex.analyze.modules._run_leiden_communities", side_effect=TypeError("unexpected")),
+        patch(
+            "archex.analyze.modules._run_leiden_communities",
+            side_effect=TypeError("unexpected"),
+        ),
         pytest.raises(TypeError, match="unexpected"),
     ):
         detect_modules(graph, [pf_a, pf_b])

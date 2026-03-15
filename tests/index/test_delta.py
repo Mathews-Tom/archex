@@ -238,7 +238,11 @@ class TestApplyDelta:
         finally:
             store.close()
 
-    def test_modified_rebuilds_chunk_surrogates(self, delta_test_repo: Path, tmp_path: Path) -> None:
+    def test_modified_rebuilds_chunk_surrogates(
+        self,
+        delta_test_repo: Path,
+        tmp_path: Path,
+    ) -> None:
         from archex.index.graph import DependencyGraph
 
         store, graph = self._build_initial_index(delta_test_repo, tmp_path)

@@ -52,7 +52,7 @@ from archex.analyze.interfaces import extract_interfaces
 from archex.analyze.modules import detect_modules
 from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
-from archex.exceptions import DeltaIndexError
+from archex.exceptions import ArchexIndexError, DeltaIndexError
 from archex.index.bm25 import BM25Index
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore

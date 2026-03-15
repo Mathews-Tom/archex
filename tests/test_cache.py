@@ -585,7 +585,7 @@ class TestStableIdentity:
         source = RepoSource(local_path="/home/user/myproject")
         with patch.object(CacheManager, "git_head", return_value=None):
             key = cm.cache_key(source)
-        expected = hashlib.sha256("/home/user/myproject".encode()).hexdigest()
+        expected = hashlib.sha256(b"/home/user/myproject").hexdigest()
         assert key == expected
         assert len(key) == 64
 
