@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import networkx as nx
 from networkx.algorithms.community import louvain_communities
@@ -30,15 +30,17 @@ def _build_nx_graph(graph: DependencyGraph, parsed_files: list[ParsedFile]) -> A
 def _run_leiden_communities(g: Any) -> list[set[str]]:
     """Run Leiden when available, otherwise fall back to Louvain."""
     try:
-        import igraph as ig  # type: ignore[import-not-found]
-        import leidenalg  # type: ignore[import-not-found]
+        import igraph as igraph_module  # type: ignore[import-not-found]
+        import leidenalg as leidenalg_module  # type: ignore[import-not-found]
     except ImportError:
         logger.info("Leiden dependencies unavailable; falling back to Louvain")
         return [{str(node) for node in community} for community in louvain_communities(g, seed=42)]
 
+    ig = cast(Any, igraph_module)
+    leidenalg = cast(Any, leidenalg_module)
     nodes = [str(node) for node in g.nodes()]  # type: ignore[misc]
     index_by_node = {node: idx for idx, node in enumerate(nodes)}
-    ig_graph = ig.Graph(directed=False)
+    ig_graph: Any = ig.Graph(directed=False)
     ig_graph.add_vertices(nodes)
     ig_edges = [
         (index_by_node[str(source)], index_by_node[str(target)])
@@ -47,10 +49,13 @@ def _run_leiden_communities(g: Any) -> list[set[str]]:
     ]
     if ig_edges:
         ig_graph.add_edges(ig_edges)
-    partition = leidenalg.find_partition(
+    partition = cast(
+        list[list[int]],
+        leidenalg.find_partition(
         ig_graph,
         leidenalg.ModularityVertexPartition,
         seed=42,
+        ),
     )
     return [{nodes[idx] for idx in community} for community in partition]
 
