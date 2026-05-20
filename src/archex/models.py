@@ -116,9 +116,6 @@ class RepoSource(BaseModel):
 class Config(BaseModel):
     languages: list[str] | None = None
     depth: Literal["shallow", "full"] = "full"
-    enrich: bool = False
-    provider: str | None = None
-    provider_config: dict[str, Any] = {}
     cache: bool = True
     cache_dir: str = "~/.archex/cache"
     max_file_size: int = 10_000_000
@@ -410,7 +407,7 @@ class ArchDecision(BaseModel):
     alternatives: list[str] = []
     evidence: list[str] = []
     implications: list[str] = []
-    source: Literal["structural", "llm_inferred"] = "structural"
+    source: Literal["structural"] = "structural"
 
 
 class DependencyGraphSummary(BaseModel):

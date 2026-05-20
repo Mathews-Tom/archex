@@ -32,17 +32,17 @@ def test_parse_env_value_budget_suffix_returns_int() -> None:
 
 @pytest.mark.parametrize("raw", ["1", "true", "yes", "on", "TRUE", "Yes"])
 def test_parse_env_value_bool_true_variants(raw: str) -> None:
-    assert _parse_env_value("enrich", raw) is True
+    assert _parse_env_value("cache", raw) is True
 
 
 @pytest.mark.parametrize("raw", ["0", "false", "no", "off", "FALSE", "No"])
 def test_parse_env_value_bool_false_variants(raw: str) -> None:
-    assert _parse_env_value("enrich", raw) is False
+    assert _parse_env_value("cache", raw) is False
 
 
 def test_parse_env_value_string_passthrough() -> None:
-    result = _parse_env_value("provider", "openai")
-    assert result == "openai"
+    result = _parse_env_value("cache_dir", "/tmp/archex")
+    assert result == "/tmp/archex"
     assert isinstance(result, str)
 
 
@@ -88,11 +88,11 @@ def test_load_config_env_var_prefix_stripping(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(cfg_module, "_CONFIG_FILE", tmp_path / "nonexistent.toml")
-    monkeypatch.setenv("ARCHEX_PROVIDER", "anthropic")
+    monkeypatch.setenv("ARCHEX_CACHE_DIR", "/tmp/archex-cache")
 
     config = load_config()
 
-    assert config.provider == "anthropic"
+    assert config.cache_dir == "/tmp/archex-cache"
 
 
 def test_load_config_env_var_size_coercion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -144,9 +144,9 @@ def test_load_config_env_overrides_toml(tmp_path: Path, monkeypatch: pytest.Monk
 @pytest.mark.parametrize(
     ("env_key", "raw_value", "field", "expected"),
     [
-        ("ARCHEX_ENRICH", "true", "enrich", True),
         ("ARCHEX_CACHE", "false", "cache", False),
         ("ARCHEX_PARALLEL", "1", "parallel", True),
+        ("ARCHEX_STRICT", "yes", "strict", True),
     ],
 )
 def test_load_config_bool_env_vars(

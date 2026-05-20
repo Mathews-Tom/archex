@@ -88,7 +88,6 @@ from archex.parse import (
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.chunker import ASTChunker, Chunker
 from archex.pipeline.service import build_chunk_surrogates
-from archex.providers.base import get_provider
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
 from archex.serve.profile import build_profile
@@ -99,7 +98,6 @@ if TYPE_CHECKING:
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
     from archex.models import ComparisonResult
-    from archex.providers.base import LLMProvider
 
 # ---------------------------------------------------------------------------
 # Acquisition + Indexing — shared helpers for all entry points
