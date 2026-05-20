@@ -6,9 +6,9 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Coverage](https://codecov.io/gh/determ-ai/archex/graph/badge.svg)](https://codecov.io/gh/determ-ai/archex)
 
-Architecture extraction and codebase intelligence for the agentic era.
+Architectural intelligence for code, with no LLM bill.
 
-archex is a Python library and CLI that transforms any Git repository into structured architectural intelligence and token-budget-aware code context. It serves two consumers from a single index: **human architects** receive an `ArchProfile` with module boundaries, dependency graphs, detected patterns, and interface surfaces; **AI agents** receive a `ContextBundle` with relevance-ranked, syntax-aligned code chunks assembled to fit within a specified token budget.
+archex is a Python library and CLI that transforms any Git repository into structured architectural intelligence and token-budget-aware code context — fully local, fully deterministic, no API keys, no per-call cost. It serves two consumers from a single index: **human architects** receive an `ArchProfile` with module boundaries, dependency graphs, detected patterns, and interface surfaces; **AI agents** receive a `ContextBundle` with relevance-ranked, syntax-aligned code chunks assembled to fit within a specified token budget.
 
 ## Features
 
@@ -28,7 +28,7 @@ archex is a Python library and CLI that transforms any Git repository into struc
 - **Quality gates** — CI-embeddable threshold checks for recall, precision, F1, MRR with latency warnings
 - **Expansion gating** — weak BM25 seeds (below 10% of max) don't trigger graph expansion; score-relative file cutoff removes noise
 - **25-task benchmark corpus** — 6 self-referential + 19 external repos across Python, Go, Rust, JS/TS, covering 5 difficulty categories
-- **LLM-optional** — entire structural pipeline runs without API calls; LLM enrichment is opt-in
+- **LLM-free** — every pipeline stage is local; no API keys, no per-query cost, no rate-limit dependencies
 
 ## Installation
 
@@ -58,13 +58,6 @@ uv add "archex[lsap]"               # LSP enrichment (Python 3.12+, lsp-client)
 ```bash
 uv add "archex[vector]"              # ONNX local embeddings (Nomic Code) — no GPU required
 uv add "archex[vector-torch]"        # Torch-backed sentence-transformers — GPU-accelerated
-```
-
-**LLM enrichment** (optional — enriches architectural decisions with LLM reasoning):
-
-```bash
-uv add "archex[openai]"              # OpenAI (gpt-4.1)
-uv add "archex[anthropic]"           # Anthropic (claude-sonnet-4-20250514)
 ```
 
 **Other:**
@@ -603,7 +596,6 @@ delta_threshold = 0.5
 | ----------------- | ------------------ | --------------------------------------------------------------------------- |
 | `languages`       | all supported      | Languages to parse (list of strings)                                        |
 | `depth`           | `3`                | Module detection depth                                                      |
-| `enrich`          | `false`            | Enable LLM enrichment (requires provider config)                            |
 | `cache`           | `true`             | Enable caching of parse/index results                                       |
 | `cache_dir`       | `~/.archex/cache`  | Cache storage directory                                                     |
 | `max_file_size`   | `10000000` (10 MB) | Skip files larger than this (bytes)                                         |
