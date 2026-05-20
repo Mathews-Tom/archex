@@ -50,7 +50,6 @@ class TestStrategyRegistry:
         assert Strategy.ARCHEX_QUERY_FUSION.value in names
         assert Strategy.CROSS_LAYER_FUSION.value in names
         assert Strategy.ARCHEX_QUERY_FUSION_RERANK.value in names
-        assert Strategy.ARCHEX_QUERY_FUSION_RERANK_AUGMENT.value in names
         assert Strategy.ARCHEX_SYMBOL_LOOKUP.value in names
 
     def test_load_entry_points_registers_runner(self) -> None:

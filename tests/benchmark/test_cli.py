@@ -121,7 +121,6 @@ class TestRunCommand:
         assert "--query-fusion" in result.output
         assert "--cross_layer_fusion" in result.output
         assert "--rerank" in result.output
-        assert "--augment" in result.output
 
     def test_run_uses_default_strategies_without_flags(
         self,
@@ -203,32 +202,4 @@ class TestRunCommand:
             Strategy.ARCHEX_QUERY,
             Strategy.ARCHEX_QUERY_FUSION,
             Strategy.ARCHEX_QUERY_FUSION_RERANK,
-        ]
-
-    def test_run_augment_flag_adds_full_pipeline(
-        self,
-        runner: CliRunner,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        captured: dict[str, object] = {}
-
-        def fake_run_all(
-            tasks_dir: Path,
-            output_dir: Path,
-            strategies: list[Strategy] | None = None,
-            task_filter: str | None = None,
-        ) -> list[BenchmarkReport]:
-            captured["strategies"] = strategies
-            return []
-
-        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
-        result = runner.invoke(benchmark_cmd, ["run", "--augment"])
-        assert result.exit_code == 0
-        assert captured["strategies"] == [
-            Strategy.RAW_FILES,
-            Strategy.RAW_GREPPED,
-            Strategy.ARCHEX_QUERY,
-            Strategy.ARCHEX_QUERY_FUSION,
-            Strategy.ARCHEX_QUERY_FUSION_RERANK,
-            Strategy.ARCHEX_QUERY_FUSION_RERANK_AUGMENT,
         ]
