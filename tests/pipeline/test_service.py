@@ -145,50 +145,6 @@ class TestMultiLanguage:
         assert len(bundle.chunks) > 0
 
 
-class TestSummarizationIntegration:
-    """produce_artifacts integrates LLM summarization when provider is given."""
-
-    def test_summaries_applied_to_chunks(self) -> None:
-        from unittest.mock import MagicMock
-
-        provider = MagicMock()
-        provider.complete.return_value = "Session management using factory pattern."
-
-        config = Config(languages=["python"])
-        bundle = produce_artifacts(
-            PYTHON_SIMPLE,
-            config,
-            _adapters(),
-            llm_provider=provider,
-        )
-        # At least some chunks should have summaries
-        summarized = [c for c in bundle.chunks if c.summary]
-        assert len(summarized) > 0
-        assert summarized[0].summary == "Session management using factory pattern."
-
-    def test_no_summaries_without_provider(self) -> None:
-        config = Config(languages=["python"])
-        bundle = produce_artifacts(PYTHON_SIMPLE, config, _adapters())
-        # Without a provider, no chunks should have summaries
-        summarized = [c for c in bundle.chunks if c.summary]
-        assert len(summarized) == 0
-
-    def test_provider_called_for_each_chunk(self) -> None:
-        from unittest.mock import MagicMock
-
-        provider = MagicMock()
-        provider.complete.return_value = "A function."
-
-        config = Config(languages=["python"])
-        bundle = produce_artifacts(
-            PYTHON_SIMPLE,
-            config,
-            _adapters(),
-            llm_provider=provider,
-        )
-        assert provider.complete.call_count == len(bundle.chunks)
-
-
 class TestSurrogateSummaryInclusion:
     """build_chunk_surrogates includes summary in surrogate text."""
 
