@@ -779,11 +779,7 @@ def analyze(
         if timing is not None:
             timing.index_ms = analysis_ms
 
-        provider = None
-        if config.enrich and config.provider:
-            provider = get_provider(config.provider, config.provider_config)
-
-        decisions = infer_decisions(patterns, modules, interfaces, provider=provider)
+        decisions = infer_decisions(patterns, modules, interfaces)
 
         lang_counts: dict[str, int] = {}
         for f in files:
