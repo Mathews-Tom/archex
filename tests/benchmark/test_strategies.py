@@ -21,7 +21,6 @@ from archex.benchmark.strategies import (
     run_archex_query,
     run_archex_query_fusion,
     run_archex_query_fusion_rerank,
-    run_archex_query_fusion_rerank_augment,
     run_archex_query_vector,
     run_archex_symbol_lookup,
     run_cross_layer_fusion,
@@ -463,26 +462,6 @@ class TestRunArchexQueryFusionRerank:
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_archex_query_fusion_rerank(task, python_simple_repo)
         assert result.strategy == Strategy.ARCHEX_QUERY_FUSION_RERANK
-        assert result.tokens_total >= 0
-        assert result.tool_calls == 1
-        assert result.timing is not None
-        assert 0.0 <= result.recall <= 1.0
-        assert 0.0 <= result.precision <= 1.0
-
-
-class TestRunArchexQueryFusionRerankAugment:
-    def test_fusion_rerank_augment_strategy(self, python_simple_repo: Path) -> None:
-        task = BenchmarkTask(
-            task_id="test",
-            repo="test/repo",
-            commit="abc",
-            question="How does the main module work?",
-            expected_files=["main.py"],
-            token_budget=4096,
-        )
-        with patch("archex.api._get_embedder", _stub_get_embedder):
-            result = run_archex_query_fusion_rerank_augment(task, python_simple_repo)
-        assert result.strategy == Strategy.ARCHEX_QUERY_FUSION_RERANK_AUGMENT
         assert result.tokens_total >= 0
         assert result.tool_calls == 1
         assert result.timing is not None

@@ -206,7 +206,7 @@ def test_to_markdown_decision_log_no_alternatives() -> None:
     decision = ArchDecision(
         decision="Monorepo layout",
         alternatives=[],
-        source="llm_inferred",
+        source="structural",
     )
     profile = ArchProfile(repo=RepoMetadata(local_path="/repo"), decision_log=[decision])
     md = profile.to_markdown()

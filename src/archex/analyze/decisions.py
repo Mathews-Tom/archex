@@ -2,16 +2,7 @@
 
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING
-
-from archex.exceptions import ProviderError
-from archex.models import ArchDecision, DetectedPattern, Interface, Module
-
-logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from archex.providers.base import LLMProvider
+from archex.models import ArchDecision, DetectedPattern
 
 # Alternatives and implications for known pattern names
 _PATTERN_ALTERNATIVES: dict[str, list[str]] = {
@@ -80,24 +71,6 @@ _PATTERN_IMPLICATIONS: dict[str, list[str]] = {
     ],
 }
 
-_DECISION_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "decision": {"type": "string"},
-        "alternatives": {"type": "array", "items": {"type": "string"}},
-        "evidence": {"type": "array", "items": {"type": "string"}},
-        "implications": {"type": "array", "items": {"type": "string"}},
-        "source": {"type": "string", "enum": ["structural", "llm_inferred"]},
-    },
-    "required": ["decision", "alternatives", "evidence", "implications", "source"],
-    "additionalProperties": False,
-}
-
-_LLM_SYSTEM_PROMPT = (
-    "You are an expert software architect. Analyze the provided architectural pattern evidence "
-    "and explain the trade-off rationale. Return structured JSON matching the schema."
-)
-
 
 def _build_decision_from_pattern(pattern: DetectedPattern) -> ArchDecision:
     evidence_list = [
@@ -123,63 +96,11 @@ def _build_decision_from_pattern(pattern: DetectedPattern) -> ArchDecision:
     )
 
 
-def _build_llm_prompt(pattern: DetectedPattern, modules: list[Module]) -> str:
-    evidence_lines = "\n".join(
-        f"  - {e.file_path}:{e.start_line}-{e.end_line} | {e.symbol}: {e.explanation}"
-        for e in pattern.evidence
-    )
-    module_names = ", ".join(m.name for m in modules) if modules else "none"
-    return (
-        f"Pattern: {pattern.display_name} (confidence: {pattern.confidence:.2f})\n"
-        f"Category: {pattern.category}\n"
-        f"Description: {pattern.description}\n"
-        f"Evidence:\n{evidence_lines}\n"
-        f"Modules present: {module_names}\n\n"
-        "Provide an ArchDecision JSON with decision, alternatives, evidence (file paths), "
-        "implications, and source='llm_inferred'."
-    )
-
-
-def infer_decisions(
-    patterns: list[DetectedPattern],
-    modules: list[Module],
-    interfaces: list[Interface],
-    provider: LLMProvider | None = None,
-) -> list[ArchDecision]:
+def infer_decisions(patterns: list[DetectedPattern]) -> list[ArchDecision]:
     """Infer architectural decisions from detected patterns.
 
-    Structural decisions are always generated for patterns with confidence >= 0.5.
-    When a provider is supplied, each decision is enriched via LLM.
+    Decisions are generated structurally for patterns with confidence >= 0.5.
     """
-    decisions: list[ArchDecision] = []
-
-    for pattern in patterns:
-        if pattern.confidence < 0.5:
-            continue
-
-        structural = _build_decision_from_pattern(pattern)
-
-        if provider is None:
-            decisions.append(structural)
-            continue
-
-        prompt = _build_llm_prompt(pattern, modules)
-        try:
-            raw = provider.complete_structured(
-                prompt=prompt,
-                schema=_DECISION_SCHEMA,
-                system=_LLM_SYSTEM_PROMPT,
-            )
-            enriched = ArchDecision(
-                decision=str(raw.get("decision", structural.decision)),
-                alternatives=[str(a) for a in raw.get("alternatives", structural.alternatives)],  # type: ignore[union-attr]
-                evidence=[str(e) for e in raw.get("evidence", structural.evidence)],  # type: ignore[union-attr]
-                implications=[str(i) for i in raw.get("implications", structural.implications)],  # type: ignore[union-attr]
-                source="llm_inferred",
-            )
-            decisions.append(enriched)
-        except (ProviderError, Exception):  # noqa: BLE001
-            logger.warning("LLM enrichment failed for %s", pattern.name, exc_info=True)
-            decisions.append(structural)
-
-    return decisions
+    return [
+        _build_decision_from_pattern(pattern) for pattern in patterns if pattern.confidence >= 0.5
+    ]

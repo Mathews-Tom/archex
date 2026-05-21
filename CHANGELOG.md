@@ -1,6 +1,47 @@
 # Changelog
 
-## 0.6.0 (2026-03-12)
+## 0.6.0 (2026-05-21)
+
+### Removed — LLM dependencies (breaking)
+
+archex is now fully local, fully deterministic, no API keys, no per-query cost. All LLM-dependent surfaces have been removed from the core. This is a deliberate scope correction: the structural and retrieval-quality engineering (BM25F, vector embeddings, RRF/RSF fusion, cross-encoder reranking, PPR graph expansion, intent classification) was already at or above the measured contribution of the LLM lanes for most tasks, and the LLM lanes imposed adoption friction that did not pay back.
+
+**Deleted from the codebase:**
+
+- `src/archex/providers/` — `LLMProvider` protocol, `get_provider` factory, all provider implementations (`anthropic`, `openai`, `openrouter`).
+- `src/archex/pipeline/summarize.py` — index-time LLM chunk summarisation (rolled back from the historical Phase 14.1 work).
+- `src/archex/serve/query.py` — ReCo-style query augmentation (`augment_query`, rolled back from the historical Phase 13.1 work).
+- `archex_query_fusion_rerank_augment` benchmark strategy and the `--augment` CLI flag.
+- `openai` and `anthropic` extras in `pyproject.toml`.
+
+**Breaking changes to public API:**
+
+- `Config.provider`, `Config.provider_config`, `Config.enrich` — fields removed. Passing them raises `pydantic.ValidationError`.
+- `analyze(..., enrich=True)` — the `enrich` kwarg no longer exists. `analyze()` produces structural `ArchDecision` records only.
+- `ArchDecision.source` — `Literal["structural", "llm_inferred"]` collapsed to `Literal["structural"]`. Code constructing `ArchDecision(source="llm_inferred")` must change to `"structural"`.
+- `infer_decisions(patterns, modules, interfaces)` — `provider` kwarg removed.
+- `produce_artifacts(...)` — `llm_provider` kwarg removed.
+
+**Migration:**
+
+- Remove `provider=`, `provider_config=`, `enrich=`, and `llm_provider=` kwargs from any direct API calls.
+- `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are no longer consulted by archex.
+- If you used `archex benchmark run --augment`, the LLM-free equivalent is `archex benchmark run --query-fusion --rerank` (BM25F + vector + RRF/RSF + local cross-encoder).
+
+**What stayed (still local, still LLM-free):**
+
+- Cross-encoder reranking (Jina Reranker v2) — local sentence-transformers model, not an LLM API.
+- Vector embeddings (FastEmbed, CodeRankEmbed) — local ONNX/Torch.
+- All structural analysis (Louvain modules, pattern catalog, interface extraction, dependency graph + PPR expansion).
+- The full 25-task benchmark corpus, now runnable end-to-end with zero API calls.
+
+### Added — Per-dimension compare templates
+
+`compare()` is now a per-dimension package (`src/archex/serve/compare/`). Each dimension (`error_handling`, `api_surface`, `state_management`, `concurrency`, `testing`, `configuration`) ships its own `Evidence` dataclass, structural extractor, and renderer.
+
+- Output replaces generic "N indicator(s) detected" wording with quantitative metrics: pattern counts, return-type/docstring coverage percentages, async-interface ratios, persistence/test/config library presence, file-ratio metrics.
+- `DimensionComparison` and `ComparisonResult` contracts unchanged; existing CLI, MCP, and JSON renderers continue to work.
+- Trade-off classifier emits specific deltas (`"substantially more"`, `"comparable"`, `"none"`) and library-presence callouts (`"A adopts X not seen in B"`).
 
 ### Retrieval Quality (8-Phase Improvement Plan)
 

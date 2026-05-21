@@ -23,7 +23,6 @@ class TestStrategy:
         assert Strategy.ARCHEX_QUERY_FUSION == "archex_query_fusion"
         assert Strategy.CROSS_LAYER_FUSION == "cross_layer_fusion"
         assert Strategy.ARCHEX_QUERY_FUSION_RERANK == "archex_query_fusion_rerank"
-        assert Strategy.ARCHEX_QUERY_FUSION_RERANK_AUGMENT == "archex_query_fusion_rerank_augment"
         assert Strategy.ARCHEX_SYMBOL_LOOKUP == "archex_symbol_lookup"
 
     def test_enum_from_value(self) -> None:

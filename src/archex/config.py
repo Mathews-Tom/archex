@@ -21,13 +21,6 @@ _BOOL_TRUE = {"1", "true", "yes", "on"}
 
 DEFAULT_CACHE_DIR = "~/.archex/cache"
 
-# Default model IDs for LLM providers — single source of truth
-DEFAULT_MODELS: dict[str, str] = {
-    "anthropic": "claude-sonnet-4-20250514",
-    "openai": "gpt-4.1",
-    "openrouter": "anthropic/claude-sonnet-4-20250514",
-}
-
 
 def _parse_env_value(key: str, value: str) -> Any:
     """Convert env string to appropriate Python type based on key suffix."""

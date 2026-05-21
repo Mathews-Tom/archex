@@ -88,7 +88,6 @@ from archex.parse import (
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.chunker import ASTChunker, Chunker
 from archex.pipeline.service import build_chunk_surrogates
-from archex.providers.base import get_provider
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
 from archex.serve.profile import build_profile
@@ -99,7 +98,6 @@ if TYPE_CHECKING:
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
     from archex.models import ComparisonResult
-    from archex.providers.base import LLMProvider
 
 # ---------------------------------------------------------------------------
 # Acquisition + Indexing — shared helpers for all entry points
@@ -601,7 +599,6 @@ def _bm25_search_with_boosts(
     store: IndexStore,
     question: str,
     top_k: int,
-    augment_provider: LLMProvider | None = None,
 ) -> tuple[
     list[tuple[CodeChunk, float]],
     list[tuple[CodeChunk, float]],
@@ -611,15 +608,8 @@ def _bm25_search_with_boosts(
 
     Returns (search_results, path_boost, symbol_seeds) as separate lists so
     callers can record individual counts for observability, then combine them.
-
-    When augment_provider is given, the BM25 query is expanded with
-    LLM-generated code identifiers (ReCo-style augmentation). Path boost
-    and symbol seeds use the original question to avoid false matches.
     """
-    from archex.serve.query import augment_query
-
-    bm25_question = augment_query(question, augment_provider)
-    results = bm25.search(bm25_question, top_k=top_k)
+    results = bm25.search(question, top_k=top_k)
     bm25_ids = {c.id for c, _ in results}
     max_bm25 = max((s for _, s in results), default=1.0)
     path_boost = _file_path_boost(store, question, bm25_ids, max_bm25_score=max_bm25)
@@ -787,11 +777,7 @@ def analyze(
         if timing is not None:
             timing.index_ms = analysis_ms
 
-        provider = None
-        if config.enrich and config.provider:
-            provider = get_provider(config.provider, config.provider_config)
-
-        decisions = infer_decisions(patterns, modules, interfaces, provider=provider)
+        decisions = infer_decisions(patterns)
 
         lang_counts: dict[str, int] = {}
         for f in files:
@@ -902,14 +888,6 @@ def query(
                     return pt
 
                 bm25 = BM25Index(store)
-                # Query augmentation provider: expand BM25 queries with
-                # LLM-generated code identifiers when a provider is configured.
-                _augment_provider: LLMProvider | None = None
-                if config.provider:
-                    try:
-                        _augment_provider = get_provider(config.provider, config.provider_config)
-                    except (ValueError, Exception):
-                        logger.debug("Query augmentation provider unavailable, skipping")
                 stored_edges = store.get_edges()
                 graph = DependencyGraph.from_edges(stored_edges)
 
@@ -950,7 +928,6 @@ def query(
                             store,
                             question,
                             top_k,
-                            augment_provider=_augment_provider,
                         )
                         search_results = _bm25_raw + path_boost + symbol_seeds
                     else:
@@ -1127,12 +1104,6 @@ def query(
 
         try:
             bm25 = BM25Index(store)
-            _augment_provider_miss: LLMProvider | None = None
-            if config.provider:
-                try:
-                    _augment_provider_miss = get_provider(config.provider, config.provider_config)
-                except (ValueError, Exception):
-                    logger.debug("Query augmentation provider unavailable, skipping")
             store.insert_chunks(all_chunks)
             store.insert_chunk_surrogates(chunk_surrogates)
             edges = graph.file_edges()
@@ -1259,7 +1230,6 @@ def query(
                         store,
                         question,
                         top_k,
-                        augment_provider=_augment_provider_miss,
                     )
                     search_results = _bm25_raw + path_boost + symbol_seeds_miss
                 else:
