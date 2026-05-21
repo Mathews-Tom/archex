@@ -7,10 +7,13 @@ from dataclasses import dataclass
 from archex.models import ArchProfile, DimensionComparison
 from archex.serve.compare._base import (
     classify_delta,
+    library_diff_trade_offs,
+    matched_deps,
     module_excerpts,
     modules_matching,
     pattern_excerpts,
     patterns_matching,
+    repo_label,
 )
 
 _PATTERN_KEYWORDS = {"test", "fixture", "mock", "spec", "assert", "parametrize"}
@@ -47,19 +50,13 @@ def extract(profile: ArchProfile) -> TestingEvidence:
     matched_modules = modules_matching(profile.module_map, _MODULE_KEYWORDS)
     test_files = sum(m.file_count for m in matched_modules)
     patterns = patterns_matching(profile.pattern_catalog, _PATTERN_KEYWORDS)
-    deps: set[str] = set()
-    for mod in profile.module_map:
-        for dep in mod.external_deps:
-            normalized = dep.lower().split(".")[0].replace("-", "_")
-            if normalized in _TEST_DEPS:
-                deps.add(normalized)
     return TestingEvidence(
-        repo=profile.repo.url or profile.repo.local_path or "repo",
+        repo=repo_label(profile),
         test_modules=len(matched_modules),
         test_files_total=test_files,
         total_files=profile.stats.total_files,
         pattern_count=len(patterns),
-        test_deps=sorted(deps),
+        test_deps=matched_deps(profile.module_map, _TEST_DEPS),
         pattern_samples=pattern_excerpts(patterns),
         module_samples=module_excerpts(matched_modules),
     )
@@ -111,12 +108,7 @@ def compare(a: TestingEvidence, b: TestingEvidence) -> DimensionComparison:
         trade_offs.append(
             f"`{b.repo}` invests more in test surface ({ratio_b:.0%} vs {ratio_a:.0%})."
         )
-    a_only = set(a.test_deps) - set(b.test_deps)
-    b_only = set(b.test_deps) - set(a.test_deps)
-    if a_only:
-        trade_offs.append(f"`{a.repo}` uses {', '.join(sorted(a_only))} not seen in `{b.repo}`.")
-    if b_only:
-        trade_offs.append(f"`{b.repo}` uses {', '.join(sorted(b_only))} not seen in `{a.repo}`.")
+    trade_offs.extend(library_diff_trade_offs(a.repo, b.repo, a.test_deps, b.test_deps))
     return DimensionComparison(
         dimension="testing",
         repo_a_approach=_approach(a),

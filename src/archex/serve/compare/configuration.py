@@ -9,10 +9,13 @@ from archex.serve.compare._base import (
     classify_delta,
     interface_excerpts,
     interfaces_matching,
+    library_diff_trade_offs,
+    matched_deps,
     module_excerpts,
     modules_matching,
     pattern_excerpts,
     patterns_matching,
+    repo_label,
 )
 
 _PATTERN_KEYWORDS = {"config", "settings", "env", "environment", "options", "configuration"}
@@ -25,7 +28,6 @@ _CONFIG_DEPS = {
     "environs",
     "python_dotenv",
     "dotenv",
-    "click",
     "configargparse",
     "hydra_core",
     "omegaconf",
@@ -50,18 +52,12 @@ def extract(profile: ArchProfile) -> ConfigurationEvidence:
     modules = modules_matching(profile.module_map, _MODULE_KEYWORDS)
     interfaces = interfaces_matching(profile.interface_surface, _INTERFACE_KEYWORDS)
     patterns = patterns_matching(profile.pattern_catalog, _PATTERN_KEYWORDS)
-    deps: set[str] = set()
-    for mod in profile.module_map:
-        for dep in mod.external_deps:
-            normalized = dep.lower().split(".")[0].replace("-", "_")
-            if normalized in _CONFIG_DEPS:
-                deps.add(normalized)
     return ConfigurationEvidence(
-        repo=profile.repo.url or profile.repo.local_path or "repo",
+        repo=repo_label(profile),
         config_modules=len(modules),
         env_interfaces=len(interfaces),
         pattern_count=len(patterns),
-        config_deps=sorted(deps),
+        config_deps=matched_deps(profile.module_map, _CONFIG_DEPS),
         pattern_samples=pattern_excerpts(patterns),
         module_samples=module_excerpts(modules),
         interface_samples=interface_excerpts(interfaces),
@@ -97,15 +93,8 @@ def _evidence_lines(ev: ConfigurationEvidence) -> list[str]:
 
 
 def compare(a: ConfigurationEvidence, b: ConfigurationEvidence) -> DimensionComparison:
-    trade_offs = [
-        classify_delta("config-module", a.config_modules, b.config_modules),
-    ]
-    a_only = set(a.config_deps) - set(b.config_deps)
-    b_only = set(b.config_deps) - set(a.config_deps)
-    if a_only:
-        trade_offs.append(f"`{a.repo}` adopts {', '.join(sorted(a_only))} not seen in `{b.repo}`.")
-    if b_only:
-        trade_offs.append(f"`{b.repo}` adopts {', '.join(sorted(b_only))} not seen in `{a.repo}`.")
+    trade_offs = [classify_delta("config-module", a.config_modules, b.config_modules)]
+    trade_offs.extend(library_diff_trade_offs(a.repo, b.repo, a.config_deps, b.config_deps))
     return DimensionComparison(
         dimension="configuration",
         repo_a_approach=_approach(a),

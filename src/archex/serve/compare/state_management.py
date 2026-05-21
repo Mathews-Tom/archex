@@ -7,10 +7,13 @@ from dataclasses import dataclass
 from archex.models import ArchProfile, DimensionComparison
 from archex.serve.compare._base import (
     classify_delta,
+    library_diff_trade_offs,
+    matched_deps,
     module_excerpts,
     modules_matching,
     pattern_excerpts,
     patterns_matching,
+    repo_label,
 )
 
 _PATTERN_KEYWORDS = {"singleton", "repository", "registry", "cache", "store", "state", "session"}
@@ -48,17 +51,11 @@ class StateManagementEvidence:
 def extract(profile: ArchProfile) -> StateManagementEvidence:
     matched_patterns = patterns_matching(profile.pattern_catalog, _PATTERN_KEYWORDS)
     matched_modules = modules_matching(profile.module_map, _MODULE_KEYWORDS)
-    persistence: set[str] = set()
-    for mod in profile.module_map:
-        for dep in mod.external_deps:
-            normalized = dep.lower().split(".")[0].replace("-", "_")
-            if normalized in _PERSISTENCE_DEPS:
-                persistence.add(normalized)
     return StateManagementEvidence(
-        repo=profile.repo.url or profile.repo.local_path or "repo",
+        repo=repo_label(profile),
         pattern_count=len(matched_patterns),
         state_modules=len(matched_modules),
-        persistence_deps=sorted(persistence),
+        persistence_deps=matched_deps(profile.module_map, _PERSISTENCE_DEPS),
         pattern_samples=pattern_excerpts(matched_patterns),
         module_samples=module_excerpts(matched_modules),
     )
@@ -91,15 +88,10 @@ def _evidence_lines(ev: StateManagementEvidence) -> list[str]:
 
 
 def compare(a: StateManagementEvidence, b: StateManagementEvidence) -> DimensionComparison:
-    trade_offs = [
-        classify_delta("state-pattern", a.pattern_count, b.pattern_count),
-    ]
-    a_only = set(a.persistence_deps) - set(b.persistence_deps)
-    b_only = set(b.persistence_deps) - set(a.persistence_deps)
-    if a_only:
-        trade_offs.append(f"`{a.repo}` uses {', '.join(sorted(a_only))} not seen in `{b.repo}`.")
-    if b_only:
-        trade_offs.append(f"`{b.repo}` uses {', '.join(sorted(b_only))} not seen in `{a.repo}`.")
+    trade_offs = [classify_delta("state-pattern", a.pattern_count, b.pattern_count)]
+    trade_offs.extend(
+        library_diff_trade_offs(a.repo, b.repo, a.persistence_deps, b.persistence_deps)
+    )
     return DimensionComparison(
         dimension="state_management",
         repo_a_approach=_approach(a),

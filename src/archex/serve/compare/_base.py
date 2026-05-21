@@ -14,7 +14,46 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from archex.models import DetectedPattern, Interface, Module
+    from archex.models import ArchProfile, DetectedPattern, Interface, Module
+
+
+def repo_label(profile: ArchProfile) -> str:
+    """Return a stable, human-readable identifier for a repository profile."""
+    return profile.repo.url or profile.repo.local_path or "repo"
+
+
+def matched_deps(modules: list[Module], known: set[str]) -> list[str]:
+    """Return external deps from any module that match the known set.
+
+    Normalises deps via lowercase + split-on-dot (top package) + hyphen→underscore
+    so that "python-dotenv", "Python.DotEnv", "python_dotenv" all collapse to
+    the same key before set membership.
+    """
+    found: set[str] = set()
+    for mod in modules:
+        for dep in mod.external_deps:
+            normalized = dep.lower().split(".")[0].replace("-", "_")
+            if normalized in known:
+                found.add(normalized)
+    return sorted(found)
+
+
+def library_diff_trade_offs(
+    a_repo: str,
+    b_repo: str,
+    a_deps: list[str],
+    b_deps: list[str],
+    verb: str = "uses",
+) -> list[str]:
+    """Build trade-off lines for libraries present in one repo and not the other."""
+    out: list[str] = []
+    a_only = set(a_deps) - set(b_deps)
+    b_only = set(b_deps) - set(a_deps)
+    if a_only:
+        out.append(f"`{a_repo}` {verb} {', '.join(sorted(a_only))} not seen in `{b_repo}`.")
+    if b_only:
+        out.append(f"`{b_repo}` {verb} {', '.join(sorted(b_only))} not seen in `{a_repo}`.")
+    return out
 
 
 def patterns_matching(

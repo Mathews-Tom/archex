@@ -8,8 +8,11 @@ from archex.models import ArchProfile, DimensionComparison
 from archex.serve.compare._base import (
     classify_delta,
     interface_excerpts,
+    library_diff_trade_offs,
+    matched_deps,
     pattern_excerpts,
     patterns_matching,
+    repo_label,
 )
 
 _PATTERN_KEYWORDS = {"async", "thread", "lock", "queue", "pool", "concurrent", "parallel"}
@@ -47,18 +50,12 @@ def extract(profile: ArchProfile) -> ConcurrencyEvidence:
         i for i in interfaces if any(marker in i.signature for marker in _ASYNC_SIG_MARKERS)
     ]
     patterns = patterns_matching(profile.pattern_catalog, _PATTERN_KEYWORDS)
-    deps: set[str] = set()
-    for mod in profile.module_map:
-        for dep in mod.external_deps:
-            normalized = dep.lower().split(".")[0].replace("-", "_")
-            if normalized in _CONCURRENCY_DEPS:
-                deps.add(normalized)
     return ConcurrencyEvidence(
-        repo=profile.repo.url or profile.repo.local_path or "repo",
+        repo=repo_label(profile),
         async_interfaces=len(async_ifaces),
         total_interfaces=len(interfaces),
         pattern_count=len(patterns),
-        concurrency_deps=sorted(deps),
+        concurrency_deps=matched_deps(profile.module_map, _CONCURRENCY_DEPS),
         pattern_samples=pattern_excerpts(patterns),
         interface_samples=interface_excerpts(async_ifaces),
     )
@@ -111,12 +108,9 @@ def compare(a: ConcurrencyEvidence, b: ConcurrencyEvidence) -> DimensionComparis
         trade_offs.append(
             f"`{b.repo}` is markedly more async-heavy ({ratio_b:.0%} vs {ratio_a:.0%})."
         )
-    a_only = set(a.concurrency_deps) - set(b.concurrency_deps)
-    b_only = set(b.concurrency_deps) - set(a.concurrency_deps)
-    if a_only:
-        trade_offs.append(f"`{a.repo}` adopts {', '.join(sorted(a_only))} not seen in `{b.repo}`.")
-    if b_only:
-        trade_offs.append(f"`{b.repo}` adopts {', '.join(sorted(b_only))} not seen in `{a.repo}`.")
+    trade_offs.extend(
+        library_diff_trade_offs(a.repo, b.repo, a.concurrency_deps, b.concurrency_deps)
+    )
     return DimensionComparison(
         dimension="concurrency",
         repo_a_approach=_approach(a),

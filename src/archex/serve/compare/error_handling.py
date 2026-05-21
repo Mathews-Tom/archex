@@ -13,6 +13,7 @@ from archex.serve.compare._base import (
     modules_matching,
     pattern_excerpts,
     patterns_matching,
+    repo_label,
 )
 
 _PATTERN_KEYWORDS = {"error_handler", "custom_exception", "exception", "error", "result_type"}
@@ -38,7 +39,7 @@ def extract(profile: ArchProfile) -> ErrorHandlingEvidence:
     matched_interfaces = interfaces_matching(profile.interface_surface, _INTERFACE_KEYWORDS)
     matched_modules = modules_matching(profile.module_map, _MODULE_KEYWORDS)
     return ErrorHandlingEvidence(
-        repo=profile.repo.url or profile.repo.local_path or "repo",
+        repo=repo_label(profile),
         pattern_count=len(matched_patterns),
         interface_count=len(matched_interfaces),
         module_count=len(matched_modules),

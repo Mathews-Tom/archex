@@ -11,6 +11,7 @@ from archex.serve.compare._base import (
     interfaces_matching,
     pattern_excerpts,
     patterns_matching,
+    repo_label,
 )
 
 _API_PATTERN_KEYWORDS = {"api", "endpoint", "route", "handler", "controller", "view", "resource"}
@@ -51,7 +52,7 @@ def extract(profile: ArchProfile) -> ApiSurfaceEvidence:
     framework_patterns = patterns_matching(profile.pattern_catalog, _API_PATTERN_KEYWORDS)
 
     return ApiSurfaceEvidence(
-        repo=profile.repo.url or profile.repo.local_path or "repo",
+        repo=repo_label(profile),
         total_interfaces=total,
         api_named_interfaces=len(api_named),
         return_type_coverage=return_type_cov,
