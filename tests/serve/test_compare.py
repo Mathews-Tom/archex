@@ -317,6 +317,111 @@ class TestStateManagementDimension:
 
 
 # ---------------------------------------------------------------------------
+# Asymmetric trade-off branches — directional discipline / ratio / library diff
+# ---------------------------------------------------------------------------
+
+
+def _bare_interface(name: str = "foo", path: str = "x.py") -> Interface:
+    """Interface with no return_type and no docstring — drops api_surface coverage."""
+    return Interface(
+        symbol=_make_ref(name, path),
+        signature=f"def {name}():",
+    )
+
+
+class TestApiSurfaceAsymmetric:
+    """api_surface emits a directional trade-off when coverage gaps exceed 15pp."""
+
+    def test_a_has_stronger_return_type_and_docstring_discipline(self) -> None:
+        a = _make_profile(name="/tmp/a", interfaces=[_api_interface()])
+        b = _make_profile(name="/tmp/b", interfaces=[_bare_interface()])
+        result = compare_repos(a, b, dimensions=["api_surface"])
+        dim = result.dimensions[0]
+        assert any("stronger return-type discipline" in t for t in dim.trade_offs)
+        assert any("documents interfaces more thoroughly" in t for t in dim.trade_offs)
+        assert any("/tmp/a" in t for t in dim.trade_offs)
+
+    def test_b_has_stronger_return_type_and_docstring_discipline(self) -> None:
+        a = _make_profile(name="/tmp/a", interfaces=[_bare_interface()])
+        b = _make_profile(name="/tmp/b", interfaces=[_api_interface()])
+        result = compare_repos(a, b, dimensions=["api_surface"])
+        dim = result.dimensions[0]
+        assert any("stronger return-type discipline" in t for t in dim.trade_offs)
+        assert any("documents interfaces more thoroughly" in t for t in dim.trade_offs)
+        assert any("/tmp/b" in t for t in dim.trade_offs)
+
+
+class TestConcurrencyAsymmetric:
+    """concurrency emits a directional trade-off when async ratios diverge by ≥15pp."""
+
+    def test_a_more_async_heavy(self) -> None:
+        a = _make_profile(name="/tmp/a", interfaces=[_async_interface()])
+        b = _make_profile(name="/tmp/b", interfaces=[_api_interface()])
+        result = compare_repos(a, b, dimensions=["concurrency"])
+        dim = result.dimensions[0]
+        assert any("markedly more async-heavy" in t and "/tmp/a" in t for t in dim.trade_offs)
+
+    def test_b_more_async_heavy(self) -> None:
+        a = _make_profile(name="/tmp/a", interfaces=[_api_interface()])
+        b = _make_profile(name="/tmp/b", interfaces=[_async_interface()])
+        result = compare_repos(a, b, dimensions=["concurrency"])
+        dim = result.dimensions[0]
+        assert any("markedly more async-heavy" in t and "/tmp/b" in t for t in dim.trade_offs)
+
+
+class TestTestingAsymmetric:
+    """testing emits a directional trade-off when test-file ratios diverge by ≥10pp."""
+
+    def test_a_invests_more_in_test_surface(self) -> None:
+        a = _make_profile(name="/tmp/a", modules=[_test_module()], total_files=10)
+        b = _make_profile(name="/tmp/b", total_files=10)
+        result = compare_repos(a, b, dimensions=["testing"])
+        dim = result.dimensions[0]
+        assert any("invests more in test surface" in t and "/tmp/a" in t for t in dim.trade_offs)
+
+    def test_b_invests_more_in_test_surface(self) -> None:
+        a = _make_profile(name="/tmp/a", total_files=10)
+        b = _make_profile(name="/tmp/b", modules=[_test_module()], total_files=10)
+        result = compare_repos(a, b, dimensions=["testing"])
+        dim = result.dimensions[0]
+        assert any("invests more in test surface" in t and "/tmp/b" in t for t in dim.trade_offs)
+
+
+class TestLibraryDiffTradeOffs:
+    """library_diff_trade_offs surfaces both A-only and B-only library callouts.
+
+    Routed through state_management, which is the dimension whose tests already
+    cover the persistence-deps codepath. The helper itself is shared across
+    state_management, concurrency, testing, and configuration; one route is
+    sufficient to exercise the helper's branches.
+    """
+
+    def test_both_sides_have_unique_libraries(self) -> None:
+        mod_a = Module(
+            name="store_a",
+            root_path="a/",
+            files=["a/db.py"],
+            file_count=1,
+            line_count=100,
+            external_deps=["redis"],
+        )
+        mod_b = Module(
+            name="store_b",
+            root_path="b/",
+            files=["b/db.py"],
+            file_count=1,
+            line_count=100,
+            external_deps=["mongo"],
+        )
+        a = _make_profile(name="/tmp/a", modules=[mod_a])
+        b = _make_profile(name="/tmp/b", modules=[mod_b])
+        result = compare_repos(a, b, dimensions=["state_management"])
+        dim = result.dimensions[0]
+        assert any("redis" in t and "/tmp/a" in t and "not seen in" in t for t in dim.trade_offs)
+        assert any("mongo" in t and "/tmp/b" in t and "not seen in" in t for t in dim.trade_offs)
+
+
+# ---------------------------------------------------------------------------
 # Trade-off classifier
 # ---------------------------------------------------------------------------
 
