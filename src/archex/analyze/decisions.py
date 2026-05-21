@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from archex.models import ArchDecision, DetectedPattern, Interface, Module
+from archex.models import ArchDecision, DetectedPattern
 
 # Alternatives and implications for known pattern names
 _PATTERN_ALTERNATIVES: dict[str, list[str]] = {
@@ -96,16 +96,11 @@ def _build_decision_from_pattern(pattern: DetectedPattern) -> ArchDecision:
     )
 
 
-def infer_decisions(
-    patterns: list[DetectedPattern],
-    modules: list[Module],
-    interfaces: list[Interface],
-) -> list[ArchDecision]:
+def infer_decisions(patterns: list[DetectedPattern]) -> list[ArchDecision]:
     """Infer architectural decisions from detected patterns.
 
     Decisions are generated structurally for patterns with confidence >= 0.5.
     """
-    del modules, interfaces  # reserved for future structural signals
     return [
         _build_decision_from_pattern(pattern) for pattern in patterns if pattern.confidence >= 0.5
     ]

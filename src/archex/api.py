@@ -777,7 +777,7 @@ def analyze(
         if timing is not None:
             timing.index_ms = analysis_ms
 
-        decisions = infer_decisions(patterns, modules, interfaces)
+        decisions = infer_decisions(patterns)
 
         lang_counts: dict[str, int] = {}
         for f in files:
