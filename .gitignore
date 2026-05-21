@@ -208,6 +208,7 @@ __marimo__/
 
 # Agentic Systems
 .agent
+.campaign/
 .claude/
 .gemini
 .opencode/
