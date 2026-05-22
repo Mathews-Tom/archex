@@ -9,6 +9,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import click
+
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
 from archex.benchmark.strategies import default_strategy_registry
@@ -109,25 +111,29 @@ def run_benchmark(
 
     try:
         results: list[BenchmarkResult] = []
-        for strategy in strategies:
-            runner = default_strategy_registry.get(strategy)
-            if runner is None:
-                logger.warning("No runner for strategy %s, skipping", strategy)
-                continue
-            _label = f"  [{strategy.value}]"
-            try:
-                print(f"{_label} running...", end="", file=sys.stderr, flush=True)
-                result = runner(task, repo_path)
-                results.append(result)
-                _msg = (
-                    f"{_label} {result.tokens_total:,} tokens, "
-                    f"recall={result.recall:.2f}, {result.wall_time_ms:.0f}ms"
-                )
-                print(f"\r{_msg:<60}", file=sys.stderr)
-            except (NotImplementedError, ArchexIndexError) as exc:
-                logger.info("Skipping %s: %s", strategy.value, exc)
-                _msg = f"{_label} skipped: {exc}"
-                print(f"\r{_msg:<60}", file=sys.stderr)
+        with click.progressbar(
+            strategies,
+            label=f"  {task.task_id}",
+            item_show_func=lambda s: s.value if s is not None else "",
+            file=sys.stderr,
+        ) as bar:
+            for strategy in bar:
+                runner = default_strategy_registry.get(strategy)
+                if runner is None:
+                    logger.warning("No runner for strategy %s, skipping", strategy)
+                    continue
+                try:
+                    result = runner(task, repo_path)
+                    results.append(result)
+                    logger.info(
+                        "%s: %d tokens, recall=%.2f, %.0fms",
+                        strategy.value,
+                        result.tokens_total,
+                        result.recall,
+                        result.wall_time_ms,
+                    )
+                except (NotImplementedError, ArchexIndexError) as exc:
+                    logger.info("Skipping %s: %s", strategy.value, exc)
 
         # Compute baseline and backfill savings_vs_raw
         baseline_tokens = 0
