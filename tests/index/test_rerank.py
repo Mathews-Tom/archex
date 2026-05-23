@@ -1,4 +1,4 @@
-"""Tests for CrossEncoderReranker and auto-enable logic."""
+"""Tests for CrossEncoderReranker and explicit-enable logic."""
 
 from __future__ import annotations
 
@@ -64,13 +64,13 @@ class TestConstants:
 
 
 class TestMaybeReranker:
-    @pytest.mark.skipif(not _HAS_CROSS_ENCODER, reason="sentence-transformers not installed")
-    def test_auto_enables_when_available(self) -> None:
+    def test_returns_none_when_rerank_disabled(self) -> None:
         from archex.api import _maybe_reranker  # pyright: ignore[reportPrivateUsage]
 
-        config = IndexConfig()
-        result = _maybe_reranker(config)
-        assert isinstance(result, CrossEncoderReranker)
+        # Default config leaves rerank unset; reranking stays off even when
+        # sentence-transformers is installed, so the flag is observably on/off.
+        result = _maybe_reranker(IndexConfig())
+        assert result is None
 
     @pytest.mark.skipif(not _HAS_CROSS_ENCODER, reason="sentence-transformers not installed")
     def test_explicit_rerank_true(self) -> None:
@@ -88,18 +88,6 @@ class TestMaybeReranker:
         result = _maybe_reranker(config)
         assert result is not None
         assert result._model_name == "custom/model"  # pyright: ignore[reportPrivateUsage]
-
-    def test_returns_none_when_unavailable(self) -> None:
-        from archex.api import _maybe_reranker  # pyright: ignore[reportPrivateUsage]
-
-        with patch("archex.index.rerank.is_available", return_value=False):
-            config = IndexConfig()
-            result = _maybe_reranker(config)
-            # When is_available() returns False and rerank is not explicit, returns None
-            # Note: _maybe_reranker imports is_available at call time so we need
-            # to also ensure the patched version is used
-            if not _HAS_CROSS_ENCODER:
-                assert result is None
 
 
 class TestCrossEncoderReranker:
