@@ -390,18 +390,15 @@ def _build_adapters() -> dict[str, LanguageAdapter]:
 
 
 def _maybe_reranker(index_config: IndexConfig) -> CrossEncoderReranker | None:
-    """Return a CrossEncoderReranker when reranking should be active.
+    """Return a CrossEncoderReranker only when reranking is explicitly enabled.
 
-    Reranking activates when explicitly enabled via index_config.rerank,
-    or auto-enabled when sentence-transformers is installed.
+    Reranking activates solely on index_config.rerank. Callers that leave it
+    unset (the default) opt out regardless of whether sentence-transformers is
+    installed, so the flag remains observable as on/off.
     """
-    from archex.index.rerank import (
-        DEFAULT_MODEL,
-        CrossEncoderReranker,
-        is_available,
-    )
+    from archex.index.rerank import DEFAULT_MODEL, CrossEncoderReranker
 
-    if index_config.rerank or is_available():
+    if index_config.rerank:
         return CrossEncoderReranker(
             model_name=index_config.rerank_model or DEFAULT_MODEL,
         )
@@ -983,8 +980,7 @@ def query(
                         )
                     )
                 query_avg_idf = bm25.avg_idf(question) if vector_results is not None else None
-                # Cross-encoder reranker: enabled explicitly via index_config.rerank,
-                # or auto-enabled when sentence-transformers is installed.
+                # Cross-encoder reranker: enabled only when index_config.rerank is set.
                 _reranker = _maybe_reranker(index_config)
                 bundle = assemble_context(
                     search_results=search_results,
