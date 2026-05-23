@@ -58,6 +58,32 @@ def _check_vector_available() -> bool:
         return False
 
 
+def _warm_repo_index(task: BenchmarkTask, repo_path: Path) -> None:
+    """Pre-build the shared vector index so every vector strategy runs warm.
+
+    The first vector strategy to execute otherwise absorbs the full embedding
+    build (cold) while later ones reuse the cached store and .npz (warm), making
+    per-strategy timings incomparable. One discarded query with the same vector
+    config the strategies use populates both caches before the timed loop. The
+    config must match run_archex_query_fusion so the cache key and vector .npz
+    path line up; this warms VectorMode.RAW only (fusion, rerank, query_vector),
+    not surrogate-mode strategies.
+    """
+    from archex.api import query
+    from archex.models import Config, IndexConfig, RepoSource
+
+    source = RepoSource(local_path=str(repo_path))
+    config = Config(cache=True, languages=task.languages)
+    index_config = IndexConfig(vector=True, embedder="fastembed")
+    query(
+        source,
+        task.question,
+        token_budget=task.token_budget,
+        config=config,
+        index_config=index_config,
+    )
+
+
 def clone_at_commit(repo_slug: str, commit: str) -> tuple[Path, bool]:
     """Clone a GitHub repo and checkout a specific commit/tag. Returns (path, needs_cleanup)."""
     url = f"https://github.com/{repo_slug}.git"
@@ -110,6 +136,10 @@ def run_benchmark(
             repo_path, needs_cleanup = clone_at_commit(task.repo, task.commit)
 
     try:
+        if _check_vector_available() and any(s in _VECTOR_STRATEGIES for s in strategies):
+            print(f"  warming vector index for {task.task_id}...", file=sys.stderr, flush=True)
+            _warm_repo_index(task, repo_path)
+
         results: list[BenchmarkResult] = []
         with click.progressbar(
             strategies,

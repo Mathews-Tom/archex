@@ -99,6 +99,60 @@ class TestRunBenchmark:
         assert len(report.results) == 1
         assert report.results[0].strategy == Strategy.RAW_FILES
 
+    def test_warms_vector_index_when_vector_strategy_present(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        task, repo_path = fixture_task
+        from archex.benchmark import runner as runner_mod
+        from archex.benchmark.strategies import default_strategy_registry
+        from archex.exceptions import ArchexIndexError
+
+        warmed: list[Path] = []
+
+        def _record(_task: BenchmarkTask, path: Path) -> None:
+            warmed.append(path)
+
+        def _raise(_task: BenchmarkTask, _path: Path) -> None:
+            raise ArchexIndexError("no vector backend in test")
+
+        monkeypatch.setattr(runner_mod, "_check_vector_available", lambda: True)
+        monkeypatch.setattr(runner_mod, "_warm_repo_index", _record)
+
+        key = Strategy.ARCHEX_QUERY_FUSION.value
+        monkeypatch.setitem(default_strategy_registry._runners, key, _raise)  # pyright: ignore[reportPrivateUsage]
+
+        run_benchmark(
+            task,
+            strategies=[Strategy.RAW_FILES, Strategy.ARCHEX_QUERY_FUSION],
+            repo_path=repo_path,
+        )
+        assert warmed == [repo_path]
+
+    def test_skips_warmup_for_raw_only_strategies(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        task, repo_path = fixture_task
+        from archex.benchmark import runner as runner_mod
+
+        warmed: list[Path] = []
+
+        def _record(_task: BenchmarkTask, path: Path) -> None:
+            warmed.append(path)
+
+        monkeypatch.setattr(runner_mod, "_check_vector_available", lambda: True)
+        monkeypatch.setattr(runner_mod, "_warm_repo_index", _record)
+
+        run_benchmark(
+            task,
+            strategies=[Strategy.RAW_FILES, Strategy.RAW_GREPPED],
+            repo_path=repo_path,
+        )
+        assert warmed == []
+
     def test_symbol_lookup_skipped_gracefully(
         self,
         fixture_task: tuple[BenchmarkTask, Path],
