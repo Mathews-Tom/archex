@@ -100,6 +100,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
+ignore = ["TC003"]
 
 [tool.pyright]
 pythonVersion = "3.11"
