@@ -17,6 +17,8 @@ def _init_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init")
+    _git(repo, "config", "user.email", "test@archex.test")
+    _git(repo, "config", "user.name", "archex-test")
     (repo / "README.md").write_text("# repo\n", encoding="utf-8")
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "initial")
