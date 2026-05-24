@@ -1,0 +1,25 @@
+task_id: archex_mcp_query_lifecycle
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex expose repository query workflows through its MCP integration?"
+# Expected files cover the MCP CLI entry point, MCP tool handlers, public query API,
+# context assembly, and response model contracts.
+expected_files:
+  - src/archex/cli/mcp_cmd.py
+  - src/archex/integrations/mcp.py
+  - src/archex/api.py
+  - src/archex/serve/context.py
+  - src/archex/models.py
+expected_symbols:
+  - mcp_cmd
+  - handle_query_repo
+  - run_stdio_server
+  - query
+token_budget: 8192
+keywords:
+  - mcp
+  - query
+  - tool
+  - context

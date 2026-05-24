@@ -1,0 +1,25 @@
+task_id: archex_vector_cache_lifecycle
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex build, cache, and reload vector indexes for query retrieval?"
+# Expected files cover vector cache paths, API vector loading/search, vector index
+# persistence, embedding contracts, and vector configuration models.
+expected_files:
+  - src/archex/api.py
+  - src/archex/cache.py
+  - src/archex/index/vector.py
+  - src/archex/index/embeddings/base.py
+  - src/archex/models.py
+expected_symbols:
+  - _vector_search_precomputed
+  - vector_path
+  - VectorIndex
+  - Embedder
+token_budget: 8192
+keywords:
+  - vector
+  - cache
+  - embedder
+  - retrieval

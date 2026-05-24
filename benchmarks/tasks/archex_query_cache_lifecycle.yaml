@@ -1,0 +1,25 @@
+task_id: archex_query_cache_lifecycle
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does a query use project configuration and cache state across the indexing lifecycle?"
+# Expected files cover CLI query defaults, public query orchestration, cache management,
+# config loading, and project-local layout detection.
+expected_files:
+  - src/archex/cli/query_cmd.py
+  - src/archex/api.py
+  - src/archex/cache.py
+  - src/archex/config.py
+  - src/archex/project.py
+expected_symbols:
+  - query_cmd
+  - query
+  - CacheManager
+  - load_config
+token_budget: 8192
+keywords:
+  - query
+  - cache
+  - lifecycle
+  - project

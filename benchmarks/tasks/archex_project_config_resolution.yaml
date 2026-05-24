@@ -1,0 +1,24 @@
+task_id: archex_project_config_resolution
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex resolve project settings into runtime configuration?"
+# Expected files cover project settings creation, config precedence, runtime config models,
+# and cache layout behavior driven by those settings.
+expected_files:
+  - src/archex/project.py
+  - src/archex/config.py
+  - src/archex/models.py
+  - src/archex/cache.py
+expected_symbols:
+  - DEFAULT_SETTINGS_TOML
+  - load_config
+  - load_index_config
+  - Config
+token_budget: 8192
+keywords:
+  - config
+  - settings
+  - project
+  - cache_dir

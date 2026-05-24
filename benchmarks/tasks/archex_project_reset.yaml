@@ -1,0 +1,23 @@
+task_id: archex_project_reset
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex reset generated repo-local project state?"
+# Expected files cover command registration, reset CLI behavior, and the project-state
+# deletion logic that preserves settings unless all state is requested.
+expected_files:
+  - src/archex/cli/main.py
+  - src/archex/cli/reset_cmd.py
+  - src/archex/project.py
+expected_symbols:
+  - cli
+  - reset_cmd
+  - reset_project
+  - ProjectResetResult
+token_budget: 8192
+keywords:
+  - reset
+  - generated
+  - state
+  - force
