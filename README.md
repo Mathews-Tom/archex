@@ -220,7 +220,7 @@ The same cwd default applies to local-read commands where a URL cannot be inferr
 
 `archex reset --force` deletes generated repo-local index/vector state while preserving settings. `archex reset --all --force` removes `.archex/` entirely. Reset never touches the global `~/.archex/cache` unless a future global reset command is added.
 
-`archex dogfood` runs the self-task regression suite and writes `.archex/dogfood/latest.json`, `.archex/dogfood/latest.md`, and timestamped history. CI compares dogfood results against `benchmarks/dogfood_baseline.json`; local runs use `.archex/dogfood/baseline.json` when present or the committed baseline. The gate is baseline-relative: existing weak tasks do not fail the build unless a metric regresses from the recorded baseline.
+`archex dogfood` runs the self-task regression suite and writes `.archex/dogfood/latest.json`, `.archex/dogfood/latest.md`, and timestamped history. Dogfood is mandatory local validation for retrieval-sensitive changes and compares against `.archex/dogfood/baseline.json` when present or the committed `benchmarks/dogfood_baseline.json`. The gate is baseline-relative: existing weak tasks do not fail the build unless a metric regresses from the recorded baseline. The GitHub dogfood workflow is manual-only via `workflow_dispatch` for maintainers who want an uploaded report artifact.
 
 ## Agent Integration
 
@@ -357,8 +357,9 @@ archex and an LSP MCP server can run as sibling tools, giving agents both struct
 - **Before agent edits this repo**: `archex status --strict` → `archex index` if stale or dirty → `archex query "Where should this change land?"`
 - **Before agent explores new repo**: `archex query ./repo "auth system" --budget 8K` → context bundle → feed to agent's first prompt
 - **Before a code review**: `archex analyze ./pr-branch` → architectural impact summary
-- **Before claiming retrieval improvement**: `archex dogfood --task archex_query_pipeline` locally for focused evidence; rely on the CI dogfood job for full-suite enforcement
-- **CI gate**: `archex compare ./main ./feature-branch --dimensions api_surface,error_handling` → detect architectural drift; `archex dogfood . --format json` → fail on new self-task regressions
+- **Before claiming retrieval improvement**: run the relevant focused dogfood task locally, for example `archex dogfood --task archex_query_pipeline`
+- **Before landing retrieval-sensitive changes**: run `archex dogfood . --format json` locally and inspect `.archex/dogfood/latest.md`; the GitHub dogfood workflow is manual-only for report artifacts
+- **CI gate**: standard lint, type, and test workflows run automatically; dogfood is a mandatory local gate, not an automatic CI gate
 
 ### Benchmarks
 
