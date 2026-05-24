@@ -28,6 +28,7 @@ def test_help_contains_subcommands() -> None:
     assert "compare" in output
     assert "cache" in output
     assert "init" in output
+    assert "index" in output
 
 
 def test_init_command_creates_project_state(python_simple_repo: Path) -> None:
@@ -59,6 +60,72 @@ def test_init_command_reset_requires_force(python_simple_repo: Path) -> None:
 
     assert result.exit_code != 0
     assert "--reset requires --force" in result.output
+
+
+class FakeIndexStore:
+    db_path = Path("/tmp/archex-index.db")
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def get_file_metadata(self) -> list[dict[str, str | int]]:
+        return [
+            {"file_path": "src/app.py", "language": "python", "lines": 10, "symbol_count": 2},
+            {"file_path": "src/util.py", "language": "python", "lines": 8, "symbol_count": 1},
+            {"file_path": "web/app.ts", "language": "typescript", "lines": 20, "symbol_count": 3},
+        ]
+
+    def get_metadata(self, key: str) -> str | None:
+        if key == "commit_hash":
+            return "abc123"
+        return None
+
+    def get_file_count(self) -> int:
+        return 3
+
+    def get_chunk_count(self) -> int:
+        return 6
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_index_command_uses_project_config(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    init_project(python_simple_repo)
+    store = FakeIndexStore()
+    runner = CliRunner()
+
+    with patch("archex.cli.index_cmd.index_repository", return_value=store) as index_mock:
+        result = runner.invoke(cli, ["index", str(python_simple_repo)])
+
+    assert result.exit_code == 0, result.output
+    assert "Indexed repository:" in result.output
+    assert "Strategy:" in result.output
+    assert "python=2" in result.output
+    config = index_mock.call_args.kwargs["config"]
+    index_config = index_mock.call_args.kwargs["index_config"]
+    assert config.cache_dir == str(python_simple_repo / ".archex")
+    assert index_config.vector is False
+    assert store.closed is True
+
+
+def test_index_command_json_output(python_simple_repo: Path) -> None:
+    store = FakeIndexStore()
+    runner = CliRunner()
+
+    with patch("archex.cli.index_cmd.index_repository", return_value=store):
+        result = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["repo_root"] == str(python_simple_repo.resolve())
+    assert data["index_path"] == "/tmp/archex-index.db"
+    assert data["commit_hash"] == "abc123"
+    assert data["files_indexed"] == 3
+    assert data["chunks_indexed"] == 6
+    assert data["languages"] == {"python": 2, "typescript": 1}
 
 
 def test_analyze_local_json(python_simple_repo: Path) -> None:
@@ -138,7 +205,7 @@ def test_query_uses_project_config_when_cli_args_omitted(python_simple_repo: Pat
     config = query_mock.call_args.kwargs["config"]
     index_config = query_mock.call_args.kwargs["index_config"]
     assert config.cache_dir == str(python_simple_repo / ".archex")
-    assert config.languages == []
+    assert config.languages is None
     assert index_config.vector is False
 
 

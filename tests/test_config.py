@@ -161,7 +161,7 @@ def test_load_config_project_settings_override_user_defaults(
     config = load_config(RepoSource(local_path=str(python_simple_repo)))
 
     assert config.cache_dir == str(python_simple_repo / ".archex")
-    assert config.languages == []
+    assert config.languages is None
     assert config.delta_threshold == 0.5
 
 

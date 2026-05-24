@@ -613,6 +613,11 @@ class IndexStore:
         return Path(self._db_path).with_suffix(f".{vector_mode}.{surrogate_version}.vectors.npz")
 
     @property
+    def db_path(self) -> Path:
+        """Path to the SQLite database backing this store."""
+        return Path(self._db_path)
+
+    @property
     def vector_index_path(self) -> Path:
         """Backward-compatible raw vector index path."""
         return self.vector_index_path_for()

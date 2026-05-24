@@ -47,7 +47,15 @@ def _load_toml(path: Path) -> dict[str, Any]:
 
 
 def _config_overrides_from_mapping(data: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in data.items() if k in Config.model_fields}
+    overrides: dict[str, Any] = {}
+    for key, value in data.items():
+        if key not in Config.model_fields:
+            continue
+        if key == "languages" and value == []:
+            overrides[key] = None
+        else:
+            overrides[key] = value
+    return overrides
 
 
 def _index_overrides_from_mapping(data: dict[str, Any]) -> dict[str, Any]:
