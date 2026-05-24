@@ -15,6 +15,7 @@ from archex.cli.mcp_cmd import mcp_cmd
 from archex.cli.outline_cmd import outline_cmd
 from archex.cli.query_cmd import query_cmd
 from archex.cli.serve_cmd import serve_cmd
+from archex.cli.status_cmd import status_cmd
 from archex.cli.symbol_cmd import symbol_cmd
 from archex.cli.symbols_cmd import symbols_cmd
 from archex.cli.tree_cmd import tree_cmd
@@ -33,6 +34,7 @@ cli.add_command(compare_cmd)
 cli.add_command(cache_cmd)
 cli.add_command(init_cmd)
 cli.add_command(index_cmd)
+cli.add_command(status_cmd)
 cli.add_command(mcp_cmd)
 cli.add_command(tree_cmd)
 cli.add_command(outline_cmd)

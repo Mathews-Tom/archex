@@ -29,6 +29,7 @@ def test_help_contains_subcommands() -> None:
     assert "cache" in output
     assert "init" in output
     assert "index" in output
+    assert "status" in output
 
 
 def test_init_command_creates_project_state(python_simple_repo: Path) -> None:
@@ -141,6 +142,86 @@ def test_index_command_writes_fixed_project_index_path(python_simple_repo: Path)
     assert data["index_path"] == str(python_simple_repo / ".archex" / "index.db")
     assert (python_simple_repo / ".archex" / "index.db").exists()
     assert not list((python_simple_repo / ".archex").glob("[0-9a-f]" * 64 + ".db"))
+
+
+def test_status_command_reports_uninitialized(python_simple_repo: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["status", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["state"] == "uninitialized"
+    assert data["initialized"] is False
+
+
+def test_status_command_reports_missing_index(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["status", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["state"] == "missing_index"
+    assert data["initialized"] is True
+
+
+def test_status_command_reports_fresh_index(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+    indexed = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+    assert indexed.exit_code == 0, indexed.output
+
+    result = runner.invoke(cli, ["status", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["state"] == "fresh"
+    assert data["index_path"] == str(python_simple_repo / ".archex" / "index.db")
+    assert data["files_indexed"] > 0
+    assert data["chunks_indexed"] > 0
+    assert data["languages"]["python"] > 0
+
+
+def test_status_command_strict_fails_on_dirty_index(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+    indexed = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+    assert indexed.exit_code == 0, indexed.output
+    (python_simple_repo / "utils.py").write_text("def dirty_symbol(): return 1\n")
+
+    result = runner.invoke(
+        cli,
+        ["status", str(python_simple_repo), "--format", "json", "--strict"],
+    )
+
+    assert result.exit_code == 1, result.output
+    data = json.loads(result.output)
+    assert data["state"] == "dirty"
+    assert data["working_tree"] == "dirty"
+
+
+def test_status_command_fails_on_corrupt_index(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    init_project(python_simple_repo)
+    index_path = python_simple_repo / ".archex" / "index.db"
+    index_path.write_text("not sqlite", encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["status", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 1, result.output
+    data = json.loads(result.output)
+    assert data["state"] == "corrupt"
+    assert data["error"]
 
 
 def test_analyze_local_json(python_simple_repo: Path) -> None:
