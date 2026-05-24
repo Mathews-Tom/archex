@@ -10,7 +10,12 @@ from pathlib import Path
 import pytest
 
 from archex.exceptions import DeltaIndexError
-from archex.index.delta import apply_delta, compute_delta, compute_mtime_delta
+from archex.index.delta import (
+    apply_delta,
+    compute_delta,
+    compute_mtime_delta,
+    compute_working_tree_signature,
+)
 from archex.index.store import IndexStore
 from archex.models import ChangeStatus, CodeChunk, Config, IndexConfig
 from archex.pipeline.service import build_chunk_surrogates
@@ -564,6 +569,39 @@ class TestComputeMtimeDelta:
             assert manifest.current_commit == "mtime"
         finally:
             store.close()
+
+
+# ---------------------------------------------------------------------------
+# TestComputeWorkingTreeSignature
+# ---------------------------------------------------------------------------
+
+
+class TestComputeWorkingTreeSignature:
+    def test_clean_git_repo_returns_clean(self, delta_test_repo: Path) -> None:
+        signature = compute_working_tree_signature(delta_test_repo, Config(languages=["python"]))
+
+        assert signature == "clean"
+
+    def test_tracked_source_edit_changes_signature(self, delta_test_repo: Path) -> None:
+        clean = compute_working_tree_signature(delta_test_repo, Config(languages=["python"]))
+
+        (delta_test_repo / "utils.py").write_text("def local_edit(): return 1\n")
+        dirty = compute_working_tree_signature(delta_test_repo, Config(languages=["python"]))
+
+        assert clean == "clean"
+        assert dirty != "clean"
+
+    def test_ignored_project_state_does_not_change_signature(self, delta_test_repo: Path) -> None:
+        (delta_test_repo / ".gitignore").write_text(".archex/\n", encoding="utf-8")
+        _git(delta_test_repo, "add", ".gitignore")
+        _git(delta_test_repo, "commit", "-m", "ignore archex state")
+
+        (delta_test_repo / ".archex").mkdir()
+        (delta_test_repo / ".archex" / "index.db").write_text("ignored", encoding="utf-8")
+
+        signature = compute_working_tree_signature(delta_test_repo, Config(languages=["python"]))
+
+        assert signature == "clean"
 
 
 # ---------------------------------------------------------------------------
