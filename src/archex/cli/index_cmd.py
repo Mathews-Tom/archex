@@ -13,6 +13,7 @@ from archex.cache import CacheManager
 from archex.config import load_config, load_index_config
 from archex.exceptions import ArchexError
 from archex.models import PipelineTiming, RepoSource
+from archex.project import uses_project_cache_layout
 
 
 def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int]:
@@ -40,7 +41,15 @@ def index_cmd(source: str, output_format: str) -> None:
     index_config = load_index_config(repo_source)
     timing = PipelineTiming()
     started = time.perf_counter()
-    cache = CacheManager(cache_dir=config.cache_dir) if config.cache else None
+    try:
+        project_layout = uses_project_cache_layout(source, config.cache_dir)
+    except ValueError:
+        project_layout = False
+    cache = (
+        CacheManager(cache_dir=config.cache_dir, project_layout=project_layout)
+        if config.cache
+        else None
+    )
     cache_key = cache.cache_key(repo_source) if cache is not None else None
 
     try:

@@ -90,6 +90,7 @@ from archex.parse import (
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.chunker import ASTChunker, Chunker
 from archex.pipeline.service import build_chunk_surrogates
+from archex.project import uses_project_cache_layout
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
 from archex.serve.profile import build_profile
@@ -104,6 +105,16 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Acquisition + Indexing — shared helpers for all entry points
 # ---------------------------------------------------------------------------
+
+
+def _cache_manager_for_source(source: RepoSource, config: Config) -> CacheManager:
+    project_layout = False
+    if source.local_path:
+        try:
+            project_layout = uses_project_cache_layout(source.local_path, config.cache_dir)
+        except ValueError:
+            project_layout = False
+    return CacheManager(cache_dir=config.cache_dir, project_layout=project_layout)
 
 
 def _full_index(
@@ -214,7 +225,7 @@ def _ensure_index(
         config = load_config(source)
 
     t_start = time.perf_counter()
-    cache = CacheManager(cache_dir=config.cache_dir)
+    cache = _cache_manager_for_source(source, config)
     cache_key = cache.cache_key(source)
 
     # Path 1: Exact cache hit (same commit) — fast path
@@ -947,7 +958,7 @@ def query(
     if trace is not None:
         trace.operation = "query"
         trace.start_ns = time.perf_counter_ns()
-    cache = CacheManager(cache_dir=config.cache_dir)
+    cache = _cache_manager_for_source(source, config)
     cache_key = cache.cache_key(source)
 
     # Check cache BEFORE parsing — if cached, skip the expensive parse pipeline

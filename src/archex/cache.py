@@ -22,9 +22,15 @@ _KEY_RE = re.compile(r"^[0-9a-f]{64}$")
 class CacheManager:
     """Manage cached SQLite analysis artifacts on disk."""
 
-    def __init__(self, cache_dir: str = "~/.archex/cache") -> None:
+    def __init__(
+        self,
+        cache_dir: str = "~/.archex/cache",
+        *,
+        project_layout: bool = False,
+    ) -> None:
         self._cache_dir = Path(cache_dir).expanduser()
         self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._project_layout = project_layout
 
     # ------------------------------------------------------------------
     # Key helpers
@@ -107,11 +113,15 @@ class CacheManager:
 
     def db_path(self, key: str) -> Path:
         """Return the database path for a cache key."""
+        if self._project_layout:
+            return self._cache_dir / "index.db"
         self._validate_key(key)
         return self._cache_dir / f"{key}.db"
 
     def meta_path(self, key: str) -> Path:
         """Return the metadata file path for a cache key."""
+        if self._project_layout:
+            return self._cache_dir / "index.meta"
         self._validate_key(key)
         return self._cache_dir / f"{key}.meta"
 
@@ -123,6 +133,12 @@ class CacheManager:
         surrogate_version: str = "v1",
     ) -> Path:
         """Return the representation-specific vector index file path for a cache key."""
+        if self._project_layout:
+            vector_dir = self._cache_dir / "vectors"
+            vector_dir.mkdir(parents=True, exist_ok=True)
+            if vector_mode == "raw":
+                return vector_dir / "raw.vectors.npz"
+            return vector_dir / f"{vector_mode}.{surrogate_version}.vectors.npz"
         self._validate_key(key)
         if vector_mode == "raw":
             return self._cache_dir / f"{key}.vectors.npz"
@@ -135,9 +151,11 @@ class CacheManager:
     def get(self, key: str) -> Path | None:
         """Return cached db Path if it exists, else None."""
         db = self.db_path(key)
-        if db.exists():
-            return db
-        return None
+        if not db.exists():
+            return None
+        if self._project_layout and self.get_meta(key).get("cache_key") != key:
+            return None
+        return db
 
     def put(
         self,
@@ -155,6 +173,7 @@ class CacheManager:
         shutil.copy2(str(source_db), str(dest))
         meta = self.meta_path(key)
         meta_data = {
+            "cache_key": key,
             "created_at": str(time.time()),
             "resolved_commit": resolved_commit or "",
             "source_identity": source_identity or "",
@@ -205,6 +224,21 @@ class CacheManager:
     def list_entries(self) -> list[dict[str, str]]:
         """Return a list of cache entries with key, path, size_bytes, created_at."""
         entries: list[dict[str, str]] = []
+        if self._project_layout:
+            db = self._cache_dir / "index.db"
+            if not db.exists():
+                return entries
+            meta_data = self.get_meta("")
+            entries.append(
+                {
+                    "key": "project",
+                    "path": str(db),
+                    "size_bytes": str(db.stat().st_size),
+                    "created_at": meta_data.get("created_at", "0"),
+                }
+            )
+            return entries
+
         for db in sorted(self._cache_dir.glob("*.db")):
             key = db.stem
             meta_data = self.get_meta(key)
@@ -221,6 +255,16 @@ class CacheManager:
 
     def clean(self, max_age_hours: int = 24) -> int:
         """Remove entries older than max_age_hours. Return count removed."""
+        if self._project_layout:
+            db = self._cache_dir / "index.db"
+            if db.exists() and self.is_stale("", max_age_hours):
+                db.unlink()
+                meta = self._cache_dir / "index.meta"
+                if meta.exists():
+                    meta.unlink()
+                return 1
+            return 0
+
         removed = 0
         for db in list(self._cache_dir.glob("*.db")):
             key = db.stem

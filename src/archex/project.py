@@ -50,6 +50,14 @@ class ProjectState:
         return self.project_dir / "metadata.json"
 
     @property
+    def index_path(self) -> Path:
+        return self.project_dir / "index.db"
+
+    @property
+    def vector_dir(self) -> Path:
+        return self.project_dir / "vectors"
+
+    @property
     def dogfood_dir(self) -> Path:
         return self.project_dir / "dogfood"
 
@@ -156,3 +164,12 @@ def ensure_project_gitignore(gitignore_path: Path) -> bool:
     lines.append(PROJECT_GITIGNORE_ENTRY)
     gitignore_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return True
+
+
+def uses_project_cache_layout(source: str | Path, cache_dir: str) -> bool:
+    """Return whether cache_dir points at an initialized repo-local `.archex` store."""
+    state = ProjectState.resolve(source)
+    configured = Path(cache_dir).expanduser()
+    if not configured.is_absolute():
+        configured = state.repo_root / configured
+    return state.initialized() and configured.resolve() == state.project_dir
