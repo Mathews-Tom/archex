@@ -9,6 +9,7 @@ from archex.cli.analyze_cmd import analyze_cmd
 from archex.cli.benchmark_cmd import benchmark_cmd
 from archex.cli.cache_cmd import cache_cmd
 from archex.cli.compare_cmd import compare_cmd
+from archex.cli.dogfood_cmd import dogfood_cmd
 from archex.cli.index_cmd import index_cmd
 from archex.cli.init_cmd import init_cmd
 from archex.cli.mcp_cmd import mcp_cmd
@@ -37,6 +38,7 @@ cli.add_command(init_cmd)
 cli.add_command(index_cmd)
 cli.add_command(status_cmd)
 cli.add_command(reset_cmd)
+cli.add_command(dogfood_cmd)
 cli.add_command(mcp_cmd)
 cli.add_command(tree_cmd)
 cli.add_command(outline_cmd)
