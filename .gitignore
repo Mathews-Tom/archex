@@ -215,6 +215,7 @@ __marimo__/
 
 # Developer workspace
 .docs/
+.archex/
 
 # Benchmark results (keep .gitkeep)
 benchmarks/results/*.json
