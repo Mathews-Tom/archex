@@ -29,6 +29,38 @@ def test_help_contains_subcommands() -> None:
     assert "query" in output
     assert "compare" in output
     assert "cache" in output
+    assert "init" in output
+
+
+def test_init_command_creates_project_state(python_simple_repo: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["init", str(python_simple_repo)])
+
+    assert result.exit_code == 0, result.output
+    assert "Initialized archex project" in result.output
+    assert (python_simple_repo / ".archex" / "settings.toml").exists()
+    assert (python_simple_repo / ".archex" / "dogfood" / "history").is_dir()
+    assert ".archex/" in (python_simple_repo / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_init_command_is_idempotent(python_simple_repo: Path) -> None:
+    runner = CliRunner()
+    first = runner.invoke(cli, ["init", str(python_simple_repo)])
+    second = runner.invoke(cli, ["init", str(python_simple_repo)])
+
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    assert "already initialized" in second.output
+
+
+def test_init_command_reset_requires_force(python_simple_repo: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["init", str(python_simple_repo), "--reset"])
+
+    assert result.exit_code != 0
+    assert "--reset requires --force" in result.output
 
 
 def test_analyze_local_json(python_simple_repo: Path) -> None:
