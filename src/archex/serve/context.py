@@ -781,10 +781,14 @@ def assemble_context(
 
     # File-level ranking: aggregate per-file scores, apply score-relative cutoff,
     # then hard-cap at adaptive MAX_FILES to limit tail noise.
+    # Aggregate per-file score as the sum of its chunk scores: a file with
+    # several relevant chunks outranks one with a single strong match. Max-based
+    # aggregation under-ranks large multi-chunk files and regresses recall on
+    # framework-heavy repos — do not switch back to max.
     file_agg: dict[str, float] = {}
     for rc in ranked:
         fp = rc.chunk.file_path
-        file_agg[fp] = max(file_agg.get(fp, 0.0), rc.final_score)
+        file_agg[fp] = file_agg.get(fp, 0.0) + rc.final_score
     sorted_files = sorted(file_agg.items(), key=lambda x: -x[1])
     top_file_score = sorted_files[0][1] if sorted_files else 0.0
     score_cutoff = top_file_score * FILE_SCORE_CUTOFF
