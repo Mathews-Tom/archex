@@ -573,7 +573,16 @@ _PATH_NOISE = frozenset(
 )
 
 
-_STEM_SUFFIXES = ("ors", "ers", "ing", "tion", "ment", "ness", "ity", "ies", "ous")
+_STEM_SUFFIXES = ("ors", "ers", "ing", "tion", "ment", "ness", "ity", "ies", "ous", "s")
+
+_PATH_TERM_EXPANSIONS: dict[str, tuple[str, ...]] = {
+    "dispatch": ("dispatcher", "strategy", "worker"),
+    "execute": ("worker", "runner"),
+    "executing": ("worker", "runner"),
+    "task": ("worker", "strategy"),
+    "tasks": ("task", "worker", "strategy"),
+    "runtime": ("scheduler",),
+}
 
 _SYMBOL_NOISE = _PATH_NOISE | frozenset(
     {
@@ -621,6 +630,10 @@ def _extract_path_terms(question: str) -> list[str]:
         if t not in seen:
             seen.add(t)
             terms.append(t)
+        for expansion in _PATH_TERM_EXPANSIONS.get(t, ()):
+            if expansion not in seen:
+                seen.add(expansion)
+                terms.append(expansion)
         for suffix in _STEM_SUFFIXES:
             if t.endswith(suffix) and len(t) - len(suffix) >= 4:
                 stem = t[: -len(suffix)]
@@ -629,6 +642,22 @@ def _extract_path_terms(question: str) -> list[str]:
                     terms.append(stem)
     terms.sort(key=len, reverse=True)
     return terms
+
+
+def _path_match_multiplier(file_path: str, term: str) -> float:
+    """Score a path keyword by specificity of the file-path match."""
+    import re
+
+    lowered = file_path.lower()
+    term_lower = term.lower()
+    basename = lowered.rsplit("/", 1)[-1]
+    stem = basename.rsplit(".", 1)[0]
+    segments = {segment for segment in re.split(r"[/_.-]+", lowered) if segment}
+    if term_lower in (stem, basename):
+        return 0.85
+    if term_lower in segments:
+        return 0.70
+    return 0.45
 
 
 _RETRIEVAL_QUERY_EXPANSIONS: dict[str, tuple[str, ...]] = {
@@ -696,7 +725,6 @@ def _file_path_boost(
     boosted: list[tuple[CodeChunk, float]] = []
     seen: set[str] = set(existing_ids)
     boosted_by_file: dict[str, int] = {}
-    boost_score = max_bm25_score * 0.5
 
     for term in terms:
         for chunk in store.search_chunks_by_path_keyword(term, limit=20):
@@ -704,6 +732,7 @@ def _file_path_boost(
                 continue
             if chunk.id not in seen:
                 seen.add(chunk.id)
+                boost_score = max_bm25_score * _path_match_multiplier(chunk.file_path, term)
                 boosted.append((chunk, boost_score))
                 boosted_by_file[chunk.file_path] = boosted_by_file.get(chunk.file_path, 0) + 1
             if len(boosted) >= max_boost_chunks:

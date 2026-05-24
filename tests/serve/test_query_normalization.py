@@ -214,6 +214,24 @@ def test_non_retrieval_question_is_not_expanded() -> None:
     assert _expand_retrieval_question(question) == question
 
 
+def test_task_dispatch_path_terms_include_architecture_files() -> None:
+    from archex.api import _extract_path_terms
+
+    terms = _extract_path_terms("How does Celery dispatch and execute distributed tasks?")
+
+    assert "task" in terms
+    assert "worker" in terms
+    assert "strategy" in terms
+
+
+def test_path_match_multiplier_prefers_basename_and_segments() -> None:
+    from archex.api import _path_match_multiplier
+
+    assert _path_match_multiplier("celery/app/task.py", "task") == pytest.approx(0.85)
+    assert _path_match_multiplier("celery/worker/strategy.py", "worker") == pytest.approx(0.70)
+    assert _path_match_multiplier("celery/events/dispatcher.py", "patch") == pytest.approx(0.45)
+
+
 def test_file_path_boost_caps_chunks_per_file() -> None:
     from archex.api import _file_path_boost
 
