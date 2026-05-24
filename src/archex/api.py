@@ -249,6 +249,21 @@ def _ensure_index(
     return _full_index(source, config, cache, cache_key, timing, index_config=index_config)
 
 
+def index_repository(
+    source: RepoSource,
+    config: Config | None = None,
+    timing: PipelineTiming | None = None,
+    index_config: IndexConfig | None = None,
+) -> IndexStore:
+    """Build or load the index for a repository without running analysis or retrieval."""
+    return _ensure_index(
+        source,
+        config=config,
+        timing=timing,
+        index_config=index_config,
+    )
+
+
 def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
     source = attempt.source
     config = attempt.config
