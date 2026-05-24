@@ -170,7 +170,8 @@ class CacheManager:
         import json
 
         dest = self.db_path(key)
-        shutil.copy2(str(source_db), str(dest))
+        if source_db.resolve() != dest.resolve():
+            shutil.copy2(str(source_db), str(dest))
         meta = self.meta_path(key)
         meta_data = {
             "cache_key": key,

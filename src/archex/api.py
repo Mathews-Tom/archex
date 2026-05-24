@@ -181,6 +181,7 @@ def _full_index(
             store.set_metadata("commit_hash", commit)
             store.set_metadata("source_identity", identity)
             store.set_metadata("indexed_at", str(time.time()))
+            _set_working_tree_signature(store, repo_path, config)
             store.conn.execute("PRAGMA wal_checkpoint(FULL)")
             cache.put(
                 cache_key,
@@ -203,6 +204,7 @@ class _DeltaIndexAttempt:
     config: Config
     cache: CacheManager
     cache_key: str
+    working_tree_signature: str | None
     timing: PipelineTiming | None
     index_config: IndexConfig | None
     t_start: float
@@ -227,19 +229,26 @@ def _ensure_index(
     t_start = time.perf_counter()
     cache = _cache_manager_for_source(source, config)
     cache_key = cache.cache_key(source)
+    working_tree_signature = _working_tree_signature(source, config)
 
     # Path 1: Exact cache hit (same commit) — fast path
     cached_db = cache.get(cache_key) if config.cache else None
     if cached_db is not None:
         store = IndexStore(cached_db)
-        if not store.needs_reindex():
+        store_signature = store.get_metadata("working_tree_signature")
+        signature_matches = (
+            working_tree_signature is None or store_signature == working_tree_signature
+        )
+        needs_reindex = store.needs_reindex()
+        if not needs_reindex and signature_matches:
             if timing is not None:
                 timing.cached = True
                 timing.strategy = "cached"
                 timing.index_ms = _elapsed_ms(t_start)
             return store
         store.close()
-        cache.invalidate(cache_key)
+        if needs_reindex:
+            cache.invalidate(cache_key)
 
     # Path 2: Delta path — same repo, different commit (local repos only)
     delta_store = _try_delta_index(
@@ -248,6 +257,7 @@ def _ensure_index(
             config=config,
             cache=cache,
             cache_key=cache_key,
+            working_tree_signature=working_tree_signature,
             timing=timing,
             index_config=index_config,
             t_start=t_start,
@@ -287,14 +297,37 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
 
     db_path, cached_commit = existing
     current_commit = CacheManager.git_head(source.local_path)
-    if not current_commit or cached_commit == current_commit:
+    if not current_commit:
+        return None
+    same_commit = cached_commit == current_commit
+    if same_commit and attempt.working_tree_signature is None:
         return None
 
     try:
-        from archex.index.delta import apply_delta, compute_delta
+        from archex.index.delta import apply_delta, compute_delta, compute_mtime_delta
 
         repo_path = Path(source.local_path).resolve()
-        manifest = compute_delta(repo_path, cached_commit, current_commit)
+        store = IndexStore(db_path) if same_commit else None
+        try:
+            if same_commit:
+                if store is None:
+                    return None
+                indexed_signature = store.get_metadata("working_tree_signature")
+                if indexed_signature == attempt.working_tree_signature:
+                    return None
+                indexed_at = _metadata_float(store.get_metadata("indexed_at"))
+                manifest = compute_mtime_delta(repo_path, store, indexed_at)
+                manifest.base_commit = cached_commit
+                manifest.current_commit = current_commit
+            else:
+                manifest = compute_delta(repo_path, cached_commit, current_commit)
+        finally:
+            if store is not None:
+                store.close()
+
+        if not manifest.changes and same_commit:
+            return None
+
         total_files = len(
             discover_files(
                 repo_path,
@@ -322,6 +355,8 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
         store.set_metadata("commit_hash", current_commit)
         store.set_metadata("source_identity", identity)
         store.set_metadata("indexed_at", str(time.time()))
+        if attempt.working_tree_signature is not None:
+            store.set_metadata("working_tree_signature", attempt.working_tree_signature)
         store.conn.execute("PRAGMA wal_checkpoint(FULL)")
         attempt.cache.put(
             attempt.cache_key,
@@ -342,6 +377,34 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
             attempt.timing.delta_attempted = True
         logger.info("Delta indexing failed, falling back to full re-index")
         return None
+
+
+def _working_tree_signature(source: RepoSource, config: Config) -> str | None:
+    if not source.local_path:
+        return None
+    repo_path = Path(source.local_path).expanduser().resolve()
+    if not (repo_path / ".git").exists():
+        return None
+    from archex.index.delta import compute_working_tree_signature
+
+    return compute_working_tree_signature(repo_path, config)
+
+
+def _set_working_tree_signature(store: IndexStore, repo_path: Path, config: Config) -> None:
+    if not (repo_path / ".git").exists():
+        return
+    from archex.index.delta import compute_working_tree_signature
+
+    store.set_metadata("working_tree_signature", compute_working_tree_signature(repo_path, config))
+
+
+def _metadata_float(value: str | None) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except ValueError:
+        return 0.0
 
 
 def _chunk_to_symbol_source(chunk: CodeChunk) -> SymbolSource:
@@ -1301,6 +1364,7 @@ def query(
                 store.set_metadata("commit_hash", commit)
                 store.set_metadata("source_identity", identity)
                 store.set_metadata("indexed_at", str(time.time()))
+                _set_working_tree_signature(store, repo_path, config)
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
                 cache.put(
                     cache_key,

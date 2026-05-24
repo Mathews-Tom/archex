@@ -833,6 +833,39 @@ class TestDeltaIndexIntegration:
         finally:
             store2.close()
 
+    def test_uncommitted_working_tree_edit_triggers_delta(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """Uncommitted source edits on the same HEAD refresh the cached index."""
+        import time as _time
+
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(
+            languages=["python"],
+            cache=True,
+            cache_dir=str(tmp_path / "cache"),
+        )
+
+        _ensure_index(source, config=config).close()
+
+        _time.sleep(0.01)
+        (python_simple_repo / "utils.py").write_text(
+            "def uncommitted_delta_symbol():\n    return 1\n",
+            encoding="utf-8",
+        )
+
+        timing = PipelineTiming()
+        store = _ensure_index(source, config=config, timing=timing)
+        try:
+            utils_chunks = store.get_chunks_for_file("utils.py")
+            assert any("uncommitted_delta_symbol" in chunk.content for chunk in utils_chunks)
+            assert store.get_metadata("working_tree_signature") != "clean"
+        finally:
+            store.close()
+        assert timing.strategy == "delta"
+
     def test_delta_meta_in_timing(self, python_simple_repo: Path, tmp_path: Path) -> None:
         """PipelineTiming.delta_meta is populated after the delta path executes."""
         source = RepoSource(local_path=str(python_simple_repo))

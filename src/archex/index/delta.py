@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from archex.acquire.discovery import EXTENSION_MAP
 from archex.exceptions import DeltaIndexError
 from archex.models import (
     ChangeStatus,
@@ -26,6 +29,68 @@ if TYPE_CHECKING:
     from archex.models import CodeChunk, Config, DiscoveredFile, ImportStatement
 
 logger = logging.getLogger(__name__)
+
+
+def _is_source_path(path: str, languages: list[str] | None) -> bool:
+    language = EXTENSION_MAP.get(Path(path).suffix.lower())
+    if language is None:
+        return False
+    return languages is None or language in languages
+
+
+def _parse_porcelain_path(line: str) -> tuple[str, str] | None:
+    if len(line) < 4:
+        return None
+    status = line[:2]
+    path = line[3:]
+    if " -> " in path:
+        path = path.rsplit(" -> ", maxsplit=1)[1]
+    return status, path
+
+
+def compute_working_tree_signature(repo_path: Path, config: Config) -> str:
+    """Return a content signature for changed source files in a git working tree."""
+    if not (repo_path / ".git").exists():
+        return ""
+
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DeltaIndexError("git status timed out after 30s") from exc
+    except OSError as exc:
+        raise DeltaIndexError(f"git status failed: {exc}") from exc
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        raise DeltaIndexError(f"git status failed: {stderr}")
+
+    changed: list[dict[str, str | int]] = []
+    for line in result.stdout.splitlines():
+        parsed = _parse_porcelain_path(line)
+        if parsed is None:
+            continue
+        status, path = parsed
+        if not _is_source_path(path, config.languages):
+            continue
+
+        item: dict[str, str | int] = {"path": path, "status": status}
+        file_path = repo_path / path
+        if file_path.is_file():
+            stat = file_path.stat()
+            item["size"] = stat.st_size
+            item["sha256"] = hashlib.sha256(file_path.read_bytes()).hexdigest()
+        changed.append(item)
+
+    if not changed:
+        return "clean"
+    payload = json.dumps(sorted(changed, key=lambda item: str(item["path"])), sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def _parse_name_status_line(line: str) -> FileChange | None:
