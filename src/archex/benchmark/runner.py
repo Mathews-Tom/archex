@@ -14,7 +14,7 @@ import click
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
 from archex.benchmark.strategies import default_strategy_registry
-from archex.exceptions import ArchexIndexError
+from archex.exceptions import ArchexIndexError, BenchmarkCloneError
 
 logger = logging.getLogger(__name__)
 
@@ -84,36 +84,49 @@ def _warm_repo_index(task: BenchmarkTask, repo_path: Path) -> None:
     )
 
 
+def _run_git(
+    args: list[str], *, cwd: Path | None = None, timeout: int
+) -> subprocess.CompletedProcess[str]:
+    """Run a git command with captured output, converting a timeout into BenchmarkCloneError."""
+    try:
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise BenchmarkCloneError(f"git timed out after {timeout}s: {' '.join(args)}") from exc
+
+
 def clone_at_commit(repo_slug: str, commit: str) -> tuple[Path, bool]:
-    """Clone a GitHub repo and checkout a specific commit/tag. Returns (path, needs_cleanup)."""
+    """Clone a GitHub repo and checkout a specific commit/tag. Returns (path, needs_cleanup).
+
+    Raises BenchmarkCloneError (carrying git's stderr) when both the shallow-ref
+    clone and the full-clone fallback fail — e.g. network error, rate limit, or
+    an unresolvable ref — leaving no temp directory behind.
+    """
     url = f"https://github.com/{repo_slug}.git"
     target = Path(tempfile.mkdtemp(prefix="archex-bench-"))
 
     # Try shallow clone at ref (works for tags and branches, much faster)
-    result = subprocess.run(
+    shallow = _run_git(
         ["git", "clone", "--quiet", "--depth", "1", "--branch", commit, url, str(target)],
-        capture_output=True,
         timeout=300,
     )
-    if result.returncode == 0:
+    if shallow.returncode == 0:
         return target, True
 
     # Fallback: full clone + checkout (needed for bare commit hashes)
     shutil.rmtree(target, ignore_errors=True)
     target = Path(tempfile.mkdtemp(prefix="archex-bench-"))
-    subprocess.run(
-        ["git", "clone", "--quiet", url, str(target)],
-        check=True,
-        capture_output=True,
-        timeout=300,
-    )
-    subprocess.run(
-        ["git", "checkout", "--quiet", commit],
-        cwd=target,
-        check=True,
-        capture_output=True,
-        timeout=30,
-    )
+    full = _run_git(["git", "clone", "--quiet", url, str(target)], timeout=300)
+    if full.returncode != 0:
+        shutil.rmtree(target, ignore_errors=True)
+        detail = full.stderr.strip() or shallow.stderr.strip() or "unknown git error"
+        raise BenchmarkCloneError(f"clone failed for {repo_slug}@{commit}: {detail}")
+
+    checkout = _run_git(["git", "checkout", "--quiet", commit], cwd=target, timeout=30)
+    if checkout.returncode != 0:
+        shutil.rmtree(target, ignore_errors=True)
+        detail = checkout.stderr.strip() or "unknown git error"
+        raise BenchmarkCloneError(f"checkout {commit} failed for {repo_slug}: {detail}")
+
     return target, True
 
 
@@ -206,17 +219,31 @@ def run_all(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     reports: list[BenchmarkReport] = []
+    failures: list[tuple[str, str]] = []
 
     for i, task in enumerate(tasks, 1):
         print(f"[{i}/{len(tasks)}] {task.task_id} ({task.repo})", file=sys.stderr)
         task_repo_path: Path | None = None
         if task.repo == ".":
             task_repo_path = Path.cwd()
-        report = run_benchmark(task, strategies=strategies, repo_path=task_repo_path)
+        try:
+            report = run_benchmark(task, strategies=strategies, repo_path=task_repo_path)
+        except BenchmarkCloneError as exc:
+            # Isolate per-task clone failures (network, rate limit, bad ref) so one
+            # bad repo does not abort the whole batch.
+            logger.warning("Skipping task %s: %s", task.task_id, exc)
+            print(f"  SKIPPED {task.task_id}: {exc}", file=sys.stderr)
+            failures.append((task.task_id, str(exc)))
+            continue
         reports.append(report)
 
         result_path = output_dir / f"{task.task_id}.json"
         result_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
         print(f"  → Wrote {result_path}", file=sys.stderr)
+
+    if failures:
+        print(f"\n{len(failures)} task(s) skipped due to clone failures:", file=sys.stderr)
+        for task_id, detail in failures:
+            print(f"  - {task_id}: {detail}", file=sys.stderr)
 
     return reports

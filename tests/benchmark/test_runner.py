@@ -291,6 +291,42 @@ class TestCloneAtCommit:
         # clone_dir should have been cleaned up
         assert not clone_dir.exists()
 
+    def test_clone_failure_raises_benchmark_clone_error(self) -> None:
+        """Both clones failing raises BenchmarkCloneError carrying git's stderr."""
+        import subprocess
+
+        import archex.benchmark.runner as runner_mod
+        from archex.exceptions import BenchmarkCloneError
+
+        def fail_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(cmd, 1, "", "fatal: could not read from remote")
+
+        original = runner_mod.subprocess.run
+        runner_mod.subprocess.run = fail_run  # type: ignore[assignment]
+        try:
+            with pytest.raises(BenchmarkCloneError, match="could not read from remote"):
+                runner_mod.clone_at_commit("owner/repo", "v1.0")
+        finally:
+            runner_mod.subprocess.run = original  # type: ignore[assignment]
+
+    def test_clone_timeout_raises_benchmark_clone_error(self) -> None:
+        """A git timeout is converted to BenchmarkCloneError, not propagated raw."""
+        import subprocess
+
+        import archex.benchmark.runner as runner_mod
+        from archex.exceptions import BenchmarkCloneError
+
+        def timeout_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            raise subprocess.TimeoutExpired(cmd, 300)
+
+        original = runner_mod.subprocess.run
+        runner_mod.subprocess.run = timeout_run  # type: ignore[assignment]
+        try:
+            with pytest.raises(BenchmarkCloneError, match="timed out"):
+                runner_mod.clone_at_commit("owner/repo", "v1.0")
+        finally:
+            runner_mod.subprocess.run = original  # type: ignore[assignment]
+
 
 class TestRunAll:
     def _make_tasks_dir(self, tmp_path: Path) -> Path:
@@ -336,6 +372,49 @@ expected_files:
         assert len(reports) == 1
         assert reports[0].task_id == "test_all"
         assert (output_dir / "test_all.json").exists()
+
+    def test_run_all_skips_failed_clone_and_continues(
+        self,
+        python_simple_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        """A clone failure on one task is isolated; the batch continues."""
+        from archex.benchmark.runner import run_all
+        from archex.exceptions import BenchmarkCloneError
+
+        tasks_dir = self._make_tasks_dir(tmp_path)  # task_id=test_all, repo=test/repo
+        (tasks_dir / "bad.yaml").write_text("""\
+task_id: bad_clone
+repo: bad/repo
+commit: v1
+question: "Bad?"
+expected_files:
+  - main.py
+""")
+        output_dir = tmp_path / "results"
+
+        import archex.benchmark.runner as runner_mod
+
+        def _fake_clone(repo_slug: str, commit: str) -> tuple[Path, bool]:
+            if repo_slug == "bad/repo":
+                raise BenchmarkCloneError(f"clone failed for {repo_slug}@{commit}: rate limit")
+            return python_simple_repo, False
+
+        original = runner_mod.clone_at_commit
+        runner_mod.clone_at_commit = _fake_clone  # type: ignore[assignment]
+        try:
+            reports = run_all(
+                tasks_dir=tasks_dir,
+                output_dir=output_dir,
+                strategies=[Strategy.RAW_FILES],
+            )
+        finally:
+            runner_mod.clone_at_commit = original  # type: ignore[assignment]
+
+        # The good task ran and was written; the bad task was skipped, not crashed.
+        assert {r.task_id for r in reports} == {"test_all"}
+        assert (output_dir / "test_all.json").exists()
+        assert not (output_dir / "bad_clone.json").exists()
 
     def test_task_filter_nonexistent_raises(self, tmp_path: Path) -> None:
         from archex.benchmark.runner import run_all

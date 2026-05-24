@@ -41,3 +41,7 @@ class ConfigError(ArchexError):
 
 class LSAPError(ArchexError):
     """Raised when LSAP/LSP client operations fail."""
+
+
+class BenchmarkCloneError(ArchexError):
+    """Raised when cloning or checking out a benchmark task repository fails."""
