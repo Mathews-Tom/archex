@@ -195,6 +195,60 @@ def _chunk(
     )
 
 
+def test_retrieval_question_expands_query_pipeline_terms() -> None:
+    from archex.api import _expand_retrieval_question
+
+    expanded = _expand_retrieval_question("How does archex implement the query pipeline?")
+
+    assert "bm25" in expanded
+    assert "BM25Index" in expanded
+    assert "assemble_context" in expanded
+    assert "context" in expanded
+
+
+def test_non_retrieval_question_is_not_expanded() -> None:
+    from archex.api import _expand_retrieval_question
+
+    question = "Where is User defined?"
+
+    assert _expand_retrieval_question(question) == question
+
+
+def test_file_path_boost_caps_chunks_per_file() -> None:
+    from archex.api import _file_path_boost
+
+    chunks = [
+        _chunk(
+            file_path="src/archex/pipeline/chunker.py",
+            name=f"chunk_{i}",
+            qualified_name=f"chunk_{i}",
+        )
+        for i in range(5)
+    ]
+    chunks.append(
+        _chunk(
+            file_path="src/archex/serve/context.py",
+            name="assemble_context",
+            qualified_name="assemble_context",
+        )
+    )
+    store = _make_store(chunks)
+    try:
+        boosted = _file_path_boost(
+            store,
+            "query pipeline context",
+            existing_ids=set(),
+            max_bm25_score=10.0,
+            max_chunks_per_file=2,
+        )
+        boosted_paths = [chunk.file_path for chunk, _ in boosted]
+
+        assert boosted_paths.count("src/archex/pipeline/chunker.py") == 2
+        assert "src/archex/serve/context.py" in boosted_paths
+    finally:
+        store.close()
+
+
 def test_exact_symbol_match_gets_high_boost() -> None:
     """Exact symbol_name equality → 0.60× max_bm25_score boost.
 

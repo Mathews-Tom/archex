@@ -541,29 +541,81 @@ def _extract_path_terms(question: str) -> list[str]:
     return terms
 
 
+_RETRIEVAL_QUERY_EXPANSIONS: dict[str, tuple[str, ...]] = {
+    "query": ("search", "retrieve", "retrieval", "context"),
+    "pipeline": ("workflow", "stage", "assembly", "context"),
+    "retrieval": ("search", "rank", "score", "bm25", "context"),
+}
+
+_QUERY_PIPELINE_EXPANSIONS = ("bm25", "BM25Index", "assemble_context")
+
+
+def _expand_retrieval_question(question: str) -> str:
+    """Add code-level terms for retrieval architecture queries.
+
+    Natural-language architecture questions often use product terms such as
+    "query pipeline" while the implementation files use algorithm and assembly
+    names. Expand only from known retrieval terms so ordinary symbol lookups do
+    not inherit broad search vocabulary.
+    """
+    import re
+
+    raw_terms = {w.lower() for w in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", question)}
+    expansions: list[str] = []
+    for term, candidates in _RETRIEVAL_QUERY_EXPANSIONS.items():
+        if term not in raw_terms:
+            continue
+        expansions.extend(candidates)
+
+    if {"query", "pipeline"} <= raw_terms:
+        expansions.extend(_QUERY_PIPELINE_EXPANSIONS)
+
+    if not expansions:
+        return question
+
+    existing = {w.lower() for w in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", question)}
+    ordered_unique: list[str] = []
+    for term in expansions:
+        lowered = term.lower()
+        if lowered in existing:
+            continue
+        existing.add(lowered)
+        ordered_unique.append(term)
+
+    if not ordered_unique:
+        return question
+    return f"{question} {' '.join(ordered_unique)}"
+
+
 def _file_path_boost(
     store: IndexStore,
     question: str,
     existing_ids: set[str],
     max_bm25_score: float = 1.0,
     max_boost_chunks: int = 30,
+    max_chunks_per_file: int = 3,
 ) -> list[tuple[CodeChunk, float]]:
     """Find chunks whose file_path contains query terms as exact substrings.
 
     Terms are searched longest-first (from _extract_path_terms) so specific terms
     like "validators" get priority over generic ones like "pydantic". Boost score
-    is 0.5× max BM25 so path-matched chunks compete without dominating.
+    is 0.5× max BM25 so path-matched chunks compete without dominating. Per-file
+    caps prevent one matching directory from flooding file-level aggregation.
     """
     terms = _extract_path_terms(question)
     boosted: list[tuple[CodeChunk, float]] = []
     seen: set[str] = set(existing_ids)
+    boosted_by_file: dict[str, int] = {}
     boost_score = max_bm25_score * 0.5
 
     for term in terms:
         for chunk in store.search_chunks_by_path_keyword(term, limit=20):
+            if boosted_by_file.get(chunk.file_path, 0) >= max_chunks_per_file:
+                continue
             if chunk.id not in seen:
                 seen.add(chunk.id)
                 boosted.append((chunk, boost_score))
+                boosted_by_file[chunk.file_path] = boosted_by_file.get(chunk.file_path, 0) + 1
             if len(boosted) >= max_boost_chunks:
                 return boosted
 
@@ -643,14 +695,20 @@ def _bm25_search_with_boosts(
     Returns (search_results, path_boost, symbol_seeds) as separate lists so
     callers can record individual counts for observability, then combine them.
     """
-    results = bm25.search(question, top_k=top_k)
+    expanded_question = _expand_retrieval_question(question)
+    results = bm25.search(expanded_question, top_k=top_k)
     bm25_ids = {c.id for c, _ in results}
     max_bm25 = max((s for _, s in results), default=1.0)
-    path_boost = _file_path_boost(store, question, bm25_ids, max_bm25_score=max_bm25)
+    path_boost = _file_path_boost(
+        store,
+        expanded_question,
+        bm25_ids,
+        max_bm25_score=max_bm25,
+    )
     all_existing = bm25_ids | {c.id for c, _ in path_boost}
     symbol_seeds = [
         (c, s)
-        for c, s in _symbol_search_seeds(store, question, max_bm25_score=max_bm25)
+        for c, s in _symbol_search_seeds(store, expanded_question, max_bm25_score=max_bm25)
         if c.id not in all_existing
     ]
     return results, path_boost, symbol_seeds
