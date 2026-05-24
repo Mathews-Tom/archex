@@ -12,7 +12,13 @@ from typing import Any, cast
 
 from archex.benchmark.baseline import BaselineComparison, compare_baseline, load_baseline
 from archex.benchmark.loader import load_tasks
-from archex.benchmark.models import BenchmarkReport, BenchmarkTask, Strategy, TaskCategory
+from archex.benchmark.models import (
+    BenchmarkReport,
+    BenchmarkResult,
+    BenchmarkTask,
+    Strategy,
+    TaskCategory,
+)
 from archex.benchmark.reporter import format_markdown, format_summary
 from archex.benchmark.runner import DEFAULT_STRATEGIES, run_benchmark
 from archex.project import ProjectState
@@ -249,7 +255,7 @@ def _write_reports(
     latest_json_path.write_text(serialized, encoding="utf-8")
     history_json_path.write_text(serialized, encoding="utf-8")
     latest_markdown_path.write_text(
-        _markdown_report(reports, comparisons, baseline_path),
+        _markdown_report(tasks, reports, comparisons, baseline_path),
         encoding="utf-8",
     )
     return latest_json_path, latest_markdown_path, history_json_path
@@ -273,38 +279,98 @@ def _json_payload(
             for comparison in comparisons
             if comparison.regression
         ],
-        "retrieval_gaps": _retrieval_gaps(tasks, reports),
+        "retrieval_diagnostics": _retrieval_diagnostics(tasks, reports),
     }
 
 
-def _retrieval_gaps(
+def _retrieval_diagnostics(
     tasks: list[BenchmarkTask],
     reports: list[BenchmarkReport],
 ) -> list[dict[str, object]]:
     expected_by_task = {task.task_id: set(task.expected_files) for task in tasks}
-    gaps: list[dict[str, object]] = []
+    diagnostics: list[dict[str, object]] = []
     for report in reports:
         expected = expected_by_task[report.task_id]
         for result in report.results:
-            retrieved = set(result.seed_files) | set(result.expanded_files)
-            if not retrieved:
-                missing: list[str] = []
-                unexpected: list[str] = []
-            else:
-                missing = sorted(expected - retrieved)
-                unexpected = sorted(retrieved - expected)
-            gaps.append(
+            ranked_files = _ranked_files(result)
+            missing = _missing_expected_files(expected, ranked_files, result)
+            unexpected = [path for path in ranked_files if path not in expected]
+            failure_classes = _failure_classes(
+                expected,
+                ranked_files,
+                missing,
+                result,
+            )
+            diagnostics.append(
                 {
                     "task_id": report.task_id,
                     "strategy": result.strategy.value,
+                    "failure_classes": failure_classes,
                     "missing_expected_files": missing,
-                    "unexpected_files": unexpected,
+                    "top_unexpected_files": unexpected[:5],
+                    "seed_files": result.seed_files,
+                    "expanded_files": result.expanded_files,
+                    "seed_recall": result.seed_recall,
+                    "recall": result.recall,
                 }
             )
-    return gaps
+    return diagnostics
+
+
+def _ranked_files(result: BenchmarkResult) -> list[str]:
+    ranked: list[str] = []
+    seen: set[str] = set()
+    for path in [*result.seed_files, *result.expanded_files]:
+        if path in seen:
+            continue
+        seen.add(path)
+        ranked.append(path)
+    return ranked
+
+
+def _missing_expected_files(
+    expected: set[str],
+    ranked_files: list[str],
+    result: BenchmarkResult,
+) -> list[str]:
+    if ranked_files:
+        return sorted(expected - set(ranked_files))
+    if result.recall >= 1.0:
+        return []
+    return sorted(expected)
+
+
+def _failure_classes(
+    expected: set[str],
+    ranked_files: list[str],
+    missing: list[str],
+    result: BenchmarkResult,
+) -> list[str]:
+    classes: list[str] = []
+    if result.recall <= 0:
+        classes.append("zero_recall")
+    elif result.recall < 1.0 or missing:
+        classes.append("partial_recall")
+
+    if result.mrr < 1.0 and any(path in expected for path in ranked_files):
+        classes.append("ranking_miss")
+
+    if result.seed_files:
+        seed_missing = expected - set(result.seed_files)
+        if seed_missing:
+            classes.append("seed_miss")
+
+    if result.seed_recall > result.recall:
+        classes.append("packing_miss")
+
+    if result.expanded_files and missing:
+        classes.append("expansion_miss")
+
+    return classes
 
 
 def _markdown_report(
+    tasks: list[BenchmarkTask],
     reports: list[BenchmarkReport],
     comparisons: list[BaselineComparison],
     baseline_path: Path | None,
@@ -334,6 +400,49 @@ def _markdown_report(
                 f"| {regression.delta:+.3f} |"
             )
     lines.append("")
+    lines.extend(_markdown_retrieval_diagnostics(tasks, reports))
+    lines.append("")
     for report in reports:
         lines.append(format_markdown(report))
     return "\n".join(lines)
+
+
+def _markdown_retrieval_diagnostics(
+    tasks: list[BenchmarkTask],
+    reports: list[BenchmarkReport],
+) -> list[str]:
+    diagnostics = _retrieval_diagnostics(tasks, reports)
+    lines: list[str] = ["## Retrieval Diagnostics", ""]
+    lines.append("| Task | Strategy | Failure Classes | Missing Expected | Top Unexpected |")
+    lines.append("|------|----------|-----------------|------------------|----------------|")
+    for diagnostic in diagnostics:
+        classes = _join_markdown_list(cast("list[str]", diagnostic["failure_classes"]))
+        missing = _join_markdown_list(cast("list[str]", diagnostic["missing_expected_files"]))
+        unexpected = _join_markdown_list(cast("list[str]", diagnostic["top_unexpected_files"]))
+        lines.append(
+            f"| {diagnostic['task_id']} | {diagnostic['strategy']} "
+            f"| {classes} | {missing} | {unexpected} |"
+        )
+    lines.append("")
+    for diagnostic in diagnostics:
+        lines.append(f"### {diagnostic['task_id']} / {diagnostic['strategy']}")
+        lines.append("")
+        lines.append("Seed files:")
+        lines.extend(_markdown_bullets(cast("list[str]", diagnostic["seed_files"])))
+        lines.append("")
+        lines.append("Expanded files:")
+        lines.extend(_markdown_bullets(cast("list[str]", diagnostic["expanded_files"])))
+        lines.append("")
+    return lines
+
+
+def _join_markdown_list(values: list[str]) -> str:
+    if not values:
+        return "none"
+    return "<br>".join(f"`{value}`" for value in values)
+
+
+def _markdown_bullets(values: list[str]) -> list[str]:
+    if not values:
+        return ["- none"]
+    return [f"- `{value}`" for value in values]
