@@ -34,6 +34,7 @@ category: self
 question: "How does archex implement the query pipeline?"
 expected_files:
   - src/archex/api.py
+  - src/archex/serve/context.py
 expected_symbols: []
 """,
         encoding="utf-8",
@@ -71,7 +72,8 @@ def _report(task: BenchmarkTask, recall: float = 1.0) -> BenchmarkReport:
         wall_time_ms=10.0,
         cached=False,
         timestamp="2026-05-24T00:00:00Z",
-        seed_files=["src/archex/api.py"],
+        seed_files=["src/archex/api.py", "src/archex/serve/context.py"],
+        seed_recall=recall,
     )
     return BenchmarkReport(
         task_id=task.task_id,
@@ -130,7 +132,63 @@ def test_dogfood_runs_self_tasks_and_writes_reports(
     payload = json.loads(result.latest_json_path.read_text(encoding="utf-8"))
     assert payload["tasks"] == ["archex_query_pipeline"]
     assert payload["regressions"] == []
-    assert payload["retrieval_gaps"][0]["missing_expected_files"] == []
+    assert payload["retrieval_diagnostics"][0]["missing_expected_files"] == []
+    assert payload["retrieval_diagnostics"][0]["failure_classes"] == []
+
+
+def test_dogfood_reports_failure_classes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_git_repo(tmp_path)
+    _write_tasks(tmp_path)
+
+    def partial_report(
+        task: BenchmarkTask,
+        strategies: list[Strategy] | None = None,
+        repo_path: Path | None = None,
+    ) -> BenchmarkReport:
+        del strategies, repo_path
+        result = BenchmarkResult(
+            task_id=task.task_id,
+            strategy=Strategy.ARCHEX_QUERY,
+            tokens_total=100,
+            tool_calls=1,
+            files_accessed=2,
+            recall=0.5,
+            precision=0.5,
+            f1_score=0.5,
+            mrr=0.5,
+            ndcg=0.5,
+            map_score=0.5,
+            token_efficiency=0.5,
+            savings_vs_raw=0.0,
+            wall_time_ms=10.0,
+            cached=False,
+            timestamp="2026-05-24T00:00:00Z",
+            seed_files=["src/archex/api.py", "src/archex/models.py"],
+            seed_recall=0.5,
+        )
+        return BenchmarkReport(
+            task_id=task.task_id,
+            repo=task.repo,
+            question=task.question,
+            results=[result],
+            baseline_tokens=100,
+        )
+
+    monkeypatch.setattr("archex.dogfood.run_benchmark", partial_report)
+
+    result = run_dogfood(tmp_path, task_id="archex_query_pipeline")
+    payload = json.loads(result.latest_json_path.read_text(encoding="utf-8"))
+    diagnostic = payload["retrieval_diagnostics"][0]
+
+    assert diagnostic["missing_expected_files"] == ["src/archex/serve/context.py"]
+    assert diagnostic["top_unexpected_files"] == ["src/archex/models.py"]
+    assert diagnostic["failure_classes"] == ["partial_recall", "ranking_miss", "seed_miss"]
+    markdown = result.latest_markdown_path.read_text(encoding="utf-8")
+    assert "## Retrieval Diagnostics" in markdown
+    assert "`src/archex/serve/context.py`" in markdown
 
 
 def test_dogfood_compares_explicit_baseline(
