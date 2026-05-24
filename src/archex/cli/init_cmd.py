@@ -8,7 +8,7 @@ from archex.project import init_project
 
 
 @click.command("init")
-@click.argument("source")
+@click.argument("source", required=False, default=".")
 @click.option("--force", is_flag=True, default=False, help="Rewrite project settings.")
 @click.option(
     "--reset",

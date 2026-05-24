@@ -10,7 +10,7 @@ from archex.status import ProjectStatus, inspect_project_status
 
 
 @click.command("status")
-@click.argument("source")
+@click.argument("source", required=False, default=".")
 @click.option("--strict", is_flag=True, default=False, help="Fail unless the index is fresh.")
 @click.option(
     "--format",

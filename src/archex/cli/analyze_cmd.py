@@ -13,7 +13,7 @@ from archex.utils import resolve_source
 
 
 @click.command("analyze")
-@click.argument("source")
+@click.argument("source", required=False, default=".")
 @click.option(
     "--format",
     "output_format",
