@@ -264,6 +264,86 @@ def test_reset_command_all_removes_project_state(python_simple_repo: Path) -> No
     assert not (python_simple_repo / ".archex").exists()
 
 
+def test_lifecycle_commands_default_source_to_cwd(
+    python_simple_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(python_simple_repo)
+    runner = CliRunner()
+
+    initialized = runner.invoke(cli, ["init"])
+    indexed = runner.invoke(cli, ["index", "--format", "json"])
+    status = runner.invoke(cli, ["status", "--format", "json"])
+    reset = runner.invoke(cli, ["reset", "--force"])
+
+    assert initialized.exit_code == 0, initialized.output
+    assert indexed.exit_code == 0, indexed.output
+    assert json.loads(indexed.output)["repo_root"] == str(python_simple_repo)
+    assert status.exit_code == 0, status.output
+    assert json.loads(status.output)["state"] == "fresh"
+    assert reset.exit_code == 0, reset.output
+
+
+def test_query_command_defaults_source_to_cwd(
+    python_simple_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from archex.project import init_project
+
+    class FakeBundle:
+        chunks: list[object] = []
+        token_count = 0
+
+        def to_prompt(self, *, format: str) -> str:
+            return f"format={format}"
+
+    init_project(python_simple_repo)
+    monkeypatch.chdir(python_simple_repo)
+    runner = CliRunner()
+
+    with patch("archex.cli.query_cmd.query", return_value=FakeBundle()) as query_mock:
+        result = runner.invoke(cli, ["query", "How does the query pipeline work?"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "format=xml"
+    assert query_mock.call_args.args[0].local_path == "."
+    assert query_mock.call_args.args[1] == "How does the query pipeline work?"
+
+
+def test_analyze_tree_and_symbols_default_source_to_cwd(
+    python_simple_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from archex.models import FileTree
+    from archex.project import init_project
+
+    class FakeProfile:
+        def to_json(self) -> str:
+            return "{}"
+
+        def to_markdown(self) -> str:
+            return "# profile"
+
+    init_project(python_simple_repo)
+    monkeypatch.chdir(python_simple_repo)
+    runner = CliRunner()
+
+    with patch("archex.cli.analyze_cmd.analyze", return_value=FakeProfile()) as analyze_mock:
+        analyze_result = runner.invoke(cli, ["analyze"])
+    with patch(
+        "archex.cli.tree_cmd.file_tree",
+        return_value=FileTree(root=".", entries=[], total_files=0, languages={}),
+    ) as tree_mock:
+        tree_result = runner.invoke(cli, ["tree"])
+    with patch("archex.cli.symbols_cmd.search_symbols", return_value=[]) as symbols_mock:
+        symbols_result = runner.invoke(cli, ["symbols", "query"])
+
+    assert analyze_result.exit_code == 0, analyze_result.output
+    assert tree_result.exit_code == 0, tree_result.output
+    assert symbols_result.exit_code == 0, symbols_result.output
+    assert analyze_mock.call_args.args[0].local_path == "."
+    assert tree_mock.call_args.args[0].local_path == "."
+    assert symbols_mock.call_args.args[0].local_path == "."
+    assert symbols_mock.call_args.kwargs["query"] == "query"
+
+
 def test_analyze_local_json(python_simple_repo: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["analyze", str(python_simple_repo), "--format", "json"])

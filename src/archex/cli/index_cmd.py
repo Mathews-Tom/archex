@@ -25,7 +25,7 @@ def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int
 
 
 @click.command("index")
-@click.argument("source")
+@click.argument("source", required=False, default=".")
 @click.option(
     "--format",
     "output_format",

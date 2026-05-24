@@ -14,16 +14,14 @@ from archex.utils import resolve_source
 
 
 @click.command("symbols")
-@click.argument("source")
-@click.argument("query")
+@click.argument("args", nargs=-1, required=True)
 @click.option("--kind", default=None, help="Filter by kind: function, class, method, etc.")
 @click.option("-l", "--language", default=None, help="Filter to specific language.")
 @click.option("--limit", default=20, type=int, help="Maximum results.")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.option("--timing", is_flag=True, default=False, help="Print timing breakdown.")
 def symbols_cmd(
-    source: str,
-    query: str,
+    args: tuple[str, ...],
     kind: str | None,
     language: str | None,
     limit: int,
@@ -31,6 +29,7 @@ def symbols_cmd(
     timing: bool,
 ) -> None:
     """Search symbols by name across a repository."""
+    source, query = _source_and_query(args)
     source_obj = resolve_source(source)
 
     pt = PipelineTiming() if timing else None
@@ -67,3 +66,11 @@ def symbols_cmd(
         unique_files = list({m.file_path for m in results})
         raw = get_files_token_count(source_obj, unique_files)
         print_savings(returned, raw, pt.total_ms, file_count=len(unique_files))
+
+
+def _source_and_query(args: tuple[str, ...]) -> tuple[str, str]:
+    if len(args) == 1:
+        return ".", args[0]
+    if len(args) >= 2:
+        return args[0], " ".join(args[1:])
+    raise click.UsageError("symbols requires a query")

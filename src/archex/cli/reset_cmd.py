@@ -8,7 +8,7 @@ from archex.project import reset_project
 
 
 @click.command("reset")
-@click.argument("source")
+@click.argument("source", required=False, default=".")
 @click.option("--force", is_flag=True, default=False, help="Delete generated state.")
 @click.option(
     "--all",

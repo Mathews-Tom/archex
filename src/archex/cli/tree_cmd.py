@@ -37,7 +37,7 @@ def _render_tree(
 
 
 @click.command("tree")
-@click.argument("source")
+@click.argument("source", required=False, default=".")
 @click.option("--depth", default=5, type=int, help="Maximum directory depth.")
 @click.option("-l", "--language", default=None, help="Filter to specific language.")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")

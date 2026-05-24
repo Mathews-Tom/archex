@@ -11,8 +11,7 @@ from archex.utils import resolve_source
 
 
 @click.command("query")
-@click.argument("source")
-@click.argument("question")
+@click.argument("args", nargs=-1, required=True)
 @click.option("--budget", default=8192, type=int, help="Token budget for the context bundle.")
 @click.option(
     "--format",
@@ -31,8 +30,7 @@ from archex.utils import resolve_source
 @click.option("--timing", is_flag=True, default=False, help="Print timing breakdown.")
 @click.option("--metrics", is_flag=True, default=False, help="Print timing metrics as JSON.")
 def query_cmd(
-    source: str,
-    question: str,
+    args: tuple[str, ...],
     budget: int,
     output_format: str,
     language: tuple[str, ...],
@@ -44,6 +42,7 @@ def query_cmd(
     from archex.config import load_config, load_index_config
     from archex.models import PipelineTiming
 
+    source, question = _source_and_question(args)
     repo_source = resolve_source(source)
     config = load_config(repo_source)
     if language:
@@ -85,3 +84,11 @@ def query_cmd(
             dm = metrics_dict["delta_meta"]
             metrics_dict["delta_meta"] = {k: v for k, v in dm.items()}
         click.echo(json.dumps(metrics_dict, indent=2), err=True)
+
+
+def _source_and_question(args: tuple[str, ...]) -> tuple[str, str]:
+    if len(args) == 1:
+        return ".", args[0]
+    if len(args) >= 2:
+        return args[0], " ".join(args[1:])
+    raise click.UsageError("query requires a question")
