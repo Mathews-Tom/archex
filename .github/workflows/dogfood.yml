@@ -1,0 +1,56 @@
+name: Dogfood
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/dogfood.yml"
+      - "benchmarks/dogfood_baseline.json"
+      - "benchmarks/tasks/**"
+      - "src/archex/api.py"
+      - "src/archex/cache.py"
+      - "src/archex/config.py"
+      - "src/archex/dogfood.py"
+      - "src/archex/project.py"
+      - "src/archex/status.py"
+      - "src/archex/benchmark/**"
+      - "src/archex/cli/dogfood_cmd.py"
+      - "src/archex/cli/index_cmd.py"
+      - "src/archex/cli/status_cmd.py"
+      - "src/archex/index/**"
+      - "src/archex/serve/context.py"
+  workflow_dispatch:
+
+jobs:
+  dogfood:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run dogfood gate
+        run: |
+          uv run archex dogfood . --format json > dogfood-output.json
+          jq '{baseline_path, tasks, regressions}' dogfood-output.json
+
+      - name: Upload dogfood report
+        if: always() && hashFiles('.archex/dogfood/latest.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: dogfood-report
+          path: |
+            .archex/dogfood/latest.json
+            .archex/dogfood/latest.md
