@@ -1,10 +1,10 @@
 # archex
 
-[![CI](https://github.com/determ-ai/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/determ-ai/archex/actions/workflows/ci.yml)
+[![CI](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Coverage](https://codecov.io/gh/determ-ai/archex/graph/badge.svg)](https://codecov.io/gh/determ-ai/archex)
+[![Coverage](https://codecov.io/gh/Mathews-Tom/archex/graph/badge.svg)](https://codecov.io/gh/Mathews-Tom/archex)
 
 Architectural intelligence for code, with no LLM bill.
 
@@ -27,7 +27,7 @@ archex is a Python library and CLI that transforms any Git repository into struc
 - **Query normalization** — camelCase/snake_case splitting, bigram compound generation, architecture-intent synonym expansion
 - **Quality gates** — CI-embeddable threshold checks for recall, precision, F1, MRR with latency warnings
 - **Expansion gating** — weak BM25 seeds (below 10% of max) don't trigger graph expansion; score-relative file cutoff removes noise
-- **25-task benchmark corpus** — 6 self-referential + 19 external repos across Python, Go, Rust, JS/TS, covering 5 difficulty categories
+- **35-task benchmark corpus** — 16 self-referential + 19 external repo tasks across Python, Go, Rust, JS/TS, covering 5 difficulty categories
 - **LLM-free** — every pipeline stage is local; no API keys, no per-query cost, no rate-limit dependencies
 
 ## Installation
@@ -159,15 +159,25 @@ archex analyze https://github.com/org/repo --format markdown -l python --timing
 # Query for implementation context
 archex query ./my-project "How does auth work?" --budget 8192 --format xml
 archex query ./my-project "connection pooling" --strategy hybrid --timing
+archex query "How does auth work?" --budget 8192  # defaults to cwd
 
 # Browse and search
 archex tree ./my-project --depth 3 -l python
+archex tree --depth 3 -l python  # defaults to cwd
 archex outline ./my-project src/auth/middleware.py
 archex symbols ./my-project "authenticate" --kind function --limit 10
+archex symbols "authenticate" --kind function --limit 10  # defaults to cwd
 archex symbol ./my-project "src/auth/middleware.py::authenticate#function"
 
 # Compare two repositories
 archex compare ./project-a ./project-b --dimensions error_handling,api_surface --format markdown
+
+# Repo-local lifecycle
+archex init
+archex index --format json
+archex status
+archex dogfood --task archex_query_pipeline
+archex reset --force
 
 # Manage the analysis cache
 archex cache list
@@ -180,6 +190,38 @@ archex benchmark report results.json --format markdown
 archex benchmark delta ./my-project
 ```
 
+### Repo-Local Lifecycle
+
+Use repo-local mode when `archex` is part of an agent or maintainer workflow for a checked-out repository:
+
+```bash
+cd ./my-project
+archex init
+archex index
+archex status
+archex query "Where is cache invalidation handled?" --budget 8192 --timing
+archex dogfood --task archex_query_cache_lifecycle
+```
+
+`archex init` creates `.archex/settings.toml`, `.archex/metadata.json`, and `.archex/dogfood/history/`, then adds `.archex/` to `.gitignore`. The entire `.archex/` directory is generated local state: it holds the repo-local SQLite index, vector artifacts, and dogfood reports, and should stay out of source control.
+
+Lifecycle commands default `SOURCE` to the current working directory. Explicit sources still take precedence:
+
+```bash
+archex index ../other-repo
+archex query ../other-repo "How does query packing work?"
+```
+
+The same cwd default applies to local-read commands where a URL cannot be inferred: `analyze`, `query`, `tree`, and `symbols`.
+
+`archex status` is a preflight check, not an indexing command. It reports whether the project is initialized, whether an index exists, whether the indexed commit matches `HEAD`, whether the working tree has changed since the indexed snapshot, and where the latest dogfood report lives. Use `--strict` when stale or dirty state should fail a script.
+
+`archex index` explicitly builds or refreshes the repo-local index. Repeated runs use the cache only when both `HEAD` and the stored working-tree signature match; uncommitted source edits trigger delta or full reindexing.
+
+`archex reset --force` deletes generated repo-local index/vector state while preserving settings. `archex reset --all --force` removes `.archex/` entirely. Reset never touches the global `~/.archex/cache` unless a future global reset command is added.
+
+`archex dogfood` runs the self-task regression suite and writes `.archex/dogfood/latest.json`, `.archex/dogfood/latest.md`, and timestamped history. CI compares dogfood results against `benchmarks/dogfood_baseline.json`; local runs use `.archex/dogfood/baseline.json` when present or the committed baseline. The gate is baseline-relative: existing weak tasks do not fail the build unless a metric regresses from the recorded baseline.
+
 ## Agent Integration
 
 archex is designed to be called by coding agents. Three integration paths, ordered by depth:
@@ -191,6 +233,10 @@ Any agent that can execute shell commands (Cursor, Claude Code, Copilot, custom 
 ```bash
 # Agent needs to understand a foreign codebase — one call, structured output
 archex query https://github.com/encode/httpx "connection pooling" --budget 8000 --format xml
+
+# Agent is already inside the target repo — no explicit . needed
+archex status --strict
+archex query "Where is cache invalidation handled?" --budget 8000 --format xml
 
 # Agent needs the lay of the land before implementation
 archex tree https://github.com/encode/httpx --depth 3
@@ -308,9 +354,11 @@ archex and an LSP MCP server can run as sibling tools, giving agents both struct
 
 **Concrete workflows:**
 
+- **Before agent edits this repo**: `archex status --strict` → `archex index` if stale or dirty → `archex query "Where should this change land?"`
 - **Before agent explores new repo**: `archex query ./repo "auth system" --budget 8K` → context bundle → feed to agent's first prompt
 - **Before a code review**: `archex analyze ./pr-branch` → architectural impact summary
-- **CI gate**: `archex compare ./main ./feature-branch --dimensions api_surface,error_handling` → detect architectural drift
+- **Before claiming retrieval improvement**: `archex dogfood --task archex_query_pipeline` locally for focused evidence; rely on the CI dogfood job for full-suite enforcement
+- **CI gate**: `archex compare ./main ./feature-branch --dimensions api_surface,error_handling` → detect architectural drift; `archex dogfood . --format json` → fail on new self-task regressions
 
 ### Benchmarks
 
@@ -417,7 +465,55 @@ Token savings measured across 10 open-source repositories (from [`showcase_resul
 
 ## CLI Reference
 
-### `archex analyze <source>`
+### `archex init [source]`
+
+Initialize repo-local project state. `source` defaults to the current working directory.
+
+| Option    | Default | Description                                               |
+| --------- | ------- | --------------------------------------------------------- |
+| `--force` | off     | Rewrite existing project settings                         |
+| `--reset` | off     | Delete existing `.archex` state before init; requires force |
+
+### `archex index [source]`
+
+Build or refresh the index without running a query. `source` defaults to the current working directory.
+
+| Option     | Default | Description                         |
+| ---------- | ------- | ----------------------------------- |
+| `--format` | `text`  | Output format: `text`, `json`       |
+
+### `archex status [source]`
+
+Inspect repo-local project state without indexing. `source` defaults to the current working directory.
+
+| Option     | Default | Description                                      |
+| ---------- | ------- | ------------------------------------------------ |
+| `--strict` | off     | Fail unless the index is fresh                   |
+| `--format` | `text`  | Output format: `text`, `json`                    |
+
+### `archex reset [source]`
+
+Delete repo-local generated state. `source` defaults to the current working directory.
+
+| Option    | Default | Description                                      |
+| --------- | ------- | ------------------------------------------------ |
+| `--force` | off     | Required for destructive execution               |
+| `--all`   | off     | Remove the entire `.archex/` directory           |
+
+### `archex dogfood [source]`
+
+Run self-benchmark dogfood tasks and gate against a stored baseline. `source` defaults to the current working directory.
+
+| Option               | Default | Description                                      |
+| -------------------- | ------- | ------------------------------------------------ |
+| `--task`             | default self task set | Run one task by task id                |
+| `--all`              | off     | Run all self dogfood tasks                       |
+| `--include-external` | off     | Include non-self benchmark tasks                 |
+| `--query-fusion`     | off     | Include the experimental query-fusion strategy   |
+| `--baseline`         | auto    | Baseline JSON path                               |
+| `--format`           | `text`  | Output format: `text`, `json`                    |
+
+### `archex analyze [source]`
 
 Analyze a repository and produce an architecture profile.
 
@@ -427,7 +523,9 @@ Analyze a repository and produce an architecture profile.
 | `-l` / `--language` | all     | Filter by language (repeatable)   |
 | `--timing`          | off     | Print timing breakdown to stderr  |
 
-### `archex query <source> <question>`
+`source` defaults to the current working directory for local use. Remote URLs remain explicit.
+
+### `archex query [source] <question>`
 
 Query a repository and return a context bundle.
 
@@ -438,6 +536,8 @@ Query a repository and return a context bundle.
 | `-l` / `--language` | all     | Filter by language (repeatable)          |
 | `--strategy`        | `bm25`  | Retrieval strategy: `bm25`, `hybrid`     |
 | `--timing`          | off     | Print timing breakdown to stderr         |
+
+When one argument is provided, it is treated as the question and `source` defaults to the current working directory. Use an explicit source for another local repo or a remote URL.
 
 ### `archex compare <source_a> <source_b>`
 
@@ -452,7 +552,7 @@ Compare two repositories across architectural dimensions.
 
 Supported dimensions: `api_surface`, `concurrency`, `configuration`, `error_handling`, `state_management`, `testing`.
 
-### `archex tree <source>`
+### `archex tree [source]`
 
 Display the annotated file tree of a repository.
 
@@ -463,6 +563,8 @@ Display the annotated file tree of a repository.
 | `--json`            | off     | Output as JSON              |
 | `--timing`          | off     | Print timing breakdown      |
 
+`source` defaults to the current working directory.
+
 ### `archex outline <source> <file_path>`
 
 Display the symbol outline for a single file (signatures, hierarchy, no source bodies).
@@ -472,7 +574,7 @@ Display the symbol outline for a single file (signatures, hierarchy, no source b
 | `--json`   | off     | Output as JSON         |
 | `--timing` | off     | Print timing breakdown |
 
-### `archex symbols <source> <query>`
+### `archex symbols [source] <query>`
 
 Search symbols by name across a repository.
 
@@ -483,6 +585,8 @@ Search symbols by name across a repository.
 | `--limit`           | `20`    | Maximum results                           |
 | `--json`            | off     | Output as JSON                            |
 | `--timing`          | off     | Print timing breakdown                    |
+
+When one argument is provided, it is treated as the symbol query and `source` defaults to the current working directory.
 
 ### `archex symbol <source> <symbol_id>`
 
@@ -579,7 +683,17 @@ bundle = query(source, question, scoring_weights=weights)
 
 ## Configuration
 
-archex reads configuration from `~/.archex/config.toml` and `ARCHEX_*` environment variables.
+archex reads configuration from global defaults, `~/.archex/config.toml`, repo-local `.archex/settings.toml`, `ARCHEX_*` environment variables, and explicit CLI/API arguments.
+
+Precedence is:
+
+```text
+defaults
+  -> ~/.archex/config.toml
+  -> <repo>/.archex/settings.toml
+  -> ARCHEX_* environment variables
+  -> explicit CLI/API arguments
+```
 
 ```toml
 # ~/.archex/config.toml
@@ -592,6 +706,26 @@ max_file_size = 10000000
 delta_threshold = 0.5
 ```
 
+Repo-local settings are created by `archex init`:
+
+```toml
+# .archex/settings.toml
+[project]
+mode = "local"
+
+[index]
+cache_dir = ".archex"
+languages = []
+vector = false
+delta_threshold = 0.5
+
+[dogfood]
+tasks_dir = "benchmarks/tasks"
+output_dir = ".archex/dogfood"
+default_task_prefix = "archex_"
+strategies = ["raw_files", "raw_grepped", "archex_query"]
+```
+
 | Field             | Default            | Description                                                                 |
 | ----------------- | ------------------ | --------------------------------------------------------------------------- |
 | `languages`       | all supported      | Languages to parse (list of strings)                                        |
@@ -602,7 +736,7 @@ delta_threshold = 0.5
 | `parallel`        | `true`             | Enable parallel parsing and comparison                                      |
 | `delta_threshold` | `0.5`              | If more than this fraction of files changed, full re-index instead of delta |
 
-Environment variables override file config: `ARCHEX_CACHE_DIR`, `ARCHEX_PARALLEL`, `ARCHEX_MAX_FILE_SIZE`.
+Environment variables override global and repo-local file config: `ARCHEX_CACHE_DIR`, `ARCHEX_PARALLEL`, `ARCHEX_MAX_FILE_SIZE`.
 
 ## Language Support
 
@@ -622,7 +756,7 @@ Adapters are extensible via Python entry points — add a new language without m
 ## Development
 
 ```bash
-git clone https://github.com/determ-ai/archex.git
+git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
 

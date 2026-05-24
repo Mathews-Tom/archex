@@ -152,6 +152,54 @@ This means:
 
 LLM enrichment is available for deeper analysis (module descriptions, trade-off rationale) but is always opt-in. You control when and whether to spend LLM tokens.
 
+### Global Cache or Repo-Local Lifecycle
+
+archex has two operating modes.
+
+Global cache mode is the compatibility path. Commands such as:
+
+```bash
+archex query ./repo "How does caching work?"
+archex analyze https://github.com/encode/httpx
+```
+
+use `~/.archex/cache` unless explicit configuration overrides it. This is the right mode for one-off analysis, remote repositories, and scripts that already pass source paths.
+
+Repo-local mode is the agent workflow path. Inside a checked-out repository:
+
+```bash
+archex init
+archex index
+archex status
+archex query "Where is cache invalidation handled?"
+archex dogfood --task archex_query_cache_lifecycle
+```
+
+`archex init` creates `.archex/settings.toml` and generated local state under `.archex/`. The repo-local index uses the same cache identity, commit metadata, and working-tree freshness rules as the global path, but stores the active project index at a predictable repo-local location. That makes the state inspectable by humans and agents.
+
+The distinction matters operationally:
+
+| Mode | Storage | Best for | Source argument |
+| --- | --- | --- | --- |
+| Global cache | `~/.archex/cache` | one-off queries, remote repos, existing scripts | explicit |
+| Repo-local lifecycle | `<repo>/.archex/` | maintained worktrees, agent preflight, dogfood reports | defaults to cwd |
+
+Repo-local state is generated state. Keep `.archex/` ignored; commit source, docs, benchmarks, and reviewed baselines instead.
+
+### Dogfood as a Regression Contract
+
+archex uses its own retrieval benchmark tasks as a product gate. `archex dogfood` runs self-tasks, writes `.archex/dogfood/latest.json` and `.archex/dogfood/latest.md`, and compares metrics against a stored baseline.
+
+The gate is baseline-relative rather than absolute. A task that is already weak does not block every PR; a task that regresses from its recorded baseline does. That keeps the signal actionable: retrieval changes must explain metric movement, failure classes, missing expected files, and seed-vs-expansion behavior.
+
+In CI, the dogfood workflow runs:
+
+```bash
+archex dogfood . --format json
+```
+
+against `benchmarks/dogfood_baseline.json` and uploads the Markdown/JSON report as an artifact. Local dogfood runs stay opt-in because the suite executes retrieval benchmarks; use focused tasks during development and let CI enforce the full self-suite.
+
 ### Framework-Agnostic
 
 archex is a Python library first, an MCP server second. It works with any agent framework:
@@ -331,11 +379,18 @@ uv add "archex[all]"
 ### 30 Seconds: CLI
 
 ```bash
+# Initialize repo-local state for maintained worktrees
+archex init
+archex index
+archex status
+
 # Analyze a repo
 archex analyze ./my-project --format markdown
+archex analyze --format markdown
 
 # Query for implementation context
 archex query ./my-project "How does caching work?" --budget 8000
+archex query "How does caching work?" --budget 8000
 
 # Compare two repos
 archex compare ./project-a ./project-b --dimensions error_handling,api_surface
@@ -427,7 +482,7 @@ Your agent now has access to `analyze_repo`, `query_repo`, `compare_repos`, `get
 archex is Apache 2.0 licensed. Contributions welcome.
 
 ```bash
-git clone https://github.com/determ-ai/archex.git
+git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
 uv run pytest  # 1274 tests, 92% coverage
