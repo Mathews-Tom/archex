@@ -128,6 +128,21 @@ def test_index_command_json_output(python_simple_repo: Path) -> None:
     assert data["languages"] == {"python": 2, "typescript": 1}
 
 
+def test_index_command_writes_fixed_project_index_path(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["index_path"] == str(python_simple_repo / ".archex" / "index.db")
+    assert (python_simple_repo / ".archex" / "index.db").exists()
+    assert not list((python_simple_repo / ".archex").glob("[0-9a-f]" * 64 + ".db"))
+
+
 def test_analyze_local_json(python_simple_repo: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["analyze", str(python_simple_repo), "--format", "json"])

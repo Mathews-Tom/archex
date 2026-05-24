@@ -109,6 +109,32 @@ def test_info_returns_summary(cache: CacheManager, sample_db: Path) -> None:
     assert "cache_dir" in info
 
 
+def test_project_layout_uses_fixed_repo_local_paths(tmp_path: Path, sample_db: Path) -> None:
+    cache = CacheManager(cache_dir=str(tmp_path / ".archex"), project_layout=True)
+
+    stored = cache.put(KEY_A, sample_db, resolved_commit="abc123")
+
+    assert stored == tmp_path / ".archex" / "index.db"
+    assert cache.get(KEY_A) == stored
+    assert cache.get(KEY_B) is None
+    assert cache.meta_path(KEY_A) == tmp_path / ".archex" / "index.meta"
+    assert cache.vector_path(KEY_A) == tmp_path / ".archex" / "vectors" / "raw.vectors.npz"
+    assert cache.vector_path(
+        KEY_A,
+        vector_mode="surrogate",
+        surrogate_version="v2",
+    ) == (tmp_path / ".archex" / "vectors" / "surrogate.v2.vectors.npz")
+    entries = cache.list_entries()
+    assert entries == [
+        {
+            "key": "project",
+            "path": str(stored),
+            "size_bytes": str(stored.stat().st_size),
+            "created_at": cache.get_meta(KEY_A)["created_at"],
+        }
+    ]
+
+
 def test_cache_key_is_stable(cache: CacheManager) -> None:
     source = RepoSource(url="https://github.com/example/repo")
     key1 = cache.cache_key(source)
