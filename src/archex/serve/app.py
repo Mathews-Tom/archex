@@ -31,6 +31,9 @@ from archex.models import (
 # ---------------------------------------------------------------------------
 
 
+_BENCHMARK_BASELINE_PATH = Path.home() / ".archex" / "benchmark_baseline.json"
+
+
 class AnalyzeRequest(BaseModel):
     source: RepoSource
     config: Config | None = None
@@ -50,6 +53,50 @@ class CompareRequest(BaseModel):
     source_b: RepoSource
     dimensions: list[str] | None = None
     config: Config | None = None
+
+
+def _load_benchmark_baseline() -> Any:
+    from archex.benchmark.baseline import load_baseline
+
+    data = json.loads(_BENCHMARK_BASELINE_PATH.read_text())
+    return load_baseline(data)
+
+
+def _benchmark_summary_text() -> str:
+    baseline = _load_benchmark_baseline()
+    if not baseline.entries:
+        return "No benchmark baseline found"
+    return "\n".join(
+        [
+            "# Benchmark Baseline Summary",
+            f"**Created:** {baseline.created_at}",
+            f"**Version:** {baseline.archex_version or 'unknown'}",
+            f"**Entries:** {len(baseline.entries)}",
+        ]
+    )
+
+
+def _benchmark_gate_status() -> dict[str, Any]:
+    baseline = _load_benchmark_baseline()
+    if not baseline.entries:
+        return {"passed": False, "reason": "No benchmark baseline found"}
+
+    min_recall = 0.6
+    min_f1 = 0.4
+    violations: list[str] = []
+    for entry in baseline.entries:
+        if entry.recall < min_recall:
+            violations.append(
+                f"{entry.task_id}/{entry.strategy}: recall {entry.recall:.2f} < {min_recall}"
+            )
+        if entry.f1_score < min_f1:
+            violations.append(
+                f"{entry.task_id}/{entry.strategy}: f1 {entry.f1_score:.2f} < {min_f1}"
+            )
+
+    if violations:
+        return {"passed": False, "violations": violations}
+    return {"passed": True}
 
 
 # ---------------------------------------------------------------------------
@@ -139,14 +186,10 @@ def create_app() -> FastAPI:
     @app.get("/benchmark/results")
     def benchmark_results() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         """Return latest benchmark results if available."""
-        baseline_path = Path.home() / ".archex" / "benchmark_baseline.json"
-        if not baseline_path.exists():
+        if not _BENCHMARK_BASELINE_PATH.exists():
             return {"results": [], "message": "No benchmark results found"}
         try:
-            from archex.benchmark.baseline import load_baseline
-
-            data = json.loads(baseline_path.read_text())
-            baseline = load_baseline(data)
+            baseline = _load_benchmark_baseline()
             return {"results": [e.model_dump() for e in baseline.entries]}
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -154,55 +197,20 @@ def create_app() -> FastAPI:
     @app.get("/benchmark/summary")
     def benchmark_summary() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         """Return formatted benchmark summary."""
-        baseline_path = Path.home() / ".archex" / "benchmark_baseline.json"
-        if not baseline_path.exists():
+        if not _BENCHMARK_BASELINE_PATH.exists():
             return {"summary": "No benchmark results found"}
         try:
-            from archex.benchmark.baseline import load_baseline
-
-            data = json.loads(baseline_path.read_text())
-            baseline = load_baseline(data)
-            if not baseline.entries:
-                return {"summary": "No benchmark baseline found"}
-            lines: list[str] = []
-            lines.append("# Benchmark Baseline Summary")
-            lines.append(f"**Created:** {baseline.created_at}")
-            lines.append(f"**Version:** {baseline.archex_version or 'unknown'}")
-            lines.append(f"**Entries:** {len(baseline.entries)}")
-            return {"summary": "\n".join(lines)}
+            return {"summary": _benchmark_summary_text()}
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.get("/benchmark/gate")
     def benchmark_gate() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         """Return quality gate check result based on baseline entries."""
-        baseline_path = Path.home() / ".archex" / "benchmark_baseline.json"
-        if not baseline_path.exists():
+        if not _BENCHMARK_BASELINE_PATH.exists():
             return {"passed": False, "reason": "No benchmark baseline found"}
         try:
-            from archex.benchmark.baseline import load_baseline
-
-            data = json.loads(baseline_path.read_text())
-            baseline = load_baseline(data)
-            if not baseline.entries:
-                return {"passed": False, "reason": "No benchmark baseline found"}
-            # Check entries against minimum thresholds
-            min_recall = 0.6
-            min_f1 = 0.4
-            violations: list[str] = []
-            for entry in baseline.entries:
-                if entry.recall < min_recall:
-                    violations.append(
-                        f"{entry.task_id}/{entry.strategy}: "
-                        f"recall {entry.recall:.2f} < {min_recall}"
-                    )
-                if entry.f1_score < min_f1:
-                    violations.append(
-                        f"{entry.task_id}/{entry.strategy}: f1 {entry.f1_score:.2f} < {min_f1}"
-                    )
-            if violations:
-                return {"passed": False, "violations": violations}
-            return {"passed": True}
+            return _benchmark_gate_status()
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 

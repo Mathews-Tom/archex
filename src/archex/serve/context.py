@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from archex.models import (
@@ -21,6 +22,20 @@ from archex.observe import PipelineTrace, StepTiming
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
+
+
+@dataclass(frozen=True)
+class _Hop2Expansion:
+    graph: DependencyGraph
+    candidate_map: dict[str, CodeChunk]
+    chunks_by_file: dict[str, list[CodeChunk]]
+    hop1_files_added: list[str]
+    seed_files: set[str]
+    expansion_priority: dict[str, float]
+    query_terms: set[str]
+    remaining_budget: int
+    max_per_file: int
+
 
 logger = logging.getLogger(__name__)
 
@@ -366,6 +381,56 @@ def _add_file_chunks(
     return added
 
 
+def _initial_candidate_map(
+    search_results: list[tuple[CodeChunk, float]],
+    vector_results: list[tuple[CodeChunk, float]] | None,
+) -> dict[str, CodeChunk]:
+    candidate_map = {chunk.id: chunk for chunk, _ in search_results}
+    if vector_results:
+        for chunk, _ in vector_results:
+            candidate_map.setdefault(chunk.id, chunk)
+    return candidate_map
+
+
+def _hop2_expansion_priority(expansion: _Hop2Expansion) -> dict[str, float]:
+    hop1_files = set(expansion.hop1_files_added)
+    hop2_priority: dict[str, float] = {}
+    for hop1_fp in expansion.hop1_files_added:
+        hop1_score = expansion.expansion_priority.get(hop1_fp, 0.0)
+        for dep in expansion.graph.imports_of(hop1_fp):
+            if dep in expansion.seed_files or dep in hop1_files:
+                continue
+            path_match = any(term in dep.lower() for term in expansion.query_terms)
+            priority = hop1_score * (1.5 if path_match else 1.0)
+            hop2_priority[dep] = max(hop2_priority.get(dep, 0.0), priority)
+    return hop2_priority
+
+
+def _add_hop2_expansion(expansion: _Hop2Expansion) -> int:
+    hop2_priority = _hop2_expansion_priority(expansion)
+    hop2_added = 0
+    for file_path in sorted(hop2_priority.keys(), key=lambda f: -hop2_priority[f]):
+        if hop2_added >= expansion.remaining_budget:
+            break
+        if _is_test_file(file_path):
+            continue
+        added = _add_file_chunks(
+            expansion.candidate_map,
+            expansion.chunks_by_file,
+            file_path,
+            max_per_file=expansion.max_per_file,
+        )
+        if added > 0:
+            hop2_added += 1
+
+    logger.debug(
+        "graph_expansion 2-hop: arch_query=True, hop2_candidates=%d, hop2_added=%d",
+        len(hop2_priority),
+        hop2_added,
+    )
+    return hop2_added
+
+
 def _dependency_subgraph(
     graph: DependencyGraph,
     included_files: list[str],
@@ -603,15 +668,9 @@ def assemble_context(
     # Cap per-file to prevent one large file from monopolizing the expansion budget.
     # Skip test files in expansion — they add noise without improving relevance.
     max_per_file = 3
-    candidate_map: dict[str, CodeChunk] = {}
-    for chunk, _ in search_results:
-        candidate_map[chunk.id] = chunk
-    # Vector-only seeds: add their chunks so they participate in scoring even when
-    # BM25 returned nothing for that file.
-    if vector_results:
-        for chunk, _ in vector_results:
-            if chunk.id not in candidate_map:
-                candidate_map[chunk.id] = chunk
+    # Vector-only seeds participate in scoring even when BM25 returned nothing
+    # for that file.
+    candidate_map = _initial_candidate_map(search_results, vector_results)
     expansion_files_added = 0
     hop1_files_added: list[str] = []
     for file_path in sorted_expansion:
@@ -633,37 +692,18 @@ def assemble_context(
     if is_arch_query and hop1_files_added:
         remaining_budget = MAX_EXPANSION_FILES - expansion_files_added
         if remaining_budget > 0:
-            hop2_priority: dict[str, float] = {}
-            for hop1_fp in hop1_files_added:
-                hop1_score = expansion_priority.get(hop1_fp, 0.0)
-                for dep in graph.imports_of(hop1_fp):
-                    if dep not in seed_files and dep not in set(hop1_files_added):
-                        path_lower = dep.lower()
-                        path_match = any(t in path_lower for t in q_terms)
-                        priority = hop1_score * (1.5 if path_match else 1.0)
-                        hop2_priority[dep] = max(hop2_priority.get(dep, 0.0), priority)
-
-            sorted_hop2 = sorted(hop2_priority.keys(), key=lambda f: -hop2_priority[f])
-            hop2_added = 0
-            for file_path in sorted_hop2:
-                if _is_test_file(file_path):
-                    continue
-                if hop2_added >= remaining_budget:
-                    break
-                added = _add_file_chunks(
-                    candidate_map,
-                    chunks_by_file,
-                    file_path,
+            expansion_files_added += _add_hop2_expansion(
+                _Hop2Expansion(
+                    graph=graph,
+                    candidate_map=candidate_map,
+                    chunks_by_file=chunks_by_file,
+                    hop1_files_added=hop1_files_added,
+                    seed_files=seed_files,
+                    expansion_priority=expansion_priority,
+                    query_terms=q_terms,
+                    remaining_budget=remaining_budget,
                     max_per_file=max_per_file,
                 )
-                if added > 0:
-                    hop2_added += 1
-                    expansion_files_added += 1
-
-            logger.debug(
-                "graph_expansion 2-hop: arch_query=True, hop2_candidates=%d, hop2_added=%d",
-                len(hop2_priority),
-                hop2_added,
             )
 
     candidates_after_expansion = len(candidate_map)
