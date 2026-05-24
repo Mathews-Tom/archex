@@ -108,6 +108,15 @@ class ProjectInitResult:
     gitignore_updated: bool
 
 
+@dataclass(frozen=True)
+class ProjectResetResult:
+    """Result of deleting repo-local generated state."""
+
+    state: ProjectState
+    removed_paths: list[Path]
+    removed_all: bool
+
+
 def init_project(
     source: str | Path,
     *,
@@ -146,6 +155,56 @@ def init_project(
         settings_written=settings_written,
         gitignore_updated=gitignore_updated,
     )
+
+
+def reset_project(
+    source: str | Path,
+    *,
+    force: bool = False,
+    all_state: bool = False,
+) -> ProjectResetResult:
+    """Delete generated repo-local archex state."""
+    if not force:
+        raise ValueError("reset requires --force")
+
+    state = ProjectState.resolve(source)
+    removed: list[Path] = []
+
+    if all_state:
+        if state.project_dir.exists():
+            shutil.rmtree(state.project_dir)
+            removed.append(state.project_dir)
+        return ProjectResetResult(state=state, removed_paths=removed, removed_all=True)
+
+    for path in _generated_state_paths(state):
+        if path.is_dir():
+            shutil.rmtree(path)
+            removed.append(path)
+        elif path.exists():
+            path.unlink()
+            removed.append(path)
+
+    return ProjectResetResult(state=state, removed_paths=removed, removed_all=False)
+
+
+def _generated_state_paths(state: ProjectState) -> list[Path]:
+    paths: list[Path] = [
+        state.index_path,
+        state.project_dir / "index.meta",
+        state.vector_dir,
+    ]
+    if state.project_dir.exists():
+        paths.extend(state.project_dir.glob("*.db"))
+        paths.extend(state.project_dir.glob("*.meta"))
+        paths.extend(state.project_dir.glob("*.vectors.npz"))
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        deduped.append(path)
+    return deduped
 
 
 def ensure_project_gitignore(gitignore_path: Path) -> bool:
