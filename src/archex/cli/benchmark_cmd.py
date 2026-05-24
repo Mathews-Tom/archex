@@ -19,6 +19,11 @@ from archex.benchmark.gate import (
 )
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, DeltaBenchmarkResult, Strategy
+from archex.benchmark.readiness import (
+    build_readiness_report,
+    format_readiness_json,
+    format_readiness_markdown,
+)
 from archex.benchmark.reporter import (
     format_bucketed_summary,
     format_delta_summary,
@@ -193,6 +198,48 @@ def triage_cmd(input_dir: str, tasks_dir: str, strategy_name: str, output_format
         click.echo(format_triage_json(findings))
     else:
         click.echo(format_triage_markdown(findings))
+
+
+@benchmark_cmd.command("readiness")
+@click.option(
+    "--input",
+    "input_dir",
+    default="benchmarks/results",
+    type=click.Path(exists=True),
+    help="Directory containing result JSON files.",
+)
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/tasks",
+    type=click.Path(exists=True),
+    help="Directory containing task YAML files.",
+)
+@click.option(
+    "--strategy",
+    "strategy_name",
+    default=Strategy.ARCHEX_QUERY.value,
+    type=click.Choice([s.value for s in Strategy]),
+    help="Strategy to assess.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    default="markdown",
+    type=click.Choice(["markdown", "json"]),
+    help="Output format.",
+)
+def readiness_cmd(input_dir: str, tasks_dir: str, strategy_name: str, output_format: str) -> None:
+    """Generate a non-blocking benchmark readiness report."""
+    reports = load_benchmark_reports(Path(input_dir))
+    if not reports:
+        raise click.ClickException(f"No result files found in {input_dir}")
+
+    tasks_by_id = load_benchmark_tasks(Path(tasks_dir))
+    readiness = build_readiness_report(reports, tasks_by_id, strategy=Strategy(strategy_name))
+    if output_format == "json":
+        click.echo(format_readiness_json(readiness))
+    else:
+        click.echo(format_readiness_markdown(readiness))
 
 
 @benchmark_cmd.command("validate")

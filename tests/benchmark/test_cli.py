@@ -165,6 +165,38 @@ expected_files:
         assert json.loads(output.output) == []
 
 
+class TestReadinessCommand:
+    def test_markdown_output(self, runner: CliRunner, results_dir: Path, tasks_dir: Path) -> None:
+        output = runner.invoke(
+            benchmark_cmd,
+            ["readiness", "--input", str(results_dir), "--tasks-dir", str(tasks_dir)],
+        )
+
+        assert output.exit_code == 0
+        assert "# Benchmark Readiness" in output.output
+        assert "No `archex_query` results found" in output.output
+
+    def test_json_output(self, runner: CliRunner, results_dir: Path, tasks_dir: Path) -> None:
+        output = runner.invoke(
+            benchmark_cmd,
+            [
+                "readiness",
+                "--format",
+                "json",
+                "--input",
+                str(results_dir),
+                "--tasks-dir",
+                str(tasks_dir),
+            ],
+        )
+
+        assert output.exit_code == 0
+        payload = json.loads(output.output)
+        assert payload["strategy"] == "archex_query"
+        assert payload["task_count"] == 0
+        assert payload["ready"] is True
+
+
 class TestValidateCommand:
     def test_valid_tasks(self, runner: CliRunner, tasks_dir: Path) -> None:
         result = runner.invoke(benchmark_cmd, ["validate", "--tasks-dir", str(tasks_dir)])
