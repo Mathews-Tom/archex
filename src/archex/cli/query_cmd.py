@@ -25,8 +25,7 @@ from archex.utils import resolve_source
 @click.option(
     "--strategy",
     type=click.Choice(["bm25", "hybrid"]),
-    default="bm25",
-    show_default=True,
+    default=None,
     help="Retrieval strategy.",
 )
 @click.option("--timing", is_flag=True, default=False, help="Print timing breakdown.")
@@ -37,16 +36,21 @@ def query_cmd(
     budget: int,
     output_format: str,
     language: tuple[str, ...],
-    strategy: str,
+    strategy: str | None,
     timing: bool,
     metrics: bool,
 ) -> None:
     """Query a repository and return a context bundle."""
-    from archex.models import Config, IndexConfig, PipelineTiming
+    from archex.config import load_config, load_index_config
+    from archex.models import PipelineTiming
 
     repo_source = resolve_source(source)
-    config = Config(languages=list(language) if language else None)
-    index_config = IndexConfig(vector=(strategy == "hybrid"))
+    config = load_config(repo_source)
+    if language:
+        config = config.model_copy(update={"languages": list(language)})
+    index_config = load_index_config(repo_source)
+    if strategy is not None:
+        index_config = index_config.model_copy(update={"vector": strategy == "hybrid"})
 
     pt = PipelineTiming() if (timing or metrics) else None
     try:

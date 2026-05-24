@@ -5,8 +5,9 @@ from __future__ import annotations
 import click
 
 from archex.api import analyze, get_repo_total_tokens
+from archex.config import load_config
 from archex.exceptions import ArchexError
-from archex.models import Config, PipelineTiming
+from archex.models import PipelineTiming
 from archex.reporting import count_tokens, print_savings, print_timing
 from archex.utils import resolve_source
 
@@ -33,8 +34,9 @@ def analyze_cmd(source: str, output_format: str, languages: tuple[str, ...], tim
     """Analyze a repository and produce an architecture profile."""
     source_obj = resolve_source(source)
 
-    lang_list: list[str] | None = list(languages) if languages else None
-    config = Config(languages=lang_list)
+    config = load_config(source_obj)
+    if languages:
+        config = config.model_copy(update={"languages": list(languages)})
 
     pt = PipelineTiming() if timing else None
     try:

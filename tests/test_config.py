@@ -1,17 +1,20 @@
 """Tests for archex.config — load_config and _parse_env_value."""
+# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 import archex.config as cfg_module
-from archex.config import _parse_env_value, load_config  # pyright: ignore[reportPrivateUsage]
-from archex.models import Config
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from archex.config import (  # pyright: ignore[reportPrivateUsage]
+    _parse_env_value,
+    load_config,
+    load_index_config,
+)
+from archex.models import Config, IndexConfig, RepoSource
+from archex.project import init_project
 
 # ---------------------------------------------------------------------------
 # _parse_env_value
@@ -139,6 +142,69 @@ def test_load_config_env_overrides_toml(tmp_path: Path, monkeypatch: pytest.Monk
     config = load_config()
 
     assert config.depth == "full"
+
+
+def test_load_config_project_settings_override_user_defaults(
+    python_simple_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_config = tmp_path / "config.toml"
+    user_config.write_text(
+        'cache_dir = "/tmp/global-cache"\nlanguages = ["go"]\n', encoding="utf-8"
+    )
+    monkeypatch.setattr(cfg_module, "_CONFIG_FILE", user_config)
+    monkeypatch.delenv("ARCHEX_CACHE_DIR", raising=False)
+    monkeypatch.delenv("ARCHEX_LANGUAGES", raising=False)
+    init_project(python_simple_repo)
+
+    config = load_config(RepoSource(local_path=str(python_simple_repo)))
+
+    assert config.cache_dir == str(python_simple_repo / ".archex")
+    assert config.languages == []
+    assert config.delta_threshold == 0.5
+
+
+def test_load_config_environment_overrides_project_settings(
+    python_simple_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cfg_module, "_CONFIG_FILE", tmp_path / "missing.toml")
+    monkeypatch.setenv("ARCHEX_CACHE_DIR", "/tmp/env-cache")
+    init_project(python_simple_repo)
+
+    config = load_config(python_simple_repo)
+
+    assert config.cache_dir == "/tmp/env-cache"
+
+
+def test_load_index_config_project_settings(
+    python_simple_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cfg_module, "_CONFIG_FILE", tmp_path / "missing.toml")
+    monkeypatch.delenv("ARCHEX_VECTOR", raising=False)
+    init_project(python_simple_repo)
+
+    index_config = load_index_config(python_simple_repo)
+
+    assert index_config == IndexConfig(vector=False)
+
+
+def test_load_index_config_environment_overrides_project_settings(
+    python_simple_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cfg_module, "_CONFIG_FILE", tmp_path / "missing.toml")
+    monkeypatch.setenv("ARCHEX_VECTOR", "true")
+    init_project(python_simple_repo)
+
+    index_config = load_index_config(python_simple_repo)
+
+    assert index_config.vector is True
 
 
 @pytest.mark.parametrize(

@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
 from archex import __version__
 from archex.cli.main import cli
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def test_version() -> None:
@@ -114,6 +112,68 @@ def test_query_success_outputs_prompt(python_simple_repo: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert len(result.output.strip()) > 0
+
+
+def test_query_uses_project_config_when_cli_args_omitted(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    class FakeBundle:
+        chunks: list[object] = []
+        token_count = 0
+
+        def to_prompt(self, *, format: str) -> str:
+            return f"format={format}"
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+
+    with patch("archex.cli.query_cmd.query", return_value=FakeBundle()) as query_mock:
+        result = runner.invoke(
+            cli,
+            ["query", str(python_simple_repo), "what functions exist?"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "format=xml"
+    config = query_mock.call_args.kwargs["config"]
+    index_config = query_mock.call_args.kwargs["index_config"]
+    assert config.cache_dir == str(python_simple_repo / ".archex")
+    assert config.languages == []
+    assert index_config.vector is False
+
+
+def test_query_cli_options_override_project_config(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    class FakeBundle:
+        chunks: list[object] = []
+        token_count = 0
+
+        def to_prompt(self, *, format: str) -> str:
+            return f"format={format}"
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+
+    with patch("archex.cli.query_cmd.query", return_value=FakeBundle()) as query_mock:
+        result = runner.invoke(
+            cli,
+            [
+                "query",
+                str(python_simple_repo),
+                "what functions exist?",
+                "--language",
+                "python",
+                "--strategy",
+                "hybrid",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    config = query_mock.call_args.kwargs["config"]
+    index_config = query_mock.call_args.kwargs["index_config"]
+    assert config.languages == ["python"]
+    assert index_config.vector is True
 
 
 def test_query_timing_flag(python_simple_repo: Path) -> None:
