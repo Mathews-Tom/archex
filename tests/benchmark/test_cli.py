@@ -91,6 +91,80 @@ class TestReportCommand:
         assert "No result files" in result.output
 
 
+class TestTriageCommand:
+    def test_markdown_output(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        results = tmp_path / "results"
+        tasks = tmp_path / "tasks"
+        results.mkdir()
+        tasks.mkdir()
+        result = BenchmarkResult(
+            task_id="task",
+            strategy=Strategy.ARCHEX_QUERY,
+            tokens_total=100,
+            tool_calls=1,
+            files_accessed=1,
+            recall=0.0,
+            precision=0.0,
+            f1_score=0.0,
+            savings_vs_raw=0.0,
+            wall_time_ms=50.0,
+            cached=False,
+            timestamp="2026-01-01T00:00:00Z",
+            seed_files=["src/noise.py"],
+        )
+        report = BenchmarkReport(
+            task_id="task",
+            repo="owner/repo",
+            question="How does dispatch work?",
+            results=[result],
+            baseline_tokens=100,
+        )
+        (results / "task.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        (tasks / "task.yaml").write_text(
+            """\
+task_id: task
+repo: owner/repo
+commit: abc123
+category: external-large
+question: "How does dispatch work?"
+expected_files:
+  - src/task.py
+""",
+            encoding="utf-8",
+        )
+
+        output = runner.invoke(
+            benchmark_cmd,
+            ["triage", "--input", str(results), "--tasks-dir", str(tasks)],
+        )
+
+        assert output.exit_code == 0
+        assert "# Benchmark Failure Triage" in output.output
+        assert "`task`" in output.output
+        assert "zero_recall" in output.output
+
+    def test_json_output(self, runner: CliRunner, results_dir: Path, tasks_dir: Path) -> None:
+        output = runner.invoke(
+            benchmark_cmd,
+            [
+                "triage",
+                "--format",
+                "json",
+                "--input",
+                str(results_dir),
+                "--tasks-dir",
+                str(tasks_dir),
+            ],
+        )
+
+        assert output.exit_code == 0
+        assert json.loads(output.output) == []
+
+
 class TestValidateCommand:
     def test_valid_tasks(self, runner: CliRunner, tasks_dir: Path) -> None:
         result = runner.invoke(benchmark_cmd, ["validate", "--tasks-dir", str(tasks_dir)])

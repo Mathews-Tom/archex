@@ -27,6 +27,13 @@ from archex.benchmark.reporter import (
     format_summary,
 )
 from archex.benchmark.runner import DEFAULT_STRATEGIES, run_all
+from archex.benchmark.triage import (
+    format_triage_json,
+    format_triage_markdown,
+    load_benchmark_reports,
+    load_benchmark_tasks,
+    triage_failures,
+)
 
 
 @click.group("benchmark")
@@ -144,6 +151,48 @@ def report_cmd(output_format: str, input_dir: str) -> None:
             click.echo(format_markdown(report))
         click.echo(format_summary(reports))
         click.echo(format_bucketed_summary(reports))
+
+
+@benchmark_cmd.command("triage")
+@click.option(
+    "--input",
+    "input_dir",
+    default="benchmarks/results",
+    type=click.Path(exists=True),
+    help="Directory containing result JSON files.",
+)
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/tasks",
+    type=click.Path(exists=True),
+    help="Directory containing task YAML files.",
+)
+@click.option(
+    "--strategy",
+    "strategy_name",
+    default=Strategy.ARCHEX_QUERY.value,
+    type=click.Choice([s.value for s in Strategy]),
+    help="Strategy to triage.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    default="markdown",
+    type=click.Choice(["markdown", "json"]),
+    help="Output format.",
+)
+def triage_cmd(input_dir: str, tasks_dir: str, strategy_name: str, output_format: str) -> None:
+    """Rank benchmark retrieval failures for a strategy."""
+    reports = load_benchmark_reports(Path(input_dir))
+    if not reports:
+        raise click.ClickException(f"No result files found in {input_dir}")
+
+    tasks_by_id = load_benchmark_tasks(Path(tasks_dir))
+    findings = triage_failures(reports, tasks_by_id, strategy=Strategy(strategy_name))
+    if output_format == "json":
+        click.echo(format_triage_json(findings))
+    else:
+        click.echo(format_triage_markdown(findings))
 
 
 @benchmark_cmd.command("validate")
