@@ -1,0 +1,24 @@
+task_id: archex_project_status
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex inspect whether a repo-local index is fresh, stale, dirty, or corrupt?"
+# Expected files cover CLI rendering, status-state inspection, project path resolution,
+# and working-tree signature calculation.
+expected_files:
+  - src/archex/cli/status_cmd.py
+  - src/archex/status.py
+  - src/archex/project.py
+  - src/archex/index/delta.py
+expected_symbols:
+  - status_cmd
+  - inspect_project_status
+  - ProjectState
+  - compute_working_tree_signature
+token_budget: 8192
+keywords:
+  - status
+  - fresh
+  - dirty
+  - stale

@@ -1,0 +1,24 @@
+task_id: archex_project_init
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex initialize repo-local project state?"
+# Expected files cover command registration, CLI option handling, project-state creation,
+# and the settings loader that consumes the generated project configuration.
+expected_files:
+  - src/archex/cli/main.py
+  - src/archex/cli/init_cmd.py
+  - src/archex/project.py
+  - src/archex/config.py
+expected_symbols:
+  - cli
+  - init_cmd
+  - init_project
+  - load_config
+token_budget: 8192
+keywords:
+  - init
+  - project
+  - settings
+  - gitignore

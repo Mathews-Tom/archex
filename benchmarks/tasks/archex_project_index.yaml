@@ -1,0 +1,25 @@
+task_id: archex_project_index
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex explicitly build or refresh a repo-local index?"
+# Expected files cover the CLI command, public indexing API, cache layout,
+# project-local path resolution, and project config loading.
+expected_files:
+  - src/archex/cli/index_cmd.py
+  - src/archex/api.py
+  - src/archex/cache.py
+  - src/archex/project.py
+  - src/archex/config.py
+expected_symbols:
+  - index_cmd
+  - index_repository
+  - CacheManager
+  - uses_project_cache_layout
+token_budget: 8192
+keywords:
+  - index
+  - project
+  - cache
+  - refresh

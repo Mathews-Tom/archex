@@ -1,0 +1,24 @@
+task_id: archex_delta_index_lifecycle
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex decide between delta indexing and a full reindex during project lifecycle operations?"
+# Expected files cover the API decision point, delta computation/application,
+# cache metadata, and status freshness checks.
+expected_files:
+  - src/archex/api.py
+  - src/archex/index/delta.py
+  - src/archex/cache.py
+  - src/archex/status.py
+expected_symbols:
+  - _try_delta_index
+  - compute_delta
+  - apply_delta
+  - inspect_project_status
+token_budget: 8192
+keywords:
+  - delta
+  - reindex
+  - freshness
+  - cache

@@ -1,0 +1,25 @@
+task_id: archex_benchmark_gate_lifecycle
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does archex turn benchmark and dogfood results into a regression gate?"
+# Expected files cover dogfood orchestration, CLI benchmark gates, baseline comparison,
+# quality thresholds, and report rendering.
+expected_files:
+  - src/archex/dogfood.py
+  - src/archex/cli/benchmark_cmd.py
+  - src/archex/benchmark/baseline.py
+  - src/archex/benchmark/gate.py
+  - src/archex/benchmark/reporter.py
+expected_symbols:
+  - run_dogfood
+  - baseline_compare_cmd
+  - compare_baseline
+  - check_gate
+token_budget: 8192
+keywords:
+  - dogfood
+  - benchmark
+  - baseline
+  - gate
