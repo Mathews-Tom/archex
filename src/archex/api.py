@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from archex import precision as precision_api
 from archex.acquire import clone_repo, discover_files, open_local
 from archex.analyze.decisions import infer_decisions
 from archex.analyze.interfaces import extract_interfaces
@@ -66,18 +67,14 @@ from archex.models import (
     ContextBundle,
     FileOutline,
     FileTree,
-    FileTreeEntry,
     IndexConfig,
     PipelineTiming,
     RepoMetadata,
     RepoSource,
     ScoringWeights,
-    SymbolKind,
     SymbolMatch,
-    SymbolOutline,
     SymbolSource,
     VectorMode,
-    Visibility,
 )
 from archex.observe import PipelineTrace, StepTiming
 from archex.parse import (
@@ -405,53 +402,6 @@ def _metadata_float(value: str | None) -> float:
         return float(value)
     except ValueError:
         return 0.0
-
-
-def _chunk_to_symbol_source(chunk: CodeChunk) -> SymbolSource:
-    """Convert a CodeChunk to a SymbolSource model."""
-    return SymbolSource(
-        symbol_id=chunk.symbol_id or chunk.id,
-        name=chunk.symbol_name or "",
-        kind=chunk.symbol_kind or SymbolKind.VARIABLE,
-        file_path=chunk.file_path,
-        start_line=chunk.start_line,
-        end_line=chunk.end_line,
-        signature=chunk.signature,
-        visibility=Visibility(chunk.visibility) if chunk.visibility else Visibility.PUBLIC,
-        docstring=chunk.docstring,
-        source=chunk.content,
-        imports_context=chunk.imports_context,
-        token_count=chunk.token_count,
-    )
-
-
-def _chunk_to_symbol_outline(chunk: CodeChunk) -> SymbolOutline:
-    """Convert a CodeChunk to a SymbolOutline (no source code)."""
-    return SymbolOutline(
-        symbol_id=chunk.symbol_id or chunk.id,
-        name=chunk.symbol_name or "",
-        kind=chunk.symbol_kind or SymbolKind.VARIABLE,
-        file_path=chunk.file_path,
-        start_line=chunk.start_line,
-        end_line=chunk.end_line,
-        signature=chunk.signature,
-        visibility=Visibility(chunk.visibility) if chunk.visibility else Visibility.PUBLIC,
-        docstring=chunk.docstring,
-    )
-
-
-def _chunk_to_symbol_match(chunk: CodeChunk, score: float = 0.0) -> SymbolMatch:
-    """Convert a CodeChunk to a SymbolMatch (search result)."""
-    return SymbolMatch(
-        symbol_id=chunk.symbol_id or chunk.id,
-        name=chunk.symbol_name or "",
-        kind=chunk.symbol_kind or SymbolKind.VARIABLE,
-        file_path=chunk.file_path,
-        start_line=chunk.start_line,
-        signature=chunk.signature,
-        visibility=Visibility(chunk.visibility) if chunk.visibility else Visibility.PUBLIC,
-        relevance_score=score,
-    )
 
 
 logger = logging.getLogger(__name__)
@@ -1644,102 +1594,14 @@ def file_tree(
     timing: PipelineTiming | None = None,
 ) -> FileTree:
     """Return the annotated file structure of an indexed repository."""
-    t0 = time.perf_counter()
-    store = _ensure_index(source, config, timing=timing)
-    try:
-        t_op = time.perf_counter()
-        file_meta = store.get_file_metadata()
-        if timing is not None:
-            timing.search_ms = _elapsed_ms(t_op)
-    finally:
-        store.close()
-
-    # Filter by language if requested
-    if language:
-        file_meta = [m for m in file_meta if m["language"] == language]
-
-    # Build hierarchical tree from flat file paths
-    lang_counts: dict[str, int] = {}
-    root_entries: dict[str, FileTreeEntry] = {}
-
-    for meta in file_meta:
-        fp = str(meta["file_path"])
-        lang = str(meta["language"])
-        lang_counts[lang] = lang_counts.get(lang, 0) + 1
-
-        parts = fp.split("/")
-        # Walk/create directory entries
-        current_level = root_entries
-        for i, part in enumerate(parts[:-1]):
-            if i >= max_depth:
-                break
-            if part not in current_level:
-                dir_path = "/".join(parts[: i + 1])
-                current_level[part] = FileTreeEntry(path=dir_path, is_directory=True)
-            entry = current_level[part]
-            # Build a child dict from the children list for lookup
-            child_map = {c.path.split("/")[-1]: c for c in entry.children}
-            current_level = child_map  # type: ignore[assignment]
-            # Ensure the next level exists in children
-            if i + 1 < len(parts) - 1:
-                next_part = parts[i + 1]
-                if next_part not in current_level:
-                    next_path = "/".join(parts[: i + 2])
-                    new_child = FileTreeEntry(path=next_path, is_directory=True)
-                    entry.children.append(new_child)
-                    current_level[next_part] = new_child  # type: ignore[assignment]
-
-        # Add the file entry
-        if len(parts) - 1 < max_depth:
-            file_entry = FileTreeEntry(
-                path=fp,
-                language=lang,
-                lines=int(meta["lines"]),
-                symbol_count=int(meta["symbol_count"]),
-                is_directory=False,
-            )
-            if len(parts) == 1:
-                root_entries[parts[0]] = file_entry
-            else:
-                _add_file_to_tree(root_entries, parts, file_entry)
-
-    entries = sorted(root_entries.values(), key=lambda e: (not e.is_directory, e.path))
-
-    if timing is not None:
-        timing.total_ms = _elapsed_ms(t0)
-    return FileTree(
-        root=source.local_path or source.url or "",
-        entries=entries,
-        total_files=len(file_meta),
-        languages=lang_counts,
+    return precision_api.file_tree(
+        source,
+        max_depth=max_depth,
+        language=language,
+        config=config,
+        timing=timing,
+        ensure_index=_ensure_index,
     )
-
-
-def _add_file_to_tree(
-    root_entries: dict[str, FileTreeEntry],
-    parts: list[str],
-    file_entry: FileTreeEntry,
-) -> None:
-    """Walk the tree and add a file entry under its parent directory."""
-    if parts[0] not in root_entries:
-        dir_path = parts[0]
-        root_entries[parts[0]] = FileTreeEntry(path=dir_path, is_directory=True)
-
-    current = root_entries[parts[0]]
-    for part in parts[1:-1]:
-        found = False
-        for child in current.children:
-            if child.path.split("/")[-1] == part:
-                current = child
-                found = True
-                break
-        if not found:
-            return
-
-    # Avoid duplicate file entries
-    existing_paths = {c.path for c in current.children}
-    if file_entry.path not in existing_paths:
-        current.children.append(file_entry)
 
 
 def file_outline(
@@ -1749,73 +1611,13 @@ def file_outline(
     timing: PipelineTiming | None = None,
 ) -> FileOutline:
     """Return the symbol hierarchy for a single file — no source code."""
-    t0 = time.perf_counter()
-    store = _ensure_index(source, config, timing=timing)
-    try:
-        t_op = time.perf_counter()
-        chunks = store.get_chunks_for_file(file_path)
-        if timing is not None:
-            timing.search_ms = _elapsed_ms(t_op)
-    finally:
-        store.close()
-
-    if not chunks:
-        return FileOutline(
-            file_path=file_path,
-            language="unknown",
-            lines=0,
-            symbols=[],
-            token_count_raw=0,
-        )
-
-    language = chunks[0].language
-    max_line = max(c.end_line for c in chunks)
-    token_count_raw = sum(c.token_count for c in chunks)
-
-    # Build flat outlines
-    outlines = [_chunk_to_symbol_outline(c) for c in chunks]
-
-    # Reconstruct parent-child hierarchy from qualified_name
-    top_level: list[SymbolOutline] = []
-    by_qname: dict[str, SymbolOutline] = {}
-
-    for outline in outlines:
-        qname = outline.name
-        chunk = next((c for c in chunks if (c.symbol_id or c.id) == outline.symbol_id), None)
-        if chunk and chunk.qualified_name:
-            qname = chunk.qualified_name
-        by_qname[qname] = outline
-
-    for outline in outlines:
-        chunk = next((c for c in chunks if (c.symbol_id or c.id) == outline.symbol_id), None)
-        qname = chunk.qualified_name if chunk and chunk.qualified_name else outline.name
-        # Check if this is a child (has a dot separator indicating parent.child)
-        parent_name = _get_parent_qname(qname)
-        if parent_name and parent_name in by_qname:
-            by_qname[parent_name].children.append(outline)
-        else:
-            top_level.append(outline)
-
-    if timing is not None:
-        timing.total_ms = _elapsed_ms(t0)
-    return FileOutline(
+    return precision_api.file_outline(
+        source,
         file_path=file_path,
-        language=language,
-        lines=max_line,
-        symbols=top_level,
-        token_count_raw=token_count_raw,
+        config=config,
+        timing=timing,
+        ensure_index=_ensure_index,
     )
-
-
-def _get_parent_qname(qualified_name: str) -> str | None:
-    """Extract the parent's qualified name from a dotted or :: separated name."""
-    if "::" in qualified_name:
-        parts = qualified_name.rsplit("::", 1)
-        return parts[0] if len(parts) > 1 else None
-    if "." in qualified_name:
-        parts = qualified_name.rsplit(".", 1)
-        return parts[0] if len(parts) > 1 else None
-    return None
 
 
 def search_symbols(
@@ -1828,23 +1630,16 @@ def search_symbols(
     timing: PipelineTiming | None = None,
 ) -> list[SymbolMatch]:
     """Search symbols by name across the indexed repository."""
-    t0 = time.perf_counter()
-    store = _ensure_index(source, config, timing=timing)
-    try:
-        t_op = time.perf_counter()
-        sym_kind = SymbolKind(kind) if kind else None
-        chunks = store.search_symbols(query, kind=sym_kind, limit=limit)
-        if timing is not None:
-            timing.search_ms = _elapsed_ms(t_op)
-    finally:
-        store.close()
-
-    if language:
-        chunks = [c for c in chunks if c.language == language]
-
-    if timing is not None:
-        timing.total_ms = _elapsed_ms(t0)
-    return [_chunk_to_symbol_match(c) for c in chunks[:limit]]
+    return precision_api.search_symbols(
+        source,
+        query=query,
+        kind=kind,
+        language=language,
+        limit=limit,
+        config=config,
+        timing=timing,
+        ensure_index=_ensure_index,
+    )
 
 
 def get_symbol(
@@ -1854,21 +1649,13 @@ def get_symbol(
     timing: PipelineTiming | None = None,
 ) -> SymbolSource | None:
     """Retrieve the full source code of a single symbol by its stable ID."""
-    t0 = time.perf_counter()
-    store = _ensure_index(source, config, timing=timing)
-    try:
-        t_op = time.perf_counter()
-        chunk = store.get_chunk_by_symbol_id(symbol_id)
-        if timing is not None:
-            timing.search_ms = _elapsed_ms(t_op)
-    finally:
-        store.close()
-
-    if timing is not None:
-        timing.total_ms = _elapsed_ms(t0)
-    if chunk is None:
-        return None
-    return _chunk_to_symbol_source(chunk)
+    return precision_api.get_symbol(
+        source,
+        symbol_id=symbol_id,
+        config=config,
+        timing=timing,
+        ensure_index=_ensure_index,
+    )
 
 
 def get_symbols_batch(
@@ -1878,24 +1665,13 @@ def get_symbols_batch(
     timing: PipelineTiming | None = None,
 ) -> list[SymbolSource | None]:
     """Batch retrieve N symbols by their stable IDs. Preserves input order."""
-    if len(symbol_ids) > 50:
-        raise ValueError(f"Maximum 50 symbol IDs per batch, got {len(symbol_ids)}")
-
-    t0 = time.perf_counter()
-    store = _ensure_index(source, config, timing=timing)
-    try:
-        t_op = time.perf_counter()
-        chunks = store.get_chunks_by_symbol_ids(symbol_ids)
-        if timing is not None:
-            timing.search_ms = _elapsed_ms(t_op)
-    finally:
-        store.close()
-
-    # Preserve input order: build lookup by symbol_id, map back
-    by_sid: dict[str, CodeChunk] = {c.symbol_id: c for c in chunks if c.symbol_id}
-    if timing is not None:
-        timing.total_ms = _elapsed_ms(t0)
-    return [_chunk_to_symbol_source(by_sid[sid]) if sid in by_sid else None for sid in symbol_ids]
+    return precision_api.get_symbols_batch(
+        source,
+        symbol_ids=symbol_ids,
+        config=config,
+        timing=timing,
+        ensure_index=_ensure_index,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1908,11 +1684,7 @@ def get_repo_total_tokens(
     config: Config | None = None,
 ) -> int:
     """Return the total token count across all indexed chunks for a repository."""
-    store = _ensure_index(source, config)
-    try:
-        return store.get_total_tokens()
-    finally:
-        store.close()
+    return precision_api.get_repo_total_tokens(source, config=config, ensure_index=_ensure_index)
 
 
 def get_file_token_count(
@@ -1921,11 +1693,12 @@ def get_file_token_count(
     config: Config | None = None,
 ) -> int:
     """Return the total token count for a single file in an indexed repository."""
-    store = _ensure_index(source, config)
-    try:
-        return store.get_file_tokens(file_path)
-    finally:
-        store.close()
+    return precision_api.get_file_token_count(
+        source,
+        file_path=file_path,
+        config=config,
+        ensure_index=_ensure_index,
+    )
 
 
 def get_files_token_count(
@@ -1934,8 +1707,9 @@ def get_files_token_count(
     config: Config | None = None,
 ) -> int:
     """Return the total token count across unique files in an indexed repository."""
-    store = _ensure_index(source, config)
-    try:
-        return store.get_files_tokens(file_paths)
-    finally:
-        store.close()
+    return precision_api.get_files_token_count(
+        source,
+        file_paths=file_paths,
+        config=config,
+        ensure_index=_ensure_index,
+    )

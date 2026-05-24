@@ -653,22 +653,22 @@ class TestGetParentQname:
     """Unit tests for _get_parent_qname helper."""
 
     def test_double_colon_separator(self) -> None:
-        from archex.api import _get_parent_qname  # pyright: ignore[reportPrivateUsage]
+        from archex.precision import _get_parent_qname  # pyright: ignore[reportPrivateUsage]
 
         assert _get_parent_qname("Foo::bar") == "Foo"
 
     def test_double_colon_nested(self) -> None:
-        from archex.api import _get_parent_qname  # pyright: ignore[reportPrivateUsage]
+        from archex.precision import _get_parent_qname  # pyright: ignore[reportPrivateUsage]
 
         assert _get_parent_qname("ns::Foo::bar") == "ns::Foo"
 
     def test_dot_separator(self) -> None:
-        from archex.api import _get_parent_qname  # pyright: ignore[reportPrivateUsage]
+        from archex.precision import _get_parent_qname  # pyright: ignore[reportPrivateUsage]
 
         assert _get_parent_qname("Foo.bar") == "Foo"
 
     def test_no_separator(self) -> None:
-        from archex.api import _get_parent_qname  # pyright: ignore[reportPrivateUsage]
+        from archex.precision import _get_parent_qname  # pyright: ignore[reportPrivateUsage]
 
         assert _get_parent_qname("standalone") is None
 
@@ -677,8 +677,8 @@ class TestAddFileToTree:
     """Unit tests for _add_file_to_tree helper."""
 
     def test_creates_missing_root_entry(self) -> None:
-        from archex.api import _add_file_to_tree  # pyright: ignore[reportPrivateUsage]
         from archex.models import FileTreeEntry
+        from archex.precision import _add_file_to_tree  # pyright: ignore[reportPrivateUsage]
 
         root: dict[str, FileTreeEntry] = {}
         file_entry = FileTreeEntry(path="src/main.py", language="python", lines=10)
@@ -689,8 +689,8 @@ class TestAddFileToTree:
         assert file_entry in root["src"].children
 
     def test_returns_early_on_missing_intermediate(self) -> None:
-        from archex.api import _add_file_to_tree  # pyright: ignore[reportPrivateUsage]
         from archex.models import FileTreeEntry
+        from archex.precision import _add_file_to_tree  # pyright: ignore[reportPrivateUsage]
 
         root: dict[str, FileTreeEntry] = {
             "src": FileTreeEntry(path="src", is_directory=True),
