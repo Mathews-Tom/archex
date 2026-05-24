@@ -53,6 +53,7 @@ from archex.analyze.interfaces import extract_interfaces
 from archex.analyze.modules import detect_modules
 from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
+from archex.config import load_config, load_index_config
 from archex.exceptions import ArchexIndexError, DeltaIndexError
 from archex.index.bm25 import BM25Index
 from archex.index.graph import DependencyGraph
@@ -210,7 +211,7 @@ def _ensure_index(
     The caller is responsible for closing the returned store.
     """
     if config is None:
-        config = Config()
+        config = load_config(source)
 
     t_start = time.perf_counter()
     cache = CacheManager(cache_dir=config.cache_dir)
@@ -822,7 +823,7 @@ def analyze(
     The optional ``timing`` parameter records per-phase millisecond breakdowns.
     """
     if config is None:
-        config = Config()
+        config = load_config(source)
     _bootstrap_plugins()
 
     t0 = time.perf_counter()
@@ -922,9 +923,9 @@ def query(
     search, assemble) into the PipelineTrace for structured observability.
     """
     if config is None:
-        config = Config()
+        config = load_config(source)
     if index_config is None:
-        index_config = IndexConfig()
+        index_config = load_index_config(source)
     _bootstrap_plugins()
 
     t0 = time.perf_counter()
