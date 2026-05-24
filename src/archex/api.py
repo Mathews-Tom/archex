@@ -43,6 +43,7 @@ import shutil
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -184,6 +185,17 @@ def _full_index(
         cleanup()
 
 
+@dataclass(frozen=True)
+class _DeltaIndexAttempt:
+    source: RepoSource
+    config: Config
+    cache: CacheManager
+    cache_key: str
+    timing: PipelineTiming | None
+    index_config: IndexConfig | None
+    t_start: float
+
+
 def _ensure_index(
     source: RepoSource,
     config: Config | None = None,
@@ -218,66 +230,91 @@ def _ensure_index(
         cache.invalidate(cache_key)
 
     # Path 2: Delta path — same repo, different commit (local repos only)
-    if config.cache and source.local_path:
-        existing = cache.find_store_for_source(source)
-        if existing is not None:
-            db_path, cached_commit = existing
-            current_commit = CacheManager.git_head(source.local_path)
-            if current_commit and cached_commit != current_commit:
-                try:
-                    from archex.index.delta import apply_delta, compute_delta
-
-                    repo_path = (
-                        Path(source.local_path).resolve() if source.local_path else Path(".")
-                    )
-                    manifest = compute_delta(repo_path, cached_commit, current_commit)
-                    total_files = len(
-                        discover_files(
-                            repo_path,
-                            languages=config.languages,
-                            max_file_size=config.max_file_size,
-                        )
-                    )
-                    change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
-                    if change_ratio < config.delta_threshold:
-                        if timing is not None:
-                            timing.delta_attempted = True
-                        store = IndexStore(db_path)
-                        graph = DependencyGraph.from_edges(store.get_edges())
-                        delta_meta = apply_delta(
-                            store,
-                            graph,
-                            manifest,
-                            repo_path,
-                            config,
-                            index_config=index_config,
-                        )
-                        identity = source.url or source.local_path or ""
-                        store.set_metadata("commit_hash", current_commit)
-                        store.set_metadata("source_identity", identity)
-                        store.set_metadata("indexed_at", str(time.time()))
-                        store.conn.execute("PRAGMA wal_checkpoint(FULL)")
-                        cache.put(
-                            cache_key,
-                            db_path,
-                            resolved_commit=current_commit,
-                            source_identity=identity,
-                        )
-                        if timing is not None:
-                            timing.delta_ms = delta_meta.delta_time_ms
-                            timing.delta_meta = delta_meta
-                            timing.index_ms = _elapsed_ms(t_start)
-                            timing.delta_succeeded = True
-                            timing.strategy = "delta"
-                        logger.info("Delta index applied in %.0fms", delta_meta.delta_time_ms)
-                        return store
-                except DeltaIndexError:
-                    if timing is not None:
-                        timing.delta_attempted = True
-                    logger.info("Delta indexing failed, falling back to full re-index")
+    delta_store = _try_delta_index(
+        _DeltaIndexAttempt(
+            source=source,
+            config=config,
+            cache=cache,
+            cache_key=cache_key,
+            timing=timing,
+            index_config=index_config,
+            t_start=t_start,
+        )
+    )
+    if delta_store is not None:
+        return delta_store
 
     # Path 3: Full re-index
     return _full_index(source, config, cache, cache_key, timing, index_config=index_config)
+
+
+def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
+    source = attempt.source
+    config = attempt.config
+    if not config.cache or not source.local_path:
+        return None
+
+    existing = attempt.cache.find_store_for_source(source)
+    if existing is None:
+        return None
+
+    db_path, cached_commit = existing
+    current_commit = CacheManager.git_head(source.local_path)
+    if not current_commit or cached_commit == current_commit:
+        return None
+
+    try:
+        from archex.index.delta import apply_delta, compute_delta
+
+        repo_path = Path(source.local_path).resolve()
+        manifest = compute_delta(repo_path, cached_commit, current_commit)
+        total_files = len(
+            discover_files(
+                repo_path,
+                languages=config.languages,
+                max_file_size=config.max_file_size,
+            )
+        )
+        change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
+        if change_ratio >= config.delta_threshold:
+            return None
+
+        if attempt.timing is not None:
+            attempt.timing.delta_attempted = True
+        store = IndexStore(db_path)
+        graph = DependencyGraph.from_edges(store.get_edges())
+        delta_meta = apply_delta(
+            store,
+            graph,
+            manifest,
+            repo_path,
+            config,
+            index_config=attempt.index_config,
+        )
+        identity = source.url or source.local_path or ""
+        store.set_metadata("commit_hash", current_commit)
+        store.set_metadata("source_identity", identity)
+        store.set_metadata("indexed_at", str(time.time()))
+        store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+        attempt.cache.put(
+            attempt.cache_key,
+            db_path,
+            resolved_commit=current_commit,
+            source_identity=identity,
+        )
+        if attempt.timing is not None:
+            attempt.timing.delta_ms = delta_meta.delta_time_ms
+            attempt.timing.delta_meta = delta_meta
+            attempt.timing.index_ms = _elapsed_ms(attempt.t_start)
+            attempt.timing.delta_succeeded = True
+            attempt.timing.strategy = "delta"
+        logger.info("Delta index applied in %.0fms", delta_meta.delta_time_ms)
+        return store
+    except DeltaIndexError:
+        if attempt.timing is not None:
+            attempt.timing.delta_attempted = True
+        logger.info("Delta indexing failed, falling back to full re-index")
+        return None
 
 
 def _chunk_to_symbol_source(chunk: CodeChunk) -> SymbolSource:
