@@ -1,0 +1,204 @@
+{
+  "entries": [
+    {
+      "task_id": "archex_adapter_registry",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_adapter_registry",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.0006325110689437065,
+      "f1_score": 0.0012642225031605561,
+      "mrr": 0.010526315789473684,
+      "ndcg": 0.0,
+      "map_score": 0.020046700232458747,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_adapter_registry",
+      "strategy": "archex_query",
+      "recall": 0.3333333333333333,
+      "precision": 0.25,
+      "f1_score": 0.28571428571428575,
+      "mrr": 1.0,
+      "ndcg": 0.46927872602275644,
+      "map_score": 0.3333333333333333,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_delta_indexing",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_delta_indexing",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.0004237886707162029,
+      "f1_score": 0.0008472182999152783,
+      "mrr": 0.001375515818431912,
+      "ndcg": 0.0,
+      "map_score": 0.0015502815362116147,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_delta_indexing",
+      "strategy": "archex_query",
+      "recall": 0.3333333333333333,
+      "precision": 0.25,
+      "f1_score": 0.28571428571428575,
+      "mrr": 1.0,
+      "ndcg": 0.46927872602275644,
+      "map_score": 0.3333333333333333,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_graph_expansion",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_graph_expansion",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.00023089355806972986,
+      "f1_score": 0.00046168051708217917,
+      "mrr": 0.010869565217391304,
+      "ndcg": 0.0,
+      "map_score": 0.015061096902529126,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_graph_expansion",
+      "strategy": "archex_query",
+      "recall": 0.6666666666666666,
+      "precision": 0.5,
+      "f1_score": 0.5714285714285715,
+      "mrr": 1.0,
+      "ndcg": 0.6713860725233041,
+      "map_score": 0.5,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_pattern_detection",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_pattern_detection",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.0008305647840531562,
+      "f1_score": 0.0016597510373443983,
+      "mrr": 0.011627906976744186,
+      "ndcg": 0.0,
+      "map_score": 0.012956810631229235,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_pattern_detection",
+      "strategy": "archex_query",
+      "recall": 1.0,
+      "precision": 0.5,
+      "f1_score": 0.6666666666666666,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_query_pipeline",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_query_pipeline",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.0005053908355795149,
+      "f1_score": 0.0010102710894089916,
+      "mrr": 0.008064516129032258,
+      "ndcg": 0.0,
+      "map_score": 0.014473463587450051,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_query_pipeline",
+      "strategy": "archex_query",
+      "recall": 0.3333333333333333,
+      "precision": 0.25,
+      "f1_score": 0.28571428571428575,
+      "mrr": 0.25,
+      "ndcg": 0.20210734650054757,
+      "map_score": 0.08333333333333333,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_scoring",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_scoring",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.0007786140669608098,
+      "f1_score": 0.0015560165975103736,
+      "mrr": 0.008064516129032258,
+      "ndcg": 0.0,
+      "map_score": 0.014473463587450051,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "archex_scoring",
+      "strategy": "archex_query",
+      "recall": 0.3333333333333333,
+      "precision": 0.25,
+      "f1_score": 0.28571428571428575,
+      "mrr": 0.5,
+      "ndcg": 0.2960819109658652,
+      "map_score": 0.16666666666666666,
+      "token_efficiency": 0.0
+    }
+  ],
+  "created_at": "2026-03-23T04:54:28.610643+00:00",
+  "archex_version": ""
+}
