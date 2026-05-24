@@ -192,13 +192,13 @@ archex uses its own retrieval benchmark tasks as a product gate. `archex dogfood
 
 The gate is baseline-relative rather than absolute. A task that is already weak does not block every PR; a task that regresses from its recorded baseline does. That keeps the signal actionable: retrieval changes must explain metric movement, failure classes, missing expected files, and seed-vs-expansion behavior.
 
-In CI, the dogfood workflow runs:
+For retrieval-sensitive changes, run the dogfood gate locally before landing:
 
 ```bash
 archex dogfood . --format json
 ```
 
-against `benchmarks/dogfood_baseline.json` and uploads the Markdown/JSON report as an artifact. Local dogfood runs stay opt-in because the suite executes retrieval benchmarks; use focused tasks during development and let CI enforce the full self-suite.
+The command compares against `.archex/dogfood/baseline.json` when present or the committed `benchmarks/dogfood_baseline.json`, then writes the Markdown/JSON report under `.archex/dogfood/`. The GitHub dogfood workflow is manual-only through `workflow_dispatch`; use it when maintainers need a hosted report artifact, not as an automatic PR gate.
 
 ### Framework-Agnostic
 

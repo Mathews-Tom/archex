@@ -1,23 +1,6 @@
 name: Dogfood
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/dogfood.yml"
-      - "benchmarks/dogfood_baseline.json"
-      - "benchmarks/tasks/**"
-      - "src/archex/api.py"
-      - "src/archex/cache.py"
-      - "src/archex/config.py"
-      - "src/archex/dogfood.py"
-      - "src/archex/project.py"
-      - "src/archex/status.py"
-      - "src/archex/benchmark/**"
-      - "src/archex/cli/dogfood_cmd.py"
-      - "src/archex/cli/index_cmd.py"
-      - "src/archex/cli/status_cmd.py"
-      - "src/archex/index/**"
-      - "src/archex/serve/context.py"
   workflow_dispatch:
 
 jobs:
