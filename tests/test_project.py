@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from archex.project import DEFAULT_SETTINGS_TOML, ProjectState, init_project
+from archex.project import DEFAULT_SETTINGS_TOML, ProjectState, init_project, reset_project
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -112,3 +112,43 @@ def test_init_project_force_reset_removes_existing_state(tmp_path: Path) -> None
     assert result.settings_written is True
     assert not generated.exists()
     assert (repo / ".archex" / "settings.toml").exists()
+
+
+def test_reset_project_requires_force(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+
+    with pytest.raises(ValueError, match="reset requires --force"):
+        reset_project(repo)
+
+
+def test_reset_project_preserves_settings_and_deletes_generated_state(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    init_project(repo)
+    project_dir = repo / ".archex"
+    settings = project_dir / "settings.toml"
+    index = project_dir / "index.db"
+    meta = project_dir / "index.meta"
+    vector_dir = project_dir / "vectors"
+    vector_dir.mkdir()
+    index.write_text("db", encoding="utf-8")
+    meta.write_text("meta", encoding="utf-8")
+    (vector_dir / "raw.vectors.npz").write_text("vectors", encoding="utf-8")
+
+    result = reset_project(repo, force=True)
+
+    assert settings.exists()
+    assert not index.exists()
+    assert not meta.exists()
+    assert not vector_dir.exists()
+    assert result.removed_all is False
+    assert len(result.removed_paths) == 3
+
+
+def test_reset_project_all_removes_project_dir(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    init_project(repo)
+
+    result = reset_project(repo, force=True, all_state=True)
+
+    assert result.removed_all is True
+    assert not (repo / ".archex").exists()

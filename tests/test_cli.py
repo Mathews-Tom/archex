@@ -30,6 +30,7 @@ def test_help_contains_subcommands() -> None:
     assert "init" in output
     assert "index" in output
     assert "status" in output
+    assert "reset" in output
 
 
 def test_init_command_creates_project_state(python_simple_repo: Path) -> None:
@@ -222,6 +223,45 @@ def test_status_command_fails_on_corrupt_index(python_simple_repo: Path) -> None
     data = json.loads(result.output)
     assert data["state"] == "corrupt"
     assert data["error"]
+
+
+def test_reset_command_requires_force(python_simple_repo: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["reset", str(python_simple_repo)])
+
+    assert result.exit_code != 0
+    assert "reset requires --force" in result.output
+
+
+def test_reset_command_preserves_settings(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+    indexed = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+    assert indexed.exit_code == 0, indexed.output
+
+    result = runner.invoke(cli, ["reset", str(python_simple_repo), "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert (python_simple_repo / ".archex" / "settings.toml").exists()
+    assert not (python_simple_repo / ".archex" / "index.db").exists()
+    status = runner.invoke(cli, ["status", str(python_simple_repo), "--format", "json"])
+    assert status.exit_code == 0, status.output
+    assert json.loads(status.output)["state"] == "missing_index"
+
+
+def test_reset_command_all_removes_project_state(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["reset", str(python_simple_repo), "--all", "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert not (python_simple_repo / ".archex").exists()
 
 
 def test_analyze_local_json(python_simple_repo: Path) -> None:
