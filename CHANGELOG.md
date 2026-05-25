@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2 (2026-05-25)
+
+### Removed
+
+- **HTTP API server removed.** Deleted the `archex serve` command, the FastAPI app (`serve/app.py`), the bundled dashboard (`serve/static/`), the API tests, and `fastapi`/`uvicorn` from dependencies. The server had no consumers — added in a single commit, never iterated, undocumented until 0.6.1 — and duplicated the MCP and CLI surfaces while taxing every `import archex` through an eager `serve/__init__` import. Use the MCP server (`archex mcp`), the Python API, or the CLI instead.
+
+BREAKING CHANGE: the `archex serve` command and the `archex.serve.create_app` HTTP API are removed; `fastapi` and `uvicorn` are no longer dependencies. Removing the eager `serve/__init__` import also means `import archex` no longer loads FastAPI.
+
 ## 0.6.1 (2026-05-25)
 
 ### Changed

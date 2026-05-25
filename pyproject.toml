@@ -1,6 +1,6 @@
 [project]
 name = "archex"
-version = "0.6.1"
+version = "0.6.2"
 description = "Architecture extraction & codebase intelligence for the agentic era"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -31,8 +31,6 @@ dependencies = [
     "networkx>=3.3",
     "click>=8.1",
     "pyyaml>=6.0",
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
     "einops>=0.8.2",
 ]
 
@@ -116,7 +114,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["archex"]
-omit = ["src/archex/cli/*", "src/archex/serve/app.py", "src/archex/serve/static/*"]
+omit = ["src/archex/cli/*"]
 
 [tool.coverage.report]
 exclude_lines = [
