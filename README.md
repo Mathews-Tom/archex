@@ -26,7 +26,6 @@ archex is a Python library and CLI that transforms any Git repository into struc
 - **Security** — input validation on git URLs/branches, FTS5 query escaping, cache key validation, `allow_pickle=False` for vector persistence
 - **Pipeline observability** — opt-in `PipelineTrace` with step-level timing for retrieve, expand, score, assemble stages
 - **Unified artifact pipeline** — `produce_artifacts()` single entry point for parse, import-resolve, chunk, edge-build
-- **HTTP API server** — `archex serve` exposes `/analyze`, `/query`, `/compare`, `/tree`, `/outline`, `/symbols`, `/symbol/{id}`, and `/benchmark/*` endpoints over FastAPI, with an optional `/dashboard`
 - **Query normalization** — camelCase/snake_case splitting, bigram compound generation, architecture-intent synonym expansion
 - **Quality gates** — CI-embeddable threshold checks for recall, precision, F1, MRR with latency warnings
 - **Expansion gating** — weak BM25 seeds (below 10% of max) don't trigger graph expansion; score-relative file cutoff removes noise
@@ -177,9 +176,6 @@ archex symbol ./my-project "src/auth/middleware.py::authenticate#function"
 # Compare two repositories
 archex compare ./project-a ./project-b --dimensions error_handling,api_surface --format markdown
 
-# Serve the HTTP API (analyze/query/compare/tree/symbol + benchmark endpoints)
-archex serve --host 127.0.0.1 --port 8080
-
 # Repo-local lifecycle
 archex init
 archex index --format json
@@ -232,7 +228,7 @@ The same cwd default applies to local-read commands where a URL cannot be inferr
 
 ## Agent Integration
 
-archex is designed to be called by coding agents. Four integration paths, ordered by depth:
+archex is designed to be called by coding agents. Three integration paths, ordered by depth:
 
 ### Shell Out (any agent)
 
@@ -303,30 +299,6 @@ bundle = query(
 )
 agent_context = bundle.to_prompt(format="xml")
 ```
-
-### HTTP API (any language)
-
-Run `archex serve` to expose the same operations over HTTP — for agents and services that prefer REST over shelling out:
-
-```bash
-archex serve --port 8080
-```
-
-| Method & path             | Operation                                  |
-| ------------------------- | ------------------------------------------ |
-| `GET /health`             | Liveness check                             |
-| `POST /analyze`           | Architecture profile for a repo            |
-| `POST /query`             | Token-budget context bundle for a question |
-| `POST /compare`           | Cross-repo structural comparison           |
-| `GET /tree`               | Annotated file tree                        |
-| `GET /outline`            | Symbol outline for a file                  |
-| `GET /symbols`            | Symbol search                              |
-| `GET /symbol/{symbol_id}` | Full source for a symbol by stable ID      |
-| `GET /benchmark/results`  | Stored benchmark results                   |
-| `GET /benchmark/summary`  | Aggregate benchmark summary                |
-| `GET /benchmark/gate`     | Quality-gate status                        |
-
-FastAPI and uvicorn ship in the core install, so `archex serve` works out of the box. An optional `/dashboard` is served when its assets are present.
 
 ### When to Use archex
 
@@ -635,18 +607,6 @@ Retrieve the full source code for a symbol by its stable ID (e.g., `src/auth.py:
 Start the MCP (Model Context Protocol) server for agent integration.
 
 Tools exposed: `analyze_repo`, `query_repo`, `compare_repos`, `get_file_tree`, `get_file_outline`, `search_symbols`, `get_symbol`, `get_symbols_batch`.
-
-### `archex serve`
-
-Start the HTTP API server (FastAPI + uvicorn).
-
-| Option     | Default     | Description                 |
-| ---------- | ----------- | --------------------------- |
-| `--host`   | `127.0.0.1` | Bind host                   |
-| `--port`   | `8080`      | Bind port                   |
-| `--reload` | off         | Auto-reload for development |
-
-Endpoints: `/health`, `/analyze`, `/query`, `/compare`, `/tree`, `/outline`, `/symbols`, `/symbol/{id}`, `/benchmark/results`, `/benchmark/summary`, `/benchmark/gate`, and an optional `/dashboard`.
 
 ### `archex cache <subcommand>`
 
