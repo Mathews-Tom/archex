@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-__version__ = "0.5.0"
+from importlib.metadata import version
+
+__version__ = version("archex")
 
 from archex.api import analyze, compare, query
 
