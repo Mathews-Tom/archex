@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.1 (2026-05-25)
+
+### Changed
+
+- Removed the redundant `web` optional-dependency extra. `fastapi` and `uvicorn` are core dependencies, so the HTTP API server (`archex serve`) works on a bare install; `archex[web]` is no longer a recognized extra.
+- Simplified `archex serve` to import `uvicorn` directly instead of guarding an import that cannot fail (it is a core dependency).
+
+### Fixed
+
+- Corrected the cross-encoder reranker model name in the 0.6.0 changelog entry: the default is `cross-encoder/ms-marco-MiniLM-L-6-v2`, not Jina Reranker v2.
+
+### Docs
+
+- Refreshed the README to the current system: documented the `archex serve` HTTP API and its endpoints, the wired retrieval pipeline (BM25F, confidence-weighted RRF + adaptive RSF behind an AvgIDF fusion gate, intent-based weight routing, Personalized PageRank expansion, opt-in `cross-encoder/ms-marco-MiniLM` reranking), the `vector-fast` and `graph` extras, and the `benchmark triage`/`readiness` subcommands. Corrected stale benchmark-task and test counts and removed dead links to gitignored artifacts.
+
 ## 0.6.0 (2026-05-21)
 
 ### Removed — LLM dependencies (breaking)
@@ -30,7 +45,7 @@ archex is now fully local, fully deterministic, no API keys, no per-query cost. 
 
 **What stayed (still local, still LLM-free):**
 
-- Cross-encoder reranking (Jina Reranker v2) — local sentence-transformers model, not an LLM API.
+- Cross-encoder reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`) — local sentence-transformers model, not an LLM API.
 - Vector embeddings (FastEmbed, CodeRankEmbed) — local ONNX/Torch.
 - All structural analysis (Louvain modules, pattern catalog, interface extraction, dependency graph + PPR expansion).
 - The full 25-task benchmark corpus, now runnable end-to-end with zero API calls.

@@ -68,7 +68,6 @@ uv add "archex[vector-torch]"        # Torch-backed sentence-transformers — GP
 
 ```bash
 uv add "archex[graph]"               # igraph + leidenalg — faster Leiden module detection
-uv add "archex[web]"                 # FastAPI HTTP server (archex serve)
 uv add "archex[language-pack]"       # Fallback tree-sitter grammars
 uv add "archex[all]"                 # vector + graph + mcp + langchain + llamaindex + language-pack
 ```
@@ -327,7 +326,7 @@ archex serve --port 8080
 | `GET /benchmark/summary`  | Aggregate benchmark summary                |
 | `GET /benchmark/gate`     | Quality-gate status                        |
 
-FastAPI and uvicorn ship in the core install; the `archex[web]` extra pins the same dependencies. An optional `/dashboard` is served when its assets are present.
+FastAPI and uvicorn ship in the core install, so `archex serve` works out of the box. An optional `/dashboard` is served when its assets are present.
 
 ### When to Use archex
 

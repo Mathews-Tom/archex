@@ -11,12 +11,7 @@ import click
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development.")
 def serve_cmd(host: str, port: int, reload: bool) -> None:
     """Start the archex HTTP API server."""
-    try:
-        import uvicorn
-    except ImportError as exc:
-        raise click.ClickException(
-            "uvicorn is required. Install with: uv add 'archex[web]'"
-        ) from exc
+    import uvicorn
 
     uvicorn.run(
         "archex.serve.app:create_app",

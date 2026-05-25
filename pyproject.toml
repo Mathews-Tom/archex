@@ -1,6 +1,6 @@
 [project]
 name = "archex"
-version = "0.6.0"
+version = "0.6.1"
 description = "Architecture extraction & codebase intelligence for the agentic era"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -58,10 +58,6 @@ llamaindex = ["llama-index-core>=0.10"]
 lsap = ["lsp-client>=0.3; python_version >= '3.12'"]
 language-pack = ["tree-sitter-language-pack>=0.13"]
 all = ["archex[vector,graph,mcp,langchain,llamaindex,language-pack]"]
-web = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
-]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",

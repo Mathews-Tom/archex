@@ -183,7 +183,7 @@ wheels = [
 
 [[package]]
 name = "archex"
-version = "0.6.0"
+version = "0.6.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -258,10 +258,6 @@ vector-fast = [
 vector-torch = [
     { name = "sentence-transformers" },
 ]
-web = [
-    { name = "fastapi" },
-    { name = "uvicorn", extra = ["standard"] },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -282,7 +278,6 @@ requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "einops", specifier = ">=0.8.2" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.115" },
     { name = "fastembed", marker = "extra == 'vector-fast'", specifier = ">=0.4" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.2" },
@@ -317,9 +312,8 @@ requires-dist = [
     { name = "tree-sitter-rust", specifier = ">=0.23" },
     { name = "tree-sitter-typescript", specifier = ">=0.23" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'web'", specifier = ">=0.34" },
 ]
-provides-extras = ["vector", "vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap", "language-pack", "all", "web", "dev"]
+provides-extras = ["vector", "vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap", "language-pack", "all", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
