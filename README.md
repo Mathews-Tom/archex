@@ -14,8 +14,10 @@ archex is a Python library and CLI that transforms any Git repository into struc
 
 - **8 language adapters** — Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, C#, Swift (tree-sitter AST parsing), extensible via entry points
 - **8 public APIs** — `analyze()`, `query()`, `compare()`, `file_tree()`, `file_outline()`, `search_symbols()`, `get_symbol()`, `get_symbols_batch()` + token counting utilities
-- **Hybrid retrieval** — BM25 keyword search + optional vector embeddings with reciprocal rank fusion
-- **Token budget assembly** — AST-aware chunking, dependency-graph expansion, greedy bin-packing with configurable `ScoringWeights`
+- **Hybrid retrieval** — BM25F weighted-field keyword search + optional vector embeddings, merged via confidence-weighted Reciprocal Rank Fusion and adaptive Relative Score Fusion behind an AvgIDF fusion gate
+- **Intent-aware ranking** — query intent classification (definition, architecture, usage, debugging, general) selects per-intent scoring-weight presets
+- **Cross-encoder reranking** — opt-in `cross-encoder/ms-marco-MiniLM` re-scoring of top candidates; local sentence-transformers, off by default, enabled via `IndexConfig(rerank=True)`
+- **Token budget assembly** — AST-aware chunking, Personalized PageRank dependency-graph expansion, greedy bin-packing with configurable `ScoringWeights`
 - **Structural analysis** — module detection (Louvain), pattern recognition (extensible `PatternRegistry`), interface extraction
 - **Cross-repo comparison** — 6 architectural dimensions, no LLM required
 - **Delta indexing** — surgical re-index via git diff when only a few files changed; mtime-based fallback for non-git sources; configurable `delta_threshold`
@@ -24,6 +26,7 @@ archex is a Python library and CLI that transforms any Git repository into struc
 - **Security** — input validation on git URLs/branches, FTS5 query escaping, cache key validation, `allow_pickle=False` for vector persistence
 - **Pipeline observability** — opt-in `PipelineTrace` with step-level timing for retrieve, expand, score, assemble stages
 - **Unified artifact pipeline** — `produce_artifacts()` single entry point for parse, import-resolve, chunk, edge-build
+- **HTTP API server** — `archex serve` exposes `/analyze`, `/query`, `/compare`, `/tree`, `/outline`, `/symbols`, `/symbol/{id}`, and `/benchmark/*` endpoints over FastAPI, with an optional `/dashboard`
 - **Query normalization** — camelCase/snake_case splitting, bigram compound generation, architecture-intent synonym expansion
 - **Quality gates** — CI-embeddable threshold checks for recall, precision, F1, MRR with latency warnings
 - **Expansion gating** — weak BM25 seeds (below 10% of max) don't trigger graph expansion; score-relative file cutoff removes noise
@@ -57,14 +60,17 @@ uv add "archex[lsap]"               # LSP enrichment (Python 3.12+, lsp-client)
 
 ```bash
 uv add "archex[vector]"              # ONNX local embeddings (Nomic Code) — no GPU required
+uv add "archex[vector-fast]"         # FastEmbed embeddings — fast, no GPU
 uv add "archex[vector-torch]"        # Torch-backed sentence-transformers — GPU-accelerated
 ```
 
 **Other:**
 
 ```bash
+uv add "archex[graph]"               # igraph + leidenalg — faster Leiden module detection
+uv add "archex[web]"                 # FastAPI HTTP server (archex serve)
 uv add "archex[language-pack]"       # Fallback tree-sitter grammars
-uv add "archex[all]"                 # Everything
+uv add "archex[all]"                 # vector + graph + mcp + langchain + llamaindex + language-pack
 ```
 
 ## Quick Start
@@ -172,6 +178,9 @@ archex symbol ./my-project "src/auth/middleware.py::authenticate#function"
 # Compare two repositories
 archex compare ./project-a ./project-b --dimensions error_handling,api_surface --format markdown
 
+# Serve the HTTP API (analyze/query/compare/tree/symbol + benchmark endpoints)
+archex serve --host 127.0.0.1 --port 8080
+
 # Repo-local lifecycle
 archex init
 archex index --format json
@@ -224,7 +233,7 @@ The same cwd default applies to local-read commands where a URL cannot be inferr
 
 ## Agent Integration
 
-archex is designed to be called by coding agents. Three integration paths, ordered by depth:
+archex is designed to be called by coding agents. Four integration paths, ordered by depth:
 
 ### Shell Out (any agent)
 
@@ -296,6 +305,30 @@ bundle = query(
 agent_context = bundle.to_prompt(format="xml")
 ```
 
+### HTTP API (any language)
+
+Run `archex serve` to expose the same operations over HTTP — for agents and services that prefer REST over shelling out:
+
+```bash
+archex serve --port 8080
+```
+
+| Method & path             | Operation                                  |
+| ------------------------- | ------------------------------------------ |
+| `GET /health`             | Liveness check                             |
+| `POST /analyze`           | Architecture profile for a repo            |
+| `POST /query`             | Token-budget context bundle for a question |
+| `POST /compare`           | Cross-repo structural comparison           |
+| `GET /tree`               | Annotated file tree                        |
+| `GET /outline`            | Symbol outline for a file                  |
+| `GET /symbols`            | Symbol search                              |
+| `GET /symbol/{symbol_id}` | Full source for a symbol by stable ID      |
+| `GET /benchmark/results`  | Stored benchmark results                   |
+| `GET /benchmark/summary`  | Aggregate benchmark summary                |
+| `GET /benchmark/gate`     | Quality-gate status                        |
+
+FastAPI and uvicorn ship in the core install; the `archex[web]` extra pins the same dependencies. An optional `/dashboard` is served when its assets are present.
+
 ### When to Use archex
 
 **archex gives AI agents structural priors about codebases they've never seen.**
@@ -365,7 +398,7 @@ archex and an LSP MCP server can run as sibling tools, giving agents both struct
 
 #### Retrieval Quality
 
-`query()` retrieval quality measured against human-annotated expected files across 25 benchmark tasks (6 self-referential archex tasks + 19 external open-source repos). Token budget: 8,192. Strategy: BM25.
+`query()` retrieval quality is measured against human-annotated expected files. The benchmark corpus is 35 tasks (16 self-referential + 19 external); the table below reports the BM25 run over the original 25-task subset (6 self-referential + 19 external), captured before the self-task corpus expansion. Token budget: 8,192. Strategy: BM25.
 
 **Perfect recall (1.00):**
 
@@ -424,13 +457,13 @@ archex and an LSP MCP server can run as sibling tools, giving agents both struct
 | framework-semantic |     2 |   0.33 |      0.19 | 0.23 | 0.62 |
 | external-large     |     5 |   0.27 |      0.11 | 0.16 | 0.25 |
 
-> **How to read this:** Recall measures what fraction of expected files appear in the context bundle. Precision measures what fraction of returned chunks are from expected files (low by design — archex includes dependency-expanded context beyond the strict expected set). MRR measures how early the first relevant file appears in the ranked results (1.0 = first position). Raw results in [`benchmarks/results/`](benchmarks/results/).
+> **How to read this:** Recall measures what fraction of expected files appear in the context bundle. Precision measures what fraction of returned chunks are from expected files (low by design — archex includes dependency-expanded context beyond the strict expected set). MRR measures how early the first relevant file appears in the ranked results (1.0 = first position). Reproduce locally with `archex benchmark run`; per-task JSON is written to `benchmarks/results/` (gitignored).
 >
 > **Honest assessment:** archex excels at mid-size framework repos (80% recall for external-framework tasks) where BM25 keyword matching aligns well with file content and query vocabulary. Self-referential tasks and architecture-broad queries also perform well (MRR 0.83). The primary weakness is very large codebases (django, react, sqlalchemy) where BM25 alone cannot disambiguate generic vocabulary across hundreds of files — external-large recall drops to 27%. Precision remains structurally low because the 8K token budget packs dependency-expanded chunks beyond the strict expected set.
 
 #### Token Efficiency
 
-Token savings measured across 10 open-source repositories (from [`showcase_results.log`](showcase_results.log)) spanning Python, JavaScript, TypeScript, Go, and Rust — from 35 files to 2,332 files:
+Token savings measured across 10 open-source repositories spanning Python, JavaScript, TypeScript, Go, and Rust — from 35 files to 2,332 files:
 
 **`query()` — context retrieval (the operation agents use most):**
 
@@ -604,6 +637,18 @@ Start the MCP (Model Context Protocol) server for agent integration.
 
 Tools exposed: `analyze_repo`, `query_repo`, `compare_repos`, `get_file_tree`, `get_file_outline`, `search_symbols`, `get_symbol`, `get_symbols_batch`.
 
+### `archex serve`
+
+Start the HTTP API server (FastAPI + uvicorn).
+
+| Option     | Default     | Description                 |
+| ---------- | ----------- | --------------------------- |
+| `--host`   | `127.0.0.1` | Bind host                   |
+| `--port`   | `8080`      | Bind port                   |
+| `--reload` | off         | Auto-reload for development |
+
+Endpoints: `/health`, `/analyze`, `/query`, `/compare`, `/tree`, `/outline`, `/symbols`, `/symbol/{id}`, `/benchmark/results`, `/benchmark/summary`, `/benchmark/gate`, and an optional `/dashboard`.
+
 ### `archex cache <subcommand>`
 
 Manage the local analysis cache.
@@ -622,6 +667,8 @@ Benchmark retrieval strategies against real repositories.
 | ------------------ | ------------------------------------------------ |
 | `run`              | Run benchmarks across strategies                 |
 | `report`           | Generate formatted reports from results          |
+| `triage`           | Rank retrieval failures for a strategy           |
+| `readiness`        | Non-blocking retrieval readiness report          |
 | `gate`             | Check results against quality thresholds         |
 | `validate`         | Validate benchmark task definitions              |
 | `baseline save`    | Save current results as golden baseline          |
@@ -761,7 +808,7 @@ git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
 
-# Run tests (1541 tests, 92% coverage, 85% minimum enforced)
+# Run tests (1,928 tests, 85% minimum coverage enforced)
 uv run pytest
 
 # Lint and format
