@@ -365,7 +365,7 @@ archex and an LSP MCP server can run as sibling tools, giving agents both struct
 
 #### Retrieval Quality
 
-`query()` retrieval quality measured against human-annotated expected files across 25 benchmark tasks (6 self-referential archex tasks + 19 external open-source repos). Token budget: 8,192. Strategy: BM25.
+`query()` retrieval quality is measured against human-annotated expected files. The benchmark corpus is 35 tasks (16 self-referential + 19 external); the table below reports the BM25 run over the original 25-task subset (6 self-referential + 19 external), captured before the self-task corpus expansion. Token budget: 8,192. Strategy: BM25.
 
 **Perfect recall (1.00):**
 
@@ -424,13 +424,13 @@ archex and an LSP MCP server can run as sibling tools, giving agents both struct
 | framework-semantic |     2 |   0.33 |      0.19 | 0.23 | 0.62 |
 | external-large     |     5 |   0.27 |      0.11 | 0.16 | 0.25 |
 
-> **How to read this:** Recall measures what fraction of expected files appear in the context bundle. Precision measures what fraction of returned chunks are from expected files (low by design — archex includes dependency-expanded context beyond the strict expected set). MRR measures how early the first relevant file appears in the ranked results (1.0 = first position). Raw results in [`benchmarks/results/`](benchmarks/results/).
+> **How to read this:** Recall measures what fraction of expected files appear in the context bundle. Precision measures what fraction of returned chunks are from expected files (low by design — archex includes dependency-expanded context beyond the strict expected set). MRR measures how early the first relevant file appears in the ranked results (1.0 = first position). Reproduce locally with `archex benchmark run`; per-task JSON is written to `benchmarks/results/` (gitignored).
 >
 > **Honest assessment:** archex excels at mid-size framework repos (80% recall for external-framework tasks) where BM25 keyword matching aligns well with file content and query vocabulary. Self-referential tasks and architecture-broad queries also perform well (MRR 0.83). The primary weakness is very large codebases (django, react, sqlalchemy) where BM25 alone cannot disambiguate generic vocabulary across hundreds of files — external-large recall drops to 27%. Precision remains structurally low because the 8K token budget packs dependency-expanded chunks beyond the strict expected set.
 
 #### Token Efficiency
 
-Token savings measured across 10 open-source repositories (from [`showcase_results.log`](showcase_results.log)) spanning Python, JavaScript, TypeScript, Go, and Rust — from 35 files to 2,332 files:
+Token savings measured across 10 open-source repositories spanning Python, JavaScript, TypeScript, Go, and Rust — from 35 files to 2,332 files:
 
 **`query()` — context retrieval (the operation agents use most):**
 
@@ -761,7 +761,7 @@ git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
 
-# Run tests (1541 tests, 92% coverage, 85% minimum enforced)
+# Run tests (1,928 tests, 85% minimum coverage enforced)
 uv run pytest
 
 # Lint and format
