@@ -41,11 +41,11 @@ logger = logging.getLogger(__name__)
 
 _TYPE_LIKE = {SymbolKind.CLASS, SymbolKind.TYPE, SymbolKind.INTERFACE}
 
-# Direct imports (files the seed depends on) get a strong boost — same call chain.
-IMPORT_TARGET_DECAY = 0.65
+# Propagated relevance for imported files that were already admitted as expansion candidates.
+NEIGHBOR_IMPORT_TARGET_DECAY = 0.65
 
-# Importers (files that depend on the seed) get a weaker boost — consumers, not deps.
-IMPORTER_DECAY = 0.35
+# Propagated relevance for importer files that were already admitted as expansion candidates.
+NEIGHBOR_IMPORTER_DECAY = 0.35
 
 MIN_SCORE_RATIO = 0.30
 
@@ -479,12 +479,15 @@ def _neighbor_boosts(
             if dep in seed_files:
                 continue
             path_match = any(term in dep.lower() for term in query_terms)
-            decay = IMPORT_TARGET_DECAY * (1.3 if path_match else 1.0)
+            decay = NEIGHBOR_IMPORT_TARGET_DECAY * (1.3 if path_match else 1.0)
             boosts[dep] = max(boosts.get(dep, 0.0), seed_score * decay)
         for importer in graph.imported_by(file_path):
             if importer in seed_files:
                 continue
-            boosts[importer] = max(boosts.get(importer, 0.0), seed_score * IMPORTER_DECAY)
+            boosts[importer] = max(
+                boosts.get(importer, 0.0),
+                seed_score * NEIGHBOR_IMPORTER_DECAY,
+            )
     return boosts
 
 

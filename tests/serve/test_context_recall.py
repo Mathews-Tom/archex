@@ -126,7 +126,7 @@ def test_adaptive_max_files_returns_6_for_moderate_separation() -> None:
 
 
 def test_importer_file_included_with_higher_decay() -> None:
-    """Importer (consumer) files with IMPORTER_DECAY=0.35 survive cutoff."""
+    """Importer (consumer) files with NEIGHBOR_IMPORTER_DECAY=0.35 survive cutoff."""
     graph = DependencyGraph()
     graph.add_file_node("core.py")
     graph.add_file_node("consumer.py")
@@ -142,8 +142,8 @@ def test_importer_file_included_with_higher_decay() -> None:
 
 
 def test_importer_relevance_score_reflects_decay() -> None:
-    """Importer chunk gets relevance proportional to IMPORTER_DECAY."""
-    from archex.serve.context import IMPORTER_DECAY
+    """Importer chunk gets relevance proportional to NEIGHBOR_IMPORTER_DECAY."""
+    from archex.serve.context import NEIGHBOR_IMPORTER_DECAY
 
     graph = DependencyGraph()
     graph.add_file_node("seed.py")
@@ -154,8 +154,8 @@ def test_importer_relevance_score_reflects_decay() -> None:
     results = [(seed_chunk, 5.0)]
     bundle = assemble_context(results, graph, [seed_chunk, imp_chunk], "q", token_budget=1000)
     imp_rc = next(rc for rc in bundle.chunks if rc.chunk.file_path == "importer.py")
-    # Relevance should be seed_normalized * IMPORTER_DECAY = 1.0 * 0.35
-    assert abs(imp_rc.relevance_score - IMPORTER_DECAY) < 0.01
+    # Relevance should be seed_normalized * NEIGHBOR_IMPORTER_DECAY = 1.0 * 0.35
+    assert abs(imp_rc.relevance_score - NEIGHBOR_IMPORTER_DECAY) < 0.01
 
 
 # ---------------------------------------------------------------------------
