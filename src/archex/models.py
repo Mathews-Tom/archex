@@ -562,6 +562,8 @@ class RetrievalMetadata(BaseModel):
     fusion_vector_weight: float | None = None
     # Expansion diagnostics
     seed_files_found: int = 0
+    seed_file_paths: list[str] = []
+    expanded_file_paths: list[str] = []
     expansion_eligible_seeds: int = 0
     expansion_candidates_found: int = 0
     expansion_files_added: int = 0

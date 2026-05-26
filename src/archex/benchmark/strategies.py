@@ -412,6 +412,28 @@ def _archex_fields(
     # Seed vs expansion: candidates_found is a chunk count, while
     # seed_files_found is the file boundary for graph expansion diagnostics.
     meta = bundle.retrieval_metadata
+    if meta.seed_file_paths or meta.expanded_file_paths:
+        seed_files = list(meta.seed_file_paths)
+        expanded_files = list(meta.expanded_file_paths)
+        expansion_ratio = (
+            len(expanded_files) / len(seed_files) if seed_files else float(bool(expanded_files))
+        )
+        seed_recall_val = compute_recall(set(seed_files), task.expected_files)
+        seed_precision_val = compute_precision(set(seed_files), task.expected_files)
+        return _ArchexFields(
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            token_efficiency=token_efficiency,
+            tokens_raw_baseline=tokens_raw_baseline,
+            symbol_recall=symbol_recall,
+            unique_ranked_files=len(unique_files),
+            seed_files=seed_files,
+            expanded_files=expanded_files,
+            expansion_ratio=expansion_ratio,
+            seed_recall=seed_recall_val,
+            seed_precision=seed_precision_val,
+        )
+
     seed_file_count = meta.seed_files_found
 
     # Build seed file list from first `seed_file_count` unique chunk file paths.
