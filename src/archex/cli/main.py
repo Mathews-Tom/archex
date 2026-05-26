@@ -10,6 +10,7 @@ from archex.cli.benchmark_cmd import benchmark_cmd
 from archex.cli.cache_cmd import cache_cmd
 from archex.cli.compare_cmd import compare_cmd
 from archex.cli.dogfood_cmd import dogfood_cmd
+from archex.cli.graph_cmd import graph_cmd
 from archex.cli.index_cmd import index_cmd
 from archex.cli.init_cmd import init_cmd
 from archex.cli.mcp_cmd import mcp_cmd
@@ -43,6 +44,7 @@ cli.add_command(tree_cmd)
 cli.add_command(outline_cmd)
 cli.add_command(symbols_cmd)
 cli.add_command(symbol_cmd)
+cli.add_command(graph_cmd)
 
 
 if __name__ == "__main__":
