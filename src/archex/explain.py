@@ -48,14 +48,14 @@ class ExplainComplexity(BaseModel):
 class ExplainContext(BaseModel):
     target_type: ExplainTargetType
     target: str
-    graph_node_ids: list[str] = Field(default_factory=list)
-    files: list[str] = Field(default_factory=list)
-    public_interfaces: list[ExplainSymbol] = Field(default_factory=list)
-    internal_symbols: list[ExplainSymbol] = Field(default_factory=list)
-    imports: list[str] = Field(default_factory=list)
-    imported_by: list[str] = Field(default_factory=list)
-    module_files: list[str] = Field(default_factory=list)
-    direct_dependency_edges: list[tuple[str, str]] = Field(default_factory=list)
+    graph_node_ids: list[str] = []
+    files: list[str] = []
+    public_interfaces: list[ExplainSymbol] = []
+    internal_symbols: list[ExplainSymbol] = []
+    imports: list[str] = []
+    imported_by: list[str] = []
+    module_files: list[str] = []
+    direct_dependency_edges: list[tuple[str, str]] = []
     complexity: ExplainComplexity = Field(default_factory=ExplainComplexity)
 
     def to_json(self) -> str:
