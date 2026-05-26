@@ -12,6 +12,7 @@ from archex.cli.compare_cmd import compare_cmd
 from archex.cli.dogfood_cmd import dogfood_cmd
 from archex.cli.explain_cmd import explain_cmd
 from archex.cli.graph_cmd import graph_cmd
+from archex.cli.impact_cmd import impact_cmd
 from archex.cli.index_cmd import index_cmd
 from archex.cli.init_cmd import init_cmd
 from archex.cli.mcp_cmd import mcp_cmd
@@ -47,6 +48,7 @@ cli.add_command(symbols_cmd)
 cli.add_command(symbol_cmd)
 cli.add_command(graph_cmd)
 cli.add_command(explain_cmd)
+cli.add_command(impact_cmd)
 
 
 if __name__ == "__main__":
