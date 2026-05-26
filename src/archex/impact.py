@@ -33,16 +33,16 @@ class ImpactFileChange(BaseModel):
 
 class ImpactRisk(BaseModel):
     level: ImpactRiskLevel
-    reasons: list[str] = Field(default_factory=list)
+    reasons: list[str] = []
 
 
 class ImpactReport(BaseModel):
-    changed_files: list[ImpactFileChange] = Field(default_factory=list)
-    affected_files: list[str] = Field(default_factory=list)
-    affected_modules: list[str] = Field(default_factory=list)
-    affected_interfaces: list[str] = Field(default_factory=list)
-    affected_tests: list[str] = Field(default_factory=list)
-    unmapped_files: list[str] = Field(default_factory=list)
+    changed_files: list[ImpactFileChange] = []
+    affected_files: list[str] = []
+    affected_modules: list[str] = []
+    affected_interfaces: list[str] = []
+    affected_tests: list[str] = []
+    unmapped_files: list[str] = []
     risk: ImpactRisk = Field(default_factory=lambda: ImpactRisk(level=ImpactRiskLevel.LOW))
 
     def to_json(self) -> str:
