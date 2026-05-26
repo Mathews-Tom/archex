@@ -344,18 +344,14 @@ def _graph_node_by_id_or_label(
     node_type: GraphNodeType,
 ) -> GraphNode | None:
     matches = [
-        node
-        for node in graph.nodes
-        if node.type == node_type and target in {node.id, node.label}
+        node for node in graph.nodes if node.type == node_type and target in {node.id, node.label}
     ]
     return sorted(matches, key=lambda node: node.id)[0] if matches else None
 
 
 def _graph_symbol_nodes_for_file(graph: ArchGraph, file_path: str) -> list[GraphNode]:
     return [
-        node
-        for node in graph.nodes
-        if node.type == GraphNodeType.SYMBOL and node.path == file_path
+        node for node in graph.nodes if node.type == GraphNodeType.SYMBOL and node.path == file_path
     ]
 
 
