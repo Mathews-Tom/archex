@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -206,6 +205,7 @@ def _resolve_baseline_path(
     explicit_baseline: str | Path | None,
     output_dir: Path,
 ) -> Path | None:
+    del output_dir
     if explicit_baseline is not None:
         path = Path(explicit_baseline).expanduser()
         if not path.is_absolute():
@@ -214,12 +214,7 @@ def _resolve_baseline_path(
             raise ValueError(f"Dogfood baseline not found: {path}")
         return path
 
-    if os.environ.get("CI"):
-        ci_baseline = state.repo_root / DOGFOOD_BASELINE_PATH
-        return ci_baseline if ci_baseline.is_file() else None
-
-    local_baseline = output_dir / "baseline.json"
-    return local_baseline if local_baseline.is_file() else None
+    raise ValueError("Dogfood requires an explicit --baseline path")
 
 
 def _compare_to_baseline(
