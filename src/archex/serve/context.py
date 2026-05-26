@@ -911,6 +911,7 @@ def assemble_context(
         signal_agreement=signal_agreement,
         fusion_bm25_weight=fusion_bm25_weight,
         fusion_vector_weight=fusion_vector_weight,
+        seed_files_found=len(seed_files),
         expansion_eligible_seeds=expansion_eligible_seeds,
         expansion_candidates_found=len(expansion_priority),
         expansion_files_added=expansion_files_added,

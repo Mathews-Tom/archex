@@ -561,6 +561,7 @@ class RetrievalMetadata(BaseModel):
     fusion_bm25_weight: float | None = None
     fusion_vector_weight: float | None = None
     # Expansion diagnostics
+    seed_files_found: int = 0
     expansion_eligible_seeds: int = 0
     expansion_candidates_found: int = 0
     expansion_files_added: int = 0
