@@ -109,7 +109,7 @@ class GraphEdge(BaseModel):
 class GraphLayer(BaseModel):
     id: str
     name: str
-    node_ids: list[str] = Field(default_factory=list)
+    node_ids: list[str] = []
 
     @model_validator(mode="after")
     def _sort_node_ids(self) -> GraphLayer:
@@ -121,9 +121,9 @@ class ArchGraph(BaseModel):
     schema_version: GraphSchemaVersion = Field(default_factory=GraphSchemaVersion)
     project: GraphProject
     metadata: GraphExportMetadata
-    nodes: list[GraphNode] = Field(default_factory=list)
-    edges: list[GraphEdge] = Field(default_factory=list)
-    layers: list[GraphLayer] = Field(default_factory=list)
+    nodes: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+    layers: list[GraphLayer] = []
 
     @model_validator(mode="after")
     def _sort_collections(self) -> ArchGraph:
