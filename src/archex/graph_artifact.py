@@ -9,7 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from archex import __version__
 from archex.models import CodeChunk, Edge, EdgeKind
@@ -292,6 +292,19 @@ def assert_supported_schema_version(version: GraphSchemaVersion) -> None:
             f"Unsupported graph schema major version {version.major}; "
             f"supported major version is {SUPPORTED_GRAPH_SCHEMA_MAJOR}"
         )
+
+
+def load_arch_graph(path: Path) -> ArchGraph:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise GraphArtifactError(f"Failed to read graph artifact {path}: {exc}") from exc
+    try:
+        graph = ArchGraph.model_validate_json(raw)
+    except ValidationError as exc:
+        raise GraphArtifactError(f"Malformed graph artifact {path}: {exc}") from exc
+    assert_supported_schema_version(graph.schema_version)
+    return graph
 
 
 def _normalize_path(path: str) -> str:
