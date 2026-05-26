@@ -102,14 +102,19 @@ def _reading_order(
     max_files: int,
 ) -> list[str]:
     ordered: list[str] = []
-    for node in entry_nodes + interface_nodes + sorted(
-        file_nodes,
-        key=lambda item: (
-            -item.complexity.public_interface_count,
-            -item.complexity.import_fan_in,
-            item.path or item.label,
-        ),
-    ) + test_nodes:
+    for node in (
+        entry_nodes
+        + interface_nodes
+        + sorted(
+            file_nodes,
+            key=lambda item: (
+                -item.complexity.public_interface_count,
+                -item.complexity.import_fan_in,
+                item.path or item.label,
+            ),
+        )
+        + test_nodes
+    ):
         path = node.path or node.label
         if path not in ordered:
             ordered.append(path)
