@@ -6,6 +6,7 @@
 
 - Removed unused Personalized PageRank graph-expansion helpers. Measured candidate ordering showed no recall gain on `archex_graph_expansion` or the external-large benchmark bucket, and introduced a `rust_tokio_runtime` candidate-recall regression risk.
 - Corrected retrieval-pipeline documentation to describe the wired deterministic dependency expansion path instead of stale PPR wording.
+- Kept the fast vector benchmark default after a CodeRankEmbed full-suite run crossed six hours at task 19/35; CodeRankEmbed remains pinned and configurable as `embedder="coderank"` for targeted evaluation.
 
 ## 0.6.2 (2026-05-25)
 

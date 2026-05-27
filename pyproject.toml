@@ -44,7 +44,7 @@ graph = [
     "leidenalg>=0.10",
 ]
 vector-torch = [
-    "sentence-transformers>=2.6",
+    "sentence-transformers>=5.2,<6",
 ]
 splade = [
     "transformers>=4.30",
