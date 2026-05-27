@@ -278,6 +278,24 @@ def test_dogfood_compares_explicit_baseline(
     assert {regression.metric for regression in result.regressions} >= {"recall", "f1_score", "mrr"}
 
 
+def test_dogfood_resolves_relative_baseline_from_repo_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_git_repo(tmp_path)
+    _write_tasks(tmp_path)
+    baseline_path = _write_baseline(tmp_path)
+    monkeypatch.setattr("archex.dogfood.run_benchmark", _passing_report)
+
+    result = run_dogfood(
+        tmp_path,
+        task_id="archex_query_pipeline",
+        baseline_path=baseline_path.name,
+    )
+
+    assert result.baseline_path == baseline_path
+
+
 def test_dogfood_filters_diagnostic_strategy_regressions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

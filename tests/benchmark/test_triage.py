@@ -178,3 +178,24 @@ def test_format_triage_outputs_are_stable() -> None:
     payload = json.loads(format_triage_json(findings))
     assert payload[0]["task_id"] == "zero"
     assert payload[0]["failure_bucket"] == "zero_recall"
+
+
+def test_format_triage_json_serializes_expansion_diagnostics() -> None:
+    result = _result(
+        Strategy.ARCHEX_QUERY,
+        recall=1.0,
+        precision=0.2,
+        f1_score=0.33,
+        seed_files=["src/task.py"],
+        expanded_files=["src/worker.py", "src/noise.py"],
+    )
+    findings = triage_failures([_report("expanded", result)], {"expanded": _task("expanded")})
+
+    payload = json.loads(format_triage_json(findings))
+
+    assert payload[0]["task_id"] == "expanded"
+    assert payload[0]["returned_files"] == ["src/task.py", "src/worker.py", "src/noise.py"]
+    assert payload[0]["extra_files"] == ["src/noise.py"]
+    assert payload[0]["seed_files"] == ["src/task.py"]
+    assert payload[0]["expanded_files"] == ["src/worker.py", "src/noise.py"]
+    assert payload[0]["expansion_ratio"] == 0.5
