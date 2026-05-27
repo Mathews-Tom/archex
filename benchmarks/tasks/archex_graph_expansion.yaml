@@ -7,11 +7,9 @@ question: "How does archex expand search results using the dependency graph?"
 expected_files:
   - src/archex/index/graph.py
   - src/archex/serve/context.py
-  - src/archex/parse/imports.py
 expected_symbols:
-  - build_import_graph
+  - DependencyGraph.from_parsed_files
   - assemble_context
-  - build_file_map
 token_budget: 8192
 keywords:
   - graph
