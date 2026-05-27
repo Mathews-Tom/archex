@@ -87,6 +87,8 @@ class BenchmarkReport(BaseModel):
     question: str
     results: list[BenchmarkResult]
     baseline_tokens: int
+    median_latency_ms: float = 0.0
+    p95_latency_ms: float = 0.0
 
 
 # ---------------------------------------------------------------------------

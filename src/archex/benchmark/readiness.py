@@ -68,6 +68,8 @@ class ReadinessReport:
     mean_precision: float
     mean_f1_score: float
     mean_mrr: float
+    median_latency_ms: float
+    p95_latency_ms: float
     zero_recall_tasks: int
     low_f1_tasks: int
     low_precision_tasks: int
@@ -88,6 +90,8 @@ class ReadinessReport:
             "mean_precision": self.mean_precision,
             "mean_f1_score": self.mean_f1_score,
             "mean_mrr": self.mean_mrr,
+            "median_latency_ms": self.median_latency_ms,
+            "p95_latency_ms": self.p95_latency_ms,
             "zero_recall_tasks": self.zero_recall_tasks,
             "low_f1_tasks": self.low_f1_tasks,
             "low_precision_tasks": self.low_precision_tasks,
@@ -118,6 +122,8 @@ def build_readiness_report(
             mean_precision=0.0,
             mean_f1_score=0.0,
             mean_mrr=0.0,
+            median_latency_ms=0.0,
+            p95_latency_ms=0.0,
             zero_recall_tasks=0,
             low_f1_tasks=0,
             low_precision_tasks=0,
@@ -131,6 +137,8 @@ def build_readiness_report(
     mean_precision = _mean([result.precision for result in metric_results])
     mean_f1 = _mean([result.f1_score for result in metric_results])
     mean_mrr = _mean([result.mrr for result in metric_results])
+    median_latency_ms = _percentile([result.wall_time_ms for result in metric_results], 0.50)
+    p95_latency_ms = _percentile([result.wall_time_ms for result in metric_results], 0.95)
     zero_recall_tasks = sum(1 for result in metric_results if result.recall <= 0.0)
     low_f1_tasks = sum(1 for result in metric_results if result.f1_score < LOW_F1_THRESHOLD)
     low_precision_tasks = sum(
@@ -175,6 +183,8 @@ def build_readiness_report(
         mean_precision=mean_precision,
         mean_f1_score=mean_f1,
         mean_mrr=mean_mrr,
+        median_latency_ms=median_latency_ms,
+        p95_latency_ms=p95_latency_ms,
         zero_recall_tasks=zero_recall_tasks,
         low_f1_tasks=low_f1_tasks,
         low_precision_tasks=low_precision_tasks,
@@ -210,6 +220,8 @@ def format_readiness_markdown(report: ReadinessReport) -> str:
         f"- Mean precision: `{report.mean_precision:.3f}`\n"
         f"- Mean F1: `{report.mean_f1_score:.3f}`\n"
         f"- Mean MRR: `{report.mean_mrr:.3f}`\n"
+        f"- Median latency: `{report.median_latency_ms:.0f} ms`\n"
+        f"- P95 latency: `{report.p95_latency_ms:.0f} ms`\n"
         f"- Zero-recall tasks: `{report.zero_recall_tasks}`\n"
         f"- Tasks below F1 {LOW_F1_THRESHOLD:.2f}: `{report.low_f1_tasks}`\n"
         f"- Tasks below precision {LOW_PRECISION_THRESHOLD:.2f}: `{report.low_precision_tasks}`"
@@ -293,6 +305,19 @@ def _category(
 
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
 
 def _format_number(value: float | int) -> str:

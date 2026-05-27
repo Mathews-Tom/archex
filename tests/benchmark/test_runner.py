@@ -53,6 +53,8 @@ class TestRunBenchmark:
         assert report.task_id == "fixture_test"
         assert report.repo == "test/python_simple"
         assert len(report.results) == 2
+        assert report.median_latency_ms > 0
+        assert report.p95_latency_ms >= report.median_latency_ms
 
     def test_baseline_tokens_from_raw_files(
         self,

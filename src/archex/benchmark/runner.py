@@ -198,6 +198,14 @@ def run_benchmark(
             question=task.question,
             results=results,
             baseline_tokens=baseline_tokens,
+            median_latency_ms=_percentile(
+                [result.wall_time_ms for result in results],
+                0.50,
+            ),
+            p95_latency_ms=_percentile(
+                [result.wall_time_ms for result in results],
+                0.95,
+            ),
         )
     finally:
         if needs_cleanup:
@@ -247,3 +255,16 @@ def run_all(
             print(f"  - {task_id}: {detail}", file=sys.stderr)
 
     return reports
+
+
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction

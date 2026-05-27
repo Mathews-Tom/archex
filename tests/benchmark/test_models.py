@@ -131,6 +131,8 @@ class TestBenchmarkReport:
         )
         assert report.baseline_tokens == 5000
         assert report.results == []
+        assert report.median_latency_ms == 0.0
+        assert report.p95_latency_ms == 0.0
 
     def test_serialization_roundtrip(self) -> None:
         result = BenchmarkResult(
@@ -158,3 +160,5 @@ class TestBenchmarkReport:
         assert restored.task_id == report.task_id
         assert len(restored.results) == 1
         assert restored.results[0].strategy == Strategy.RAW_FILES
+        assert restored.median_latency_ms == 0.0
+        assert restored.p95_latency_ms == 0.0
