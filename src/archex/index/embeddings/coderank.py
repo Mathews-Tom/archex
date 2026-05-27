@@ -11,6 +11,7 @@ from archex.exceptions import ArchexIndexError
 logger = logging.getLogger(__name__)
 
 HF_MODEL_ID = "nomic-ai/CodeRankEmbed"
+HF_MODEL_REVISION = "3c4b60807d71f79b43f3c4363786d9493691f8b1"
 QUERY_PREFIX = "Represent this query for searching relevant code: "
 
 
@@ -69,7 +70,12 @@ class CodeRankEmbedder:
             file=sys.stderr,
             flush=True,
         )
-        self._model = SentenceTransformer(self._model_name, trust_remote_code=True, device=device)
+        self._model = SentenceTransformer(
+            self._model_name,
+            revision=HF_MODEL_REVISION if self._model_name == HF_MODEL_ID else None,
+            trust_remote_code=True,
+            device=device,
+        )
         self._dimension = self._model.get_sentence_embedding_dimension()
         logger.info(
             "Loaded %s via sentence-transformers on %s (dim=%d)",

@@ -293,7 +293,7 @@ requires-dist = [
     { name = "python-igraph", marker = "extra == 'graph'", specifier = ">=0.11" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
-    { name = "sentence-transformers", marker = "extra == 'vector-torch'", specifier = ">=2.6" },
+    { name = "sentence-transformers", marker = "extra == 'vector-torch'", specifier = ">=5.2,<6" },
     { name = "tiktoken", specifier = ">=0.7" },
     { name = "tokenizers", marker = "extra == 'vector'", specifier = ">=0.15" },
     { name = "torch", marker = "extra == 'splade'", specifier = ">=2.0" },
