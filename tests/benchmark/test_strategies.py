@@ -9,6 +9,7 @@ import pytest
 
 from archex.benchmark.models import BenchmarkTask, Strategy
 from archex.benchmark.strategies import (
+    _archex_fields,  # pyright: ignore[reportPrivateUsage]
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
     compute_map,
     compute_mrr,
@@ -28,6 +29,7 @@ from archex.benchmark.strategies import (
     run_raw_grepped,
     run_surrogate_vector,
 )
+from archex.models import CodeChunk, ContextBundle, RankedChunk, RetrievalMetadata
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -43,6 +45,19 @@ def sample_task() -> BenchmarkTask:
         expected_files=["main.py", "services/auth.py"],
         keywords=["auth", "login"],
     )
+
+
+def _ranked_chunk(chunk_id: str, file_path: str, *, score: float) -> RankedChunk:
+    chunk = CodeChunk(
+        id=chunk_id,
+        content=f"content for {file_path}",
+        file_path=file_path,
+        start_line=1,
+        end_line=1,
+        language="python",
+        token_count=4,
+    )
+    return RankedChunk(chunk=chunk, final_score=score)
 
 
 class TestComputeRecall:
@@ -321,6 +336,79 @@ class TestRunArchexQuery:
         assert result.tokens_input >= 0
         assert result.tokens_output >= 0
         assert result.tokens_raw_baseline >= 0
+
+    def test_expanded_files_split_uses_file_count_boundary(self, tmp_path: Path) -> None:
+        for file_path in ("seed_a.py", "seed_b.py", "expanded_a.py", "expanded_b.py"):
+            (tmp_path / file_path).write_text("print('x')\n", encoding="utf-8")
+        bundle = ContextBundle(
+            query="How does graph expansion work?",
+            chunks=[
+                _ranked_chunk("seed-a-1", "seed_a.py", score=1.0),
+                _ranked_chunk("seed-a-2", "seed_a.py", score=0.9),
+                _ranked_chunk("seed-b-1", "seed_b.py", score=0.8),
+                _ranked_chunk("expanded-a-1", "expanded_a.py", score=0.7),
+                _ranked_chunk("expanded-b-1", "expanded_b.py", score=0.6),
+            ],
+            token_count=20,
+            token_budget=100,
+            retrieval_metadata=RetrievalMetadata(
+                candidates_found=3,
+                candidates_after_expansion=5,
+                seed_files_found=2,
+                expansion_files_added=2,
+            ),
+        )
+        task = BenchmarkTask(
+            task_id="archex_graph_expansion",
+            repo="Mathews-Tom/archex",
+            commit="abc",
+            question="How does graph expansion work?",
+            expected_files=["expanded_a.py"],
+        )
+
+        fields = _archex_fields(bundle, task, tmp_path)
+
+        assert fields.seed_files == ["seed_a.py", "seed_b.py"]
+        assert fields.expanded_files == ["expanded_a.py", "expanded_b.py"]
+        assert fields.expansion_ratio == 1.0
+        assert fields.seed_recall == 0.0
+
+    def test_expanded_files_uses_metadata_paths_when_expansion_is_not_included(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        for file_path in ("seed_a.py", "seed_b.py", "expanded_a.py", "expanded_b.py"):
+            (tmp_path / file_path).write_text("print('x')\n", encoding="utf-8")
+        bundle = ContextBundle(
+            query="How does graph expansion work?",
+            chunks=[
+                _ranked_chunk("seed-a-1", "seed_a.py", score=1.0),
+                _ranked_chunk("seed-b-1", "seed_b.py", score=0.8),
+            ],
+            token_count=8,
+            token_budget=100,
+            retrieval_metadata=RetrievalMetadata(
+                candidates_found=2,
+                candidates_after_expansion=4,
+                seed_files_found=2,
+                seed_file_paths=["seed_a.py", "seed_b.py"],
+                expanded_file_paths=["expanded_a.py", "expanded_b.py"],
+                expansion_files_added=2,
+            ),
+        )
+        task = BenchmarkTask(
+            task_id="archex_graph_expansion",
+            repo="Mathews-Tom/archex",
+            commit="abc",
+            question="How does graph expansion work?",
+            expected_files=["expanded_a.py"],
+        )
+
+        fields = _archex_fields(bundle, task, tmp_path)
+
+        assert fields.seed_files == ["seed_a.py", "seed_b.py"]
+        assert fields.expanded_files == ["expanded_a.py", "expanded_b.py"]
+        assert fields.expansion_ratio == 1.0
 
 
 class _StubEmbedder:

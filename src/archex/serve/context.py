@@ -392,6 +392,17 @@ def _initial_candidate_map(
     return candidate_map
 
 
+def _unique_file_paths(results: list[tuple[CodeChunk, float]]) -> list[str]:
+    seen: set[str] = set()
+    paths: list[str] = []
+    for chunk, _ in results:
+        if chunk.file_path in seen:
+            continue
+        seen.add(chunk.file_path)
+        paths.append(chunk.file_path)
+    return paths
+
+
 def _hop2_expansion_priority(expansion: _Hop2Expansion) -> dict[str, float]:
     hop1_files = set(expansion.hop1_files_added)
     hop2_priority: dict[str, float] = {}
@@ -406,11 +417,11 @@ def _hop2_expansion_priority(expansion: _Hop2Expansion) -> dict[str, float]:
     return hop2_priority
 
 
-def _add_hop2_expansion(expansion: _Hop2Expansion) -> int:
+def _add_hop2_expansion(expansion: _Hop2Expansion) -> list[str]:
     hop2_priority = _hop2_expansion_priority(expansion)
-    hop2_added = 0
+    hop2_files_added: list[str] = []
     for file_path in sorted(hop2_priority.keys(), key=lambda f: -hop2_priority[f]):
-        if hop2_added >= expansion.remaining_budget:
+        if len(hop2_files_added) >= expansion.remaining_budget:
             break
         if _is_test_file(file_path):
             continue
@@ -421,14 +432,14 @@ def _add_hop2_expansion(expansion: _Hop2Expansion) -> int:
             max_per_file=expansion.max_per_file,
         )
         if added > 0:
-            hop2_added += 1
+            hop2_files_added.append(file_path)
 
     logger.debug(
         "graph_expansion 2-hop: arch_query=True, hop2_candidates=%d, hop2_added=%d",
         len(hop2_priority),
-        hop2_added,
+        len(hop2_files_added),
     )
-    return hop2_added
+    return hop2_files_added
 
 
 def _dependency_subgraph(
@@ -566,7 +577,8 @@ def assemble_context(
     # When fusion is skipped, exclude vector results from seeds to avoid noise
     effective_vector = vector_results if (vector_results and not fusion_skipped) else []
     all_results = search_results + effective_vector
-    seed_files: set[str] = {chunk.file_path for chunk, _ in all_results}
+    seed_file_paths = _unique_file_paths(all_results)
+    seed_files: set[str] = set(seed_file_paths)
 
     candidates_found = len(search_results)
 
@@ -673,6 +685,7 @@ def assemble_context(
     candidate_map = _initial_candidate_map(search_results, vector_results)
     expansion_files_added = 0
     hop1_files_added: list[str] = []
+    expanded_file_paths: list[str] = []
     for file_path in sorted_expansion:
         if _is_test_file(file_path):
             continue
@@ -685,6 +698,7 @@ def assemble_context(
         if added > 0:
             expansion_files_added += 1
             hop1_files_added.append(file_path)
+            expanded_file_paths.append(file_path)
         if expansion_files_added >= MAX_EXPANSION_FILES:
             break
 
@@ -692,7 +706,7 @@ def assemble_context(
     if is_arch_query and hop1_files_added:
         remaining_budget = MAX_EXPANSION_FILES - expansion_files_added
         if remaining_budget > 0:
-            expansion_files_added += _add_hop2_expansion(
+            hop2_files_added = _add_hop2_expansion(
                 _Hop2Expansion(
                     graph=graph,
                     candidate_map=candidate_map,
@@ -705,6 +719,8 @@ def assemble_context(
                     max_per_file=max_per_file,
                 )
             )
+            expansion_files_added += len(hop2_files_added)
+            expanded_file_paths.extend(hop2_files_added)
 
     candidates_after_expansion = len(candidate_map)
 
@@ -911,6 +927,9 @@ def assemble_context(
         signal_agreement=signal_agreement,
         fusion_bm25_weight=fusion_bm25_weight,
         fusion_vector_weight=fusion_vector_weight,
+        seed_files_found=len(seed_file_paths),
+        seed_file_paths=seed_file_paths,
+        expanded_file_paths=expanded_file_paths,
         expansion_eligible_seeds=expansion_eligible_seeds,
         expansion_candidates_found=len(expansion_priority),
         expansion_files_added=expansion_files_added,

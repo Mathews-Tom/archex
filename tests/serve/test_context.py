@@ -377,6 +377,29 @@ def test_signal_agreement_none_without_vector() -> None:
     assert bundle.retrieval_metadata.signal_agreement is None
 
 
+def test_expansion_metadata_records_seed_and_expanded_file_paths() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("seed.py")
+    graph.add_file_node("expanded.py")
+    graph.add_file_edge("seed.py", "expanded.py", kind="imports")
+    seed_chunk = make_chunk("seed", "seed.py", token_count=10)
+    expanded_chunk = make_chunk("expanded", "expanded.py", token_count=10)
+
+    bundle = assemble_context(
+        [(seed_chunk, 5.0)],
+        graph,
+        [seed_chunk, expanded_chunk],
+        "graph expansion",
+        token_budget=1000,
+    )
+
+    meta = bundle.retrieval_metadata
+    assert meta.seed_files_found == 1
+    assert meta.seed_file_paths == ["seed.py"]
+    assert meta.expanded_file_paths == ["expanded.py"]
+    assert meta.expansion_files_added == 1
+
+
 def test_ranked_chunk_carries_cohesion_score() -> None:
     """RankedChunk has cohesion_score field."""
     from archex.models import RankedChunk

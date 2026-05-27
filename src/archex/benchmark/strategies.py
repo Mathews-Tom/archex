@@ -409,23 +409,45 @@ def _archex_fields(
     result_symbols = {c.chunk.symbol_name for c in bundle.chunks if c.chunk.symbol_name}
     symbol_recall = compute_symbol_recall(result_symbols, task.expected_symbols)
 
-    # Seed vs expansion: candidates_found is the BM25 seed count,
-    # candidates_after_expansion includes graph-expanded chunks.
+    # Seed vs expansion: candidates_found is a chunk count, while
+    # seed_files_found is the file boundary for graph expansion diagnostics.
     meta = bundle.retrieval_metadata
-    seed_count = meta.candidates_found
+    if meta.seed_file_paths or meta.expanded_file_paths:
+        seed_files = list(meta.seed_file_paths)
+        expanded_files = list(meta.expanded_file_paths)
+        expansion_ratio = (
+            len(expanded_files) / len(seed_files) if seed_files else float(bool(expanded_files))
+        )
+        seed_recall_val = compute_recall(set(seed_files), task.expected_files)
+        seed_precision_val = compute_precision(set(seed_files), task.expected_files)
+        return _ArchexFields(
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            token_efficiency=token_efficiency,
+            tokens_raw_baseline=tokens_raw_baseline,
+            symbol_recall=symbol_recall,
+            unique_ranked_files=len(unique_files),
+            seed_files=seed_files,
+            expanded_files=expanded_files,
+            expansion_ratio=expansion_ratio,
+            seed_recall=seed_recall_val,
+            seed_precision=seed_precision_val,
+        )
 
-    # Build seed file list from first `seed_count` unique chunk file paths
+    seed_file_count = meta.seed_files_found
+
+    # Build seed file list from first `seed_file_count` unique chunk file paths.
     all_chunk_files = [c.chunk.file_path for c in bundle.chunks]
     seen: set[str] = set()
     seed_files: list[str] = []
     expanded_files: list[str] = []
-    # Chunks are ordered by score; first seed_count entries in candidate_map
-    # correspond to BM25 seeds. We use unique_files order as proxy.
+    # Chunks are ordered by score; unique file order is the observable boundary
+    # preserved in benchmark results.
     seed_file_set: set[str] = set()
     for fp in all_chunk_files:
         if fp not in seen:
             seen.add(fp)
-            if len(seed_file_set) < seed_count:
+            if len(seed_file_set) < seed_file_count:
                 seed_files.append(fp)
                 seed_file_set.add(fp)
             else:
