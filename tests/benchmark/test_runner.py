@@ -418,6 +418,78 @@ expected_files:
         assert (output_dir / "test_all.json").exists()
         assert not (output_dir / "bad_clone.json").exists()
 
+    def test_run_all_reuses_external_clone_for_same_repo_ref(
+        self,
+        python_simple_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        from archex.benchmark.runner import run_all
+
+        tasks_dir = self._make_tasks_dir(tmp_path)
+        (tasks_dir / "other.yaml").write_text("""\
+task_id: other_task
+repo: test/repo
+commit: HEAD
+question: "Other?"
+expected_files:
+  - main.py
+""")
+        output_dir = tmp_path / "results"
+
+        import archex.benchmark.runner as runner_mod
+
+        clone_calls: list[tuple[str, str]] = []
+        original = runner_mod.clone_at_commit
+
+        def _fake_clone(repo_slug: str, commit: str) -> tuple[Path, bool]:
+            clone_calls.append((repo_slug, commit))
+            return python_simple_repo, False
+
+        runner_mod.clone_at_commit = _fake_clone  # type: ignore[assignment]
+        try:
+            reports = run_all(
+                tasks_dir=tasks_dir,
+                output_dir=output_dir,
+                strategies=[Strategy.RAW_FILES],
+            )
+        finally:
+            runner_mod.clone_at_commit = original  # type: ignore[assignment]
+
+        assert {report.task_id for report in reports} == {"test_all", "other_task"}
+        assert clone_calls == [("test/repo", "HEAD")]
+
+    def test_run_all_cleans_reused_external_clone(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from archex.benchmark.runner import run_all
+
+        tasks_dir = self._make_tasks_dir(tmp_path)
+        output_dir = tmp_path / "results"
+        clone_dir = tmp_path / "clone"
+        clone_dir.mkdir()
+        (clone_dir / "main.py").write_text("x = 1\n")
+
+        import archex.benchmark.runner as runner_mod
+
+        original = runner_mod.clone_at_commit
+
+        def _fake_clone(repo_slug: str, commit: str) -> tuple[Path, bool]:
+            del repo_slug, commit
+            return clone_dir, True
+
+        runner_mod.clone_at_commit = _fake_clone  # type: ignore[assignment]
+        try:
+            run_all(
+                tasks_dir=tasks_dir,
+                output_dir=output_dir,
+                strategies=[Strategy.RAW_FILES],
+            )
+        finally:
+            runner_mod.clone_at_commit = original  # type: ignore[assignment]
+
+        assert not clone_dir.exists()
+
     def test_task_filter_nonexistent_raises(self, tmp_path: Path) -> None:
         from archex.benchmark.runner import run_all
 
