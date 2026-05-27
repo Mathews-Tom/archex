@@ -10,6 +10,7 @@ from archex.benchmark.loader import load_tasks
 ROOT = Path(__file__).resolve().parents[2]
 TASKS_DIR = ROOT / "benchmarks" / "tasks"
 HELD_OUT_PATH = ROOT / "benchmarks" / "held_out.txt"
+CI_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _held_out_ids() -> list[str]:
@@ -35,3 +36,12 @@ def test_held_out_set_mixes_self_and_external_tasks() -> None:
 
     assert any(task.repo == "." for task in held_out_tasks)
     assert any(task.repo != "." for task in held_out_tasks)
+
+
+def test_ci_rejects_task_id_keyed_source_branches() -> None:
+    workflow = CI_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "Reject task-ID-keyed retrieval code" in workflow
+    assert "grep -rE" in workflow
+    assert r'task_id\s*==\s*"' in workflow
+    assert "src/archex" in workflow
