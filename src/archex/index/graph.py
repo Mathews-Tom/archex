@@ -241,67 +241,6 @@ class DependencyGraph:
         self._centrality_cache = {str(k): v for k, v in raw.items()}
         return self._centrality_cache
 
-    def personalized_pagerank(
-        self,
-        seed_scores: dict[str, float],
-        alpha: float = 0.85,
-    ) -> dict[str, float]:
-        """Run Personalized PageRank seeded from BM25/vector results.
-
-        Returns file→score dict. Files structurally reachable from multiple
-        seeds converge to high scores; isolated wrong seeds decay.
-
-        Args:
-            seed_scores: Mapping of file paths to their retrieval scores.
-                Used as the personalization vector for PageRank.
-            alpha: Damping factor. Higher values bias toward seeds;
-                lower values explore the full graph structure.
-        """
-        if not seed_scores or self._file_graph.number_of_nodes() == 0:  # type: ignore[misc]
-            return {}
-
-        # Filter to nodes that exist in graph
-        personalization = {
-            node: score
-            for node, score in seed_scores.items()
-            if self._file_graph.has_node(node)  # type: ignore[misc]
-        }
-        if not personalization:
-            return {}
-
-        raw: dict[Any, float] = nx.pagerank(
-            self._file_graph,
-            personalization=personalization,
-            alpha=alpha,
-        )  # type: ignore[misc]
-        return {str(k): v for k, v in raw.items()}
-
-    def normalized_pagerank(
-        self,
-        seed_scores: dict[str, float],
-        alpha: float = 0.85,
-    ) -> dict[str, float]:
-        """PPR normalized by global PageRank to suppress universally central files.
-
-        score = ppr_score * log(1 / (1e-6 + global_pr_score))
-
-        Penalizes __init__.py, index.ts — structurally central but not
-        query-relevant. Derived from Sweep's TF-IDF PageRank normalization.
-
-        Args:
-            seed_scores: Mapping of file paths to their retrieval scores.
-            alpha: Damping factor for the personalized PageRank.
-        """
-        import math
-
-        ppr = self.personalized_pagerank(seed_scores, alpha=alpha)
-        global_pr = self.structural_centrality()
-
-        return {
-            node: score * math.log(1.0 / (1e-6 + global_pr.get(node, 0.0)))
-            for node, score in ppr.items()
-        }
-
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
