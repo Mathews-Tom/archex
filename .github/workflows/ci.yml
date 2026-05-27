@@ -38,6 +38,10 @@ jobs:
       - name: Type check
         run: uv run pyright .
 
+      - name: Reject task-ID-keyed retrieval code
+        run: |
+          ! grep -rE 'task_id\s*==\s*"' src/archex
+
       - name: Test
         run: uv run pytest --junitxml=results.xml --cov-report=xml
 
