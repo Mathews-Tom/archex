@@ -300,6 +300,8 @@ class TestCodeRankEmbedder:
         import numpy as np
 
         from archex.index.embeddings.coderank import (
+            HF_MODEL_ID,
+            HF_MODEL_REVISION,
             QUERY_PREFIX,
             CodeRankEmbedder,
         )
@@ -310,10 +312,19 @@ class TestCodeRankEmbedder:
         mock_model.encode.return_value = np.array([[0.1] * 768])
         mock_st_module.SentenceTransformer.return_value = mock_model
 
-        with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
+        with (
+            patch.dict("sys.modules", {"sentence_transformers": mock_st_module}),
+            patch("archex.index.embeddings.coderank._best_device", return_value="cpu"),
+        ):
             embedder = CodeRankEmbedder()
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
+        mock_st_module.SentenceTransformer.assert_called_once_with(
+            HF_MODEL_ID,
+            revision=HF_MODEL_REVISION,
+            trust_remote_code=True,
+            device="cpu",
+        )
         query = "find authentication function"
         embedder.encode_queries([query])
 
