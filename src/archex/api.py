@@ -668,8 +668,9 @@ def _file_path_boost(
 
     Terms are searched longest-first (from _extract_path_terms) so specific terms
     like "validators" get priority over generic ones like "pydantic". Boost score
-    is 0.5× max BM25 so path-matched chunks compete without dominating. Per-file
-    caps prevent one matching directory from flooding file-level aggregation.
+    is max BM25 multiplied by _path_match_multiplier: 0.85 for stem/basename
+    matches, 0.70 for path segment matches, and 0.45 for substring matches.
+    Per-file caps prevent one matching directory from flooding file-level aggregation.
     """
     terms = _extract_path_terms(question)
     boosted: list[tuple[CodeChunk, float]] = []
