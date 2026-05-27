@@ -854,7 +854,14 @@ def assemble_context(
     score_cutoff = top_file_score * FILE_SCORE_CUTOFF
     top_files: set[str] = set()
     adaptive_max = _adaptive_max_files(sorted_files)
-    if intent == QueryIntent.CLI:
+    if intent == QueryIntent.CLI or q_terms & {
+        "graph",
+        "dependency",
+        "dependencies",
+        "import",
+        "imports",
+        "edges",
+    }:
         adaptive_max = min(adaptive_max, 4)
     for fp, score in sorted_files[:adaptive_max]:
         if score < score_cutoff:

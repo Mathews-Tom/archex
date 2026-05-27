@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Removed unused Personalized PageRank graph-expansion helpers. Measured candidate ordering showed no recall gain on `archex_graph_expansion` or the external-large benchmark bucket, and introduced a `rust_tokio_runtime` candidate-recall regression risk.
+- Corrected retrieval-pipeline documentation to describe the wired deterministic dependency expansion path instead of stale PPR wording.
+
 ## 0.6.2 (2026-05-25)
 
 ### Removed
@@ -21,13 +28,13 @@ BREAKING CHANGE: the `archex serve` command and the `archex.serve.create_app` HT
 
 ### Docs
 
-- Refreshed the README to the current system: documented the `archex serve` HTTP API and its endpoints, the wired retrieval pipeline (BM25F, confidence-weighted RRF + adaptive RSF behind an AvgIDF fusion gate, intent-based weight routing, Personalized PageRank expansion, opt-in `cross-encoder/ms-marco-MiniLM` reranking), the `vector-fast` and `graph` extras, and the `benchmark triage`/`readiness` subcommands. Corrected stale benchmark-task and test counts and removed dead links to gitignored artifacts.
+- Refreshed the README to the current system: documented the `archex serve` HTTP API and its endpoints, the wired retrieval pipeline (BM25F, confidence-weighted RRF + adaptive RSF behind an AvgIDF fusion gate, intent-based weight routing, deterministic dependency expansion, opt-in `cross-encoder/ms-marco-MiniLM` reranking), the `vector-fast` and `graph` extras, and the `benchmark triage`/`readiness` subcommands. Corrected stale benchmark-task and test counts and removed dead links to gitignored artifacts.
 
 ## 0.6.0 (2026-05-21)
 
 ### Removed — LLM dependencies (breaking)
 
-archex is now fully local, fully deterministic, no API keys, no per-query cost. All LLM-dependent surfaces have been removed from the core. This is a deliberate scope correction: the structural and retrieval-quality engineering (BM25F, vector embeddings, RRF/RSF fusion, cross-encoder reranking, PPR graph expansion, intent classification) was already at or above the measured contribution of the LLM lanes for most tasks, and the LLM lanes imposed adoption friction that did not pay back.
+archex is now fully local, fully deterministic, no API keys, no per-query cost. All LLM-dependent surfaces have been removed from the core. This is a deliberate scope correction: the structural and retrieval-quality engineering (BM25F, vector embeddings, RRF/RSF fusion, cross-encoder reranking, dependency expansion, intent classification) was already at or above the measured contribution of the LLM lanes for most tasks, and the LLM lanes imposed adoption friction that did not pay back.
 
 **Deleted from the codebase:**
 
@@ -55,7 +62,7 @@ archex is now fully local, fully deterministic, no API keys, no per-query cost. 
 
 - Cross-encoder reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`) — local sentence-transformers model, not an LLM API.
 - Vector embeddings (FastEmbed, CodeRankEmbed) — local ONNX/Torch.
-- All structural analysis (Louvain modules, pattern catalog, interface extraction, dependency graph + PPR expansion).
+- All structural analysis (Louvain modules, pattern catalog, interface extraction, dependency graph expansion).
 - The full 25-task benchmark corpus, now runnable end-to-end with zero API calls.
 
 ### Added — Per-dimension compare templates
