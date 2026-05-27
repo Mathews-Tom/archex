@@ -54,23 +54,48 @@ expected_symbols: []
     return tasks_dir
 
 
-def _write_baseline(path: Path, *, recall: float = 1.0) -> Path:
+def _write_baseline(
+    path: Path,
+    *,
+    recall: float = 1.0,
+    include_diagnostics: bool = False,
+) -> Path:
     baseline_path = path / "baseline.json"
-    baseline = Baseline(
-        entries=[
-            BaselineEntry(
-                task_id="archex_query_pipeline",
-                strategy=Strategy.ARCHEX_QUERY.value,
-                recall=recall,
-                precision=1.0,
-                f1_score=recall,
-                mrr=recall,
-                ndcg=recall,
-                map_score=recall,
-                token_efficiency=recall,
-            )
-        ]
-    )
+    entries = [
+        BaselineEntry(
+            task_id="archex_query_pipeline",
+            strategy=Strategy.ARCHEX_QUERY.value,
+            recall=recall,
+            precision=1.0,
+            f1_score=recall,
+            mrr=recall,
+            ndcg=recall,
+            map_score=recall,
+            token_efficiency=recall,
+        )
+    ]
+    if include_diagnostics:
+        entries.extend(
+            [
+                BaselineEntry(
+                    task_id="archex_query_pipeline",
+                    strategy=Strategy.RAW_FILES.value,
+                    recall=1.0,
+                    precision=1.0,
+                    f1_score=1.0,
+                    mrr=1.0,
+                ),
+                BaselineEntry(
+                    task_id="archex_query_pipeline",
+                    strategy=Strategy.RAW_GREPPED.value,
+                    recall=1.0,
+                    precision=1.0,
+                    f1_score=1.0,
+                    mrr=1.0,
+                ),
+            ]
+        )
+    baseline = Baseline(entries=entries)
     baseline_path.write_text(baseline.model_dump_json(indent=2), encoding="utf-8")
     return baseline_path
 
@@ -121,6 +146,28 @@ def _passing_report(
 ) -> BenchmarkReport:
     del strategies, repo_path
     return _report(task)
+
+
+def _diagnostic_regressing_report(
+    task: BenchmarkTask,
+    strategies: list[Strategy] | None = None,
+    repo_path: Path | None = None,
+) -> BenchmarkReport:
+    del strategies, repo_path
+    report = _report(task)
+    diagnostic_result = report.results[0].model_copy(
+        update={
+            "strategy": Strategy.RAW_GREPPED,
+            "recall": 0.0,
+            "precision": 0.0,
+            "f1_score": 0.0,
+            "mrr": 0.0,
+            "ndcg": 0.0,
+            "map_score": 0.0,
+            "token_efficiency": 0.0,
+        }
+    )
+    return report.model_copy(update={"results": [diagnostic_result, *report.results]})
 
 
 def test_dogfood_runs_self_tasks_and_writes_reports(
@@ -229,6 +276,28 @@ def test_dogfood_compares_explicit_baseline(
     assert result.baseline_path == baseline_path
     assert result.regressions
     assert {regression.metric for regression in result.regressions} >= {"recall", "f1_score", "mrr"}
+
+
+def test_dogfood_filters_diagnostic_strategy_regressions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_git_repo(tmp_path)
+    _write_tasks(tmp_path)
+    baseline_path = _write_baseline(tmp_path, include_diagnostics=True)
+    monkeypatch.setattr("archex.dogfood.run_benchmark", _diagnostic_regressing_report)
+
+    result = run_dogfood(tmp_path, task_id="archex_query_pipeline", baseline_path=baseline_path)
+
+    assert result.regressions == []
+    assert {comparison.strategy for comparison in result.comparisons} == {
+        Strategy.ARCHEX_QUERY.value
+    }
+    payload = json.loads(result.latest_json_path.read_text(encoding="utf-8"))
+    assert payload["regressions"] == []
+    assert {comparison["strategy"] for comparison in payload["comparisons"]} == {
+        Strategy.ARCHEX_QUERY.value
+    }
 
 
 def test_dogfood_command_exits_nonzero_on_regression(

@@ -26,6 +26,7 @@ DOGFOOD_BASELINE_PATH = Path("benchmarks/dogfood_baseline.json")
 DEFAULT_TASKS_DIR = Path("benchmarks/tasks")
 DEFAULT_OUTPUT_DIR = Path(".archex/dogfood")
 DEFAULT_TASK_PREFIX = "archex_"
+DOGFOOD_DIAGNOSTIC_STRATEGIES = frozenset({Strategy.RAW_FILES.value, Strategy.RAW_GREPPED.value})
 
 
 @dataclass(frozen=True)
@@ -225,7 +226,11 @@ def _compare_to_baseline(
         return []
     baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
     baseline = load_baseline(baseline_data)
-    return compare_baseline(reports, baseline)
+    return compare_baseline(
+        reports,
+        baseline,
+        excluded_strategies=DOGFOOD_DIAGNOSTIC_STRATEGIES,
+    )
 
 
 def _write_reports(

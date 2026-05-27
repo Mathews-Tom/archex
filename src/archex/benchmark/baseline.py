@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
@@ -78,6 +79,7 @@ def compare_baseline(
     reports: list[BenchmarkReport],
     baseline: Baseline,
     tolerance: float = _DEFAULT_TOLERANCE,
+    excluded_strategies: Collection[str] = (),
 ) -> list[BaselineComparison]:
     """Compare current reports against a baseline. Flag regressions beyond tolerance."""
     baseline_lookup: dict[tuple[str, str], BaselineEntry] = {
@@ -86,6 +88,9 @@ def compare_baseline(
     comparisons: list[BaselineComparison] = []
     for report in reports:
         for r in report.results:
+            strategy = r.strategy.value
+            if strategy in excluded_strategies:
+                continue
             key = (r.task_id, r.strategy.value)
             entry = baseline_lookup.get(key)
             if entry is None:

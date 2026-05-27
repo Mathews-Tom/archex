@@ -14,6 +14,7 @@ from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy
 
 def _make_report(
     task_id: str = "test_task",
+    strategy: Strategy = Strategy.ARCHEX_QUERY,
     recall: float = 0.8,
     precision: float = 0.6,
     f1_score: float = 0.685,
@@ -23,7 +24,7 @@ def _make_report(
 ) -> BenchmarkReport:
     result = BenchmarkResult(
         task_id=task_id,
-        strategy=Strategy.ARCHEX_QUERY,
+        strategy=strategy,
         tokens_total=1000,
         tool_calls=1,
         files_accessed=3,
@@ -130,3 +131,39 @@ def test_compare_baseline_no_regression() -> None:
     comparisons = compare_baseline(reports, baseline)
     regressions = [c for c in comparisons if c.regression]
     assert len(regressions) == 0
+
+
+def test_compare_baseline_excludes_diagnostic_strategies() -> None:
+    baseline = Baseline(
+        entries=[
+            BaselineEntry(
+                task_id="test_task",
+                strategy="raw_grepped",
+                recall=1.0,
+                precision=1.0,
+                f1_score=1.0,
+                mrr=1.0,
+            ),
+            BaselineEntry(
+                task_id="test_task",
+                strategy="archex_query",
+                recall=0.8,
+                precision=0.6,
+                f1_score=0.685,
+                mrr=0.5,
+            ),
+        ]
+    )
+    reports = [
+        _make_report(strategy=Strategy.RAW_GREPPED, recall=0.0),
+        _make_report(strategy=Strategy.ARCHEX_QUERY, recall=0.85),
+    ]
+
+    comparisons = compare_baseline(
+        reports,
+        baseline,
+        excluded_strategies={Strategy.RAW_GREPPED.value},
+    )
+
+    assert {comparison.strategy for comparison in comparisons} == {Strategy.ARCHEX_QUERY.value}
+    assert [comparison for comparison in comparisons if comparison.regression] == []
