@@ -27,6 +27,7 @@ DEFAULT_TASKS_DIR = Path("benchmarks/tasks")
 DEFAULT_OUTPUT_DIR = Path(".archex/dogfood")
 DEFAULT_TASK_PREFIX = "archex_"
 DOGFOOD_DIAGNOSTIC_STRATEGIES = frozenset({Strategy.RAW_FILES.value, Strategy.RAW_GREPPED.value})
+DOGFOOD_PRODUCT_DEFAULT_STRATEGY = Strategy.ARCHEX_QUERY.value
 
 
 @dataclass(frozen=True)
@@ -404,6 +405,39 @@ def _markdown_report(
     lines.append("")
     for report in reports:
         lines.append(format_markdown(report))
+    return "\n".join(lines)
+
+
+def format_product_default_delta(result: DogfoodRunResult) -> str:
+    """Render compact product-default dogfood baseline deltas."""
+    comparisons = [
+        comparison
+        for comparison in result.comparisons
+        if comparison.strategy == DOGFOOD_PRODUCT_DEFAULT_STRATEGY
+    ]
+    lines: list[str] = ["# Dogfood Product-Default Deltas", ""]
+    lines.append(f"Strategy: `{DOGFOOD_PRODUCT_DEFAULT_STRATEGY}`")
+    if result.baseline_path is None:
+        lines.append("Baseline: none")
+    else:
+        lines.append(f"Baseline: `{result.baseline_path}`")
+    lines.append("")
+    if not comparisons:
+        lines.append("No product-default baseline comparisons were run.")
+        return "\n".join(lines)
+
+    regression_count = sum(1 for comparison in comparisons if comparison.regression)
+    lines.append(f"Regressions: {regression_count}")
+    lines.append("")
+    lines.append("| Task | Metric | Baseline | Current | Delta | Status |")
+    lines.append("|------|--------|----------|---------|-------|--------|")
+    for comparison in comparisons:
+        status = "regression" if comparison.regression else "ok"
+        lines.append(
+            f"| {comparison.task_id} | {comparison.metric} "
+            f"| {comparison.baseline_value:.3f} | {comparison.current_value:.3f} "
+            f"| {comparison.delta:+.3f} | {status} |"
+        )
     return "\n".join(lines)
 
 
