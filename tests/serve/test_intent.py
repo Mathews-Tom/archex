@@ -85,6 +85,15 @@ def test_classify_lifecycle() -> None:
     assert result == QueryIntent.ARCHITECTURE_BROAD
 
 
+def test_classify_archex_reset_as_cli_command() -> None:
+    # Arrange
+    query = "archex reset"
+    # Act
+    result = classify_intent(query)
+    # Assert
+    assert result == QueryIntent.CLI
+
+
 # ---------------------------------------------------------------------------
 # Usage search tests
 # ---------------------------------------------------------------------------
@@ -243,6 +252,7 @@ def test_definition_weights_higher_relevance() -> None:
         ("Find references to dispatch", QueryIntent.USAGE_SEARCH),
         ("NullPointerException in getData", QueryIntent.DEBUGGING),
         ("Tests failing after migration", QueryIntent.DEBUGGING),
+        ("archex reset", QueryIntent.CLI),
         ("Show me the user model", QueryIntent.GENERAL),
     ],
 )

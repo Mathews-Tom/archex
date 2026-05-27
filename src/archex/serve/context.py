@@ -330,6 +330,8 @@ def _directory_alignment_boost(file_path: str, query_terms: set[str]) -> float:
     dir_path = parts[0]
     dir_segments = {seg for seg in dir_path.split("/") if len(seg) >= 3}
     if dir_segments & query_terms:
+        if "cli" in dir_segments and "cli" in query_terms:
+            return 1.6
         return 1.2
     return 1.0
 
@@ -518,12 +520,10 @@ def assemble_context(
     assembly_start = time.perf_counter()
     # Intent-based weight routing: when no explicit weights are provided,
     # classify the query intent and select optimized weight presets.
-    if scoring_weights is None:
-        from archex.serve.intent import weights_for_query
+    from archex.serve.intent import INTENT_WEIGHTS, QueryIntent, classify_intent
 
-        weights = weights_for_query(question)
-    else:
-        weights = scoring_weights
+    intent = classify_intent(question)
+    weights = INTENT_WEIGHTS[intent] if scoring_weights is None else scoring_weights
 
     strategy = "hybrid+graph" if vector_results else "bm25+graph"
 
@@ -604,6 +604,7 @@ def assemble_context(
 
     # Extract query terms for path-aware import prioritization
     q_terms = _query_terms(question)
+    alignment_terms = {QueryIntent.CLI.value} if intent == QueryIntent.CLI else q_terms
 
     # Determine whether this is an architecture query (enables 2-hop expansion)
     is_arch_query = _is_architecture_query(question)
@@ -682,7 +683,7 @@ def assemble_context(
     # Collect candidate chunks (seed + file-capped expansion), dedup by id
     # Cap per-file to prevent one large file from monopolizing the expansion budget.
     # Skip test files in expansion — they add noise without improving relevance.
-    max_per_file = 3
+    max_per_file = 1 if intent == QueryIntent.CLI else 3
     # Vector-only seeds participate in scoring even when BM25 returned nothing
     # for that file.
     candidate_map = _initial_candidate_map(search_results, vector_results)
@@ -812,7 +813,7 @@ def assemble_context(
         entry_boost = _ENTRY_POINT_BOOST if _is_entry_point(chunk.file_path) else 1.0
 
         # Directory-path alignment: files under directories matching query terms
-        dir_boost = _directory_alignment_boost(chunk.file_path, q_terms)
+        dir_boost = _directory_alignment_boost(chunk.file_path, alignment_terms)
 
         final = (
             (
@@ -853,6 +854,8 @@ def assemble_context(
     score_cutoff = top_file_score * FILE_SCORE_CUTOFF
     top_files: set[str] = set()
     adaptive_max = _adaptive_max_files(sorted_files)
+    if intent == QueryIntent.CLI:
+        adaptive_max = min(adaptive_max, 4)
     for fp, score in sorted_files[:adaptive_max]:
         if score < score_cutoff:
             break
