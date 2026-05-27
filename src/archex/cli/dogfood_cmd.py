@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from archex.dogfood import run_dogfood
+from archex.dogfood import format_product_default_delta, run_dogfood
 
 
 @click.command("dogfood")
@@ -40,7 +40,7 @@ from archex.dogfood import run_dogfood
     "--format",
     "output_format",
     default="text",
-    type=click.Choice(["text", "json"]),
+    type=click.Choice(["text", "json", "dogfood-delta"]),
     help="Output format.",
 )
 def dogfood_cmd(
@@ -67,6 +67,8 @@ def dogfood_cmd(
 
     if output_format == "json":
         click.echo(result.latest_json_path.read_text(encoding="utf-8").rstrip())
+    elif output_format == "dogfood-delta":
+        click.echo(format_product_default_delta(result))
     else:
         click.echo(f"Dogfood tasks:      {len(result.tasks)}")
         click.echo(f"Reports:            {result.latest_json_path}")

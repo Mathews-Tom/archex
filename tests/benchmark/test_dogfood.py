@@ -12,7 +12,7 @@ from click.testing import CliRunner
 from archex.benchmark.baseline import Baseline, BaselineEntry
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
 from archex.cli.main import cli
-from archex.dogfood import run_dogfood
+from archex.dogfood import format_product_default_delta, run_dogfood
 
 if TYPE_CHECKING:
     import pytest
@@ -373,6 +373,55 @@ def test_dogfood_command_json_outputs_latest_payload(
     payload = json.loads(result.output)
     assert payload["tasks"] == ["archex_query_pipeline"]
     assert payload["regressions"] == []
+
+
+def test_product_default_delta_summary_excludes_diagnostic_strategies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_git_repo(tmp_path)
+    _write_tasks(tmp_path)
+    baseline_path = _write_baseline(tmp_path, include_diagnostics=True)
+    monkeypatch.setattr("archex.dogfood.run_benchmark", _diagnostic_regressing_report)
+
+    result = run_dogfood(tmp_path, task_id="archex_query_pipeline", baseline_path=baseline_path)
+    summary = format_product_default_delta(result)
+
+    assert "Strategy: `archex_query`" in summary
+    assert "raw_files" not in summary
+    assert "raw_grepped" not in summary
+    assert "| archex_query_pipeline | recall |" in summary
+
+
+def test_dogfood_command_outputs_product_default_delta_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_git_repo(tmp_path)
+    _write_tasks(tmp_path)
+    baseline_path = _write_baseline(tmp_path)
+    monkeypatch.setattr("archex.dogfood.run_benchmark", _passing_report)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "dogfood",
+            str(tmp_path),
+            "--task",
+            "archex_query_pipeline",
+            "--baseline",
+            str(baseline_path),
+            "--format",
+            "dogfood-delta",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "# Dogfood Product-Default Deltas" in result.output
+    assert "Strategy: `archex_query`" in result.output
+    assert "Regressions: 0" in result.output
+    assert "| archex_query_pipeline | recall |" in result.output
 
 
 def test_dogfood_requires_explicit_baseline(
