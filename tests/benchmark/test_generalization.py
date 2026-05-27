@@ -6,7 +6,6 @@ from pathlib import Path
 
 from archex.benchmark.loader import load_tasks
 
-
 ROOT = Path(__file__).resolve().parents[2]
 TASKS_DIR = ROOT / "benchmarks" / "tasks"
 HELD_OUT_PATH = ROOT / "benchmarks" / "held_out.txt"
