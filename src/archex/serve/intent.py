@@ -15,6 +15,7 @@ class QueryIntent(StrEnum):
     ARCHITECTURE_BROAD = "architecture_broad"
     USAGE_SEARCH = "usage_search"
     DEBUGGING = "debugging"
+    CLI = "cli"
     GENERAL = "general"
 
 
@@ -35,6 +36,10 @@ INTENT_WEIGHTS: dict[QueryIntent, ScoringWeights] = {
     # Debugging: relevance-heavy but structural helps trace error propagation
     QueryIntent.DEBUGGING: ScoringWeights(
         relevance=0.80, structural=0.10, type_coverage=0.05, cohesion=0.05
+    ),
+    # CLI lifecycle: favor direct command modules while preserving graph context
+    QueryIntent.CLI: ScoringWeights(
+        relevance=0.75, structural=0.10, type_coverage=0.05, cohesion=0.10
     ),
     # General: default balanced weights (same as current defaults)
     QueryIntent.GENERAL: ScoringWeights(
@@ -98,13 +103,17 @@ _DEBUGGING_PATTERNS = [
     re.compile(r"\bstack\s*trace\b"),  # "stack trace"
 ]
 
+_CLI_PATTERNS = [
+    re.compile(r"\barchex\s+(?:init|reset|status|index|config|cache|delta)\b"),
+]
+
 
 def classify_intent(question: str) -> QueryIntent:
     """Classify a search query into an intent bucket for scoring weight routing.
 
     Uses pattern matching against the lowercased query. The classification
     priority order is: definition_lookup (explicit patterns) > debugging >
-    usage_search > definition_lookup (identifier heuristic) >
+    usage_search > cli > definition_lookup (identifier heuristic) >
     architecture_broad > general.
 
     Explicit definition patterns (e.g. "where is X defined") take highest
@@ -136,6 +145,11 @@ def classify_intent(question: str) -> QueryIntent:
     for pat in _USAGE_PATTERNS:
         if pat.search(q):
             return QueryIntent.USAGE_SEARCH
+
+    # CLI lifecycle: repo-local command lifecycle verbs such as reset/status/cache
+    for pat in _CLI_PATTERNS:
+        if pat.search(q):
+            return QueryIntent.CLI
 
     # Identifier heuristic: classify as definition lookup when query is dominated
     # by CamelCase/snake_case/dotted identifiers (symbol-targeted queries with no
