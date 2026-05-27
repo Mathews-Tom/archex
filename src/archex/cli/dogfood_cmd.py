@@ -34,7 +34,7 @@ from archex.dogfood import run_dogfood
     "baseline_path",
     default=None,
     type=click.Path(),
-    help="Baseline JSON path. Defaults to local dogfood baseline, or committed CI baseline.",
+    help="Required baseline JSON path for regression gating.",
 )
 @click.option(
     "--format",
