@@ -198,6 +198,14 @@ def run_benchmark(
             question=task.question,
             results=results,
             baseline_tokens=baseline_tokens,
+            median_latency_ms=_percentile(
+                [result.wall_time_ms for result in results],
+                0.50,
+            ),
+            p95_latency_ms=_percentile(
+                [result.wall_time_ms for result in results],
+                0.95,
+            ),
         )
     finally:
         if needs_cleanup:
@@ -220,30 +228,68 @@ def run_all(
     output_dir.mkdir(parents=True, exist_ok=True)
     reports: list[BenchmarkReport] = []
     failures: list[tuple[str, str]] = []
+    repo_cache: dict[tuple[str, str], Path] = {}
+    cleanup_paths: list[Path] = []
 
-    for i, task in enumerate(tasks, 1):
-        print(f"[{i}/{len(tasks)}] {task.task_id} ({task.repo})", file=sys.stderr)
-        task_repo_path: Path | None = None
-        if task.repo == ".":
-            task_repo_path = Path.cwd()
-        try:
-            report = run_benchmark(task, strategies=strategies, repo_path=task_repo_path)
-        except BenchmarkCloneError as exc:
-            # Isolate per-task clone failures (network, rate limit, bad ref) so one
-            # bad repo does not abort the whole batch.
-            logger.warning("Skipping task %s: %s", task.task_id, exc)
-            print(f"  SKIPPED {task.task_id}: {exc}", file=sys.stderr)
-            failures.append((task.task_id, str(exc)))
-            continue
-        reports.append(report)
+    try:
+        for i, task in enumerate(tasks, 1):
+            print(f"[{i}/{len(tasks)}] {task.task_id} ({task.repo})", file=sys.stderr)
+            try:
+                task_repo_path = _repo_path_for_task(task, repo_cache, cleanup_paths)
+                report = run_benchmark(task, strategies=strategies, repo_path=task_repo_path)
+            except BenchmarkCloneError as exc:
+                # Isolate per-task clone failures (network, rate limit, bad ref) so one
+                # bad repo does not abort the whole batch.
+                logger.warning("Skipping task %s: %s", task.task_id, exc)
+                print(f"  SKIPPED {task.task_id}: {exc}", file=sys.stderr)
+                failures.append((task.task_id, str(exc)))
+                continue
+            reports.append(report)
 
-        result_path = output_dir / f"{task.task_id}.json"
-        result_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-        print(f"  → Wrote {result_path}", file=sys.stderr)
+            result_path = output_dir / f"{task.task_id}.json"
+            result_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+            print(f"  → Wrote {result_path}", file=sys.stderr)
 
-    if failures:
-        print(f"\n{len(failures)} task(s) skipped due to clone failures:", file=sys.stderr)
-        for task_id, detail in failures:
-            print(f"  - {task_id}: {detail}", file=sys.stderr)
+        if failures:
+            print(f"\n{len(failures)} task(s) skipped due to clone failures:", file=sys.stderr)
+            for task_id, detail in failures:
+                print(f"  - {task_id}: {detail}", file=sys.stderr)
 
-    return reports
+        return reports
+    finally:
+        for path in cleanup_paths:
+            shutil.rmtree(path, ignore_errors=True)
+
+
+def _repo_path_for_task(
+    task: BenchmarkTask,
+    repo_cache: dict[tuple[str, str], Path],
+    cleanup_paths: list[Path],
+) -> Path:
+    """Return a stable repo path for a task within one benchmark run."""
+    if task.repo == ".":
+        return Path.cwd()
+
+    key = (task.repo, task.commit)
+    cached = repo_cache.get(key)
+    if cached is not None:
+        return cached
+
+    repo_path, needs_cleanup = clone_at_commit(task.repo, task.commit)
+    repo_cache[key] = repo_path
+    if needs_cleanup:
+        cleanup_paths.append(repo_path)
+    return repo_path
+
+
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction

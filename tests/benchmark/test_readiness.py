@@ -25,6 +25,7 @@ def _result(
     precision: float,
     f1_score: float,
     mrr: float = 1.0,
+    wall_time_ms: float = 10.0,
     category: TaskCategory | None = None,
     strategy: Strategy = Strategy.ARCHEX_QUERY,
 ) -> BenchmarkResult:
@@ -39,7 +40,7 @@ def _result(
         f1_score=f1_score,
         mrr=mrr,
         savings_vs_raw=0.0,
-        wall_time_ms=10.0,
+        wall_time_ms=wall_time_ms,
         cached=False,
         timestamp="2026-01-01T00:00:00Z",
         seed_files=["src/main.py"],
@@ -77,6 +78,7 @@ def test_build_readiness_report_tracks_targets_and_counts() -> None:
                 recall=1.0,
                 precision=0.8,
                 f1_score=0.89,
+                wall_time_ms=100.0,
                 category=TaskCategory.SELF,
             ),
         ),
@@ -88,6 +90,7 @@ def test_build_readiness_report_tracks_targets_and_counts() -> None:
                 precision=0.0,
                 f1_score=0.0,
                 mrr=0.0,
+                wall_time_ms=300.0,
                 category=TaskCategory.EXTERNAL_LARGE,
             ),
         ),
@@ -105,6 +108,8 @@ def test_build_readiness_report_tracks_targets_and_counts() -> None:
     assert readiness.zero_recall_tasks == 1
     assert readiness.low_f1_tasks == 1
     assert readiness.low_precision_tasks == 1
+    assert readiness.median_latency_ms == 200.0
+    assert readiness.p95_latency_ms == 290.0
     assert readiness.ready is False
     assert [target.name for target in readiness.targets] == [
         "mean_recall",
@@ -166,10 +171,13 @@ def test_format_readiness_outputs_are_stable() -> None:
     markdown = format_readiness_markdown(readiness)
     assert "# Benchmark Readiness" in markdown
     assert "mean_recall" in markdown
+    assert "P95 latency" in markdown
     assert "Top Blocking Tasks" in markdown
     assert "`miss`" in markdown
 
     payload = json.loads(format_readiness_json(readiness))
     assert payload["strategy"] == "archex_query"
     assert payload["ready"] is False
+    assert payload["median_latency_ms"] == 10.0
+    assert payload["p95_latency_ms"] == 10.0
     assert payload["blocking_tasks"][0]["task_id"] == "miss"

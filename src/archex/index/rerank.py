@@ -24,6 +24,8 @@ MAX_CONTENT_CHARS = 4096
 # scoring enough diversity without losing cross-encoder precision.
 DEFAULT_TOP_K = 30
 
+_MODEL_CACHE: dict[str, Any] = {}
+
 
 def is_available() -> bool:
     """Return True if cross-encoder dependencies are installed."""
@@ -52,6 +54,11 @@ class CrossEncoderReranker:
         if self._model is not None:
             return
 
+        cached_model = _MODEL_CACHE.get(self._model_name)
+        if cached_model is not None:
+            self._model = cached_model
+            return
+
         try:
             from sentence_transformers import CrossEncoder
         except ImportError as e:
@@ -66,6 +73,7 @@ class CrossEncoderReranker:
             flush=True,
         )
         self._model = CrossEncoder(self._model_name, trust_remote_code=True)
+        _MODEL_CACHE[self._model_name] = self._model
         logger.info("Loaded cross-encoder reranker: %s", self._model_name)
 
     def rerank(

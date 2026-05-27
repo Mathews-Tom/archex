@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from archex.index import rerank as rerank_module
 from archex.index.rerank import (
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
@@ -103,6 +104,34 @@ class TestCrossEncoderReranker:
     def test_custom_model_name(self) -> None:
         reranker = CrossEncoderReranker(model_name="custom/model")
         assert reranker.rerank("query", []) == []
+
+    def test_reuses_loaded_model_for_same_model_name(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+
+        with patch("sentence_transformers.CrossEncoder") as cross_encoder:
+            cross_encoder.return_value.predict.return_value = np.array([1.0])
+            first = CrossEncoderReranker(model_name="test/model")
+            second = CrossEncoderReranker(model_name="test/model")
+
+            first.rerank("query", [(chunk, 0.0)])
+            second.rerank("query", [(chunk, 0.0)])
+
+        assert cross_encoder.call_count == 1
+        assert first._model is second._model  # pyright: ignore[reportPrivateUsage]
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    def test_loads_distinct_models_for_distinct_model_names(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+
+        with patch("sentence_transformers.CrossEncoder") as cross_encoder:
+            cross_encoder.return_value.predict.return_value = np.array([1.0])
+            CrossEncoderReranker(model_name="test/model-a").rerank("query", [(chunk, 0.0)])
+            CrossEncoderReranker(model_name="test/model-b").rerank("query", [(chunk, 0.0)])
+
+        assert cross_encoder.call_count == 2
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
     def test_rerank_empty_candidates(self) -> None:
         reranker = CrossEncoderReranker()
