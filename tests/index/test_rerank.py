@@ -11,6 +11,7 @@ from archex.index import rerank as rerank_module
 from archex.index.rerank import (
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
+    JINA_RERANKER_MODEL,
     MAX_CONTENT_CHARS,
     CrossEncoderReranker,
     is_available,
@@ -60,8 +61,8 @@ class TestConstants:
     def test_max_content_chars_is_4096(self) -> None:
         assert MAX_CONTENT_CHARS == 4096
 
-    def test_default_model_is_minilm(self) -> None:
-        assert DEFAULT_MODEL == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    def test_default_model_is_jina_reranker(self) -> None:
+        assert DEFAULT_MODEL == JINA_RERANKER_MODEL
 
 
 class TestMaybeReranker:
@@ -99,7 +100,7 @@ class TestCrossEncoderReranker:
 
     def test_default_model_name(self) -> None:
         _ = CrossEncoderReranker()
-        assert DEFAULT_MODEL == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        assert DEFAULT_MODEL == "jinaai/jina-reranker-v3"
 
     def test_custom_model_name(self) -> None:
         reranker = CrossEncoderReranker(model_name="custom/model")

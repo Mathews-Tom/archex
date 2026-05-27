@@ -16,7 +16,7 @@ archex is a Python library and CLI that transforms any Git repository into struc
 - **8 public APIs** — `analyze()`, `query()`, `compare()`, `file_tree()`, `file_outline()`, `search_symbols()`, `get_symbol()`, `get_symbols_batch()` + token counting utilities
 - **Hybrid retrieval** — BM25F weighted-field keyword search + optional vector embeddings, merged via confidence-weighted Reciprocal Rank Fusion and adaptive Relative Score Fusion behind an AvgIDF fusion gate
 - **Intent-aware ranking** — query intent classification (definition, architecture, usage, debugging, general) selects per-intent scoring-weight presets
-- **Cross-encoder reranking** — opt-in `cross-encoder/ms-marco-MiniLM` re-scoring of top candidates; local sentence-transformers, off by default, enabled via `IndexConfig(rerank=True)`
+- **Cross-encoder reranking** — opt-in `jinaai/jina-reranker-v3` re-scoring of top candidates; local sentence-transformers, off by default, enabled via `IndexConfig(rerank=True)`
 - **Token budget assembly** — AST-aware chunking, deterministic dependency-graph expansion, greedy bin-packing with configurable `ScoringWeights`
 - **Structural analysis** — module detection (Louvain), pattern recognition (extensible `PatternRegistry`), interface extraction
 - **Cross-repo comparison** — 6 architectural dimensions, no LLM required

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 JINA_RERANKER_MODEL = "jinaai/jina-reranker-v3"
 JINA_RERANKER_REVISION = "10fb694fc21f7a710a563ff1eb977a460f3868e4"
-DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+DEFAULT_MODEL = JINA_RERANKER_MODEL
 MODEL_REVISIONS = {
     JINA_RERANKER_MODEL: JINA_RERANKER_REVISION,
 }

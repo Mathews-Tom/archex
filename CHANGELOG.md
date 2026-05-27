@@ -7,6 +7,7 @@
 - Removed unused Personalized PageRank graph-expansion helpers. Measured candidate ordering showed no recall gain on `archex_graph_expansion` or the external-large benchmark bucket, and introduced a `rust_tokio_runtime` candidate-recall regression risk.
 - Corrected retrieval-pipeline documentation to describe the wired deterministic dependency expansion path instead of stale PPR wording.
 - Kept the fast vector benchmark default after a CodeRankEmbed full-suite run crossed six hours at task 19/35; CodeRankEmbed remains pinned and configurable as `embedder="coderank"` for targeted evaluation.
+- Switched the opt-in cross-encoder reranker default from `cross-encoder/ms-marco-MiniLM-L-6-v2` to pinned `jinaai/jina-reranker-v3`; the MiniLM model remains selectable via `IndexConfig(rerank_model=...)`.
 
 ## 0.6.2 (2026-05-25)
 
