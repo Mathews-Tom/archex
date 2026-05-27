@@ -13,7 +13,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+JINA_RERANKER_MODEL = "jinaai/jina-reranker-v3"
+JINA_RERANKER_REVISION = "10fb694fc21f7a710a563ff1eb977a460f3868e4"
+DEFAULT_MODEL = JINA_RERANKER_MODEL
+MODEL_REVISIONS = {
+    JINA_RERANKER_MODEL: JINA_RERANKER_REVISION,
+}
 
 # Maximum content length passed to the cross-encoder per chunk.
 # MiniLM has a 512-token context window (~4 chars/token avg).
@@ -72,7 +77,11 @@ class CrossEncoderReranker:
             file=sys.stderr,
             flush=True,
         )
-        self._model = CrossEncoder(self._model_name, trust_remote_code=True)
+        self._model = CrossEncoder(
+            self._model_name,
+            revision=MODEL_REVISIONS.get(self._model_name),
+            trust_remote_code=True,
+        )
         _MODEL_CACHE[self._model_name] = self._model
         logger.info("Loaded cross-encoder reranker: %s", self._model_name)
 

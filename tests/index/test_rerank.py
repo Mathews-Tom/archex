@@ -11,6 +11,8 @@ from archex.index import rerank as rerank_module
 from archex.index.rerank import (
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
+    JINA_RERANKER_MODEL,
+    JINA_RERANKER_REVISION,
     MAX_CONTENT_CHARS,
     CrossEncoderReranker,
     is_available,
@@ -60,8 +62,8 @@ class TestConstants:
     def test_max_content_chars_is_4096(self) -> None:
         assert MAX_CONTENT_CHARS == 4096
 
-    def test_default_model_is_minilm(self) -> None:
-        assert DEFAULT_MODEL == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    def test_default_model_is_jina_reranker(self) -> None:
+        assert DEFAULT_MODEL == JINA_RERANKER_MODEL
 
 
 class TestMaybeReranker:
@@ -74,12 +76,13 @@ class TestMaybeReranker:
         assert result is None
 
     @pytest.mark.skipif(not _HAS_CROSS_ENCODER, reason="sentence-transformers not installed")
-    def test_explicit_rerank_true(self) -> None:
+    def test_explicit_rerank_true_uses_jina_default(self) -> None:
         from archex.api import _maybe_reranker  # pyright: ignore[reportPrivateUsage]
 
         config = IndexConfig(rerank=True)
         result = _maybe_reranker(config)
         assert isinstance(result, CrossEncoderReranker)
+        assert result._model_name == JINA_RERANKER_MODEL  # pyright: ignore[reportPrivateUsage]
 
     @pytest.mark.skipif(not _HAS_CROSS_ENCODER, reason="sentence-transformers not installed")
     def test_uses_custom_model(self) -> None:
@@ -99,11 +102,41 @@ class TestCrossEncoderReranker:
 
     def test_default_model_name(self) -> None:
         _ = CrossEncoderReranker()
-        assert DEFAULT_MODEL == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        assert DEFAULT_MODEL == "jinaai/jina-reranker-v3"
 
     def test_custom_model_name(self) -> None:
         reranker = CrossEncoderReranker(model_name="custom/model")
         assert reranker.rerank("query", []) == []
+
+    def test_default_load_passes_pinned_jina_revision(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+
+        with patch("sentence_transformers.CrossEncoder") as cross_encoder:
+            cross_encoder.return_value.predict.return_value = np.array([1.0])
+            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+
+        cross_encoder.assert_called_once_with(
+            JINA_RERANKER_MODEL,
+            revision=JINA_RERANKER_REVISION,
+            trust_remote_code=True,
+        )
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    def test_custom_model_load_has_no_revision_pin(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+
+        with patch("sentence_transformers.CrossEncoder") as cross_encoder:
+            cross_encoder.return_value.predict.return_value = np.array([1.0])
+            CrossEncoderReranker(model_name="custom/model").rerank("query", [(chunk, 0.0)])
+
+        cross_encoder.assert_called_once_with(
+            "custom/model",
+            revision=None,
+            trust_remote_code=True,
+        )
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
     def test_reuses_loaded_model_for_same_model_name(self) -> None:
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
