@@ -77,9 +77,9 @@ LangChain and LlamaIndex retrievers ship in the `[langchain]` and `[llamaindex]`
 | | |
 | --- | --- |
 | **Hybrid retrieval** | BM25F weighted-field search + optional vector embeddings, fused via confidence-weighted RRF and adaptive RSF behind an AvgIDF gate |
-| **Intent-aware ranking** | Query intent classifier (definition, architecture, usage, debugging, general) picks per-intent scoring presets |
+| **Intent-aware ranking** | Query intent classifier (definition, architecture, usage, debugging, CLI, general) picks per-intent scoring presets |
 | **Token-budget assembly** | AST-aware chunking, deterministic dependency-graph expansion, greedy bin-packing under a configurable budget |
-| **Structural analysis** | Module detection (Louvain), pattern recognition via an extensible `PatternRegistry`, interface extraction |
+| **Structural analysis** | Module detection (Leiden with Louvain fallback), pattern recognition via an extensible `PatternRegistry`, interface extraction |
 | **Cross-repo comparison** | Diff two repos across 6 architectural dimensions — no LLM in the loop |
 | **Surgical lookups** | `file_tree`, `file_outline`, `search_symbols`, `get_symbol(s)` — narrow reads that replace whole-file loads |
 | **Cross-encoder reranking** | Opt-in `jinaai/jina-reranker-v3` re-scoring of top candidates, local-only, off by default |
@@ -307,7 +307,7 @@ git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
 
-uv run pytest                    # 1,928 tests, 85% minimum coverage
+uv run pytest                    # ~1,960 tests, 85% minimum coverage
 uv run ruff check . && uv run ruff format .
 uv run pyright                   # strict mode
 ```
