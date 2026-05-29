@@ -13,7 +13,7 @@ _encoder = tiktoken.get_encoding("cl100k_base")
 
 def count_tokens(text: str) -> int:
     """Count tokens using the cl100k_base encoding."""
-    return len(_encoder.encode(text))
+    return len(_encoder.encode(text, disallowed_special=()))
 
 
 def compute_meta(
