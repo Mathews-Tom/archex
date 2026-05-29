@@ -542,3 +542,60 @@ expected_files:
 
         assert len(reports) == 1
         assert reports[0].task_id == "test_all"
+
+    def test_self_only_filters_to_local_repo_tasks(
+        self,
+        python_simple_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        from archex.benchmark.runner import run_all
+
+        tasks_dir = self._make_tasks_dir(tmp_path)
+        (tasks_dir / "self.yaml").write_text("""\
+task_id: self_task
+repo: "."
+commit: HEAD
+question: "Self?"
+expected_files:
+  - main.py
+""")
+        output_dir = tmp_path / "results"
+
+        import archex.benchmark.runner as runner_mod
+
+        clone_calls: list[tuple[str, str]] = []
+        original = runner_mod.clone_at_commit
+
+        def _fake_clone(repo_slug: str, commit: str) -> tuple[Path, bool]:
+            clone_calls.append((repo_slug, commit))
+            return python_simple_repo, False
+
+        runner_mod.clone_at_commit = _fake_clone  # type: ignore[assignment]
+        try:
+            reports = run_all(
+                tasks_dir=tasks_dir,
+                output_dir=output_dir,
+                strategies=[Strategy.RAW_FILES],
+                self_only=True,
+            )
+        finally:
+            runner_mod.clone_at_commit = original  # type: ignore[assignment]
+
+        assert [report.task_id for report in reports] == ["self_task"]
+        assert clone_calls == []
+        assert (output_dir / "self_task.json").exists()
+        assert not (output_dir / "test_all.json").exists()
+
+    def test_self_only_requires_local_repo_tasks(self, tmp_path: Path) -> None:
+        from archex.benchmark.runner import run_all
+
+        tasks_dir = self._make_tasks_dir(tmp_path)
+        output_dir = tmp_path / "results"
+
+        with pytest.raises(ValueError, match="No self-only tasks"):
+            run_all(
+                tasks_dir=tasks_dir,
+                output_dir=output_dir,
+                strategies=[Strategy.RAW_FILES],
+                self_only=True,
+            )

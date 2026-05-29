@@ -227,6 +227,7 @@ class TestRunCommand:
         assert "--query-fusion" in result.output
         assert "--cross_layer_fusion" in result.output
         assert "--rerank" in result.output
+        assert "--self-only" in result.output
 
     def test_run_uses_default_strategies_without_flags(
         self,
@@ -240,7 +241,9 @@ class TestRunCommand:
             output_dir: Path,
             strategies: list[Strategy] | None = None,
             task_filter: str | None = None,
+            self_only: bool = False,
         ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, task_filter, self_only
             captured["strategies"] = strategies
             return []
 
@@ -265,7 +268,9 @@ class TestRunCommand:
             output_dir: Path,
             strategies: list[Strategy] | None = None,
             task_filter: str | None = None,
+            self_only: bool = False,
         ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, task_filter, self_only
             captured["strategies"] = strategies
             return []
 
@@ -295,7 +300,9 @@ class TestRunCommand:
             output_dir: Path,
             strategies: list[Strategy] | None = None,
             task_filter: str | None = None,
+            self_only: bool = False,
         ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, task_filter, self_only
             captured["strategies"] = strategies
             return []
 
@@ -309,3 +316,26 @@ class TestRunCommand:
             Strategy.ARCHEX_QUERY_FUSION,
             Strategy.ARCHEX_QUERY_FUSION_RERANK,
         ]
+
+    def test_run_self_only_flag_filters_tasks(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter
+            captured["self_only"] = self_only
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(benchmark_cmd, ["run", "--self-only"])
+        assert result.exit_code == 0
+        assert captured["self_only"] is True
