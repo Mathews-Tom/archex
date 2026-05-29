@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import xml.etree.ElementTree as ET
 
+from archex.index.rerank import DEFAULT_TOP_K, CrossEncoderReranker
 from archex.index.graph import DependencyGraph
 from archex.models import CodeChunk, ContextBundle, Module, SymbolKind
 from archex.serve.context import assemble_context
@@ -49,6 +50,21 @@ def make_graph_with_edges() -> DependencyGraph:
     graph.add_file_edge("auth.py", "models.py", kind="imports")
     graph.add_file_edge("utils.py", "auth.py", kind="imports")
     return graph
+
+
+class RecordingReranker(CrossEncoderReranker):
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen_top_k: int | None = None
+
+    def rerank(
+        self,
+        query: str,
+        candidates: list[tuple[CodeChunk, float]],
+        top_k: int = DEFAULT_TOP_K,
+    ) -> list[tuple[CodeChunk, float]]:
+        self.seen_top_k = top_k
+        return candidates[:top_k]
 
 
 # ---------------------------------------------------------------------------
@@ -663,6 +679,26 @@ def test_vector_only_seed_surfaces_via_assemble_context() -> None:
     included = {rc.chunk.file_path for rc in bundle.chunks}
     assert "a.py" in included, "BM25 seed a.py must be in bundle"
     assert "b.py" in included, "vector seed b.py must be in bundle"
+
+
+def test_assemble_context_honors_reranker_default_top_k() -> None:
+    graph = DependencyGraph()
+    chunks = [make_chunk(f"c{i}", f"f{i}.py", token_count=10) for i in range(DEFAULT_TOP_K + 5)]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+    search_results = [(chunk, float(DEFAULT_TOP_K + 5 - i)) for i, chunk in enumerate(chunks)]
+    reranker = RecordingReranker()
+
+    assemble_context(
+        search_results=search_results,
+        graph=graph,
+        all_chunks=chunks,
+        question="query",
+        token_budget=1000,
+        reranker=reranker,
+    )
+
+    assert reranker.seen_top_k == DEFAULT_TOP_K
 
 
 def test_vector_only_recovery_when_bm25_empty() -> None:
