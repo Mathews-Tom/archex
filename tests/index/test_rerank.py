@@ -189,6 +189,94 @@ class TestCrossEncoderReranker:
         )
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
+    def test_load_sets_eos_as_padding_token_when_missing(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+        fake_encoder = SimpleNamespace(
+            tokenizer=SimpleNamespace(
+                pad_token=None,
+                pad_token_id=None,
+                eos_token="<eos>",
+                eos_token_id=151645,
+            ),
+            model=SimpleNamespace(config=SimpleNamespace(pad_token_id=None)),
+            predict=MagicMock(return_value=np.array([1.0])),
+        )
+
+        with (
+            patch("archex.index.rerank._best_device", return_value="cpu"),
+            patch("sentence_transformers.CrossEncoder", return_value=fake_encoder),
+        ):
+            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+
+        assert fake_encoder.tokenizer.pad_token == "<eos>"
+        assert fake_encoder.tokenizer.pad_token_id == 151645
+        assert fake_encoder.model.config.pad_token_id == 151645
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    def test_load_sets_model_padding_id_when_tokenizer_has_pad(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+        fake_encoder = SimpleNamespace(
+            tokenizer=SimpleNamespace(
+                pad_token="<|endoftext|>",
+                pad_token_id=151643,
+                eos_token="<|im_end|>",
+                eos_token_id=151645,
+            ),
+            model=SimpleNamespace(config=SimpleNamespace(pad_token_id=None)),
+            predict=MagicMock(return_value=np.array([1.0])),
+        )
+
+        with (
+            patch("archex.index.rerank._best_device", return_value="cpu"),
+            patch("sentence_transformers.CrossEncoder", return_value=fake_encoder),
+        ):
+            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+
+        assert fake_encoder.tokenizer.pad_token == "<|endoftext|>"
+        assert fake_encoder.model.config.pad_token_id == 151643
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    def test_cached_model_sets_model_padding_id(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+        fake_encoder = SimpleNamespace(
+            tokenizer=SimpleNamespace(
+                pad_token="<|endoftext|>",
+                pad_token_id=151643,
+            ),
+            model=SimpleNamespace(config=SimpleNamespace(pad_token_id=None)),
+            predict=MagicMock(return_value=np.array([1.0])),
+        )
+        rerank_module._MODEL_CACHE["test/model"] = fake_encoder  # pyright: ignore[reportPrivateUsage]
+
+        CrossEncoderReranker(model_name="test/model").rerank("query", [(chunk, 0.0)])
+
+        assert fake_encoder.model.config.pad_token_id == 151643
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    def test_load_aligns_model_padding_id_with_tokenizer(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+        fake_encoder = SimpleNamespace(
+            tokenizer=SimpleNamespace(
+                pad_token="<|endoftext|>",
+                pad_token_id=151643,
+            ),
+            model=SimpleNamespace(config=SimpleNamespace(pad_token_id=151645)),
+            predict=MagicMock(return_value=np.array([1.0])),
+        )
+
+        with (
+            patch("archex.index.rerank._best_device", return_value="cpu"),
+            patch("sentence_transformers.CrossEncoder", return_value=fake_encoder),
+        ):
+            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+
+        assert fake_encoder.model.config.pad_token_id == 151643
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
     def test_reuses_loaded_model_for_same_model_name(self) -> None:
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
         chunk = _make_chunk("a")
