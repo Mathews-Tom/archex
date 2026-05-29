@@ -101,6 +101,7 @@ class RepoSource(BaseModel):
     local_path: str | None = None
     target: str | None = None
     commit: str | None = None
+    stable_identity: str | None = None
 
     @model_validator(mode="after")
     def _require_source(self) -> RepoSource:
@@ -108,6 +109,8 @@ class RepoSource(BaseModel):
             raise ValueError("url must not be empty")
         if self.local_path is not None and not self.local_path.strip():
             raise ValueError("local_path must not be empty")
+        if self.stable_identity is not None and not self.stable_identity.strip():
+            raise ValueError("stable_identity must not be empty")
         if not self.url and not self.local_path:
             raise ValueError("RepoSource requires either 'url' or 'local_path'")
         return self
