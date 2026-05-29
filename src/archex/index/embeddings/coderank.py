@@ -20,10 +20,10 @@ def _best_device() -> str:
     try:
         import torch  # type: ignore[import-untyped]
 
-        if torch.cuda.is_available():
-            return "cuda"
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
     except ImportError:
         pass
     return "cpu"

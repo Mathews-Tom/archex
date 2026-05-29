@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -15,6 +16,7 @@ from archex.index.rerank import (
     JINA_RERANKER_REVISION,
     MAX_CONTENT_CHARS,
     CrossEncoderReranker,
+    _best_device,  # pyright: ignore[reportPrivateUsage]
     is_available,
 )
 from archex.models import CodeChunk, IndexConfig, SymbolKind
@@ -53,6 +55,28 @@ class TestIsAvailable:
         with patch("archex.index.rerank.is_available", return_value=True):
             # Direct import bypasses mock; test the real function shape
             assert isinstance(is_available(), bool)
+
+
+class TestDeviceSelection:
+    def test_best_device_uses_mps_when_available(self) -> None:
+        torch_module = SimpleNamespace(
+            backends=SimpleNamespace(
+                mps=SimpleNamespace(is_available=lambda: True),
+            ),
+        )
+
+        with patch.dict("sys.modules", {"torch": torch_module}):
+            assert _best_device() == "mps"
+
+    def test_best_device_falls_back_to_cpu(self) -> None:
+        torch_module = SimpleNamespace(
+            backends=SimpleNamespace(
+                mps=SimpleNamespace(is_available=lambda: False),
+            ),
+        )
+
+        with patch.dict("sys.modules", {"torch": torch_module}):
+            assert _best_device() == "cpu"
 
 
 class TestConstants:
@@ -112,7 +136,10 @@ class TestCrossEncoderReranker:
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
         chunk = _make_chunk("a")
 
-        with patch("sentence_transformers.CrossEncoder") as cross_encoder:
+        with (
+            patch("archex.index.rerank._best_device", return_value="cpu"),
+            patch("sentence_transformers.CrossEncoder") as cross_encoder,
+        ):
             cross_encoder.return_value.predict.return_value = np.array([1.0])
             CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
 
@@ -120,6 +147,7 @@ class TestCrossEncoderReranker:
             JINA_RERANKER_MODEL,
             revision=JINA_RERANKER_REVISION,
             trust_remote_code=True,
+            device="cpu",
         )
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
@@ -127,7 +155,10 @@ class TestCrossEncoderReranker:
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
         chunk = _make_chunk("a")
 
-        with patch("sentence_transformers.CrossEncoder") as cross_encoder:
+        with (
+            patch("archex.index.rerank._best_device", return_value="cpu"),
+            patch("sentence_transformers.CrossEncoder") as cross_encoder,
+        ):
             cross_encoder.return_value.predict.return_value = np.array([1.0])
             CrossEncoderReranker(model_name="custom/model").rerank("query", [(chunk, 0.0)])
 
@@ -135,6 +166,26 @@ class TestCrossEncoderReranker:
             "custom/model",
             revision=None,
             trust_remote_code=True,
+            device="cpu",
+        )
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    def test_load_passes_mps_when_available(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+
+        with (
+            patch("archex.index.rerank._best_device", return_value="mps"),
+            patch("sentence_transformers.CrossEncoder") as cross_encoder,
+        ):
+            cross_encoder.return_value.predict.return_value = np.array([1.0])
+            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+
+        cross_encoder.assert_called_once_with(
+            JINA_RERANKER_MODEL,
+            revision=JINA_RERANKER_REVISION,
+            trust_remote_code=True,
+            device="mps",
         )
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -278,6 +279,36 @@ class TestFastEmbedder:
 
 
 class TestCodeRankEmbedder:
+    def test_coderank_best_device_prefers_mps(self) -> None:
+        from archex.index.embeddings.coderank import (
+            _best_device,  # pyright: ignore[reportPrivateUsage]
+        )
+
+        torch_module = SimpleNamespace(
+            backends=SimpleNamespace(
+                mps=SimpleNamespace(is_available=lambda: True),
+            ),
+            cuda=SimpleNamespace(is_available=lambda: True),
+        )
+
+        with patch.dict("sys.modules", {"torch": torch_module}):
+            assert _best_device() == "mps"
+
+    def test_coderank_best_device_uses_cuda_when_mps_unavailable(self) -> None:
+        from archex.index.embeddings.coderank import (
+            _best_device,  # pyright: ignore[reportPrivateUsage]
+        )
+
+        torch_module = SimpleNamespace(
+            backends=SimpleNamespace(
+                mps=SimpleNamespace(is_available=lambda: False),
+            ),
+            cuda=SimpleNamespace(is_available=lambda: True),
+        )
+
+        with patch.dict("sys.modules", {"torch": torch_module}):
+            assert _best_device() == "cuda"
+
     def test_coderank_embedder_init_lazy_loads(self) -> None:
         """CodeRankEmbedder can be instantiated without loading the model."""
         from archex.index.embeddings.coderank import CodeRankEmbedder
