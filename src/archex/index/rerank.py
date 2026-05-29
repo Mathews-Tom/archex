@@ -21,8 +21,9 @@ MODEL_REVISIONS = {
 }
 
 # Maximum content length passed to the cross-encoder per chunk.
-# MiniLM has a 512-token context window (~4 chars/token avg).
-MAX_CONTENT_CHARS = 4096
+# jinaai/jina-reranker-v3 supports an 8192-token window; keep roughly
+# 4 chars/token budget for full code chunks while leaving room for the query.
+MAX_CONTENT_CHARS = 16384
 
 # Default number of top candidates to keep after reranking.
 # Sized to cover ~8-10 files x 3-4 chunks each, giving downstream
