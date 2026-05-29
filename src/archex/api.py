@@ -494,6 +494,11 @@ def _compute_top_k(total_chunks: int) -> int:
     return 150
 
 
+def _compute_vector_top_k(*, bm25_top_k: int, total_chunks: int) -> int:
+    """Use a deeper independent vector pool for fusion candidate union."""
+    return min(total_chunks, bm25_top_k * 2)
+
+
 _PATH_NOISE = frozenset(
     {
         "how",
