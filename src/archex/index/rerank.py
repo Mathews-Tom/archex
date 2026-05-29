@@ -21,8 +21,8 @@ MODEL_REVISIONS = {
 }
 
 # Maximum content length passed to the cross-encoder per chunk.
-# jinaai/jina-reranker-v3 supports an 8192-token window; keep roughly
-# 4 chars/token budget for full code chunks while leaving room for the query.
+# jinaai/jina-reranker-v3 supports an 8192-token window. Use a conservative
+# ~4096-token chunk slice so larger code chunks score while query overhead fits.
 MAX_CONTENT_CHARS = 16384
 
 # Default number of top candidates to keep after reranking.
