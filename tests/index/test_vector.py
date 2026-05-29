@@ -816,8 +816,8 @@ class TestRelativeScoreFusion:
         assert len(fused) == 1
         assert fused[0][0].id == chunk_a.id
 
-    def test_rsf_flat_scores_normalize_to_half(self) -> None:
-        # Arrange: all equal scores → normalized to 0.5 per signal
+    def test_rsf_flat_scores_normalize_to_full_signal(self) -> None:
+        # Arrange: all equal positive scores → normalized to 1.0 per signal
         chunks = [
             CodeChunk(
                 id=f"f{i}.py:fn:{i}",
@@ -836,6 +836,6 @@ class TestRelativeScoreFusion:
         vector_results: list[tuple[CodeChunk, float]] = [(c, 1.0) for c in chunks]
 
         fused = relative_score_fusion(bm25_results, vector_results)
-        # All chunks get 0.5*0.5 + 0.5*0.5 = 0.5 each
+        # All chunks get 0.5*1.0 + 0.5*1.0 = 1.0 each
         for _, score in fused:
-            assert abs(score - 0.5) < 1e-9
+            assert abs(score - 1.0) < 1e-9
