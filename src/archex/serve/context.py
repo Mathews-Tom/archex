@@ -856,7 +856,9 @@ def assemble_context(
         file_agg[fp] = file_agg.get(fp, 0.0) + rc.final_score
     sorted_files = sorted(file_agg.items(), key=lambda x: -x[1])
     top_file_score = sorted_files[0][1] if sorted_files else 0.0
-    score_cutoff = top_file_score * FILE_SCORE_CUTOFF
+    score_cutoff = top_file_score * _file_score_cutoff_ratio(
+        fusion_applied=fusion_bm25_weight is not None
+    )
     top_files: set[str] = set()
     adaptive_max = _adaptive_max_files(sorted_files)
     if intent == QueryIntent.CLI or q_terms & {
