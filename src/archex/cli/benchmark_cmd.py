@@ -86,6 +86,12 @@ def benchmark_cmd() -> None:
     default=False,
     help="Include the fusion+rerank strategy (archex_query_fusion_rerank).",
 )
+@click.option(
+    "--self-only",
+    is_flag=True,
+    default=False,
+    help='Run only benchmark tasks whose repo is ".".',
+)
 def run_cmd(
     output_dir: str,
     task_id: str | None,
@@ -94,6 +100,7 @@ def run_cmd(
     query_fusion: bool,
     cross_layer_fusion: bool,
     rerank: bool,
+    self_only: bool,
 ) -> None:
     """Run benchmarks across strategies."""
     strategies: list[Strategy] = list(DEFAULT_STRATEGIES)
@@ -116,6 +123,7 @@ def run_cmd(
         output_dir=Path(output_dir),
         strategies=strategies,
         task_filter=task_id,
+        self_only=self_only,
     )
 
     click.echo(f"\nCompleted {len(reports)} benchmark(s).", err=True)

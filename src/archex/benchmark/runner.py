@@ -217,9 +217,14 @@ def run_all(
     output_dir: Path,
     strategies: list[Strategy] | None = None,
     task_filter: str | None = None,
+    self_only: bool = False,
 ) -> list[BenchmarkReport]:
     """Load all tasks, run benchmarks, write results to output_dir."""
     tasks = load_tasks(tasks_dir)
+    if self_only:
+        tasks = [t for t in tasks if t.repo == "."]
+        if not tasks:
+            raise ValueError(f"No self-only tasks found in {tasks_dir}")
     if task_filter:
         tasks = [t for t in tasks if t.task_id == task_filter]
         if not tasks:

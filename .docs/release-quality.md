@@ -39,6 +39,12 @@ Run the full benchmark only when runtime is acceptable for the current slice.
 When it is empirically long-running, stop it, record elapsed time and task
 progress, and treat readiness as unmeasured rather than passed.
 
+For fast local iteration over the self-task tier only:
+
+```bash
+uv run archex benchmark run --self-only --tasks-dir benchmarks/tasks --output .archex/e2e-self
+```
+
 ## Reporting Contract
 
 Final PR summaries must separate:
