@@ -81,12 +81,17 @@ SEED_EXPANSION_MIN = 0.05
 
 # Files below this fraction of the top file's aggregate score are excluded.
 FILE_SCORE_CUTOFF = 0.10
+FUSION_FILE_SCORE_CUTOFF = 0.05
 
 
 def estimate_tokens(chunk: CodeChunk) -> int:
     if chunk.token_count > 0:
         return chunk.token_count
     return int(len(chunk.content.split()) * 1.3)
+
+
+def _file_score_cutoff_ratio(*, fusion_applied: bool) -> float:
+    return FUSION_FILE_SCORE_CUTOFF if fusion_applied else FILE_SCORE_CUTOFF
 
 
 def _is_test_file(file_path: str) -> bool:
