@@ -83,8 +83,8 @@ class TestConstants:
     def test_default_top_k_is_30(self) -> None:
         assert DEFAULT_TOP_K == 30
 
-    def test_max_content_chars_is_4096(self) -> None:
-        assert MAX_CONTENT_CHARS == 4096
+    def test_max_content_chars_matches_jina_window_budget(self) -> None:
+        assert MAX_CONTENT_CHARS == 16384
 
     def test_default_model_is_jina_reranker(self) -> None:
         assert DEFAULT_MODEL == JINA_RERANKER_MODEL
