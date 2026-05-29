@@ -10,6 +10,7 @@ import pytest
 from archex.benchmark.models import BenchmarkTask, Strategy
 from archex.benchmark.strategies import (
     _archex_fields,  # pyright: ignore[reportPrivateUsage]
+    _benchmark_repo_source,  # pyright: ignore[reportPrivateUsage]
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
     compute_map,
     compute_mrr,
@@ -29,6 +30,8 @@ from archex.benchmark.strategies import (
     run_raw_grepped,
     run_surrogate_vector,
 )
+from archex.cache import CacheManager
+from archex.exceptions import ConfigError
 from archex.models import CodeChunk, ContextBundle, RankedChunk, RetrievalMetadata
 
 if TYPE_CHECKING:
@@ -318,6 +321,59 @@ class TestRunRawGrepped:
 
 
 class TestRunArchexQuery:
+    def test_benchmark_source_uses_stable_repo_commit_identity(
+        self,
+        sample_task: BenchmarkTask,
+        tmp_path: Path,
+    ) -> None:
+        cache = CacheManager(cache_dir=str(tmp_path / "cache"))
+        repo_a = tmp_path / "clone-a"
+        repo_b = tmp_path / "clone-b"
+        repo_a.mkdir()
+        repo_b.mkdir()
+
+        source_a = _benchmark_repo_source(sample_task, repo_a)
+        source_b = _benchmark_repo_source(sample_task, repo_b)
+
+        assert source_a.stable_identity == "test/repo@abc"
+        assert source_b.stable_identity == "test/repo@abc"
+        assert cache.cache_key(source_a) == cache.cache_key(source_b)
+
+    def test_benchmark_source_resolves_missing_commit_from_git_head(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="",
+            question="How?",
+            expected_files=["main.py"],
+        )
+
+        with patch.object(CacheManager, "git_head", return_value="resolved"):
+            source = _benchmark_repo_source(task, tmp_path)
+
+        assert source.stable_identity == "test/repo@resolved"
+
+    def test_benchmark_source_rejects_missing_commit_without_git_head(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="",
+            question="How?",
+            expected_files=["main.py"],
+        )
+
+        with (
+            patch.object(CacheManager, "git_head", return_value=None),
+            pytest.raises(ConfigError, match="has no commit"),
+        ):
+            _benchmark_repo_source(task, tmp_path)
+
     def test_archex_query_strategy(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
             task_id="test",

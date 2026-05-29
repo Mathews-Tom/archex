@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from archex.benchmark.models import BenchmarkResult, BenchmarkTask, Strategy
+from archex.cache import CacheManager
 from archex.exceptions import ConfigError
 from archex.models import PipelineTiming, RepoSource
 from archex.reporting import count_tokens
@@ -480,6 +481,18 @@ def _cache_state(timing: PipelineTiming) -> str:
     return "warm" if timing.cached else "cold"
 
 
+def _benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
+    commit = task.commit or CacheManager.git_head(str(repo_path))
+    if not commit:
+        raise ConfigError(
+            f"Benchmark task {task.task_id!r} has no commit and {repo_path} has no git HEAD"
+        )
+    return RepoSource(
+        local_path=str(repo_path),
+        stable_identity=f"{task.repo}@{commit}",
+    )
+
+
 def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """archex query strategy: use BM25-based retrieval."""
     from archex.api import query
@@ -487,7 +500,7 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = RepoSource(local_path=str(repo_path))
+    source = _benchmark_repo_source(task, repo_path)
     config = Config(cache=False, languages=task.languages)
     index_config = IndexConfig(vector=False)
 
@@ -552,7 +565,7 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = RepoSource(local_path=str(repo_path))
+    source = _benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
     index_config = IndexConfig(bm25=False, vector=True, embedder="fastembed")
 
@@ -624,7 +637,7 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = RepoSource(local_path=str(repo_path))
+    source = _benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
     index_config = IndexConfig(
         bm25=False,
@@ -696,7 +709,7 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = RepoSource(local_path=str(repo_path))
+    source = _benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
     index_config = IndexConfig(vector=True, embedder="fastembed")
 
@@ -768,7 +781,7 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = RepoSource(local_path=str(repo_path))
+    source = _benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
     index_config = IndexConfig(vector=True, embedder="fastembed", rerank=True)
 
@@ -833,7 +846,7 @@ def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = RepoSource(local_path=str(repo_path))
+    source = _benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
     index_config = IndexConfig(
         vector=True,

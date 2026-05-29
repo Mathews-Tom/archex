@@ -605,6 +605,21 @@ class TestStableIdentity:
         expected = hashlib.sha256(stable.encode()).hexdigest()
         assert key_stable == expected
 
+    def test_source_stable_identity_is_complete_cache_identity(self, tmp_path: Path) -> None:
+        """RepoSource.stable_identity is already the complete cache identity."""
+        cm = CacheManager(cache_dir=str(tmp_path))
+        source = RepoSource(
+            local_path="/tmp/bench_run/repo",
+            stable_identity="owner/repo@abc123",
+        )
+
+        with patch.object(CacheManager, "git_head") as git_head:
+            key = cm.cache_key(source)
+
+        git_head.assert_not_called()
+        expected = hashlib.sha256(b"owner/repo@abc123").hexdigest()
+        assert key == expected
+
     def test_local_path_only_source_still_works(self, tmp_path: Path) -> None:
         """Backward compat: RepoSource with only local_path produces a valid key."""
         cm = CacheManager(cache_dir=str(tmp_path))

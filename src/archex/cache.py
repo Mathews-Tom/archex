@@ -45,16 +45,22 @@ class CacheManager:
     ) -> str:
         """Derive a stable SHA256 cache key from the source identity and resolved ref.
 
-        When stable_identity is provided, it overrides the default identity derived
-        from source.url or source.local_path. This is used by benchmarks to ensure
-        that the same upstream repo always maps to the same cache key, regardless
-        of which temp directory it was cloned into.
+        When stable_identity is provided as an argument, it overrides the default
+        identity derived from source.url or source.local_path before appending the
+        resolved ref. When source.stable_identity is set, it is already the complete
+        stable cache identity. Benchmarks use that path to ensure the same upstream
+        repo maps to the same cache key, regardless of temp clone directory.
 
         For local repos: resolves HEAD via git rev-parse.
         For remote URLs with explicit commit: uses the pinned commit.
         For remote URLs without commit: resolves HEAD via git ls-remote.
         """
-        identity = stable_identity or source.url or source.local_path or ""
+        source_stable_identity = source.stable_identity
+        identity = (
+            stable_identity or source_stable_identity or source.url or source.local_path or ""
+        )
+        if source_stable_identity and stable_identity is None:
+            return hashlib.sha256(identity.encode()).hexdigest()
         commit = (
             source.commit
             or head_override
