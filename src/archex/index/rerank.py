@@ -32,6 +32,18 @@ DEFAULT_TOP_K = 30
 _MODEL_CACHE: dict[str, Any] = {}
 
 
+def _best_device() -> str:
+    """Pick the best available torch device for cross-encoder reranking."""
+    try:
+        import torch  # type: ignore[import-untyped]
+
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+    except ImportError:
+        pass
+    return "cpu"
+
+
 def is_available() -> bool:
     """Return True if cross-encoder dependencies are installed."""
     try:
@@ -72,8 +84,10 @@ class CrossEncoderReranker:
                 "Install with: uv add 'archex[vector-torch]'"
             ) from e
 
+        device = _best_device()
         print(
-            f"Loading reranker model '{self._model_name}' (downloading if not cached)...",
+            f"Loading reranker model '{self._model_name}' on {device} "
+            "(downloading if not cached)...",
             file=sys.stderr,
             flush=True,
         )
@@ -81,9 +95,10 @@ class CrossEncoderReranker:
             self._model_name,
             revision=MODEL_REVISIONS.get(self._model_name),
             trust_remote_code=True,
+            device=device,
         )
         _MODEL_CACHE[self._model_name] = self._model
-        logger.info("Loaded cross-encoder reranker: %s", self._model_name)
+        logger.info("Loaded cross-encoder reranker: %s on %s", self._model_name, device)
 
     def rerank(
         self,
