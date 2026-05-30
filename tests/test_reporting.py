@@ -17,6 +17,12 @@ def test_count_tokens_empty_string() -> None:
     assert count_tokens("") == 0
 
 
+def test_count_tokens_treats_special_token_literals_as_text() -> None:
+    result = count_tokens('return "<|endoftext|>"')
+
+    assert result > 0
+
+
 def test_compute_meta_basic() -> None:
     meta = compute_meta(
         tool_name="test_tool",

@@ -192,6 +192,32 @@ def test_token_count_is_accurate() -> None:
         )
 
 
+def test_chunk_file_counts_literal_special_token_text() -> None:
+    source = b'def marker() -> str:\n    return "<|endoftext|>"\n'
+    parsed = ParsedFile(
+        path="special.py",
+        language="python",
+        symbols=[
+            Symbol(
+                name="marker",
+                qualified_name="marker",
+                kind=SymbolKind.FUNCTION,
+                file_path="special.py",
+                start_line=1,
+                end_line=2,
+            )
+        ],
+        imports=[],
+        lines=2,
+    )
+
+    chunks = _default_chunker().chunk_file(parsed, source)
+
+    assert len(chunks) == 1
+    assert chunks[0].content == 'def marker() -> str:\n    return "<|endoftext|>"'
+    assert chunks[0].token_count > 0
+
+
 def test_chunk_ids_are_unique() -> None:
     chunker = _default_chunker()
     chunks = chunker.chunk_file(PARSED_SIMPLE, SOURCE_SIMPLE)

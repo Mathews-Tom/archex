@@ -21,8 +21,9 @@ MODEL_REVISIONS = {
 }
 
 # Maximum content length passed to the cross-encoder per chunk.
-# MiniLM has a 512-token context window (~4 chars/token avg).
-MAX_CONTENT_CHARS = 4096
+# jinaai/jina-reranker-v3 supports an 8192-token window. Use a conservative
+# ~4096-token chunk slice so larger code chunks score while query overhead fits.
+MAX_CONTENT_CHARS = 16384
 
 # Default number of top candidates to keep after reranking.
 # Sized to cover ~8-10 files x 3-4 chunks each, giving downstream
@@ -30,6 +31,34 @@ MAX_CONTENT_CHARS = 4096
 DEFAULT_TOP_K = 30
 
 _MODEL_CACHE: dict[str, Any] = {}
+
+
+def _ensure_padding_token(cross_encoder: Any) -> None:
+    tokenizer = getattr(cross_encoder, "tokenizer", None)
+    if tokenizer is None:
+        raise ArchexIndexError(f"Cross-encoder model '{cross_encoder}' has no tokenizer.")
+
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    if getattr(tokenizer, "pad_token", None) is None:
+        eos_token = getattr(tokenizer, "eos_token", None)
+        eos_token_id = getattr(tokenizer, "eos_token_id", None)
+        if eos_token is None or eos_token_id is None:
+            raise ArchexIndexError(
+                f"Cross-encoder model '{cross_encoder}' has no padding token or EOS token."
+            )
+
+        tokenizer.pad_token = eos_token
+        tokenizer.pad_token_id = eos_token_id
+        pad_token_id = eos_token_id
+
+    if pad_token_id is None:
+        raise ArchexIndexError(f"Cross-encoder model '{cross_encoder}' has no padding token id.")
+
+    model = getattr(cross_encoder, "model", None)
+    config = getattr(model, "config", None)
+    if config is None:
+        raise ArchexIndexError(f"Cross-encoder model '{cross_encoder}' has no config.")
+    config.pad_token_id = pad_token_id
 
 
 def _best_device() -> str:
@@ -73,6 +102,7 @@ class CrossEncoderReranker:
 
         cached_model = _MODEL_CACHE.get(self._model_name)
         if cached_model is not None:
+            _ensure_padding_token(cached_model)
             self._model = cached_model
             return
 
@@ -97,6 +127,7 @@ class CrossEncoderReranker:
             trust_remote_code=True,
             device=device,
         )
+        _ensure_padding_token(self._model)
         _MODEL_CACHE[self._model_name] = self._model
         logger.info("Loaded cross-encoder reranker: %s on %s", self._model_name, device)
 

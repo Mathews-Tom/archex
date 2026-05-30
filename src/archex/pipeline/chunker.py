@@ -130,7 +130,7 @@ class Chunker(Protocol):
 
 
 def _count_tokens(encoder: tiktoken.Encoding, text: str) -> int:
-    return len(encoder.encode(text))
+    return len(encoder.encode(text, disallowed_special=()))
 
 
 def _format_import(imp: ImportStatement) -> str:
