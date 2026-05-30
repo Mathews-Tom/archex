@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from archex.benchmark.models import BenchmarkTask, Strategy
+from archex.benchmark.models import BenchmarkRetrievalOptions, BenchmarkTask, Strategy
 from archex.benchmark.runner import AVAILABLE_STRATEGIES, DEFAULT_STRATEGIES, run_benchmark
 
 if TYPE_CHECKING:
@@ -113,7 +113,11 @@ class TestRunBenchmark:
 
         warmed: list[Path] = []
 
-        def _record(_task: BenchmarkTask, path: Path) -> None:
+        def _record(
+            _task: BenchmarkTask,
+            path: Path,
+            _options: BenchmarkRetrievalOptions | None = None,
+        ) -> None:
             warmed.append(path)
 
         def _raise(_task: BenchmarkTask, _path: Path) -> None:
@@ -220,6 +224,92 @@ class TestRunBenchmark:
         # RAW_GREPPED was skipped; only RAW_FILES ran
         assert len(report.results) == 1
         assert report.results[0].strategy == Strategy.RAW_FILES
+
+    def test_retrieval_options_are_scoped_to_strategy_runner(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from archex.benchmark.models import BenchmarkResult
+        from archex.benchmark.strategies import (
+            current_benchmark_retrieval_options,
+            default_strategy_registry,
+        )
+
+        task, repo_path = fixture_task
+        captured: list[BenchmarkRetrievalOptions] = []
+
+        def _record_options(_task: BenchmarkTask, _path: Path) -> BenchmarkResult:
+            captured.append(current_benchmark_retrieval_options())
+            return BenchmarkResult(
+                task_id=task.task_id,
+                strategy=Strategy.RAW_GREPPED,
+                tokens_total=1,
+                tool_calls=1,
+                files_accessed=1,
+                recall=0.0,
+                precision=0.0,
+                savings_vs_raw=0.0,
+                wall_time_ms=1.0,
+                cached=False,
+                timestamp="2026-01-01T00:00:00Z",
+            )
+
+        key = Strategy.RAW_GREPPED.value
+        monkeypatch.setitem(default_strategy_registry._runners, key, _record_options)  # pyright: ignore[reportPrivateUsage]
+
+        run_benchmark(
+            task,
+            strategies=[Strategy.RAW_GREPPED],
+            repo_path=repo_path,
+            retrieval_options=BenchmarkRetrievalOptions(splade=True, module_prefilter=True),
+        )
+
+        assert captured == [BenchmarkRetrievalOptions(splade=True, module_prefilter=True)]
+
+    def test_benchmark_repo_source_isolates_opt_in_cache_keys(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+    ) -> None:
+        from archex.benchmark.strategies import (
+            benchmark_repo_source,
+            reset_benchmark_retrieval_options,
+            set_benchmark_retrieval_options,
+        )
+
+        task, repo_path = fixture_task
+        source = benchmark_repo_source(task, repo_path)
+        assert source.stable_identity == "test/python_simple@HEAD"
+
+        token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(splade=True))
+        try:
+            splade_source = benchmark_repo_source(task, repo_path)
+        finally:
+            reset_benchmark_retrieval_options(token)
+
+        assert splade_source.stable_identity == "test/python_simple@HEAD#splade"
+
+    def test_benchmark_index_config_applies_module_prefilter_only_with_bm25(self) -> None:
+        from archex.benchmark.strategies import (
+            benchmark_index_config,
+            reset_benchmark_retrieval_options,
+            set_benchmark_retrieval_options,
+        )
+        from archex.models import IndexConfig
+
+        token = set_benchmark_retrieval_options(
+            BenchmarkRetrievalOptions(splade=True, module_prefilter=True)
+        )
+        try:
+            bm25_config = benchmark_index_config(IndexConfig(vector=True))
+            vector_config = benchmark_index_config(IndexConfig(bm25=False, vector=True))
+        finally:
+            reset_benchmark_retrieval_options(token)
+
+        assert bm25_config.splade is True
+        assert bm25_config.module_prefilter is True
+        assert vector_config.splade is True
+        assert vector_config.module_prefilter is False
 
 
 class TestCloneAtCommit:
