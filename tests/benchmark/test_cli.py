@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from click.testing import CliRunner
 
-from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy
+from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
 from archex.cli.benchmark_cmd import benchmark_cmd
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from archex.benchmark.progress import BenchmarkProgress
 
 
 @pytest.fixture
@@ -65,6 +67,16 @@ expected_files:
   - src/main.py
 """)
     return tasks
+
+
+def _empty_tasks(
+    tasks_dir: Path,
+    *,
+    task_filter: str | None = None,
+    self_only: bool = False,
+) -> list[BenchmarkTask]:
+    del tasks_dir, task_filter, self_only
+    return []
 
 
 class TestReportCommand:
@@ -228,6 +240,7 @@ class TestRunCommand:
         assert "--cross_layer_fusion" in result.output
         assert "--rerank" in result.output
         assert "--self-only" in result.output
+        assert "--no-progress" in result.output
 
     def test_run_uses_default_strategies_without_flags(
         self,
@@ -242,11 +255,14 @@ class TestRunCommand:
             strategies: list[Strategy] | None = None,
             task_filter: str | None = None,
             self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, task_filter, self_only
+            del tasks_dir, output_dir, task_filter, self_only, progress, tasks
             captured["strategies"] = strategies
             return []
 
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
         monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
         result = runner.invoke(benchmark_cmd, ["run"])
         assert result.exit_code == 0
@@ -269,11 +285,14 @@ class TestRunCommand:
             strategies: list[Strategy] | None = None,
             task_filter: str | None = None,
             self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, task_filter, self_only
+            del tasks_dir, output_dir, task_filter, self_only, progress, tasks
             captured["strategies"] = strategies
             return []
 
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
         monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
         result = runner.invoke(
             benchmark_cmd,
@@ -301,11 +320,14 @@ class TestRunCommand:
             strategies: list[Strategy] | None = None,
             task_filter: str | None = None,
             self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, task_filter, self_only
+            del tasks_dir, output_dir, task_filter, self_only, progress, tasks
             captured["strategies"] = strategies
             return []
 
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
         monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
         result = runner.invoke(benchmark_cmd, ["run", "--rerank"])
         assert result.exit_code == 0
@@ -330,12 +352,42 @@ class TestRunCommand:
             strategies: list[Strategy] | None = None,
             task_filter: str | None = None,
             self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, strategies, task_filter
+            del tasks_dir, output_dir, strategies, task_filter, progress, tasks
             captured["self_only"] = self_only
             return []
 
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
         monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
         result = runner.invoke(benchmark_cmd, ["run", "--self-only"])
         assert result.exit_code == 0
         assert captured["self_only"] is True
+
+    def test_run_no_progress_forces_disabled_controller(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter, self_only, tasks
+            assert progress is not None
+            captured["progress_enabled"] = cast("BenchmarkProgress", progress).live_display_enabled
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(benchmark_cmd, ["run", "--no-progress"])
+        assert result.exit_code == 0
+        assert captured["progress_enabled"] is False
