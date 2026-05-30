@@ -171,6 +171,7 @@ def _full_index(
         )
         edges = graph.file_edges()
         store.insert_edges(edges)
+        _build_splade_index(store, all_chunks, effective_index_config)
 
         if config.cache:
             commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
@@ -497,6 +498,43 @@ def _compute_top_k(total_chunks: int) -> int:
 def _compute_vector_top_k(*, bm25_top_k: int, total_chunks: int) -> int:
     """Use a deeper independent vector pool for fusion candidate union."""
     return min(total_chunks, bm25_top_k * 2)
+
+
+def _compute_splade_top_k(*, bm25_top_k: int, total_chunks: int) -> int:
+    """Use SPLADE as a recall leg with the same depth as vector fusion."""
+    return min(total_chunks, bm25_top_k * 2)
+
+
+def _build_splade_index(
+    store: IndexStore,
+    chunks: list[CodeChunk],
+    index_config: IndexConfig,
+) -> None:
+    if not index_config.splade:
+        return
+    from archex.index.splade import SPLADEIndex
+
+    splade = SPLADEIndex(store)
+    splade.build(chunks)
+
+
+def _splade_search_or_raise(
+    store: IndexStore,
+    question: str,
+    index_config: IndexConfig,
+    top_k: int,
+) -> list[tuple[CodeChunk, float]] | None:
+    if not index_config.splade:
+        return None
+    from archex.index.splade import SPLADEIndex
+
+    splade = SPLADEIndex(store)
+    if not splade.has_data:
+        raise ArchexIndexError(
+            "SPLADE requested but the cached index has no SPLADE rows; "
+            "refresh it with `archex index --splade`."
+        )
+    return splade.search(question, top_k=top_k)
 
 
 _PATH_NOISE = frozenset(
@@ -1069,6 +1107,10 @@ def query(
                     bm25_top_k=top_k,
                     total_chunks=chunk_count,
                 )
+                splade_top_k = _compute_splade_top_k(
+                    bm25_top_k=top_k,
+                    total_chunks=chunk_count,
+                )
                 # Pre-load all chunks into memory before parallel search so the
                 # vector thread has no dependency on the SQLite store connection.
                 all_chunks_cached = store.get_chunks()
@@ -1105,6 +1147,12 @@ def query(
                         search_results = []
                         path_boost = []
                         symbol_seeds = []
+                    splade_results = _splade_search_or_raise(
+                        store,
+                        question,
+                        index_config,
+                        splade_top_k,
+                    )
                     vector_results: list[tuple[CodeChunk, float]] | None = _vec_future.result()
 
                 # Fall back to rerank when pre-computed .npz is absent
@@ -1149,12 +1197,18 @@ def query(
                                 "bm25_results": len(search_results),
                                 "path_boost": len(path_boost),
                                 "symbol_seeds": len(symbol_seeds),
+                                "splade_results": len(splade_results or []),
                                 "top_k": top_k,
                                 "vector_top_k": vector_top_k,
+                                "splade_top_k": splade_top_k,
                             },
                         )
                     )
-                query_avg_idf = bm25.avg_idf(question) if vector_results is not None else None
+                query_avg_idf = (
+                    bm25.avg_idf(question)
+                    if vector_results is not None or splade_results is not None
+                    else None
+                )
                 # Cross-encoder reranker: enabled only when index_config.rerank is set.
                 _reranker = _maybe_reranker(index_config)
                 bundle = assemble_context(
@@ -1164,6 +1218,7 @@ def query(
                     question=question,
                     token_budget=effective_budget,
                     vector_results=vector_results,  # type: ignore[arg-type]
+                    splade_results=splade_results,
                     scoring_weights=scoring_weights,
                     trace=trace,
                     avg_idf=query_avg_idf,
@@ -1280,6 +1335,7 @@ def query(
             edges = graph.file_edges()
             store.insert_edges(edges)
             bm25.build(all_chunks)
+            _build_splade_index(store, all_chunks, index_config)
 
             # Pre-compute vector embeddings at index time when vector mode is enabled
             _precomputed_vector_path: Path | None = None
@@ -1342,6 +1398,10 @@ def query(
 
             top_k = _compute_top_k(len(all_chunks))
             vector_top_k = _compute_vector_top_k(
+                bm25_top_k=top_k,
+                total_chunks=len(all_chunks),
+            )
+            splade_top_k = _compute_splade_top_k(
                 bm25_top_k=top_k,
                 total_chunks=len(all_chunks),
             )
@@ -1412,6 +1472,12 @@ def query(
                     search_results = []
                     path_boost = []
                     symbol_seeds_miss = []
+                splade_results_miss = _splade_search_or_raise(
+                    store,
+                    question,
+                    index_config,
+                    splade_top_k,
+                )
                 vector_results_miss: list[tuple[CodeChunk, float]] | None = _vec_future.result()
 
             # Fall back to rerank when pre-computed .npz is absent
@@ -1455,12 +1521,18 @@ def query(
                             "bm25_results": len(search_results),
                             "path_boost": len(path_boost),
                             "symbol_seeds": len(symbol_seeds_miss),
+                            "splade_results": len(splade_results_miss or []),
                             "top_k": top_k,
                             "vector_top_k": vector_top_k,
+                            "splade_top_k": splade_top_k,
                         },
                     )
                 )
-            query_avg_idf_miss = bm25.avg_idf(question) if vector_results_miss is not None else None
+            query_avg_idf_miss = (
+                bm25.avg_idf(question)
+                if vector_results_miss is not None or splade_results_miss is not None
+                else None
+            )
             _reranker_miss = _maybe_reranker(index_config)
             bundle = assemble_context(
                 search_results=search_results,
@@ -1469,6 +1541,7 @@ def query(
                 question=question,
                 token_budget=effective_budget,
                 vector_results=vector_results_miss,  # type: ignore[arg-type]
+                splade_results=splade_results_miss,
                 scoring_weights=scoring_weights,
                 trace=trace,
                 avg_idf=query_avg_idf_miss,
