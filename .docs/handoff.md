@@ -1,64 +1,65 @@
 # Handoff — archex
 
-**Last touched:** 2026-05-30T07:40:42+05:30 · **branch:** `feat/bench-progress-integration` · **HEAD:** `6cddab2` · **session:** codex-gpt-5
+**Last touched:** 2026-05-30T18:54:39+05:30 · **branch:** `feat/module-summary-prefilter` · **HEAD:** `2d17349` · **session:** codex-gpt-5
 
 > Authority: this file owns *transient session state*. Persistent facts live in Codex memory. Static setup lives in `AGENTS.md` / repo instructions. Strategic roadmap lives in `.docs/2026-05-29-retrieval-recall-enhancement-plan.md`. Committed history lives in `git log`.
 
 ## Status
-- Working tree: clean on `feat/bench-progress-integration` before this handoff rewrite; this file is the only expected post-validation edit until committed.
-- Active stack for Tier 1.5 benchmark progress visibility:
-  1. `build/rich-direct-dep` on `main` at `03ba28e`.
-  2. `feat/bench-progress-controller` on `build/rich-direct-dep` at `dc15f1e`.
-  3. `feat/bench-progress-integration` on `feat/bench-progress-controller` at `6cddab2`, with this handoff update to commit next.
-- G1 code has merged, but the decisive G1 operator benchmark has not been run yet. Tier 1.5 lands before that run so the long comparison is legible.
+- Working tree: clean before this handoff rewrite; `.docs/handoff.md` is the only expected uncommitted edit and must be force-added because `.docs/` is ignored.
+- Active Tier 2 candidate-pool stack:
+  1. `feat/splade-leg` on `main` at `f5580cd`; PR #151, base `main`.
+  2. `feat/module-summary-prefilter` on `feat/splade-leg` at `2d17349`; PR #152, base `feat/splade-leg`.
 - No `archex benchmark run` and no `archex dogfood` command was run in this session.
+- T2.3 is measurement only. Graph expansion instrumentation was left untouched; the operator block below includes expansion contribution triage and `MAX_EXPANSION_FILES` review.
 - Validation completed on each implementation slice:
-  - `uv run ruff check && uv run ruff format --check . && uv run pyright` -> pass on all three branches.
-  - `uv run pytest tests/benchmark/test_progress.py tests/benchmark/ -q` -> selected benchmark tests passed on controller/integration slices, but the command exits nonzero because scoped pytest triggers repo-wide coverage fail-under. Latest integration run: `218 passed, 2 deselected`, coverage 39.32% vs 85%.
-  - `uv run pytest -q` -> pass on each branch. Latest integration run: `1986 passed, 4 deselected`, coverage 91.24%.
+  - `uv run ruff check && uv run ruff format --check . && uv run pyright` -> pass on both branches.
+  - `uv run pytest tests/index/test_splade.py tests/analyze/test_modules.py -q --no-cov` -> pass; latest leaf run `44 passed, 2 deselected`.
+  - Requested exact scoped pytest command was run: `uv run pytest tests/index/test_splade.py tests/analyze/test_modules.py -q`. Tests passed functionally but command exits nonzero because repo-wide coverage fail-under still applies to scoped pytest; latest leaf run `44 passed, 2 deselected`, coverage `23.71% < 85%`.
 - `pr-review` ran after each committed PR slice:
-  - `build/rich-direct-dep`: no issues.
-  - `feat/bench-progress-controller`: no blocking or important issues.
-  - `feat/bench-progress-integration`: no blocking or important issues.
-- PRs still need to be pushed/created if this handoff is being read before publish.
+  - `feat/splade-leg`: fixed SPLADE fusion seed/cutoff consistency before publishing.
+  - `feat/module-summary-prefilter`: fixed invalid `module_prefilter=True, bm25=False` no-op by enforcing a config invariant before publishing.
 
 ## What changed this session
-- Synced local `main` with `origin/main` before starting the stack.
-- Added direct pinned dependency `rich==14.3.3` via `uv add "rich==14.3.3"` in `pyproject.toml` and `uv.lock`; resolved version did not change.
-- Added `src/archex/benchmark/progress.py`, a context-manager benchmark progress controller owning one stderr `Console`, one optional `Live`, and two `Progress` instances:
-  - Overall determinate row: task label, bar, `MofNCompleteColumn`, elapsed, remaining.
-  - Active-task row: spinner first, task label, bar, percent, elapsed, activity text.
-  - Warm-up starts indeterminate with `warming vector index…`, then flips to `len(strategies)`.
-  - Non-TTY or `--no-progress` disables Live/progress rendering.
-- Added `tests/benchmark/test_progress.py` to verify rendered task/counter/strategy/warm-up text, warm-up indeterminate-to-determinate state, and non-TTY disable behavior.
-- Wired one shared controller from `benchmark run` CLI through `run_all` into `run_benchmark`.
-- Removed `click.progressbar` from benchmark strategy execution.
-- Routed warming, skipped, and wrote messages through `progress.console.log(...)` when a controller is present, or plain stderr otherwise.
-- Added `--no-progress` to `archex benchmark run`; final `Completed ...` still emits after the Live context closes.
-- Added `load_selected_tasks(...)` so `run_cmd` can create the controller after applying task filters while `run_all` preserves direct-call behavior.
+- Synced local `main` with `origin/main` before starting Tier 2.
+- PR #151 (`feat/splade-leg`) adds opt-in SPLADE retrieval:
+  - `IndexConfig.splade`, `.archex/settings.toml` default `splade = false`, and CLI flags `archex index --splade` / `archex query --splade`.
+  - Cache-miss and explicit indexing build SPLADE rows only when opted in.
+  - Query-time SPLADE fails fast against cached indexes without SPLADE rows instead of silently dropping the leg.
+  - `assemble_context(...)` accepts `splade_results`, gates SPLADE via existing fusion confidence logic, contributes SPLADE candidates only when fused, and records SPLADE metadata.
+  - Tests verify SPLADE search contract, deterministic build/query, and SPLADE candidate assembly without loading the real model.
+- PR #152 (`feat/module-summary-prefilter`) adds opt-in module responsibility prefiltering:
+  - `analyze/modules.py` now populates `Module.responsibility` deterministically from module names, paths, exports, and external dependencies.
+  - `IndexStore` persists module summaries as JSON in a `modules` table.
+  - `IndexConfig.module_prefilter`, `.archex/settings.toml` default `module_prefilter = false`, and CLI flags `archex index --module-prefilter` / `archex query --module-prefilter` keep behavior opt-in.
+  - Cached query fails fast when module prefiltering is requested without persisted module summaries.
+  - Query path runs BM25 over module responsibility strings and contributes capped chunks from matched modules into the candidate pool.
+  - Tests verify responsibility population and candidate boosting for lifecycle-style queries.
 
 ## Decisions
-1. **Implementation gate only** (2026-05-30) — Tier 1.5 changes terminal rendering only, so it lands on lint/type/tests plus rendering tests. It does not run or add any operator benchmark.
-2. **Single shared Live owned by CLI path** (2026-05-30) — `run_cmd` creates one controller and keeps it open around `run_all`; `run_benchmark` only updates the active row.
-3. **Plain redirected output over escape spam** (2026-05-30) — Non-TTY and `--no-progress` disable Live/progress rows while preserving clean stderr log lines.
+1. **Opt-in only** (2026-05-30) — SPLADE and module prefiltering are both gated by explicit config/CLI flags. Product-default BM25 behavior remains unchanged until measured.
+2. **Fail fast on missing opt-in artifacts** (2026-05-30) — Querying with `--splade` or `--module-prefilter` against an old cached index raises `ArchexIndexError` with the refresh command. Silent fallback would corrupt benchmark interpretation.
+3. **Module prefilter requires BM25** (2026-05-30) — The prefilter is a BM25 responsibility pass that biases BM25 candidate assembly. `module_prefilter=True` with `bm25=False` is invalid instead of being accepted as a no-op.
 
 ## Blockers / open questions
-- [ ] Push the three branches and create the linear PR stack if not already published.
-- [ ] Visual confirmation is still pending on the next G1 decisive operator run. That run should confirm a coherent two-line Live view: overall `[n/N]`/ETA row plus active spinner row, with warm/wrote/skip lines scrolling above.
-- [ ] Redirected run behavior still needs operator-side confirmation with a real benchmark invocation such as `... 2> bench.log`; this session intentionally did not run benchmarks.
+- [ ] GitHub checks for PR #151 and PR #152 still need to complete if CI is enabled.
+- [ ] The decisive Tier 2 benchmark has not been run. The operator must run it outside this session.
+- [ ] After benchmark results are pasted back, record per-leg deltas and graph-expansion contribution in this file.
 
 ## Resume checklist
 1. Confirm branch and tree: `git status --short --branch`.
-2. If `.docs/handoff.md` is uncommitted, commit it on `feat/bench-progress-integration` with `docs: update benchmark progress handoff`.
-3. Publish stack in order:
-   - `build/rich-direct-dep` -> base `main`.
-   - `feat/bench-progress-controller` -> base `build/rich-direct-dep`.
-   - `feat/bench-progress-integration` -> base `feat/bench-progress-controller`.
-4. Include validation notes in each PR body. Mention the scoped benchmark pytest coverage caveat explicitly.
-5. Do not run `archex benchmark run` or `archex dogfood` in-agent. The next visual check belongs to the operator's already-queued G1 decisive benchmark.
+2. Confirm PR topology: `gh pr view 151 --json headRefName,baseRefName,state,url` and `gh pr view 152 --json headRefName,baseRefName,state,url`.
+3. Watch or inspect CI if available. Do not delete `feat/splade-leg` while PR #152 still targets it.
+4. Operator run, separate terminal:
+   ```bash
+   uv run archex benchmark run --query-fusion --rerank --tasks-dir benchmarks/tasks --output .archex/e2e-results
+   uv run archex benchmark triage --input .archex/e2e-results --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
+   ```
+5. Pass criterion: vocabulary-mismatch / external-large recall improves; no regression on self or framework-semantic buckets.
+6. T2.3 measurement triage: quantify graph expansion recall contribution using `meta.seed_file_paths` / `meta.expanded_file_paths`, then decide whether `MAX_EXPANSION_FILES` should widen beyond 8. Do not change graph expansion constants unless measurement justifies it.
+7. If operator results are pasted back, update `.docs/handoff.md` with per-leg deltas and the expansion verdict. Do not start Tier 3.
 
 ## Refs
-- Plan: `.docs/2026-05-29-retrieval-recall-enhancement-plan.md` Tier 1.5.
-- Related PRs: pending publish for `build/rich-direct-dep`, `feat/bench-progress-controller`, `feat/bench-progress-integration`.
+- Plan: `.docs/2026-05-29-retrieval-recall-enhancement-plan.md` Tier 2.
+- Related PRs: #151 (`feat/splade-leg`), #152 (`feat/module-summary-prefilter`).
 - Memory: `MEMORY.md` archex stacked-PR workflow notes used for stack discipline and scoped pytest coverage caveat.
-- Conversation: current `/goal Implement Tier 1.5 (benchmark progress visibility)` thread.
+- Conversation: current `/goal Implement Tier 2 (candidate pool expansion)` thread.
