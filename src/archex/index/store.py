@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from archex.models import ChunkSurrogate, CodeChunk, Edge, EdgeKind, SymbolKind
+from archex.models import ChunkSurrogate, CodeChunk, Edge, EdgeKind, Module, SymbolKind
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -57,6 +57,16 @@ CREATE TABLE IF NOT EXISTS chunk_surrogates (
 );
 """
 
+_CREATE_MODULES = """
+CREATE TABLE IF NOT EXISTS modules (
+    ordinal INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    root_path TEXT NOT NULL,
+    responsibility TEXT NOT NULL,
+    module_json TEXT NOT NULL
+);
+"""
+
 _CREATE_IDX_CHUNKS_FILE = "CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_path);"
 _CREATE_IDX_CHUNKS_SYMBOL_ID = (
     "CREATE INDEX IF NOT EXISTS idx_chunks_symbol_id ON chunks(symbol_id);"
@@ -76,6 +86,7 @@ _CREATE_IDX_EDGES_TARGET = "CREATE INDEX IF NOT EXISTS idx_edges_target ON edges
 _CREATE_IDX_CHUNK_SURROGATES_FILE = (
     "CREATE INDEX IF NOT EXISTS idx_chunk_surrogates_file ON chunk_surrogates(file_path);"
 )
+_CREATE_IDX_MODULES_NAME = "CREATE INDEX IF NOT EXISTS idx_modules_name ON modules(name);"
 
 _CREATE_SYMBOLS_FTS = """
 CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
@@ -146,10 +157,12 @@ class IndexStore:
             + _CREATE_EDGES
             + _CREATE_METADATA
             + _CREATE_CHUNK_SURROGATES
+            + _CREATE_MODULES
             + _CREATE_IDX_CHUNKS_FILE
             + _CREATE_IDX_EDGES_SOURCE
             + _CREATE_IDX_EDGES_TARGET
             + _CREATE_IDX_CHUNK_SURROGATES_FILE
+            + _CREATE_IDX_MODULES_NAME
         )
         # Create BM25 FTS table so delete operations are safe without prior BM25Index init
         cur.executescript("""
@@ -238,6 +251,26 @@ class IndexStore:
 
     def insert_edges(self, edges: list[Edge]) -> None:
         self._insert_edges_no_commit(edges)
+        self._conn.commit()
+
+    def insert_modules(self, modules: list[Module]) -> None:
+        self._conn.execute("DELETE FROM modules")
+        if modules:
+            self._conn.executemany(
+                "INSERT INTO modules "
+                "(ordinal, name, root_path, responsibility, module_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    (
+                        idx,
+                        module.name,
+                        module.root_path,
+                        module.responsibility or "",
+                        module.model_dump_json(),
+                    )
+                    for idx, module in enumerate(modules)
+                ],
+            )
         self._conn.commit()
 
     def delete_chunks_for_files(self, file_paths: list[str]) -> int:
@@ -539,6 +572,10 @@ class IndexStore:
         cur = self._conn.execute(f"{_CHUNK_SELECT} WHERE file_path IN ({placeholders})", file_paths)
         return [_row_to_chunk(row) for row in cur.fetchall()]
 
+    def get_modules(self) -> list[Module]:
+        cur = self._conn.execute("SELECT module_json FROM modules ORDER BY ordinal")
+        return [Module.model_validate_json(str(row[0])) for row in cur.fetchall()]
+
     def get_chunk_count(self) -> int:
         """Return total number of chunks in the store."""
         row = self._conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
@@ -591,6 +628,8 @@ class IndexStore:
             + _CREATE_IDX_CHUNKS_VISIBILITY
             + _CREATE_CHUNK_SURROGATES
             + _CREATE_IDX_CHUNK_SURROGATES_FILE
+            + _CREATE_MODULES
+            + _CREATE_IDX_MODULES_NAME
             + _CREATE_SYMBOLS_FTS
         )
         # Set schema version and detect stale data needing re-index

@@ -8,7 +8,7 @@ import pytest
 
 from archex.analyze.modules import detect_modules
 from archex.index.graph import DependencyGraph
-from archex.models import ParsedFile
+from archex.models import CodeChunk, Module, ParsedFile, Symbol, SymbolKind
 from archex.parse import (
     TreeSitterEngine,
     build_file_map,
@@ -95,6 +95,82 @@ def test_detect_modules_name_inferred(python_simple_repo: Path) -> None:
     for module in modules:
         assert module.name, "Module name should not be empty"
         assert isinstance(module.name, str)
+
+
+def test_detect_modules_populates_responsibility() -> None:
+    pf = ParsedFile(
+        path="lifecycle/status.py",
+        language="python",
+        lines=20,
+        symbols=[
+            Symbol(
+                name="project_reset_status",
+                qualified_name="project_reset_status",
+                kind=SymbolKind.FUNCTION,
+                file_path="lifecycle/status.py",
+                start_line=1,
+                end_line=5,
+            )
+        ],
+    )
+    graph = DependencyGraph()
+    graph.add_file_node("lifecycle/status.py")
+
+    module = detect_modules(graph, [pf])[0]
+
+    assert module.responsibility is not None
+    assert "lifecycle" in module.responsibility
+    assert "project" in module.responsibility
+    assert "reset" in module.responsibility
+    assert "status" in module.responsibility
+
+
+def test_module_prefilter_boosts_chunks_by_responsibility() -> None:
+    from archex.api import _module_prefilter_boosts  # pyright: ignore[reportPrivateUsage]
+
+    module = Module(
+        name="lifecycle",
+        root_path="pkg",
+        files=["pkg/__init__.py", "pkg/status.py"],
+        responsibility="project reset init status lifecycle",
+    )
+    chunks = [
+        CodeChunk(
+            id="init",
+            content="def init_project(): pass",
+            file_path="pkg/__init__.py",
+            start_line=1,
+            end_line=2,
+            language="python",
+        ),
+        CodeChunk(
+            id="status",
+            content="def status(): pass",
+            file_path="pkg/status.py",
+            start_line=1,
+            end_line=2,
+            language="python",
+        ),
+        CodeChunk(
+            id="other",
+            content="def unrelated(): pass",
+            file_path="other.py",
+            start_line=1,
+            end_line=2,
+            language="python",
+        ),
+    ]
+
+    boosts = _module_prefilter_boosts(
+        [module],
+        chunks,
+        "how does project reset report status",
+        existing_ids=set(),
+        max_bm25_score=10.0,
+    )
+
+    assert {chunk.id for chunk, _ in boosts} == {"init", "status"}
+    assert all(score > 0 for _, score in boosts)
 
 
 def test_detect_modules_single_file() -> None:
