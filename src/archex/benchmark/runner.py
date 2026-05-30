@@ -11,8 +11,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archex.benchmark.loader import load_tasks
-from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
-from archex.benchmark.strategies import default_strategy_registry
+from archex.benchmark.models import (
+    BenchmarkReport,
+    BenchmarkResult,
+    BenchmarkRetrievalOptions,
+    BenchmarkTask,
+    Strategy,
+)
+from archex.benchmark.strategies import (
+    benchmark_repo_source,
+    default_strategy_registry,
+    reset_benchmark_retrieval_options,
+    set_benchmark_retrieval_options,
+)
 from archex.exceptions import ArchexIndexError, BenchmarkCloneError
 
 if TYPE_CHECKING:
@@ -60,7 +71,11 @@ def _check_vector_available() -> bool:
         return False
 
 
-def _warm_repo_index(task: BenchmarkTask, repo_path: Path) -> None:
+def _warm_repo_index(
+    task: BenchmarkTask,
+    repo_path: Path,
+    retrieval_options: BenchmarkRetrievalOptions | None = None,
+) -> None:
     """Pre-build the shared vector index so every vector strategy runs warm.
 
     The first vector strategy to execute otherwise absorbs the full embedding
@@ -72,11 +87,17 @@ def _warm_repo_index(task: BenchmarkTask, repo_path: Path) -> None:
     not surrogate-mode strategies.
     """
     from archex.api import query
-    from archex.models import Config, IndexConfig, RepoSource
+    from archex.models import Config, IndexConfig
 
-    source = RepoSource(local_path=str(repo_path))
+    source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = IndexConfig(vector=True, embedder="fastembed")
+    retrieval_options = retrieval_options or BenchmarkRetrievalOptions()
+    index_config = IndexConfig(
+        vector=True,
+        embedder="fastembed",
+        splade=retrieval_options.splade,
+        module_prefilter=retrieval_options.module_prefilter,
+    )
     query(
         source,
         task.question,
@@ -137,6 +158,7 @@ def run_benchmark(
     strategies: list[Strategy] | None = None,
     repo_path: Path | None = None,
     progress: BenchmarkProgress | None = None,
+    retrieval_options: BenchmarkRetrievalOptions | None = None,
 ) -> BenchmarkReport:
     """Run a benchmark task across strategies. Clones repo if repo_path not provided."""
     if strategies is None:
@@ -151,13 +173,15 @@ def run_benchmark(
         else:
             repo_path, needs_cleanup = clone_at_commit(task.repo, task.commit)
 
+    retrieval_options = retrieval_options or BenchmarkRetrievalOptions()
+    token = set_benchmark_retrieval_options(retrieval_options)
     try:
         should_warm = _check_vector_available() and any(s in _VECTOR_STRATEGIES for s in strategies)
         if should_warm:
             _log_progress(progress, f"  warming vector index for {task.task_id}...")
             if progress is not None:
                 progress.start_warmup()
-            _warm_repo_index(task, repo_path)
+            _warm_repo_index(task, repo_path, retrieval_options)
         if progress is not None:
             progress.finish_warmup(strategies)
 
@@ -216,6 +240,7 @@ def run_benchmark(
             ),
         )
     finally:
+        reset_benchmark_retrieval_options(token)
         if needs_cleanup:
             shutil.rmtree(repo_path, ignore_errors=True)
 
@@ -228,6 +253,7 @@ def run_all(
     self_only: bool = False,
     progress: BenchmarkProgress | None = None,
     tasks: list[BenchmarkTask] | None = None,
+    retrieval_options: BenchmarkRetrievalOptions | None = None,
 ) -> list[BenchmarkReport]:
     """Load all tasks, run benchmarks, write results to output_dir."""
     if tasks is None:
@@ -254,6 +280,7 @@ def run_all(
                     strategies=strategies,
                     repo_path=task_repo_path,
                     progress=progress,
+                    retrieval_options=retrieval_options,
                 )
             except BenchmarkCloneError as exc:
                 # Isolate per-task clone failures (network, rate limit, bad ref) so one

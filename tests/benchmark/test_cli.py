@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from click.testing import CliRunner
 
-from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
+from archex.benchmark.models import (
+    BenchmarkReport,
+    BenchmarkResult,
+    BenchmarkRetrievalOptions,
+    BenchmarkTask,
+    Strategy,
+)
 from archex.cli.benchmark_cmd import benchmark_cmd
 
 if TYPE_CHECKING:
@@ -239,6 +245,8 @@ class TestRunCommand:
         assert "--query-fusion" in result.output
         assert "--cross_layer_fusion" in result.output
         assert "--rerank" in result.output
+        assert "--splade" in result.output
+        assert "--module-prefilter" in result.output
         assert "--self-only" in result.output
         assert "--no-progress" in result.output
 
@@ -257,9 +265,11 @@ class TestRunCommand:
             self_only: bool = False,
             progress: object | None = None,
             tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
         ) -> list[BenchmarkReport]:
             del tasks_dir, output_dir, task_filter, self_only, progress, tasks
             captured["strategies"] = strategies
+            captured["retrieval_options"] = retrieval_options
             return []
 
         monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
@@ -271,6 +281,7 @@ class TestRunCommand:
             Strategy.RAW_GREPPED,
             Strategy.ARCHEX_QUERY,
         ]
+        assert captured["retrieval_options"] == BenchmarkRetrievalOptions()
 
     def test_run_adds_experimental_flags(
         self,
@@ -287,8 +298,9 @@ class TestRunCommand:
             self_only: bool = False,
             progress: object | None = None,
             tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, task_filter, self_only, progress, tasks
+            del tasks_dir, output_dir, task_filter, self_only, progress, tasks, retrieval_options
             captured["strategies"] = strategies
             return []
 
@@ -322,8 +334,9 @@ class TestRunCommand:
             self_only: bool = False,
             progress: object | None = None,
             tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, task_filter, self_only, progress, tasks
+            del tasks_dir, output_dir, task_filter, self_only, progress, tasks, retrieval_options
             captured["strategies"] = strategies
             return []
 
@@ -338,6 +351,36 @@ class TestRunCommand:
             Strategy.ARCHEX_QUERY_FUSION,
             Strategy.ARCHEX_QUERY_FUSION_RERANK,
         ]
+
+    def test_run_passes_retrieval_measurement_flags(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter, self_only, progress, tasks
+            captured["retrieval_options"] = retrieval_options
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(benchmark_cmd, ["run", "--splade", "--module-prefilter"])
+        assert result.exit_code == 0
+        assert captured["retrieval_options"] == BenchmarkRetrievalOptions(
+            splade=True,
+            module_prefilter=True,
+        )
 
     def test_run_self_only_flag_filters_tasks(
         self,
@@ -354,8 +397,9 @@ class TestRunCommand:
             self_only: bool = False,
             progress: object | None = None,
             tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, strategies, task_filter, progress, tasks
+            del tasks_dir, output_dir, strategies, task_filter, progress, tasks, retrieval_options
             captured["self_only"] = self_only
             return []
 
@@ -380,8 +424,9 @@ class TestRunCommand:
             self_only: bool = False,
             progress: object | None = None,
             tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, strategies, task_filter, self_only, tasks
+            del tasks_dir, output_dir, strategies, task_filter, self_only, tasks, retrieval_options
             assert progress is not None
             captured["progress_enabled"] = cast("BenchmarkProgress", progress).live_display_enabled
             return []

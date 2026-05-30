@@ -46,6 +46,11 @@ class BenchmarkTask(BaseModel):
     category: TaskCategory | None = None
 
 
+class BenchmarkRetrievalOptions(BaseModel):
+    splade: bool = False
+    module_prefilter: bool = False
+
+
 class BenchmarkResult(BaseModel):
     task_id: str
     strategy: Strategy

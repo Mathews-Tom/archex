@@ -10,8 +10,8 @@ import pytest
 from archex.benchmark.models import BenchmarkTask, Strategy
 from archex.benchmark.strategies import (
     _archex_fields,  # pyright: ignore[reportPrivateUsage]
-    _benchmark_repo_source,  # pyright: ignore[reportPrivateUsage]
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
+    benchmark_repo_source,
     compute_map,
     compute_mrr,
     compute_ndcg,
@@ -332,8 +332,8 @@ class TestRunArchexQuery:
         repo_a.mkdir()
         repo_b.mkdir()
 
-        source_a = _benchmark_repo_source(sample_task, repo_a)
-        source_b = _benchmark_repo_source(sample_task, repo_b)
+        source_a = benchmark_repo_source(sample_task, repo_a)
+        source_b = benchmark_repo_source(sample_task, repo_b)
 
         assert source_a.stable_identity == "test/repo@abc"
         assert source_b.stable_identity == "test/repo@abc"
@@ -352,7 +352,7 @@ class TestRunArchexQuery:
         )
 
         with patch.object(CacheManager, "git_head", return_value="resolved"):
-            source = _benchmark_repo_source(task, tmp_path)
+            source = benchmark_repo_source(task, tmp_path)
 
         assert source.stable_identity == "test/repo@resolved"
 
@@ -372,7 +372,7 @@ class TestRunArchexQuery:
             patch.object(CacheManager, "git_head", return_value=None),
             pytest.raises(ConfigError, match="has no commit"),
         ):
-            _benchmark_repo_source(task, tmp_path)
+            benchmark_repo_source(task, tmp_path)
 
     def test_archex_query_strategy(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(

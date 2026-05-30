@@ -9,18 +9,29 @@ import re
 import subprocess
 import time
 from collections.abc import Callable
+from contextvars import ContextVar, Token
 from datetime import UTC, datetime
 from pathlib import Path
 
-from archex.benchmark.models import BenchmarkResult, BenchmarkTask, Strategy
+from archex.benchmark.models import (
+    BenchmarkResult,
+    BenchmarkRetrievalOptions,
+    BenchmarkTask,
+    Strategy,
+)
 from archex.cache import CacheManager
 from archex.exceptions import ConfigError
-from archex.models import PipelineTiming, RepoSource
+from archex.models import IndexConfig, PipelineTiming, RepoSource
 from archex.reporting import count_tokens
 
 logger = logging.getLogger(__name__)
 
 StrategyRunner = Callable[[BenchmarkTask, Path], BenchmarkResult]
+
+_BENCHMARK_RETRIEVAL_OPTIONS: ContextVar[BenchmarkRetrievalOptions | None] = ContextVar(
+    "benchmark_retrieval_options",
+    default=None,
+)
 
 _STOPWORDS = frozenset(
     {
@@ -481,28 +492,67 @@ def _cache_state(timing: PipelineTiming) -> str:
     return "warm" if timing.cached else "cold"
 
 
-def _benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
+def current_benchmark_retrieval_options() -> BenchmarkRetrievalOptions:
+    return _BENCHMARK_RETRIEVAL_OPTIONS.get() or BenchmarkRetrievalOptions()
+
+
+def set_benchmark_retrieval_options(
+    options: BenchmarkRetrievalOptions,
+) -> Token[BenchmarkRetrievalOptions | None]:
+    return _BENCHMARK_RETRIEVAL_OPTIONS.set(options)
+
+
+def reset_benchmark_retrieval_options(token: Token[BenchmarkRetrievalOptions | None]) -> None:
+    _BENCHMARK_RETRIEVAL_OPTIONS.reset(token)
+
+
+def _retrieval_cache_suffix(options: BenchmarkRetrievalOptions) -> str:
+    enabled: list[str] = []
+    if options.splade:
+        enabled.append("splade")
+    if options.module_prefilter:
+        enabled.append("module-prefilter")
+    return "+".join(enabled)
+
+
+def benchmark_index_config(index_config: IndexConfig) -> IndexConfig:
+    options = current_benchmark_retrieval_options()
+    updates: dict[str, bool] = {}
+    if options.splade:
+        updates["splade"] = True
+    if options.module_prefilter and index_config.bm25:
+        updates["module_prefilter"] = True
+    if not updates:
+        return index_config
+    return index_config.model_copy(update=updates)
+
+
+def benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
     commit = task.commit or CacheManager.git_head(str(repo_path))
     if not commit:
         raise ConfigError(
             f"Benchmark task {task.task_id!r} has no commit and {repo_path} has no git HEAD"
         )
+    stable_identity = f"{task.repo}@{commit}"
+    suffix = _retrieval_cache_suffix(current_benchmark_retrieval_options())
+    if suffix:
+        stable_identity = f"{stable_identity}#{suffix}"
     return RepoSource(
         local_path=str(repo_path),
-        stable_identity=f"{task.repo}@{commit}",
+        stable_identity=stable_identity,
     )
 
 
 def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """archex query strategy: use BM25-based retrieval."""
     from archex.api import query
-    from archex.models import Config, IndexConfig
+    from archex.models import Config
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = _benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path)
     config = Config(cache=False, languages=task.languages)
-    index_config = IndexConfig(vector=False)
+    index_config = benchmark_index_config(IndexConfig(vector=False))
 
     bundle = query(
         source,
@@ -561,13 +611,15 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
 def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Pure vector retrieval strategy: vector search without BM25."""
     from archex.api import query
-    from archex.models import Config, IndexConfig
+    from archex.models import Config
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = _benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = IndexConfig(bm25=False, vector=True, embedder="fastembed")
+    index_config = benchmark_index_config(
+        IndexConfig(bm25=False, vector=True, embedder="fastembed")
+    )
 
     bundle = query(
         source,
@@ -633,18 +685,20 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
 def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Pure surrogate-vector retrieval strategy."""
     from archex.api import query
-    from archex.models import Config, IndexConfig, RetrievalPolicy, VectorMode
+    from archex.models import Config, RetrievalPolicy, VectorMode
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = _benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = IndexConfig(
-        bm25=False,
-        vector=True,
-        embedder="fastembed",
-        vector_mode=VectorMode.SURROGATE,
-        retrieval_policy=RetrievalPolicy.VECTOR_ONLY,
+    index_config = benchmark_index_config(
+        IndexConfig(
+            bm25=False,
+            vector=True,
+            embedder="fastembed",
+            vector_mode=VectorMode.SURROGATE,
+            retrieval_policy=RetrievalPolicy.VECTOR_ONLY,
+        )
     )
 
     bundle = query(
@@ -705,13 +759,13 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
 def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Full fusion strategy: BM25 + independent vector + confidence-aware RRF."""
     from archex.api import query
-    from archex.models import Config, IndexConfig
+    from archex.models import Config
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = _benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = IndexConfig(vector=True, embedder="fastembed")
+    index_config = benchmark_index_config(IndexConfig(vector=True, embedder="fastembed"))
 
     bundle = query(
         source,
@@ -777,13 +831,15 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
 def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Fusion strategy with cross-encoder reranking: BM25 + vector + rerank."""
     from archex.api import query
-    from archex.models import Config, IndexConfig
+    from archex.models import Config
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = _benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = IndexConfig(vector=True, embedder="fastembed", rerank=True)
+    index_config = benchmark_index_config(
+        IndexConfig(vector=True, embedder="fastembed", rerank=True)
+    )
 
     bundle = query(
         source,
@@ -842,17 +898,19 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
 def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """BM25 over raw chunks plus vector retrieval over surrogates."""
     from archex.api import query
-    from archex.models import Config, IndexConfig, RetrievalPolicy, VectorMode
+    from archex.models import Config, RetrievalPolicy, VectorMode
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = _benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = IndexConfig(
-        vector=True,
-        embedder="fastembed",
-        vector_mode=VectorMode.SURROGATE,
-        retrieval_policy=RetrievalPolicy.CROSS_LAYER,
+    index_config = benchmark_index_config(
+        IndexConfig(
+            vector=True,
+            embedder="fastembed",
+            vector_mode=VectorMode.SURROGATE,
+            retrieval_policy=RetrievalPolicy.CROSS_LAYER,
+        )
     )
 
     bundle = query(

@@ -18,7 +18,12 @@ from archex.benchmark.gate import (
     check_latency_warnings,
 )
 from archex.benchmark.loader import load_tasks
-from archex.benchmark.models import BenchmarkReport, DeltaBenchmarkResult, Strategy
+from archex.benchmark.models import (
+    BenchmarkReport,
+    BenchmarkRetrievalOptions,
+    DeltaBenchmarkResult,
+    Strategy,
+)
 from archex.benchmark.progress import BenchmarkProgress
 from archex.benchmark.readiness import (
     build_readiness_report,
@@ -88,6 +93,18 @@ def benchmark_cmd() -> None:
     help="Include the fusion+rerank strategy (archex_query_fusion_rerank).",
 )
 @click.option(
+    "--splade",
+    is_flag=True,
+    default=False,
+    help="Enable the opt-in SPLADE retrieval leg for archex benchmark strategies.",
+)
+@click.option(
+    "--module-prefilter",
+    is_flag=True,
+    default=False,
+    help="Enable the opt-in module responsibility prefilter for BM25-backed archex strategies.",
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -107,6 +124,8 @@ def run_cmd(
     query_fusion: bool,
     cross_layer_fusion: bool,
     rerank: bool,
+    splade: bool,
+    module_prefilter: bool,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -137,6 +156,10 @@ def run_cmd(
             self_only=self_only,
             progress=progress,
             tasks=tasks,
+            retrieval_options=BenchmarkRetrievalOptions(
+                splade=splade,
+                module_prefilter=module_prefilter,
+            ),
         )
 
     click.echo(f"\nCompleted {len(reports)} benchmark(s).", err=True)
