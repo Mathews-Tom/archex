@@ -8,13 +8,15 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-
-import click
+from typing import TYPE_CHECKING
 
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
 from archex.benchmark.strategies import default_strategy_registry
 from archex.exceptions import ArchexIndexError, BenchmarkCloneError
+
+if TYPE_CHECKING:
+    from archex.benchmark.progress import BenchmarkProgress
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,7 @@ def run_benchmark(
     task: BenchmarkTask,
     strategies: list[Strategy] | None = None,
     repo_path: Path | None = None,
+    progress: BenchmarkProgress | None = None,
 ) -> BenchmarkReport:
     """Run a benchmark task across strategies. Clones repo if repo_path not provided."""
     if strategies is None:
@@ -149,34 +152,39 @@ def run_benchmark(
             repo_path, needs_cleanup = clone_at_commit(task.repo, task.commit)
 
     try:
-        if _check_vector_available() and any(s in _VECTOR_STRATEGIES for s in strategies):
-            print(f"  warming vector index for {task.task_id}...", file=sys.stderr, flush=True)
+        should_warm = _check_vector_available() and any(s in _VECTOR_STRATEGIES for s in strategies)
+        if should_warm:
+            _log_progress(progress, f"  warming vector index for {task.task_id}...")
+            if progress is not None:
+                progress.start_warmup()
             _warm_repo_index(task, repo_path)
+        if progress is not None:
+            progress.finish_warmup(strategies)
 
         results: list[BenchmarkResult] = []
-        with click.progressbar(
-            strategies,
-            label=f"  {task.task_id}",
-            item_show_func=lambda s: s.value if s is not None else "",
-            file=sys.stderr,
-        ) as bar:
-            for strategy in bar:
-                runner = default_strategy_registry.get(strategy)
-                if runner is None:
-                    logger.warning("No runner for strategy %s, skipping", strategy)
-                    continue
-                try:
-                    result = runner(task, repo_path)
-                    results.append(result)
-                    logger.info(
-                        "%s: %d tokens, recall=%.2f, %.0fms",
-                        strategy.value,
-                        result.tokens_total,
-                        result.recall,
-                        result.wall_time_ms,
-                    )
-                except (NotImplementedError, ArchexIndexError) as exc:
-                    logger.info("Skipping %s: %s", strategy.value, exc)
+        for strategy in strategies:
+            if progress is not None:
+                progress.start_strategy(strategy)
+            runner = default_strategy_registry.get(strategy)
+            if runner is None:
+                logger.warning("No runner for strategy %s, skipping", strategy)
+                if progress is not None:
+                    progress.finish_strategy()
+                continue
+            try:
+                result = runner(task, repo_path)
+                results.append(result)
+                logger.info(
+                    "%s: %d tokens, recall=%.2f, %.0fms",
+                    strategy.value,
+                    result.tokens_total,
+                    result.recall,
+                    result.wall_time_ms,
+                )
+            except (NotImplementedError, ArchexIndexError) as exc:
+                logger.info("Skipping %s: %s", strategy.value, exc)
+            if progress is not None:
+                progress.finish_strategy()
 
         # Compute baseline and backfill savings_vs_raw
         baseline_tokens = 0
@@ -218,17 +226,12 @@ def run_all(
     strategies: list[Strategy] | None = None,
     task_filter: str | None = None,
     self_only: bool = False,
+    progress: BenchmarkProgress | None = None,
+    tasks: list[BenchmarkTask] | None = None,
 ) -> list[BenchmarkReport]:
     """Load all tasks, run benchmarks, write results to output_dir."""
-    tasks = load_tasks(tasks_dir)
-    if self_only:
-        tasks = [t for t in tasks if t.repo == "."]
-        if not tasks:
-            raise ValueError(f"No self-only tasks found in {tasks_dir}")
-    if task_filter:
-        tasks = [t for t in tasks if t.task_id == task_filter]
-        if not tasks:
-            raise ValueError(f"No task found with id '{task_filter}'")
+    if tasks is None:
+        tasks = load_selected_tasks(tasks_dir, task_filter=task_filter, self_only=self_only)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     reports: list[BenchmarkReport] = []
@@ -238,32 +241,65 @@ def run_all(
 
     try:
         for i, task in enumerate(tasks, 1):
-            print(f"[{i}/{len(tasks)}] {task.task_id} ({task.repo})", file=sys.stderr)
+            if progress is not None:
+                progress.start_task(task)
+                if not progress.live_display_enabled:
+                    progress.console.log(f"[{i}/{len(tasks)}] {task.task_id} ({task.repo})")
+            else:
+                print(f"[{i}/{len(tasks)}] {task.task_id} ({task.repo})", file=sys.stderr)
             try:
                 task_repo_path = _repo_path_for_task(task, repo_cache, cleanup_paths)
-                report = run_benchmark(task, strategies=strategies, repo_path=task_repo_path)
+                report = run_benchmark(
+                    task,
+                    strategies=strategies,
+                    repo_path=task_repo_path,
+                    progress=progress,
+                )
             except BenchmarkCloneError as exc:
                 # Isolate per-task clone failures (network, rate limit, bad ref) so one
                 # bad repo does not abort the whole batch.
                 logger.warning("Skipping task %s: %s", task.task_id, exc)
-                print(f"  SKIPPED {task.task_id}: {exc}", file=sys.stderr)
+                _log_progress(progress, f"  SKIPPED {task.task_id}: {exc}")
                 failures.append((task.task_id, str(exc)))
+                if progress is not None:
+                    progress.finish_task()
                 continue
             reports.append(report)
 
             result_path = output_dir / f"{task.task_id}.json"
             result_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-            print(f"  → Wrote {result_path}", file=sys.stderr)
+            _log_progress(progress, f"  → Wrote {result_path}")
+            if progress is not None:
+                progress.finish_task()
 
         if failures:
-            print(f"\n{len(failures)} task(s) skipped due to clone failures:", file=sys.stderr)
+            _log_progress(progress, f"{len(failures)} task(s) skipped due to clone failures:")
             for task_id, detail in failures:
-                print(f"  - {task_id}: {detail}", file=sys.stderr)
+                _log_progress(progress, f"  - {task_id}: {detail}")
 
         return reports
     finally:
         for path in cleanup_paths:
             shutil.rmtree(path, ignore_errors=True)
+
+
+def load_selected_tasks(
+    tasks_dir: Path,
+    *,
+    task_filter: str | None = None,
+    self_only: bool = False,
+) -> list[BenchmarkTask]:
+    """Load benchmark tasks after applying run filters."""
+    tasks = load_tasks(tasks_dir)
+    if self_only:
+        tasks = [t for t in tasks if t.repo == "."]
+        if not tasks:
+            raise ValueError(f"No self-only tasks found in {tasks_dir}")
+    if task_filter:
+        tasks = [t for t in tasks if t.task_id == task_filter]
+        if not tasks:
+            raise ValueError(f"No task found with id '{task_filter}'")
+    return tasks
 
 
 def _repo_path_for_task(
@@ -285,6 +321,13 @@ def _repo_path_for_task(
     if needs_cleanup:
         cleanup_paths.append(repo_path)
     return repo_path
+
+
+def _log_progress(progress: BenchmarkProgress | None, message: str) -> None:
+    if progress is not None:
+        progress.console.log(message)
+    else:
+        print(message, file=sys.stderr)
 
 
 def _percentile(values: list[float], quantile: float) -> float:

@@ -19,6 +19,7 @@ from archex.benchmark.gate import (
 )
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import BenchmarkReport, DeltaBenchmarkResult, Strategy
+from archex.benchmark.progress import BenchmarkProgress
 from archex.benchmark.readiness import (
     build_readiness_report,
     format_readiness_json,
@@ -31,7 +32,7 @@ from archex.benchmark.reporter import (
     format_markdown,
     format_summary,
 )
-from archex.benchmark.runner import DEFAULT_STRATEGIES, run_all
+from archex.benchmark.runner import DEFAULT_STRATEGIES, load_selected_tasks, run_all
 from archex.benchmark.triage import (
     format_triage_json,
     format_triage_markdown,
@@ -92,6 +93,12 @@ def benchmark_cmd() -> None:
     default=False,
     help='Run only benchmark tasks whose repo is ".".',
 )
+@click.option(
+    "--no-progress",
+    is_flag=True,
+    default=False,
+    help="Disable the live progress display.",
+)
 def run_cmd(
     output_dir: str,
     task_id: str | None,
@@ -101,6 +108,7 @@ def run_cmd(
     cross_layer_fusion: bool,
     rerank: bool,
     self_only: bool,
+    no_progress: bool,
 ) -> None:
     """Run benchmarks across strategies."""
     strategies: list[Strategy] = list(DEFAULT_STRATEGIES)
@@ -118,13 +126,18 @@ def run_cmd(
         if Strategy.ARCHEX_QUERY_FUSION_RERANK not in strategies:
             strategies.append(Strategy.ARCHEX_QUERY_FUSION_RERANK)
 
-    reports = run_all(
-        tasks_dir=Path(tasks_dir),
-        output_dir=Path(output_dir),
-        strategies=strategies,
-        task_filter=task_id,
-        self_only=self_only,
-    )
+    tasks_path = Path(tasks_dir)
+    tasks = load_selected_tasks(tasks_path, task_filter=task_id, self_only=self_only)
+    with BenchmarkProgress(tasks, force_disable=no_progress) as progress:
+        reports = run_all(
+            tasks_dir=tasks_path,
+            output_dir=Path(output_dir),
+            strategies=strategies,
+            task_filter=task_id,
+            self_only=self_only,
+            progress=progress,
+            tasks=tasks,
+        )
 
     click.echo(f"\nCompleted {len(reports)} benchmark(s).", err=True)
 
