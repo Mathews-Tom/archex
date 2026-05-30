@@ -1,16 +1,17 @@
 # Handoff — archex
 
-**Last touched:** 2026-05-30T18:54:39+05:30 · **branch:** `feat/module-summary-prefilter` · **HEAD:** `2d17349` · **session:** codex-gpt-5
+**Last touched:** 2026-05-31T00:19:09+05:30 · **branch:** `feat/module-summary-prefilter` · **HEAD:** `current leaf` · **session:** codex-gpt-5
 
 > Authority: this file owns *transient session state*. Persistent facts live in Codex memory. Static setup lives in `AGENTS.md` / repo instructions. Strategic roadmap lives in `.docs/2026-05-29-retrieval-recall-enhancement-plan.md`. Committed history lives in `git log`.
 
 ## Status
-- Working tree: clean before this handoff rewrite; `.docs/handoff.md` is the only expected uncommitted edit and must be force-added because `.docs/` is ignored.
+- Working tree: `.docs/handoff.md` records the completed operator benchmark verdict and is force-added because `.docs/` is ignored.
 - Active Tier 2 candidate-pool stack:
   1. `feat/splade-leg` on `main` at `f5580cd`; PR #151, base `main`.
-  2. `feat/module-summary-prefilter` on `feat/splade-leg` at `2d17349`; PR #152, base `feat/splade-leg`.
-- No `archex benchmark run` and no `archex dogfood` command was run in this session.
-- T2.3 is measurement only. Graph expansion instrumentation was left untouched; the operator block below includes expansion contribution triage and `MAX_EXPANSION_FILES` review.
+  2. `feat/module-summary-prefilter` on `feat/splade-leg`; PR #152, base `feat/splade-leg`.
+- Operator benchmark completed from `.docs/benchmark-log.md` using the requested commands. This session did not run `archex benchmark run` or `archex dogfood`.
+- Tier 2 pass criterion was not met for the requested final strategy `archex_query_fusion_rerank`: vocabulary-mismatch / external-large did not improve versus `archex_query`, and self / architecture-broad regressed.
+- Important measurement caveat: the operator commands did not pass `--splade` or `--module-prefilter`, and both new Tier 2 legs default off. The run measured existing query/fusion/rerank behavior on this branch, not the opt-in SPLADE/module-prefilter legs. No SPLADE/module-prefilter per-leg deltas are available from this run.
 - Validation completed on each implementation slice:
   - `uv run ruff check && uv run ruff format --check . && uv run pyright` -> pass on both branches.
   - `uv run pytest tests/index/test_splade.py tests/analyze/test_modules.py -q --no-cov` -> pass; latest leaf run `44 passed, 2 deselected`.
@@ -18,6 +19,36 @@
 - `pr-review` ran after each committed PR slice:
   - `feat/splade-leg`: fixed SPLADE fusion seed/cutoff consistency before publishing.
   - `feat/module-summary-prefilter`: fixed invalid `module_prefilter=True, bm25=False` no-op by enforcing a config invariant before publishing.
+
+## Benchmark verdict
+- Commands recorded in `.docs/benchmark-log.md`:
+  ```bash
+  uv run archex benchmark run --query-fusion --rerank --tasks-dir benchmarks/tasks --output .archex/e2e-results
+  uv run archex benchmark triage --input .archex/e2e-results --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
+  ```
+- Aggregate recall / F1 by bucket:
+  | Bucket | n | query recall | fusion recall | fusion+rerank recall | rerank delta vs query | query F1 | fusion+rerank F1 | F1 delta |
+  |---|---:|---:|---:|---:|---:|---:|---:|---:|
+  | architecture-broad | 3 | 0.556 | 0.444 | 0.222 | -0.333 | 0.444 | 0.167 | -0.278 |
+  | external-framework | 9 | 0.685 | 0.667 | 0.537 | -0.148 | 0.522 | 0.402 | -0.120 |
+  | external-large | 5 | 0.367 | 0.500 | 0.333 | -0.033 | 0.279 | 0.228 | -0.051 |
+  | framework-semantic | 2 | 0.333 | 0.333 | 0.500 | +0.167 | 0.325 | 0.393 | +0.068 |
+  | self | 16 | 0.590 | 0.618 | 0.252 | -0.338 | 0.495 | 0.177 | -0.317 |
+- Zero-recall count by bucket:
+  | Bucket | query | fusion | fusion+rerank |
+  |---|---:|---:|---:|
+  | architecture-broad | 0/3 | 0/3 | 2/3 |
+  | external-framework | 0/9 | 0/9 | 0/9 |
+  | external-large | 1/5 | 0/5 | 2/5 |
+  | framework-semantic | 0/2 | 0/2 | 0/2 |
+  | self | 0/16 | 0/16 | 3/16 |
+- Latency: fusion+rerank is ~107-168s average per bucket versus query at ~1.4-13.8s. The quality regression plus latency makes `archex_query_fusion_rerank` non-mergeable as a default decision.
+- Fusion alone is more promising than rerank: external-large recall improves from 0.367 to 0.500 and self improves from 0.590 to 0.618, but architecture-broad and external-framework still regress.
+- Graph expansion T2.3:
+  - `archex_graph_expansion` under `archex_query`: final recall 1.0, seed recall 0.5, expansion contribution +0.5, 8 expanded files. Expansion helped the non-rerank query path.
+  - `archex_graph_expansion` under fusion: final recall 1.0, seed recall 1.0, expansion contribution 0.0, 8 expanded files. Seeds already covered expected files.
+  - `archex_graph_expansion` under fusion+rerank: final recall 0.0, seed recall 1.0, expansion contribution -1.0, 8 expanded files. Rerank dropped the relevant graph-expanded/seed candidates.
+  - `MAX_EXPANSION_FILES=8` was hit often, but widening it is not the next move while rerank is eliminating already-present relevant candidates. Fix or disable rerank before tuning expansion width.
 
 ## What changed this session
 - Synced local `main` with `origin/main` before starting Tier 2.
@@ -42,21 +73,17 @@
 
 ## Blockers / open questions
 - [ ] GitHub checks for PR #151 and PR #152 still need to complete if CI is enabled.
-- [ ] The decisive Tier 2 benchmark has not been run. The operator must run it outside this session.
-- [ ] After benchmark results are pasted back, record per-leg deltas and graph-expansion contribution in this file.
+- [ ] Decide whether to merge the opt-in Tier 2 plumbing despite the benchmark caveat. The run did not exercise `--splade` or `--module-prefilter`, so it does not validate those legs.
+- [ ] Do not start Tier 3. The default/rerank decision is not justified by this benchmark.
 
 ## Resume checklist
 1. Confirm branch and tree: `git status --short --branch`.
 2. Confirm PR topology: `gh pr view 151 --json headRefName,baseRefName,state,url` and `gh pr view 152 --json headRefName,baseRefName,state,url`.
 3. Watch or inspect CI if available. Do not delete `feat/splade-leg` while PR #152 still targets it.
-4. Operator run, separate terminal:
-   ```bash
-   uv run archex benchmark run --query-fusion --rerank --tasks-dir benchmarks/tasks --output .archex/e2e-results
-   uv run archex benchmark triage --input .archex/e2e-results --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
-   ```
-5. Pass criterion: vocabulary-mismatch / external-large recall improves; no regression on self or framework-semantic buckets.
-6. T2.3 measurement triage: quantify graph expansion recall contribution using `meta.seed_file_paths` / `meta.expanded_file_paths`, then decide whether `MAX_EXPANSION_FILES` should widen beyond 8. Do not change graph expansion constants unless measurement justifies it.
-7. If operator results are pasted back, update `.docs/handoff.md` with per-leg deltas and the expansion verdict. Do not start Tier 3.
+4. If measuring the actual new opt-in Tier 2 legs, add benchmark support or a controlled command path that passes `splade=True` and `module_prefilter=True`; the recorded operator command does not enable them.
+5. Keep product defaults unchanged. `archex_query_fusion_rerank` failed the Tier 2 pass criterion.
+6. Do not widen `MAX_EXPANSION_FILES` yet. Rerank candidate elimination, not graph expansion width, is the measured failure mode for `archex_graph_expansion`.
+7. Do not start Tier 3.
 
 ## Refs
 - Plan: `.docs/2026-05-29-retrieval-recall-enhancement-plan.md` Tier 2.
