@@ -34,7 +34,13 @@ def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int
     help="Output format.",
 )
 @click.option("--splade", is_flag=True, default=False, help="Build the opt-in SPLADE index.")
-def index_cmd(source: str, output_format: str, splade: bool) -> None:
+@click.option(
+    "--module-prefilter",
+    is_flag=True,
+    default=False,
+    help="Build opt-in module responsibility summaries.",
+)
+def index_cmd(source: str, output_format: str, splade: bool, module_prefilter: bool) -> None:
     """Build or refresh the index for SOURCE without running a query."""
     repo_source = RepoSource(local_path=source)
     repo_root = Path(source).expanduser().resolve()
@@ -42,6 +48,8 @@ def index_cmd(source: str, output_format: str, splade: bool) -> None:
     index_config = load_index_config(repo_source)
     if splade:
         index_config = index_config.model_copy(update={"splade": True})
+    if module_prefilter:
+        index_config = index_config.model_copy(update={"module_prefilter": True})
     timing = PipelineTiming()
     started = time.perf_counter()
     try:

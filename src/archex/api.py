@@ -68,6 +68,8 @@ from archex.models import (
     FileOutline,
     FileTree,
     IndexConfig,
+    Module,
+    ParsedFile,
     PipelineTiming,
     RepoMetadata,
     RepoSource,
@@ -172,6 +174,7 @@ def _full_index(
         edges = graph.file_edges()
         store.insert_edges(edges)
         _build_splade_index(store, all_chunks, effective_index_config)
+        _build_module_summaries(store, graph, parsed_files, effective_index_config)
 
         if config.cache:
             commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
@@ -518,6 +521,19 @@ def _build_splade_index(
     splade.build(chunks)
 
 
+def _build_module_summaries(
+    store: IndexStore,
+    graph: DependencyGraph,
+    parsed_files: list[ParsedFile],
+    index_config: IndexConfig,
+) -> list[Module]:
+    if not index_config.module_prefilter:
+        return []
+    modules = detect_modules(graph, parsed_files)
+    store.insert_modules(modules)
+    return modules
+
+
 def _splade_search_or_raise(
     store: IndexStore,
     question: str,
@@ -535,6 +551,18 @@ def _splade_search_or_raise(
             "refresh it with `archex index --splade`."
         )
     return splade.search(question, top_k=top_k)
+
+
+def _modules_or_raise(store: IndexStore, index_config: IndexConfig) -> list[Module]:
+    if not index_config.module_prefilter:
+        return []
+    modules = store.get_modules()
+    if not modules:
+        raise ArchexIndexError(
+            "Module prefilter requested but the cached index has no module summaries; "
+            "refresh it with `archex index --module-prefilter`."
+        )
+    return modules
 
 
 _PATH_NOISE = frozenset(
@@ -793,19 +821,102 @@ def _symbol_search_seeds(
     return seeds
 
 
+def _module_prefilter_boosts(
+    modules: list[Module],
+    all_chunks: list[CodeChunk],
+    question: str,
+    existing_ids: set[str],
+    max_bm25_score: float,
+    *,
+    max_modules: int = 3,
+    max_chunks_per_module: int = 8,
+) -> list[tuple[CodeChunk, float]]:
+    if not modules:
+        return []
+
+    import sqlite3
+
+    from archex.index.bm25 import escape_fts_query
+
+    escaped = escape_fts_query(question)
+    if not escaped:
+        return []
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute(
+            "CREATE VIRTUAL TABLE module_fts USING fts5("
+            "ordinal UNINDEXED, name, responsibility, tokenize='porter unicode61')"
+        )
+        conn.executemany(
+            "INSERT INTO module_fts (ordinal, name, responsibility) VALUES (?, ?, ?)",
+            [
+                (idx, module.name, module.responsibility or "")
+                for idx, module in enumerate(modules)
+                if module.responsibility
+            ],
+        )
+        rows = conn.execute(
+            "SELECT ordinal, bm25(module_fts, 2.0, 8.0) AS score "
+            "FROM module_fts WHERE module_fts MATCH ? ORDER BY score LIMIT ?",
+            (escaped, max_modules),
+        ).fetchall()
+        if not rows and " AND " in escaped:
+            rows = conn.execute(
+                "SELECT ordinal, bm25(module_fts, 2.0, 8.0) AS score "
+                "FROM module_fts WHERE module_fts MATCH ? ORDER BY score LIMIT ?",
+                (escaped.replace(" AND ", " OR "), max_modules),
+            ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return []
+
+    chunks_by_file: dict[str, list[CodeChunk]] = {}
+    for chunk in all_chunks:
+        chunks_by_file.setdefault(chunk.file_path, []).append(chunk)
+
+    seen = set(existing_ids)
+    boosts: list[tuple[CodeChunk, float]] = []
+    for rank, (ordinal, raw_score) in enumerate(rows):
+        module = modules[int(ordinal)]
+        score = max_bm25_score * (0.45 / (rank + 1))
+        if float(raw_score) == 0.0:
+            score *= 0.5
+        added_for_module = 0
+        for file_path in module.files:
+            for chunk in chunks_by_file.get(file_path, []):
+                if chunk.id in seen:
+                    continue
+                seen.add(chunk.id)
+                boosts.append((chunk, score))
+                added_for_module += 1
+                if added_for_module >= max_chunks_per_module:
+                    break
+            if added_for_module >= max_chunks_per_module:
+                break
+
+    return boosts
+
+
 def _bm25_search_with_boosts(
     bm25: BM25Index,
     store: IndexStore,
     question: str,
     top_k: int,
+    all_chunks: list[CodeChunk],
+    modules: list[Module],
+    index_config: IndexConfig,
 ) -> tuple[
     list[tuple[CodeChunk, float]],
     list[tuple[CodeChunk, float]],
     list[tuple[CodeChunk, float]],
+    list[tuple[CodeChunk, float]],
 ]:
-    """Run BM25 search plus file-path and symbol-seed boosts.
+    """Run BM25 search plus candidate-pool boosts.
 
-    Returns (search_results, path_boost, symbol_seeds) as separate lists so
+    Returns retrieval legs as separate lists so
     callers can record individual counts for observability, then combine them.
     """
     expanded_question = _expand_retrieval_question(question)
@@ -824,7 +935,14 @@ def _bm25_search_with_boosts(
         for c, s in _symbol_search_seeds(store, expanded_question, max_bm25_score=max_bm25)
         if c.id not in all_existing
     ]
-    return results, path_boost, symbol_seeds
+    module_boost = _module_prefilter_boosts(
+        modules if index_config.module_prefilter else [],
+        all_chunks,
+        expanded_question,
+        all_existing | {c.id for c, _ in symbol_seeds},
+        max_bm25_score=max_bm25,
+    )
+    return results, path_boost, symbol_seeds, module_boost
 
 
 def _vector_search_precomputed(
@@ -1115,6 +1233,7 @@ def query(
                 # vector thread has no dependency on the SQLite store connection.
                 all_chunks_cached = store.get_chunks()
                 surrogate_lookup = _surrogate_lookup(store, all_chunks_cached, index_config)
+                modules_cached = _modules_or_raise(store, index_config)
 
                 t_search = time.perf_counter()
                 cached_npz = cache.vector_path(
@@ -1136,17 +1255,26 @@ def query(
                         vector_top_k,
                     )
                     if index_config.bm25:
-                        _bm25_raw, path_boost, symbol_seeds = _bm25_search_with_boosts(
+                        (
+                            _bm25_raw,
+                            path_boost,
+                            symbol_seeds,
+                            module_boost,
+                        ) = _bm25_search_with_boosts(
                             bm25,
                             store,
                             question,
                             top_k,
+                            all_chunks_cached,
+                            modules_cached,
+                            index_config,
                         )
-                        search_results = _bm25_raw + path_boost + symbol_seeds
+                        search_results = _bm25_raw + path_boost + symbol_seeds + module_boost
                     else:
                         search_results = []
                         path_boost = []
                         symbol_seeds = []
+                        module_boost = []
                     splade_results = _splade_search_or_raise(
                         store,
                         question,
@@ -1197,6 +1325,7 @@ def query(
                                 "bm25_results": len(search_results),
                                 "path_boost": len(path_boost),
                                 "symbol_seeds": len(symbol_seeds),
+                                "module_boost": len(module_boost),
                                 "splade_results": len(splade_results or []),
                                 "top_k": top_k,
                                 "vector_top_k": vector_top_k,
@@ -1336,6 +1465,7 @@ def query(
             store.insert_edges(edges)
             bm25.build(all_chunks)
             _build_splade_index(store, all_chunks, index_config)
+            modules_miss = _build_module_summaries(store, graph, parsed_files, index_config)
 
             # Pre-compute vector embeddings at index time when vector mode is enabled
             _precomputed_vector_path: Path | None = None
@@ -1461,17 +1591,26 @@ def query(
                     vector_top_k,
                 )
                 if index_config.bm25:
-                    _bm25_raw, path_boost, symbol_seeds_miss = _bm25_search_with_boosts(
+                    (
+                        _bm25_raw,
+                        path_boost,
+                        symbol_seeds_miss,
+                        module_boost_miss,
+                    ) = _bm25_search_with_boosts(
                         bm25,
                         store,
                         question,
                         top_k,
+                        all_chunks,
+                        modules_miss,
+                        index_config,
                     )
-                    search_results = _bm25_raw + path_boost + symbol_seeds_miss
+                    search_results = _bm25_raw + path_boost + symbol_seeds_miss + module_boost_miss
                 else:
                     search_results = []
                     path_boost = []
                     symbol_seeds_miss = []
+                    module_boost_miss = []
                 splade_results_miss = _splade_search_or_raise(
                     store,
                     question,
@@ -1521,6 +1660,7 @@ def query(
                             "bm25_results": len(search_results),
                             "path_boost": len(path_boost),
                             "symbol_seeds": len(symbol_seeds_miss),
+                            "module_boost": len(module_boost_miss),
                             "splade_results": len(splade_results_miss or []),
                             "top_k": top_k,
                             "vector_top_k": vector_top_k,

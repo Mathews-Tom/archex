@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import TYPE_CHECKING, Any, cast
 
 import networkx as nx
@@ -94,6 +95,41 @@ def _cohesion_score(community: set[str], g: Any) -> float:
     return round(internal / max_possible, 4)
 
 
+def _identifier_terms(value: str) -> list[str]:
+    raw = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value.replace("_", " "))
+    return [term.lower() for term in re.findall(r"[a-zA-Z][a-zA-Z0-9]{2,}", raw)]
+
+
+def _module_responsibility(
+    name: str,
+    root_path: str,
+    files: list[str],
+    exports: list[SymbolRef],
+    external_deps: list[str],
+) -> str:
+    terms: list[str] = []
+    terms.extend(_identifier_terms(name))
+    terms.extend(_identifier_terms(root_path))
+    for file_path in files:
+        stem = os.path.splitext(os.path.basename(file_path))[0]
+        terms.extend(_identifier_terms(stem))
+        terms.extend(_identifier_terms(os.path.dirname(file_path)))
+    for export in exports:
+        terms.extend(_identifier_terms(export.name))
+        terms.append(str(export.kind))
+    for dep in external_deps:
+        terms.extend(_identifier_terms(dep))
+
+    seen: set[str] = set()
+    unique_terms: list[str] = []
+    for term in terms:
+        if term in seen:
+            continue
+        seen.add(term)
+        unique_terms.append(term)
+    return " ".join(unique_terms)
+
+
 def _build_module_from_community(
     community: set[str],
     g: Any,
@@ -149,6 +185,7 @@ def _build_module_from_community(
     external_deps = sorted(external_dep_set)
 
     cohesion = _cohesion_score(community, g)
+    responsibility = _module_responsibility(name, root_path, files, exports, external_deps)
 
     return Module(
         name=name,
@@ -157,6 +194,7 @@ def _build_module_from_community(
         exports=exports,
         internal_deps=internal_deps,
         external_deps=external_deps,
+        responsibility=responsibility,
         cohesion_score=cohesion,
         file_count=len(files),
         line_count=line_count,
