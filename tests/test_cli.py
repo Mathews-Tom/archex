@@ -111,6 +111,7 @@ def test_index_command_uses_project_config(python_simple_repo: Path) -> None:
     assert config.cache_dir == str(python_simple_repo / ".archex")
     assert index_config.vector is False
     assert index_config.splade is False
+    assert index_config.module_prefilter is False
     assert store.closed is True
 
 
@@ -124,6 +125,20 @@ def test_index_command_splade_flag_enables_splade(python_simple_repo: Path) -> N
     assert result.exit_code == 0, result.output
     index_config = index_mock.call_args.kwargs["index_config"]
     assert index_config.splade is True
+
+
+def test_index_command_module_prefilter_flag_enables_prefilter(
+    python_simple_repo: Path,
+) -> None:
+    store = FakeIndexStore()
+    runner = CliRunner()
+
+    with patch("archex.cli.index_cmd.index_repository", return_value=store) as index_mock:
+        result = runner.invoke(cli, ["index", str(python_simple_repo), "--module-prefilter"])
+
+    assert result.exit_code == 0, result.output
+    index_config = index_mock.call_args.kwargs["index_config"]
+    assert index_config.module_prefilter is True
 
 
 def test_index_command_json_output(python_simple_repo: Path) -> None:
@@ -437,6 +452,7 @@ def test_query_uses_project_config_when_cli_args_omitted(python_simple_repo: Pat
     assert config.languages is None
     assert index_config.vector is False
     assert index_config.splade is False
+    assert index_config.module_prefilter is False
 
 
 def test_query_cli_options_override_project_config(python_simple_repo: Path) -> None:
@@ -464,6 +480,7 @@ def test_query_cli_options_override_project_config(python_simple_repo: Path) -> 
                 "--strategy",
                 "hybrid",
                 "--splade",
+                "--module-prefilter",
             ],
         )
 
@@ -473,6 +490,7 @@ def test_query_cli_options_override_project_config(python_simple_repo: Path) -> 
     assert config.languages == ["python"]
     assert index_config.vector is True
     assert index_config.splade is True
+    assert index_config.module_prefilter is True
 
 
 def test_query_timing_flag(python_simple_repo: Path) -> None:

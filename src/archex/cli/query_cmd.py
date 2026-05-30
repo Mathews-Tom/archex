@@ -30,6 +30,12 @@ from archex.utils import resolve_source
 @click.option("--timing", is_flag=True, default=False, help="Print timing breakdown.")
 @click.option("--metrics", is_flag=True, default=False, help="Print timing metrics as JSON.")
 @click.option("--splade", is_flag=True, default=False, help="Use the opt-in SPLADE retrieval leg.")
+@click.option(
+    "--module-prefilter",
+    is_flag=True,
+    default=False,
+    help="Use opt-in module responsibility prefiltering.",
+)
 def query_cmd(
     args: tuple[str, ...],
     budget: int,
@@ -39,6 +45,7 @@ def query_cmd(
     timing: bool,
     metrics: bool,
     splade: bool,
+    module_prefilter: bool,
 ) -> None:
     """Query a repository and return a context bundle."""
     from archex.config import load_config, load_index_config
@@ -54,6 +61,8 @@ def query_cmd(
         index_config = index_config.model_copy(update={"vector": strategy == "hybrid"})
     if splade:
         index_config = index_config.model_copy(update={"splade": True})
+    if module_prefilter:
+        index_config = index_config.model_copy(update={"module_prefilter": True})
 
     pt = PipelineTiming() if (timing or metrics) else None
     try:

@@ -536,6 +536,10 @@ class TestIndexConfigValidation:
         assert config.vector is False
         assert config.splade is True
 
+    def test_module_prefilter_requires_bm25(self) -> None:
+        with pytest.raises(ValueError, match="module_prefilter requires bm25 retrieval"):
+            IndexConfig(bm25=False, vector=True, module_prefilter=True)
+
     def test_both_enabled_valid(self) -> None:
         config = IndexConfig(bm25=True, vector=True)
         assert config.bm25 is True

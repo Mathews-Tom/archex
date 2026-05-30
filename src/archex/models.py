@@ -139,6 +139,7 @@ class IndexConfig(BaseModel):
     bm25: bool = True
     vector: bool = False
     splade: bool = False
+    module_prefilter: bool = False
     embedder: str | None = None
     vector_mode: VectorMode = VectorMode.RAW
     surrogate_version: str = "v1"
@@ -153,6 +154,8 @@ class IndexConfig(BaseModel):
     def _validate_index_config(self) -> IndexConfig:
         if not self.bm25 and not self.vector and not self.splade:
             raise ValueError("At least one of bm25, vector, or splade must be enabled")
+        if self.module_prefilter and not self.bm25:
+            raise ValueError("module_prefilter requires bm25 retrieval")
         if self.chunk_max_tokens <= 0:
             raise ValueError("chunk_max_tokens must be > 0")
         if self.chunk_min_tokens < 0:
