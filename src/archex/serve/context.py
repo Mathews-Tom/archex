@@ -752,13 +752,13 @@ def assemble_context(
     # query-chunk attention. This replaces BM25/fusion scores with
     # cross-encoder relevance scores for downstream ranking.
     if reranker is not None:
-        from archex.index.rerank import CrossEncoderReranker
+        from archex.index.rerank import DEFAULT_TOP_K, CrossEncoderReranker
 
         if isinstance(reranker, CrossEncoderReranker):
             candidate_list = [
                 (chunk, bm25_by_id.get(chunk.id, 0.0)) for chunk in candidate_map.values()
             ]
-            reranked = reranker.rerank(question, candidate_list, top_k=20)
+            reranked = reranker.rerank(question, candidate_list, top_k=DEFAULT_TOP_K)
             candidate_map = {chunk.id: chunk for chunk, _ in reranked}
             max_rerank = max((s for _, s in reranked), default=1.0) or 1.0
             bm25_by_id = {chunk.id: score / max_rerank for chunk, score in reranked}
