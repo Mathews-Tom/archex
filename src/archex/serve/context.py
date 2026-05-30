@@ -349,6 +349,7 @@ def _normalized_scores(results: list[tuple[CodeChunk, float]]) -> dict[str, floa
 def _seed_file_scores(
     search_results: list[tuple[CodeChunk, float]],
     vector_results: list[tuple[CodeChunk, float]] | None,
+    splade_results: list[tuple[CodeChunk, float]] | None,
 ) -> dict[str, float]:
     scores: dict[str, float] = {}
     for chunk, score in search_results:
@@ -360,6 +361,10 @@ def _seed_file_scores(
                 continue
             effective = score * (0.6 if _is_test_file(chunk.file_path) else 1.0)
             scores[chunk.file_path] = effective
+    if splade_results:
+        for chunk, score in splade_results:
+            effective = score * (0.6 if _is_test_file(chunk.file_path) else 1.0)
+            scores[chunk.file_path] = max(scores.get(chunk.file_path, 0.0), effective)
     return scores
 
 
@@ -391,10 +396,14 @@ def _add_file_chunks(
 def _initial_candidate_map(
     search_results: list[tuple[CodeChunk, float]],
     vector_results: list[tuple[CodeChunk, float]] | None,
+    splade_results: list[tuple[CodeChunk, float]] | None,
 ) -> dict[str, CodeChunk]:
     candidate_map = {chunk.id: chunk for chunk, _ in search_results}
     if vector_results:
         for chunk, _ in vector_results:
+            candidate_map.setdefault(chunk.id, chunk)
+    if splade_results:
+        for chunk, _ in splade_results:
             candidate_map.setdefault(chunk.id, chunk)
     return candidate_map
 
@@ -505,6 +514,7 @@ def assemble_context(
     question: str,
     token_budget: int = 8192,
     vector_results: list[tuple[CodeChunk, float]] | None = None,
+    splade_results: list[tuple[CodeChunk, float]] | None = None,
     scoring_weights: ScoringWeights | None = None,
     modules: list[Module] | None = None,
     trace: PipelineTrace | None = None,
@@ -514,8 +524,8 @@ def assemble_context(
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
 
-    When vector_results is provided, uses Reciprocal Rank Fusion to merge BM25 and
-    vector results before scoring.
+    When vector_results or splade_results are provided, uses score fusion to merge
+    opt-in retrieval legs before scoring.
     When modules is provided, computes cohesion signal per chunk.
     When trace is provided, records step-level timings for graph_expansion, scoring,
     and assembly phases.
@@ -531,8 +541,10 @@ def assemble_context(
     weights = INTENT_WEIGHTS[intent] if scoring_weights is None else scoring_weights
 
     strategy = "hybrid+graph" if vector_results else "bm25+graph"
+    if splade_results:
+        strategy = "hybrid+splade+graph" if vector_results else "bm25+splade+graph"
 
-    if not search_results and not vector_results:
+    if not search_results and not vector_results and not splade_results:
         return ContextBundle(
             query=question,
             token_budget=token_budget,
@@ -544,7 +556,12 @@ def assemble_context(
     fusion_vector_weight: float | None = None
     fusion_skipped = False
     fusion_skip_reason = ""
+    splade_fusion_skipped = False
+    splade_fusion_skip_reason = ""
     bm25_cv_val: float | None = None
+    effective_vector: list[tuple[CodeChunk, float]] = []
+    effective_splade: list[tuple[CodeChunk, float]] = []
+    base_results = search_results
     if vector_results:
         from archex.index.fusion import adaptive_rsf, bm25_score_cv, should_fuse
 
@@ -569,7 +586,9 @@ def assemble_context(
             merged, fusion_bm25_weight, fusion_vector_weight = adaptive_rsf(
                 search_results, vector_results, signal_agreement_pre, bm25_cv_val
             )
+            base_results = merged
             bm25_by_id = _normalized_scores(merged)
+            effective_vector = vector_results
             logger.debug("Fusion applied (RSF): %s", fuse_reason)
         else:
             # BM25 is confident — skip fusion, use BM25 results only
@@ -582,9 +601,41 @@ def assemble_context(
     else:
         signal_agreement_pre = 0.0
         bm25_by_id = _normalized_scores(search_results)
-    # When fusion is skipped, exclude vector results from seeds to avoid noise
-    effective_vector = vector_results if (vector_results and not fusion_skipped) else []
-    all_results = search_results + effective_vector
+
+    if splade_results:
+        from archex.index.fusion import adaptive_rsf, bm25_score_cv, should_fuse
+
+        splade_cv = bm25_cv_val if bm25_cv_val is not None else bm25_score_cv(search_results)
+        splade_fuse, splade_reason = should_fuse(
+            search_results,
+            splade_results,
+            avg_idf=avg_idf,
+        )
+        if splade_fuse or not search_results:
+            _k_agree = 20
+            _bm25_top_k = {chunk.file_path for chunk, _ in search_results[:_k_agree]}
+            _splade_top_k = {chunk.file_path for chunk, _ in splade_results[:_k_agree]}
+            _union = _bm25_top_k | _splade_top_k
+            splade_agreement = len(_bm25_top_k & _splade_top_k) / len(_union) if _union else 0.0
+            merged, _, _ = adaptive_rsf(
+                base_results,
+                splade_results,
+                splade_agreement,
+                splade_cv,
+            )
+            base_results = merged
+            bm25_by_id = _normalized_scores(merged)
+            effective_splade = splade_results
+            strategy = "hybrid+splade+graph" if effective_vector else "bm25+splade+graph"
+            logger.debug("SPLADE fusion applied (RSF): %s", splade_reason)
+        else:
+            splade_fusion_skipped = True
+            splade_fusion_skip_reason = splade_reason
+            if not vector_results:
+                strategy = "bm25+graph"
+            logger.debug("SPLADE fusion skipped: %s", splade_reason)
+
+    all_results = search_results + effective_vector + effective_splade
     seed_file_paths = _unique_file_paths(all_results)
     seed_files: set[str] = set(seed_file_paths)
 
@@ -601,7 +652,7 @@ def assemble_context(
     # Expand: follow directed imports from seed files, prioritized by seed score.
     # imports_of(file) = files this file depends on (high relevance — same call chain)
     # imported_by(file) = files that depend on this file (moderate relevance — consumers)
-    seed_file_scores = _seed_file_scores(search_results, vector_results)
+    seed_file_scores = _seed_file_scores(search_results, effective_vector, effective_splade)
 
     # Normalize seed file scores to [0, 1] for expansion gating
     max_seed_score = max(seed_file_scores.values()) if seed_file_scores else 1.0
@@ -691,7 +742,7 @@ def assemble_context(
     max_per_file = 1 if intent == QueryIntent.CLI else 3
     # Vector-only seeds participate in scoring even when BM25 returned nothing
     # for that file.
-    candidate_map = _initial_candidate_map(search_results, vector_results)
+    candidate_map = _initial_candidate_map(search_results, effective_vector, effective_splade)
     expansion_files_added = 0
     hop1_files_added: list[str] = []
     expanded_file_paths: list[str] = []
@@ -857,7 +908,7 @@ def assemble_context(
     sorted_files = sorted(file_agg.items(), key=lambda x: -x[1])
     top_file_score = sorted_files[0][1] if sorted_files else 0.0
     score_cutoff = top_file_score * _file_score_cutoff_ratio(
-        fusion_applied=fusion_bm25_weight is not None
+        fusion_applied=fusion_bm25_weight is not None or bool(effective_splade)
     )
     top_files: set[str] = set()
     adaptive_max = _adaptive_max_files(sorted_files)
@@ -956,6 +1007,10 @@ def assemble_context(
         fusion_skipped=fusion_skipped,
         fusion_skip_reason=fusion_skip_reason,
         bm25_cv=bm25_cv_val,
+        splade_results=len(splade_results or []),
+        splade_used=bool(effective_splade),
+        splade_fusion_skipped=splade_fusion_skipped,
+        splade_fusion_skip_reason=splade_fusion_skip_reason,
     )
 
     return ContextBundle(

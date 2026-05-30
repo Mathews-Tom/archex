@@ -11,9 +11,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from archex.exceptions import ArchexIndexError
+from archex.index.graph import DependencyGraph
 from archex.index.splade import SPLADEEncoder, SPLADEIndex
 from archex.index.store import IndexStore
 from archex.models import CodeChunk, SymbolKind
+from archex.serve.context import assemble_context
 
 SAMPLE_CHUNKS = [
     CodeChunk(
@@ -201,6 +203,71 @@ def test_search_scores_descending(store_and_index: tuple[IndexStore, SPLADEIndex
     results = idx.search("session manager")
     scores = [s for _, s in results]
     assert scores == sorted(scores, reverse=True)
+
+
+def test_search_return_contract_matches_bm25(
+    store_and_index: tuple[IndexStore, SPLADEIndex],
+) -> None:
+    _, idx = store_and_index
+    results = idx.search("authenticate", top_k=2)
+
+    assert len(results) <= 2
+    for chunk, score in results:
+        assert isinstance(chunk, CodeChunk)
+        assert isinstance(score, float)
+        assert score > 0
+
+
+def test_build_then_query_vocabulary_mismatch_candidate(
+    tmp_path: Path,
+    fake_encoder: FakeSPLADEEncoder,
+) -> None:
+    db = tmp_path / "vocab_mismatch.db"
+    store = IndexStore(db)
+    chunk = CodeChunk(
+        id="tasks.py:celery_task_dispatch:1",
+        content=(
+            "def celery_task_dispatch(payload: dict[str, str]) -> None:\n    worker.send(payload)"
+        ),
+        file_path="tasks.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="celery_task_dispatch",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=24,
+    )
+    store.insert_chunks([chunk])
+    idx = SPLADEIndex(store, encoder=fake_encoder)
+
+    idx.build([chunk])
+    results = idx.search("dispatch worker", top_k=5)
+
+    assert [result_chunk.id for result_chunk, _ in results] == [chunk.id]
+    store.close()
+
+
+def test_assemble_context_uses_splade_candidate_when_opted_in(
+    store_and_index: tuple[IndexStore, SPLADEIndex],
+) -> None:
+    _, idx = store_and_index
+    splade_results = idx.search("session commit database", top_k=5)
+    graph = DependencyGraph()
+    for chunk, _ in splade_results:
+        graph.add_file_node(chunk.file_path)
+
+    bundle = assemble_context(
+        search_results=[],
+        graph=graph,
+        all_chunks=[chunk for chunk, _ in splade_results],
+        question="session lifecycle",
+        token_budget=1000,
+        splade_results=splade_results,
+    )
+
+    assert bundle.retrieval_metadata.splade_used is True
+    assert bundle.retrieval_metadata.splade_results == len(splade_results)
+    assert {rc.chunk.id for rc in bundle.chunks} == {chunk.id for chunk, _ in splade_results}
 
 
 # ---------------------------------------------------------------------------

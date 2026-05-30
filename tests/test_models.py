@@ -514,8 +514,11 @@ class TestIndexConfigValidation:
         assert config.chunk_min_tokens == 0
 
     def test_both_disabled_raises(self) -> None:
-        with pytest.raises(ValueError, match="At least one of bm25 or vector must be enabled"):
-            IndexConfig(bm25=False, vector=False)
+        with pytest.raises(
+            ValueError,
+            match="At least one of bm25, vector, or splade must be enabled",
+        ):
+            IndexConfig(bm25=False, vector=False, splade=False)
 
     def test_bm25_only_valid(self) -> None:
         config = IndexConfig(bm25=True, vector=False)
@@ -526,6 +529,12 @@ class TestIndexConfigValidation:
         config = IndexConfig(bm25=False, vector=True)
         assert config.bm25 is False
         assert config.vector is True
+
+    def test_splade_only_valid(self) -> None:
+        config = IndexConfig(bm25=False, vector=False, splade=True)
+        assert config.bm25 is False
+        assert config.vector is False
+        assert config.splade is True
 
     def test_both_enabled_valid(self) -> None:
         config = IndexConfig(bm25=True, vector=True)

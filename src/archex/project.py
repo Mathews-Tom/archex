@@ -21,6 +21,7 @@ mode = "local"
 cache_dir = ".archex"
 languages = []
 vector = false
+splade = false
 delta_threshold = 0.5
 
 [dogfood]

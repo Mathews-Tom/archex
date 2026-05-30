@@ -29,6 +29,7 @@ from archex.utils import resolve_source
 )
 @click.option("--timing", is_flag=True, default=False, help="Print timing breakdown.")
 @click.option("--metrics", is_flag=True, default=False, help="Print timing metrics as JSON.")
+@click.option("--splade", is_flag=True, default=False, help="Use the opt-in SPLADE retrieval leg.")
 def query_cmd(
     args: tuple[str, ...],
     budget: int,
@@ -37,6 +38,7 @@ def query_cmd(
     strategy: str | None,
     timing: bool,
     metrics: bool,
+    splade: bool,
 ) -> None:
     """Query a repository and return a context bundle."""
     from archex.config import load_config, load_index_config
@@ -50,6 +52,8 @@ def query_cmd(
     index_config = load_index_config(repo_source)
     if strategy is not None:
         index_config = index_config.model_copy(update={"vector": strategy == "hybrid"})
+    if splade:
+        index_config = index_config.model_copy(update={"splade": True})
 
     pt = PipelineTiming() if (timing or metrics) else None
     try:
