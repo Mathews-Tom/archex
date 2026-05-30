@@ -155,15 +155,14 @@ def confidence_weighted_rrf(
 def normalize_scores(
     results: list[tuple[CodeChunk, float]],
 ) -> dict[str, float]:
-    """Min-max normalize scores to [0, 1], preserving within-signal distances."""
+    """Normalize scores by the maximum score, preserving retrieved positive evidence."""
     if not results:
         return {}
     scores = [s for _, s in results]
-    min_s, max_s = min(scores), max(scores)
-    rng = max_s - min_s
-    if rng < 1e-9:
-        return {c.id: 0.5 for c, _ in results}
-    return {c.id: (s - min_s) / rng for c, s in results}
+    max_s = max(scores)
+    if max_s < 1e-9:
+        return {c.id: 0.0 for c, _ in results}
+    return {c.id: s / max_s for c, s in results}
 
 
 def adaptive_rsf_weights(

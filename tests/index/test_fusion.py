@@ -161,11 +161,18 @@ class TestNormalizeScores:
         assert norm["b"] == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
         assert norm["c"] == pytest.approx(0.0)  # pyright: ignore[reportUnknownMemberType]
 
+    def test_lowest_positive_score_remains_positive(self) -> None:
+        results = _results([("a", "a.py", 10.0), ("b", "b.py", 5.0), ("c", "c.py", 1.0)])
+        norm = normalize_scores(results)
+        assert norm["a"] == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
+        assert norm["b"] == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
+        assert norm["c"] == pytest.approx(0.1)  # pyright: ignore[reportUnknownMemberType]
+
     def test_normalize_flat_scores(self) -> None:
         results = _results([("a", "a.py", 5.0), ("b", "b.py", 5.0)])
         norm = normalize_scores(results)
-        assert norm["a"] == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
-        assert norm["b"] == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
+        assert norm["a"] == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
+        assert norm["b"] == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
 
     def test_normalize_empty(self) -> None:
         assert normalize_scores([]) == {}

@@ -629,6 +629,8 @@ def test_vector_only_seed_surfaces_via_assemble_context() -> None:
     is a BM25 seed.  With vector_results supplying B directly, B also acts as
     its own seed regardless of graph structure.
     Provides >= 3 results per signal to satisfy should_fuse min_results.
+    The query avoids dependency keywords so this test isolates fusion seed union
+    from dependency-query file capping.
     """
     graph = DependencyGraph()
     for name in ("a.py", "b.py", "c.py", "d.py", "e.py"):
@@ -653,7 +655,7 @@ def test_vector_only_seed_surfaces_via_assemble_context() -> None:
         search_results=bm25_results,
         graph=graph,
         all_chunks=all_chunks,
-        question="how does a import b?",
+        question="how does a use b?",
         token_budget=1000,
         vector_results=vec_results,
     )
