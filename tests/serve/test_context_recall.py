@@ -211,3 +211,11 @@ def test_file_score_cutoff_is_0_10() -> None:
     from archex.serve.context import FILE_SCORE_CUTOFF
 
     assert FILE_SCORE_CUTOFF == 0.10
+
+
+def test_file_score_cutoff_relaxes_when_fusion_applies() -> None:
+    """Fusion uses a lower file cutoff because RSF flattens aggregate scores."""
+    from archex.serve.context import _file_score_cutoff_ratio  # pyright: ignore[reportPrivateUsage]
+
+    assert _file_score_cutoff_ratio(fusion_applied=False) == 0.10
+    assert _file_score_cutoff_ratio(fusion_applied=True) == 0.05
