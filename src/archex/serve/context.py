@@ -626,6 +626,7 @@ def assemble_context(
             base_results = merged
             bm25_by_id = _normalized_scores(merged)
             effective_splade = splade_results
+            strategy = "hybrid+splade+graph" if effective_vector else "bm25+splade+graph"
             logger.debug("SPLADE fusion applied (RSF): %s", splade_reason)
         else:
             splade_fusion_skipped = True
@@ -651,7 +652,7 @@ def assemble_context(
     # Expand: follow directed imports from seed files, prioritized by seed score.
     # imports_of(file) = files this file depends on (high relevance — same call chain)
     # imported_by(file) = files that depend on this file (moderate relevance — consumers)
-    seed_file_scores = _seed_file_scores(search_results, vector_results, effective_splade)
+    seed_file_scores = _seed_file_scores(search_results, effective_vector, effective_splade)
 
     # Normalize seed file scores to [0, 1] for expansion gating
     max_seed_score = max(seed_file_scores.values()) if seed_file_scores else 1.0
@@ -907,7 +908,7 @@ def assemble_context(
     sorted_files = sorted(file_agg.items(), key=lambda x: -x[1])
     top_file_score = sorted_files[0][1] if sorted_files else 0.0
     score_cutoff = top_file_score * _file_score_cutoff_ratio(
-        fusion_applied=fusion_bm25_weight is not None
+        fusion_applied=fusion_bm25_weight is not None or bool(effective_splade)
     )
     top_files: set[str] = set()
     adaptive_max = _adaptive_max_files(sorted_files)
