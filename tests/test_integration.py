@@ -9,6 +9,7 @@ import pytest
 
 from archex.api import (
     _compute_top_k,  # pyright: ignore[reportPrivateUsage]
+    _compute_vector_top_k,  # pyright: ignore[reportPrivateUsage]
     analyze,
     compare,
     query,
@@ -53,6 +54,15 @@ def test_compute_top_k_thresholds() -> None:
     assert _compute_top_k(1000) == 100
     assert _compute_top_k(2000) == 100
     assert _compute_top_k(5000) == 150
+
+
+def test_compute_vector_top_k_widens_bm25_pool() -> None:
+    assert _compute_vector_top_k(bm25_top_k=50, total_chunks=500) == 100
+    assert _compute_vector_top_k(bm25_top_k=100, total_chunks=2000) == 200
+
+
+def test_compute_vector_top_k_caps_at_chunk_count() -> None:
+    assert _compute_vector_top_k(bm25_top_k=30, total_chunks=40) == 40
 
 
 class TestAnalyzeEndToEnd:

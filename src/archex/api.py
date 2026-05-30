@@ -494,6 +494,11 @@ def _compute_top_k(total_chunks: int) -> int:
     return 150
 
 
+def _compute_vector_top_k(*, bm25_top_k: int, total_chunks: int) -> int:
+    """Use a deeper independent vector pool for fusion candidate union."""
+    return min(total_chunks, bm25_top_k * 2)
+
+
 _PATH_NOISE = frozenset(
     {
         "how",
@@ -1060,6 +1065,10 @@ def query(
                     )
 
                 top_k = _compute_top_k(chunk_count)
+                vector_top_k = _compute_vector_top_k(
+                    bm25_top_k=top_k,
+                    total_chunks=chunk_count,
+                )
                 # Pre-load all chunks into memory before parallel search so the
                 # vector thread has no dependency on the SQLite store connection.
                 all_chunks_cached = store.get_chunks()
@@ -1082,7 +1091,7 @@ def query(
                         all_chunks_cached,
                         question,
                         index_config,
-                        top_k,
+                        vector_top_k,
                     )
                     if index_config.bm25:
                         _bm25_raw, path_boost, symbol_seeds = _bm25_search_with_boosts(
@@ -1114,7 +1123,7 @@ def query(
                             all_chunks_cached,
                             index_config,
                             timing,
-                            top_k=top_k,
+                            top_k=vector_top_k,
                             surrogates_by_chunk_id=surrogate_lookup,
                         )
 
@@ -1141,6 +1150,7 @@ def query(
                                 "path_boost": len(path_boost),
                                 "symbol_seeds": len(symbol_seeds),
                                 "top_k": top_k,
+                                "vector_top_k": vector_top_k,
                             },
                         )
                     )
@@ -1331,6 +1341,10 @@ def query(
                 )
 
             top_k = _compute_top_k(len(all_chunks))
+            vector_top_k = _compute_vector_top_k(
+                bm25_top_k=top_k,
+                total_chunks=len(all_chunks),
+            )
 
             # Persist corpus stats for fast warm-query access
             store.set_metadata("repo_total_tokens", str(total_repo_tokens))
@@ -1384,7 +1398,7 @@ def query(
                     all_chunks,
                     question,
                     index_config,
-                    top_k,
+                    vector_top_k,
                 )
                 if index_config.bm25:
                     _bm25_raw, path_boost, symbol_seeds_miss = _bm25_search_with_boosts(
@@ -1416,7 +1430,7 @@ def query(
                         all_chunks,
                         index_config,
                         timing,
-                        top_k=top_k,
+                        top_k=vector_top_k,
                         surrogates_by_chunk_id=surrogate_lookup,
                     )
 
@@ -1442,6 +1456,7 @@ def query(
                             "path_boost": len(path_boost),
                             "symbol_seeds": len(symbol_seeds_miss),
                             "top_k": top_k,
+                            "vector_top_k": vector_top_k,
                         },
                     )
                 )
