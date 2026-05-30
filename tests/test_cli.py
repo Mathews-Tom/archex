@@ -110,7 +110,20 @@ def test_index_command_uses_project_config(python_simple_repo: Path) -> None:
     index_config = index_mock.call_args.kwargs["index_config"]
     assert config.cache_dir == str(python_simple_repo / ".archex")
     assert index_config.vector is False
+    assert index_config.splade is False
     assert store.closed is True
+
+
+def test_index_command_splade_flag_enables_splade(python_simple_repo: Path) -> None:
+    store = FakeIndexStore()
+    runner = CliRunner()
+
+    with patch("archex.cli.index_cmd.index_repository", return_value=store) as index_mock:
+        result = runner.invoke(cli, ["index", str(python_simple_repo), "--splade"])
+
+    assert result.exit_code == 0, result.output
+    index_config = index_mock.call_args.kwargs["index_config"]
+    assert index_config.splade is True
 
 
 def test_index_command_json_output(python_simple_repo: Path) -> None:
@@ -423,6 +436,7 @@ def test_query_uses_project_config_when_cli_args_omitted(python_simple_repo: Pat
     assert config.cache_dir == str(python_simple_repo / ".archex")
     assert config.languages is None
     assert index_config.vector is False
+    assert index_config.splade is False
 
 
 def test_query_cli_options_override_project_config(python_simple_repo: Path) -> None:
@@ -449,6 +463,7 @@ def test_query_cli_options_override_project_config(python_simple_repo: Path) -> 
                 "python",
                 "--strategy",
                 "hybrid",
+                "--splade",
             ],
         )
 
@@ -457,6 +472,7 @@ def test_query_cli_options_override_project_config(python_simple_repo: Path) -> 
     index_config = query_mock.call_args.kwargs["index_config"]
     assert config.languages == ["python"]
     assert index_config.vector is True
+    assert index_config.splade is True
 
 
 def test_query_timing_flag(python_simple_repo: Path) -> None:

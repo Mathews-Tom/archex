@@ -171,5 +171,8 @@ class TestIndexConfigQueryPaths:
     def test_bm25_false_vector_false_raises(self) -> None:
         from pydantic import ValidationError
 
-        with pytest.raises(ValidationError, match="At least one of bm25 or vector must be enabled"):
+        with pytest.raises(
+            ValidationError,
+            match="At least one of bm25, vector, or splade must be enabled",
+        ):
             IndexConfig(bm25=False, vector=False)

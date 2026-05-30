@@ -138,6 +138,7 @@ class Config(BaseModel):
 class IndexConfig(BaseModel):
     bm25: bool = True
     vector: bool = False
+    splade: bool = False
     embedder: str | None = None
     vector_mode: VectorMode = VectorMode.RAW
     surrogate_version: str = "v1"
@@ -150,8 +151,8 @@ class IndexConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
-        if not self.bm25 and not self.vector:
-            raise ValueError("At least one of bm25 or vector must be enabled")
+        if not self.bm25 and not self.vector and not self.splade:
+            raise ValueError("At least one of bm25, vector, or splade must be enabled")
         if self.chunk_max_tokens <= 0:
             raise ValueError("chunk_max_tokens must be > 0")
         if self.chunk_min_tokens < 0:
@@ -574,6 +575,10 @@ class RetrievalMetadata(BaseModel):
     fusion_skipped: bool = False
     fusion_skip_reason: str = ""
     bm25_cv: float | None = None
+    splade_results: int = 0
+    splade_used: bool = False
+    splade_fusion_skipped: bool = False
+    splade_fusion_skip_reason: str = ""
     lexical_confidence: str = ""  # "high", "medium", "low"
     vector_mode: VectorMode = VectorMode.RAW
     surrogate_version: str | None = None

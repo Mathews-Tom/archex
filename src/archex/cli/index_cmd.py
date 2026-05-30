@@ -33,12 +33,15 @@ def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int
     type=click.Choice(["text", "json"]),
     help="Output format.",
 )
-def index_cmd(source: str, output_format: str) -> None:
+@click.option("--splade", is_flag=True, default=False, help="Build the opt-in SPLADE index.")
+def index_cmd(source: str, output_format: str, splade: bool) -> None:
     """Build or refresh the index for SOURCE without running a query."""
     repo_source = RepoSource(local_path=source)
     repo_root = Path(source).expanduser().resolve()
     config = load_config(repo_source)
     index_config = load_index_config(repo_source)
+    if splade:
+        index_config = index_config.model_copy(update={"splade": True})
     timing = PipelineTiming()
     started = time.perf_counter()
     try:
