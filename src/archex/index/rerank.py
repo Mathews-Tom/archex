@@ -7,6 +7,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from archex.exceptions import ArchexIndexError
+from archex.index.huggingface import resolve_hf_model_path
 
 if TYPE_CHECKING:
     from archex.models import CodeChunk
@@ -115,6 +116,8 @@ class CrossEncoderReranker:
             ) from e
 
         device = _best_device()
+        revision = MODEL_REVISIONS.get(self._model_name)
+        model_path = resolve_hf_model_path(self._model_name, revision=revision)
         print(
             f"Loading reranker model '{self._model_name}' on {device} "
             "(downloading if not cached)...",
@@ -122,14 +125,17 @@ class CrossEncoderReranker:
             flush=True,
         )
         self._model = CrossEncoder(
-            self._model_name,
-            revision=MODEL_REVISIONS.get(self._model_name),
+            model_path,
             trust_remote_code=True,
             device=device,
         )
         _ensure_padding_token(self._model)
         _MODEL_CACHE[self._model_name] = self._model
         logger.info("Loaded cross-encoder reranker: %s on %s", self._model_name, device)
+
+    def warm(self) -> None:
+        """Load the reranker model without scoring candidates."""
+        self._load_model()
 
     def rerank(
         self,

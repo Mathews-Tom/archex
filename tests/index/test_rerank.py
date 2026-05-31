@@ -13,7 +13,6 @@ from archex.index.rerank import (
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
     JINA_RERANKER_MODEL,
-    JINA_RERANKER_REVISION,
     MAX_CONTENT_CHARS,
     CrossEncoderReranker,
     _best_device,  # pyright: ignore[reportPrivateUsage]
@@ -22,6 +21,16 @@ from archex.index.rerank import (
 from archex.models import CodeChunk, IndexConfig, SymbolKind
 
 _HAS_CROSS_ENCODER = is_available()
+_JINA_LOCAL_PATH = "/cache/jinaai--jina-reranker-v3"
+
+
+@pytest.fixture(autouse=True)
+def _mock_model_resolution(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
+    def fake_resolve(model_name: str, *, revision: str | None = None) -> str:
+        del revision
+        return f"/cache/{model_name.replace('/', '--')}"
+
+    monkeypatch.setattr(rerank_module, "resolve_hf_model_path", fake_resolve)
 
 
 def _make_chunk(chunk_id: str, content: str = "def fn(): pass") -> CodeChunk:
@@ -144,10 +153,7 @@ class TestCrossEncoderReranker:
             CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
 
         cross_encoder.assert_called_once_with(
-            JINA_RERANKER_MODEL,
-            revision=JINA_RERANKER_REVISION,
-            trust_remote_code=True,
-            device="cpu",
+            _JINA_LOCAL_PATH, trust_remote_code=True, device="cpu"
         )
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
@@ -163,8 +169,7 @@ class TestCrossEncoderReranker:
             CrossEncoderReranker(model_name="custom/model").rerank("query", [(chunk, 0.0)])
 
         cross_encoder.assert_called_once_with(
-            "custom/model",
-            revision=None,
+            "/cache/custom--model",
             trust_remote_code=True,
             device="cpu",
         )
@@ -182,10 +187,7 @@ class TestCrossEncoderReranker:
             CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
 
         cross_encoder.assert_called_once_with(
-            JINA_RERANKER_MODEL,
-            revision=JINA_RERANKER_REVISION,
-            trust_remote_code=True,
-            device="mps",
+            _JINA_LOCAL_PATH, trust_remote_code=True, device="mps"
         )
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
