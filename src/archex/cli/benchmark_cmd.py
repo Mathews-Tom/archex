@@ -24,6 +24,7 @@ from archex.benchmark.models import (
     DeltaBenchmarkResult,
     Strategy,
 )
+from archex.benchmark.preflight import warm_benchmark_models
 from archex.benchmark.progress import BenchmarkProgress
 from archex.benchmark.readiness import (
     build_readiness_report,
@@ -145,6 +146,17 @@ def run_cmd(
         if Strategy.ARCHEX_QUERY_FUSION_RERANK not in strategies:
             strategies.append(Strategy.ARCHEX_QUERY_FUSION_RERANK)
 
+    retrieval_options = BenchmarkRetrievalOptions(
+        splade=splade,
+        module_prefilter=module_prefilter,
+    )
+    warmed_models = warm_benchmark_models(strategies, retrieval_options)
+    if warmed_models:
+        click.echo(
+            f"Benchmark model preflight loaded {len(warmed_models)} model(s).",
+            err=True,
+        )
+
     tasks_path = Path(tasks_dir)
     tasks = load_selected_tasks(tasks_path, task_filter=task_id, self_only=self_only)
     with BenchmarkProgress(tasks, force_disable=no_progress) as progress:
@@ -156,10 +168,7 @@ def run_cmd(
             self_only=self_only,
             progress=progress,
             tasks=tasks,
-            retrieval_options=BenchmarkRetrievalOptions(
-                splade=splade,
-                module_prefilter=module_prefilter,
-            ),
+            retrieval_options=retrieval_options,
         )
 
     click.echo(f"\nCompleted {len(reports)} benchmark(s).", err=True)

@@ -236,6 +236,17 @@ expected_files: []
 
 
 class TestRunCommand:
+    @pytest.fixture(autouse=True)
+    def _disable_model_preflight(self, monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
+        def no_preflight(
+            strategies: list[Strategy],
+            retrieval_options: BenchmarkRetrievalOptions,
+        ) -> list[str]:
+            del strategies, retrieval_options
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.warm_benchmark_models", no_preflight)
+
     def test_run_help(self, runner: CliRunner) -> None:
         result = runner.invoke(benchmark_cmd, ["run", "--help"])
         assert result.exit_code == 0
@@ -381,6 +392,49 @@ class TestRunCommand:
             splade=True,
             module_prefilter=True,
         )
+
+    def test_run_preflights_models_before_loading_tasks(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        events: list[str] = []
+
+        def fake_preflight(
+            strategies: list[Strategy],
+            retrieval_options: BenchmarkRetrievalOptions,
+        ) -> list[str]:
+            events.append("preflight")
+            assert Strategy.ARCHEX_QUERY_FUSION_RERANK in strategies
+            assert retrieval_options == BenchmarkRetrievalOptions(splade=True)
+            return ["splade", "reranker"]
+
+        def fake_load_selected_tasks(
+            tasks_dir: Path,
+            *,
+            task_filter: str | None = None,
+            self_only: bool = False,
+        ) -> list[BenchmarkTask]:
+            del tasks_dir, task_filter, self_only
+            events.append("load_tasks")
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.warm_benchmark_models", fake_preflight)
+        monkeypatch.setattr(
+            "archex.cli.benchmark_cmd.load_selected_tasks", fake_load_selected_tasks
+        )
+
+        def fake_run_all(**kwargs: object) -> list[BenchmarkReport]:
+            del kwargs
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+
+        result = runner.invoke(benchmark_cmd, ["run", "--splade", "--rerank"])
+
+        assert result.exit_code == 0
+        assert events == ["preflight", "load_tasks"]
+        assert "Benchmark model preflight loaded 2 model(s)." in result.output
 
     def test_run_self_only_flag_filters_tasks(
         self,

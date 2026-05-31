@@ -527,6 +527,11 @@ def benchmark_index_config(index_config: IndexConfig) -> IndexConfig:
     return index_config.model_copy(update=updates)
 
 
+def benchmark_cache_enabled(default: bool) -> bool:
+    options = current_benchmark_retrieval_options()
+    return default or options.splade or options.module_prefilter
+
+
 def benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
     commit = task.commit or CacheManager.git_head(str(repo_path))
     if not commit:
@@ -551,7 +556,10 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     t0 = time.perf_counter()
     timing = PipelineTiming()
     source = benchmark_repo_source(task, repo_path)
-    config = Config(cache=False, languages=task.languages)
+    config = Config(
+        cache=benchmark_cache_enabled(default=False),
+        languages=task.languages,
+    )
     index_config = benchmark_index_config(IndexConfig(vector=False))
 
     bundle = query(

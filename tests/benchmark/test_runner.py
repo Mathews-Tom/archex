@@ -291,11 +291,14 @@ class TestRunBenchmark:
 
     def test_benchmark_index_config_applies_module_prefilter_only_with_bm25(self) -> None:
         from archex.benchmark.strategies import (
+            benchmark_cache_enabled,
             benchmark_index_config,
             reset_benchmark_retrieval_options,
             set_benchmark_retrieval_options,
         )
         from archex.models import IndexConfig
+
+        assert benchmark_cache_enabled(default=False) is False
 
         token = set_benchmark_retrieval_options(
             BenchmarkRetrievalOptions(splade=True, module_prefilter=True)
@@ -303,6 +306,7 @@ class TestRunBenchmark:
         try:
             bm25_config = benchmark_index_config(IndexConfig(vector=True))
             vector_config = benchmark_index_config(IndexConfig(bm25=False, vector=True))
+            cache_enabled = benchmark_cache_enabled(default=False)
         finally:
             reset_benchmark_retrieval_options(token)
 
@@ -310,6 +314,7 @@ class TestRunBenchmark:
         assert bm25_config.module_prefilter is True
         assert vector_config.splade is True
         assert vector_config.module_prefilter is False
+        assert cache_enabled is True
 
 
 class TestCloneAtCommit:
