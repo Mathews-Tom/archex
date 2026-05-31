@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 
 from archex.exceptions import ArchexIndexError
+from archex.index.huggingface import resolve_hf_model_path
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_NAME = "naver/splade-cocondenser-ensembledistil"
 _BATCH_SIZE = 32
+_MODEL_CACHE: dict[str, tuple[Any, Any]] = {}
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -83,24 +85,41 @@ class SPLADEEncoder:
 
     def __init__(self, model_name: str = DEFAULT_MODEL_NAME) -> None:
         self._model_name = model_name
-        self._model: object | None = None
-        self._tokenizer: object | None = None
+        self._model: Any | None = None
+        self._tokenizer: Any | None = None
 
     def _load(self) -> None:
         import torch
         from transformers import AutoModelForMaskedLM, AutoTokenizer
 
-        self._tokenizer = AutoTokenizer.from_pretrained(self._model_name)
-        self._model = AutoModelForMaskedLM.from_pretrained(self._model_name)
-        self._model.eval()  # type: ignore[union-attr]
+        cached = _MODEL_CACHE.get(self._model_name)
+        if cached is not None:
+            self._tokenizer, self._model = cached
+            return
+
+        model_path = resolve_hf_model_path(self._model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        model = AutoModelForMaskedLM.from_pretrained(model_path)
+        model.eval()
         if torch.backends.mps.is_available():
-            self._model.to("mps")  # type: ignore[union-attr]
+            model.to("mps")
+        self._tokenizer = tokenizer
+        self._model = model
+        _MODEL_CACHE[self._model_name] = (tokenizer, model)
+
+    def warm(self) -> None:
+        """Load tokenizer and model without encoding text."""
+        if self._model is None or self._tokenizer is None:
+            self._load()
 
     @property
     def vocab_size(self) -> int:
         if self._tokenizer is None:
             self._load()
-        return int(self._tokenizer.vocab_size)  # type: ignore[union-attr]
+        tokenizer = self._tokenizer
+        if tokenizer is None:
+            raise ArchexIndexError("SPLADE tokenizer unavailable after loading")
+        return int(tokenizer.vocab_size)
 
     def encode(self, texts: list[str]) -> list[dict[int, float]]:
         """Encode texts into sparse vectors (dict mapping token_id → weight).
@@ -114,12 +133,17 @@ class SPLADEEncoder:
         if self._model is None or self._tokenizer is None:
             self._load()
 
-        device = next(self._model.parameters()).device  # type: ignore[union-attr]
+        model = self._model
+        tokenizer = self._tokenizer
+        if model is None or tokenizer is None:
+            raise ArchexIndexError("SPLADE model unavailable after loading")
+
+        device = next(model.parameters()).device
         results: list[dict[int, float]] = []
 
         for batch_start in range(0, len(texts), _BATCH_SIZE):
             batch_texts = texts[batch_start : batch_start + _BATCH_SIZE]
-            tokens = self._tokenizer(  # type: ignore[misc]
+            tokens = tokenizer(
                 batch_texts,
                 padding=True,
                 truncation=True,
@@ -129,7 +153,7 @@ class SPLADEEncoder:
             tokens = {k: v.to(device) for k, v in tokens.items()}
 
             with torch.no_grad():
-                output = self._model(**tokens)  # type: ignore[misc]
+                output = model(**tokens)
 
             # SPLADE aggregation: log(1 + ReLU(logits)), max-pool over positions
             logits = output.logits  # (batch, seq_len, vocab_size)
@@ -153,7 +177,10 @@ class SPLADEEncoder:
         """Convert token IDs back to string tokens (for debugging/inspection)."""
         if self._tokenizer is None:
             self._load()
-        return [self._tokenizer.decode([tid]).strip() for tid in token_ids]  # type: ignore[union-attr]
+        tokenizer = self._tokenizer
+        if tokenizer is None:
+            raise ArchexIndexError("SPLADE tokenizer unavailable after loading")
+        return [tokenizer.decode([tid]).strip() for tid in token_ids]
 
 
 # ---------------------------------------------------------------------------

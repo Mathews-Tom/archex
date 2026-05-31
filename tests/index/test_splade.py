@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -11,6 +13,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from archex.exceptions import ArchexIndexError
+from archex.index import splade as splade_module
 from archex.index.graph import DependencyGraph
 from archex.index.splade import SPLADEEncoder, SPLADEIndex
 from archex.index.store import IndexStore
@@ -399,6 +402,62 @@ def test_fake_encoder_different_texts_differ() -> None:
     v1 = enc.encode(["authentication login"])
     v2 = enc.encode(["database schema migration"])
     assert v1 != v2
+
+
+def test_real_encoder_loads_model_once_per_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class FakeModel:
+        def eval(self) -> None:
+            pass
+
+        def to(self, device: str) -> None:
+            del device
+
+    class FakeTokenizer:
+        vocab_size = 30522
+
+    class FakeAutoTokenizer:
+        @staticmethod
+        def from_pretrained(model_path: str) -> FakeTokenizer:
+            calls.append(f"tokenizer:{model_path}")
+            return FakeTokenizer()
+
+    class FakeAutoModelForMaskedLM:
+        @staticmethod
+        def from_pretrained(model_path: str) -> FakeModel:
+            calls.append(f"model:{model_path}")
+            return FakeModel()
+
+    transformers = ModuleType("transformers")
+    transformers.AutoTokenizer = FakeAutoTokenizer  # type: ignore[attr-defined]
+    transformers.AutoModelForMaskedLM = FakeAutoModelForMaskedLM  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: False))),
+    )
+
+    def fake_resolve(model_name: str) -> str:
+        del model_name
+        return "/cache/splade"
+
+    monkeypatch.setattr(splade_module, "resolve_hf_model_path", fake_resolve)
+    splade_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    try:
+        first = SPLADEEncoder()
+        second = SPLADEEncoder()
+
+        first.warm()
+        second.warm()
+
+        assert calls == ["tokenizer:/cache/splade", "model:/cache/splade"]
+        assert first._model is second._model  # pyright: ignore[reportPrivateUsage]
+        assert first._tokenizer is second._tokenizer  # pyright: ignore[reportPrivateUsage]
+    finally:
+        splade_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 # ---------------------------------------------------------------------------
