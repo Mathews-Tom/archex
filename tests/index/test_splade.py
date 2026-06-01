@@ -149,6 +149,21 @@ def test_build_replaces_previous_data(
     assert idx.size == 1
 
 
+def test_build_deduplicates_chunk_ids(tmp_path: Path, fake_encoder: FakeSPLADEEncoder) -> None:
+    db = tmp_path / "duplicate_chunks.db"
+    store = IndexStore(db)
+    first = SAMPLE_CHUNKS[0]
+    duplicate = first.model_copy(update={"content": "def calculate_sum(a, b): return b + a"})
+    store.insert_chunks([first, duplicate])
+    idx = SPLADEIndex(store, encoder=fake_encoder)
+
+    idx.build([first, duplicate])
+
+    assert idx.has_data
+    assert idx.size == 1
+    store.close()
+
+
 # ---------------------------------------------------------------------------
 # Search tests
 # ---------------------------------------------------------------------------

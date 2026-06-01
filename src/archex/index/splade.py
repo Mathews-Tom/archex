@@ -248,6 +248,9 @@ class SPLADEIndex:
             conn.commit()
             return
 
+        chunks_by_id = {chunk.id: chunk for chunk in chunks}
+        chunks = list(chunks_by_id.values())
+
         # Prepare texts with identifier expansion (same as BM25)
         texts = [expand_identifiers(c.content) for c in chunks]
 
