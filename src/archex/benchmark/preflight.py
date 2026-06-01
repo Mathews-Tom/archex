@@ -1,0 +1,45 @@
+"""Benchmark preflight for model-backed retrieval components."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from archex.benchmark.models import BenchmarkRetrievalOptions, Strategy
+
+_VECTOR_MODEL_STRATEGIES: frozenset[Strategy] = frozenset(
+    {
+        Strategy.ARCHEX_QUERY_VECTOR,
+        Strategy.SURROGATE_VECTOR,
+        Strategy.ARCHEX_QUERY_FUSION,
+        Strategy.ARCHEX_QUERY_FUSION_RERANK,
+        Strategy.CROSS_LAYER_FUSION,
+    }
+)
+
+
+def warm_benchmark_models(
+    strategies: Sequence[Strategy],
+    retrieval_options: BenchmarkRetrievalOptions,
+) -> list[str]:
+    """Load opt-in benchmark model dependencies before the task loop starts."""
+    warmed: list[str] = []
+
+    if any(strategy in _VECTOR_MODEL_STRATEGIES for strategy in strategies):
+        from archex.index.embeddings.fast import FastEmbedder
+
+        _ = FastEmbedder().dimension
+        warmed.append("fastembed")
+
+    if retrieval_options.splade:
+        from archex.index.splade import DEFAULT_MODEL_NAME, SPLADEEncoder
+
+        SPLADEEncoder().warm()
+        warmed.append(DEFAULT_MODEL_NAME)
+
+    if Strategy.ARCHEX_QUERY_FUSION_RERANK in strategies:
+        from archex.index.rerank import DEFAULT_MODEL, CrossEncoderReranker
+
+        CrossEncoderReranker().warm()
+        warmed.append(DEFAULT_MODEL)
+
+    return warmed
