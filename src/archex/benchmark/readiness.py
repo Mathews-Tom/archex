@@ -70,6 +70,9 @@ class ReadinessReport:
     mean_mrr: float
     median_latency_ms: float
     p95_latency_ms: float
+    tokens_total: int
+    token_efficiency: float
+    savings_vs_raw: float
     zero_recall_tasks: int
     low_f1_tasks: int
     low_precision_tasks: int
@@ -92,6 +95,9 @@ class ReadinessReport:
             "mean_mrr": self.mean_mrr,
             "median_latency_ms": self.median_latency_ms,
             "p95_latency_ms": self.p95_latency_ms,
+            "tokens_total": self.tokens_total,
+            "token_efficiency": self.token_efficiency,
+            "savings_vs_raw": self.savings_vs_raw,
             "zero_recall_tasks": self.zero_recall_tasks,
             "low_f1_tasks": self.low_f1_tasks,
             "low_precision_tasks": self.low_precision_tasks,
@@ -124,6 +130,9 @@ def build_readiness_report(
             mean_mrr=0.0,
             median_latency_ms=0.0,
             p95_latency_ms=0.0,
+            tokens_total=0,
+            token_efficiency=0.0,
+            savings_vs_raw=0.0,
             zero_recall_tasks=0,
             low_f1_tasks=0,
             low_precision_tasks=0,
@@ -139,6 +148,9 @@ def build_readiness_report(
     mean_mrr = _mean([result.mrr for result in metric_results])
     median_latency_ms = _percentile([result.wall_time_ms for result in metric_results], 0.50)
     p95_latency_ms = _percentile([result.wall_time_ms for result in metric_results], 0.95)
+    tokens_total = sum(result.tokens_total for result in metric_results)
+    token_efficiency = _mean([result.token_efficiency for result in metric_results])
+    savings_vs_raw = _mean([result.savings_vs_raw for result in metric_results])
     zero_recall_tasks = sum(1 for result in metric_results if result.recall <= 0.0)
     low_f1_tasks = sum(1 for result in metric_results if result.f1_score < LOW_F1_THRESHOLD)
     low_precision_tasks = sum(
@@ -185,6 +197,9 @@ def build_readiness_report(
         mean_mrr=mean_mrr,
         median_latency_ms=median_latency_ms,
         p95_latency_ms=p95_latency_ms,
+        tokens_total=tokens_total,
+        token_efficiency=token_efficiency,
+        savings_vs_raw=savings_vs_raw,
         zero_recall_tasks=zero_recall_tasks,
         low_f1_tasks=low_f1_tasks,
         low_precision_tasks=low_precision_tasks,
@@ -213,6 +228,20 @@ def format_readiness_markdown(report: ReadinessReport) -> str:
             f"| {target.comparator} {_format_number(target.target)} | {status} |"
         )
     lines.append("")
+    lines.append("## Strategy Metrics")
+    lines.append("")
+    lines.append(
+        "| Strategy | Tasks | Recall | F1 | Tokens Total | Token Efficiency "
+        "| Savings vs Raw | Median Latency | P95 Latency |"
+    )
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append(
+        f"| `{report.strategy}` | {report.task_count} | {report.mean_recall:.3f} "
+        f"| {report.mean_f1_score:.3f} | {report.tokens_total:,} "
+        f"| {report.token_efficiency:.3f} | {report.savings_vs_raw:.1f}% "
+        f"| {report.median_latency_ms:.0f} ms | {report.p95_latency_ms:.0f} ms |"
+    )
+    lines.append("")
     lines.append("## Summary")
     lines.append("")
     lines.append(
@@ -222,6 +251,9 @@ def format_readiness_markdown(report: ReadinessReport) -> str:
         f"- Mean MRR: `{report.mean_mrr:.3f}`\n"
         f"- Median latency: `{report.median_latency_ms:.0f} ms`\n"
         f"- P95 latency: `{report.p95_latency_ms:.0f} ms`\n"
+        f"- Tokens total: `{report.tokens_total:,}`\n"
+        f"- Token efficiency: `{report.token_efficiency:.3f}`\n"
+        f"- Savings vs raw: `{report.savings_vs_raw:.1f}%`\n"
         f"- Zero-recall tasks: `{report.zero_recall_tasks}`\n"
         f"- Tasks below F1 {LOW_F1_THRESHOLD:.2f}: `{report.low_f1_tasks}`\n"
         f"- Tasks below precision {LOW_PRECISION_THRESHOLD:.2f}: `{report.low_precision_tasks}`"
