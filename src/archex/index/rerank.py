@@ -21,15 +21,20 @@ MODEL_REVISIONS = {
     JINA_RERANKER_MODEL: JINA_RERANKER_REVISION,
 }
 
-# Maximum content length passed to the cross-encoder per chunk.
-# jinaai/jina-reranker-v3 supports an 8192-token window. Use a conservative
-# ~4096-token chunk slice so larger code chunks score while query overhead fits.
-MAX_CONTENT_CHARS = 16384
+# Maximum content length passed to the reranker per chunk.
+# Keep code snippets short because listwise reranking scores every candidate in
+# one prompt window and latency scales sharply with total document text.
+MAX_CONTENT_CHARS = 4096
 
 # Default number of top candidates to keep after reranking.
 # Sized to cover ~8-10 files x 3-4 chunks each, giving downstream
 # scoring enough diversity without losing cross-encoder precision.
 DEFAULT_TOP_K = 30
+
+# Maximum candidates sent through the expensive model. The caller preserves the
+# full candidate pool and treats rerank output as a score boost, so this cap
+# bounds latency without deleting lower-ranked retrieval candidates.
+RERANK_CANDIDATE_LIMIT = 12
 
 _MODEL_CACHE: dict[str, Any] = {}
 
@@ -75,9 +80,9 @@ def _best_device() -> str:
 
 
 def is_available() -> bool:
-    """Return True if cross-encoder dependencies are installed."""
+    """Return True if default cross-encoder dependencies are installed."""
     try:
-        import sentence_transformers as _st  # noqa: F401  # pyright: ignore[reportUnusedImport]
+        import transformers as _transformers  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
         return True
     except ImportError:
@@ -97,39 +102,73 @@ class CrossEncoderReranker:
         self._model_name = model_name
         self._model: Any = None
 
+    def _uses_transformers_rerank_api(self) -> bool:
+        return self._model_name == JINA_RERANKER_MODEL
+
     def _load_model(self) -> None:
         if self._model is not None:
             return
 
         cached_model = _MODEL_CACHE.get(self._model_name)
         if cached_model is not None:
-            _ensure_padding_token(cached_model)
+            if not self._uses_transformers_rerank_api():
+                _ensure_padding_token(cached_model)
             self._model = cached_model
             return
 
-        try:
-            from sentence_transformers import CrossEncoder
-        except ImportError as e:
-            raise ArchexIndexError(
-                "CrossEncoderReranker requires sentence-transformers. "
-                "Install with: uv add 'archex[vector-torch]'"
-            ) from e
-
         device = _best_device()
         revision = MODEL_REVISIONS.get(self._model_name)
-        model_path = resolve_hf_model_path(self._model_name, revision=revision)
+        model_path = (
+            self._model_name
+            if self._uses_transformers_rerank_api()
+            else resolve_hf_model_path(self._model_name, revision=revision)
+        )
         print(
             f"Loading reranker model '{self._model_name}' on {device} "
             "(downloading if not cached)...",
             file=sys.stderr,
             flush=True,
         )
-        self._model = CrossEncoder(
-            model_path,
-            trust_remote_code=True,
-            device=device,
-        )
-        _ensure_padding_token(self._model)
+        if self._uses_transformers_rerank_api():
+            try:
+                from transformers import AutoModel  # type: ignore[import-untyped]
+            except ImportError as e:
+                raise ArchexIndexError(
+                    "CrossEncoderReranker default model requires transformers. "
+                    "Install with: uv add 'archex[splade]'"
+                ) from e
+
+            auto_model: Any = AutoModel
+            model: Any = auto_model.from_pretrained(
+                model_path,
+                revision=revision,
+                dtype="auto",
+                trust_remote_code=True,
+            )
+            if not hasattr(model, "rerank"):
+                raise ArchexIndexError(
+                    f"Reranker model '{self._model_name}' does not expose rerank()."
+                )
+            model.eval()
+            if device != "cpu":
+                model.to(device)
+            self._model = model
+        else:
+            try:
+                from sentence_transformers import CrossEncoder
+            except ImportError as e:
+                raise ArchexIndexError(
+                    "CrossEncoderReranker custom models require sentence-transformers. "
+                    "Install with: uv add 'archex[vector-torch]'"
+                ) from e
+
+            cross_encoder: Any = CrossEncoder
+            self._model = cross_encoder(
+                model_path,
+                trust_remote_code=True,
+                device=device,
+            )
+            _ensure_padding_token(self._model)
         _MODEL_CACHE[self._model_name] = self._model
         logger.info("Loaded cross-encoder reranker: %s on %s", self._model_name, device)
 
@@ -158,7 +197,21 @@ class CrossEncoderReranker:
 
         self._load_model()
 
-        pairs = [(query, chunk.content[:MAX_CONTENT_CHARS]) for chunk, _ in candidates]
+        documents = [chunk.content[:MAX_CONTENT_CHARS] for chunk, _ in candidates]
+        if self._uses_transformers_rerank_api():
+            results = self._model.rerank(query, documents, top_n=min(top_k, len(documents)))
+            ranked: list[tuple[CodeChunk, float]] = []
+            for result in results:
+                index = int(result["index"])
+                ranked.append(
+                    (
+                        candidates[index][0],
+                        float(result["relevance_score"]),
+                    )
+                )
+            return ranked
+
+        pairs = list(zip([query] * len(candidates), documents, strict=False))
         scores: list[float] = self._model.predict(pairs).tolist()
 
         scored = sorted(

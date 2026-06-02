@@ -408,6 +408,20 @@ def _initial_candidate_map(
     return candidate_map
 
 
+def _normalized_rerank_scores(reranked: list[tuple[CodeChunk, float]]) -> dict[str, float]:
+    if not reranked:
+        return {}
+
+    scores = [score for _, score in reranked]
+    min_score = min(scores)
+    max_score = max(scores)
+    if max_score == min_score:
+        return {chunk.id: 1.0 for chunk, _ in reranked}
+
+    span = max_score - min_score
+    return {chunk.id: (score - min_score) / span for chunk, score in reranked}
+
+
 def _unique_file_paths(results: list[tuple[CodeChunk, float]]) -> list[str]:
     seen: set[str] = set()
     paths: list[str] = []
@@ -799,22 +813,47 @@ def assemble_context(
         )
 
     # --- Cross-encoder reranking phase (opt-in) ---
-    # When a reranker is provided, re-score all candidates using full
-    # query-chunk attention. This replaces BM25/fusion scores with
-    # cross-encoder relevance scores for downstream ranking.
+    # Reranking is a scoring signal, not a candidate filter. Preserve the
+    # complete candidate pool for file-level aggregation and only update scores
+    # for the bounded window sent through the expensive cross-encoder.
     if reranker is not None:
-        from archex.index.rerank import DEFAULT_TOP_K, CrossEncoderReranker
+        from archex.index.rerank import (
+            DEFAULT_TOP_K,
+            RERANK_CANDIDATE_LIMIT,
+            CrossEncoderReranker,
+        )
 
         if isinstance(reranker, CrossEncoderReranker):
+            rerank_start = time.perf_counter_ns()
             candidate_list = [
                 (chunk, bm25_by_id.get(chunk.id, 0.0)) for chunk in candidate_map.values()
             ]
-            reranked = reranker.rerank(question, candidate_list, top_k=DEFAULT_TOP_K)
-            candidate_map = {chunk.id: chunk for chunk, _ in reranked}
-            max_rerank = max((s for _, s in reranked), default=1.0) or 1.0
-            bm25_by_id = {chunk.id: score / max_rerank for chunk, score in reranked}
-            candidates_after_expansion = len(candidate_map)
-            logger.debug("Cross-encoder reranked %d candidates", len(reranked))
+            candidates_for_rerank = candidate_list[:RERANK_CANDIDATE_LIMIT]
+            reranked = reranker.rerank(question, candidates_for_rerank, top_k=DEFAULT_TOP_K)
+            for chunk_id, rerank_score in _normalized_rerank_scores(reranked).items():
+                bm25_by_id[chunk_id] = max(bm25_by_id.get(chunk_id, 0.0), rerank_score)
+            rerank_end = time.perf_counter_ns()
+            if trace is not None:
+                trace.add_step(
+                    StepTiming(
+                        name="rerank",
+                        start_ns=rerank_start,
+                        end_ns=rerank_end,
+                        metadata={
+                            "candidates_available": len(candidate_list),
+                            "candidates_scored": len(candidates_for_rerank),
+                            "candidates_returned": len(reranked),
+                            "candidate_files_preserved": len(
+                                {chunk.file_path for chunk in candidate_map.values()}
+                            ),
+                        },
+                    )
+                )
+            logger.debug(
+                "Cross-encoder reranked %d/%d candidates",
+                len(candidates_for_rerank),
+                len(candidate_list),
+            )
 
     # --- Scoring phase ---
     _scoring_start = time.perf_counter_ns()

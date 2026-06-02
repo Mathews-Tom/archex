@@ -14,14 +14,14 @@ from archex.index.rerank import (
     DEFAULT_TOP_K,
     JINA_RERANKER_MODEL,
     MAX_CONTENT_CHARS,
+    RERANK_CANDIDATE_LIMIT,
     CrossEncoderReranker,
     _best_device,  # pyright: ignore[reportPrivateUsage]
     is_available,
 )
 from archex.models import CodeChunk, IndexConfig, SymbolKind
 
-_HAS_CROSS_ENCODER = is_available()
-_JINA_LOCAL_PATH = "/cache/jinaai--jina-reranker-v3"
+_HAS_RERANKER_DEPS = is_available()
 
 
 @pytest.fixture(autouse=True)
@@ -48,8 +48,8 @@ def _make_chunk(chunk_id: str, content: str = "def fn(): pass") -> CodeChunk:
 
 
 def _reranker_with_mock() -> tuple[CrossEncoderReranker, MagicMock]:
-    """Create a CrossEncoderReranker with a mock model injected (bypasses _load_model)."""
-    reranker = CrossEncoderReranker()
+    """Create a custom-model CrossEncoderReranker with an injected predict model."""
+    reranker = CrossEncoderReranker(model_name="custom/model")
     mock_model = MagicMock()
     reranker._model = mock_model  # pyright: ignore[reportPrivateUsage]
     return reranker, mock_model
@@ -92,8 +92,9 @@ class TestConstants:
     def test_default_top_k_is_30(self) -> None:
         assert DEFAULT_TOP_K == 30
 
-    def test_max_content_chars_matches_jina_window_budget(self) -> None:
-        assert MAX_CONTENT_CHARS == 16384
+    def test_max_content_chars_bounds_listwise_latency(self) -> None:
+        assert MAX_CONTENT_CHARS == 4096
+        assert RERANK_CANDIDATE_LIMIT == 12
 
     def test_default_model_is_jina_reranker(self) -> None:
         assert DEFAULT_MODEL == JINA_RERANKER_MODEL
@@ -104,11 +105,11 @@ class TestMaybeReranker:
         from archex.api import _maybe_reranker  # pyright: ignore[reportPrivateUsage]
 
         # Default config leaves rerank unset; reranking stays off even when
-        # sentence-transformers is installed, so the flag is observably on/off.
+        # reranker dependencies are installed, so the flag is observably on/off.
         result = _maybe_reranker(IndexConfig())
         assert result is None
 
-    @pytest.mark.skipif(not _HAS_CROSS_ENCODER, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(not _HAS_RERANKER_DEPS, reason="transformers not installed")
     def test_explicit_rerank_true_uses_jina_default(self) -> None:
         from archex.api import _maybe_reranker  # pyright: ignore[reportPrivateUsage]
 
@@ -117,7 +118,7 @@ class TestMaybeReranker:
         assert isinstance(result, CrossEncoderReranker)
         assert result._model_name == JINA_RERANKER_MODEL  # pyright: ignore[reportPrivateUsage]
 
-    @pytest.mark.skipif(not _HAS_CROSS_ENCODER, reason="sentence-transformers not installed")
+    @pytest.mark.skipif(not _HAS_RERANKER_DEPS, reason="transformers not installed")
     def test_uses_custom_model(self) -> None:
         from archex.api import _maybe_reranker  # pyright: ignore[reportPrivateUsage]
 
@@ -144,17 +145,24 @@ class TestCrossEncoderReranker:
     def test_default_load_passes_pinned_jina_revision(self) -> None:
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
         chunk = _make_chunk("a")
+        fake_model = MagicMock()
+        fake_model.rerank.return_value = [{"index": 0, "relevance_score": 1.0}]
 
         with (
             patch("archex.index.rerank._best_device", return_value="cpu"),
-            patch("sentence_transformers.CrossEncoder") as cross_encoder,
+            patch("transformers.AutoModel") as auto_model,
         ):
-            cross_encoder.return_value.predict.return_value = np.array([1.0])
+            auto_model.from_pretrained.return_value = fake_model
             CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
 
-        cross_encoder.assert_called_once_with(
-            _JINA_LOCAL_PATH, trust_remote_code=True, device="cpu"
+        auto_model.from_pretrained.assert_called_once_with(
+            JINA_RERANKER_MODEL,
+            revision=rerank_module.JINA_RERANKER_REVISION,
+            dtype="auto",
+            trust_remote_code=True,
         )
+        fake_model.eval.assert_called_once_with()
+        fake_model.to.assert_not_called()
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
     def test_custom_model_load_has_no_revision_pin(self) -> None:
@@ -175,20 +183,20 @@ class TestCrossEncoderReranker:
         )
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
-    def test_load_passes_mps_when_available(self) -> None:
+    def test_default_load_moves_transformers_model_to_mps_when_available(self) -> None:
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
         chunk = _make_chunk("a")
+        fake_model = MagicMock()
+        fake_model.rerank.return_value = [{"index": 0, "relevance_score": 1.0}]
 
         with (
             patch("archex.index.rerank._best_device", return_value="mps"),
-            patch("sentence_transformers.CrossEncoder") as cross_encoder,
+            patch("transformers.AutoModel") as auto_model,
         ):
-            cross_encoder.return_value.predict.return_value = np.array([1.0])
+            auto_model.from_pretrained.return_value = fake_model
             CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
 
-        cross_encoder.assert_called_once_with(
-            _JINA_LOCAL_PATH, trust_remote_code=True, device="mps"
-        )
+        fake_model.to.assert_called_once_with("mps")
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
     def test_load_sets_eos_as_padding_token_when_missing(self) -> None:
@@ -209,7 +217,7 @@ class TestCrossEncoderReranker:
             patch("archex.index.rerank._best_device", return_value="cpu"),
             patch("sentence_transformers.CrossEncoder", return_value=fake_encoder),
         ):
-            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+            CrossEncoderReranker(model_name="custom/model").rerank("query", [(chunk, 0.0)])
 
         assert fake_encoder.tokenizer.pad_token == "<eos>"
         assert fake_encoder.tokenizer.pad_token_id == 151645
@@ -234,7 +242,7 @@ class TestCrossEncoderReranker:
             patch("archex.index.rerank._best_device", return_value="cpu"),
             patch("sentence_transformers.CrossEncoder", return_value=fake_encoder),
         ):
-            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+            CrossEncoderReranker(model_name="custom/model").rerank("query", [(chunk, 0.0)])
 
         assert fake_encoder.tokenizer.pad_token == "<|endoftext|>"
         assert fake_encoder.model.config.pad_token_id == 151643
@@ -274,7 +282,7 @@ class TestCrossEncoderReranker:
             patch("archex.index.rerank._best_device", return_value="cpu"),
             patch("sentence_transformers.CrossEncoder", return_value=fake_encoder),
         ):
-            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+            CrossEncoderReranker(model_name="custom/model").rerank("query", [(chunk, 0.0)])
 
         assert fake_encoder.model.config.pad_token_id == 151643
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
@@ -311,6 +319,21 @@ class TestCrossEncoderReranker:
         reranker = CrossEncoderReranker()
         result = reranker.rerank("query", [])
         assert result == []
+
+    def test_default_rerank_uses_transformers_rerank_results(self) -> None:
+        reranker = CrossEncoderReranker()
+        mock_model = MagicMock()
+        mock_model.rerank.return_value = [
+            {"index": 1, "relevance_score": 0.9},
+            {"index": 0, "relevance_score": 0.1},
+        ]
+        reranker._model = mock_model  # pyright: ignore[reportPrivateUsage]
+
+        chunks = [_make_chunk("a"), _make_chunk("b")]
+        result = reranker.rerank("query", [(chunks[0], 0.0), (chunks[1], 0.0)], top_k=2)
+
+        assert [chunk.id for chunk, _ in result] == ["b", "a"]
+        assert [score for _, score in result] == [0.9, 0.1]
 
     def test_rerank_sorts_by_cross_encoder_score(self) -> None:
         reranker, mock_model = _reranker_with_mock()
