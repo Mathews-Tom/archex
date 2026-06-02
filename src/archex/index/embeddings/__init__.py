@@ -36,6 +36,15 @@ def _nomic_factory() -> Embedder:
     return NomicCodeEmbedder()
 
 
+def _jina_v2_factory() -> Embedder:
+    from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+
+    return SentenceTransformerEmbedder(
+        model_name="jinaai/jina-embeddings-v2-base-code",
+        trust_remote_code=True,
+    )
+
+
 def _sentence_tf_factory() -> Embedder:
     from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
 
@@ -105,4 +114,5 @@ default_embedder_registry = EmbedderRegistry()
 default_embedder_registry.register("fastembed", _fastembed_factory)
 default_embedder_registry.register("nomic", _nomic_factory)
 default_embedder_registry.register("sentence_transformers", _sentence_tf_factory)
+default_embedder_registry.register("jina-v2", _jina_v2_factory)
 default_embedder_registry.register("coderank", _coderank_factory)

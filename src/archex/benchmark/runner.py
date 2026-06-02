@@ -94,7 +94,7 @@ def _warm_repo_index(
     retrieval_options = retrieval_options or BenchmarkRetrievalOptions()
     index_config = IndexConfig(
         vector=True,
-        embedder="fastembed",
+        embedder=retrieval_options.embedder,
         splade=retrieval_options.splade,
         module_prefilter=retrieval_options.module_prefilter,
     )

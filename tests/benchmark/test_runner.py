@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -111,14 +112,14 @@ class TestRunBenchmark:
         from archex.benchmark.strategies import default_strategy_registry
         from archex.exceptions import ArchexIndexError
 
-        warmed: list[Path] = []
+        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None]] = []
 
         def _record(
             _task: BenchmarkTask,
             path: Path,
-            _options: BenchmarkRetrievalOptions | None = None,
+            options: BenchmarkRetrievalOptions | None = None,
         ) -> None:
-            warmed.append(path)
+            warmed.append((path, options))
 
         def _raise(_task: BenchmarkTask, _path: Path) -> None:
             raise ArchexIndexError("no vector backend in test")
@@ -133,8 +134,45 @@ class TestRunBenchmark:
             task,
             strategies=[Strategy.RAW_FILES, Strategy.ARCHEX_QUERY_FUSION],
             repo_path=repo_path,
+            retrieval_options=BenchmarkRetrievalOptions(embedder="coderank"),
         )
-        assert warmed == [repo_path]
+        assert warmed == [(repo_path, BenchmarkRetrievalOptions(embedder="coderank"))]
+
+    def test_warm_repo_index_uses_configured_embedder(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+    ) -> None:
+        from archex.benchmark import runner as runner_mod
+        from archex.models import ContextBundle, IndexConfig
+
+        task, repo_path = fixture_task
+        captured: list[str | None] = []
+
+        def fake_query(
+            _source: object,
+            question: str,
+            *,
+            token_budget: int,
+            config: object,
+            index_config: IndexConfig,
+        ) -> ContextBundle:
+            del config
+            captured.append(index_config.embedder)
+            return ContextBundle(
+                query=question,
+                chunks=[],
+                token_count=0,
+                token_budget=token_budget,
+            )
+
+        with patch("archex.api.query", fake_query):
+            runner_mod._warm_repo_index(  # pyright: ignore[reportPrivateUsage]
+                task,
+                repo_path,
+                BenchmarkRetrievalOptions(embedder="coderank"),
+            )
+
+        assert captured == ["coderank"]
 
     def test_skips_warmup_for_raw_only_strategies(
         self,
@@ -279,7 +317,7 @@ class TestRunBenchmark:
 
         task, repo_path = fixture_task
         source = benchmark_repo_source(task, repo_path)
-        assert source.stable_identity == "test/python_simple@HEAD"
+        assert source.stable_identity == "test/python_simple@HEAD#embedder=jina-v2"
 
         token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(splade=True))
         try:
@@ -287,7 +325,17 @@ class TestRunBenchmark:
         finally:
             reset_benchmark_retrieval_options(token)
 
-        assert splade_source.stable_identity == "test/python_simple@HEAD#splade"
+        assert splade_source.stable_identity == "test/python_simple@HEAD#embedder=jina-v2+splade"
+
+        coderank_token = set_benchmark_retrieval_options(
+            BenchmarkRetrievalOptions(embedder="coderank")
+        )
+        try:
+            coderank_source = benchmark_repo_source(task, repo_path)
+        finally:
+            reset_benchmark_retrieval_options(coderank_token)
+
+        assert coderank_source.stable_identity == "test/python_simple@HEAD#embedder=coderank"
 
     def test_benchmark_index_config_applies_module_prefilter_only_with_bm25(self) -> None:
         from archex.benchmark.strategies import (
@@ -314,6 +362,8 @@ class TestRunBenchmark:
         assert bm25_config.module_prefilter is True
         assert vector_config.splade is True
         assert vector_config.module_prefilter is False
+        assert bm25_config.embedder == "jina-v2"
+        assert vector_config.embedder == "jina-v2"
         assert cache_enabled is True
 
 

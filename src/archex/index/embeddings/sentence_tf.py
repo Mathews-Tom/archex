@@ -17,6 +17,7 @@ class SentenceTransformerEmbedder:
         self,
         model_name: str = "all-MiniLM-L6-v2",
         batch_size: int = 32,
+        trust_remote_code: bool = False,
     ) -> None:
         try:
             import sentence_transformers as _st  # pyright: ignore[reportUnusedImport]  # noqa: F401
@@ -28,6 +29,7 @@ class SentenceTransformerEmbedder:
 
         self._model_name = model_name
         self._batch_size = batch_size
+        self._trust_remote_code = trust_remote_code
         self._model: Any = None
         self._dimension: int | None = None
 
@@ -44,7 +46,11 @@ class SentenceTransformerEmbedder:
             _best_device,  # pyright: ignore[reportPrivateUsage]
         )
 
-        self._model = SentenceTransformer(self._model_name, device=_best_device())
+        self._model = SentenceTransformer(
+            self._model_name,
+            device=_best_device(),
+            trust_remote_code=self._trust_remote_code,
+        )
         self._dimension = self._model.get_sentence_embedding_dimension()
 
     def encode(self, texts: list[str]) -> list[list[float]]:

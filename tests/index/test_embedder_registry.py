@@ -38,9 +38,11 @@ class TestEmbedderRegistry:
         config = IndexConfig(vector=False, embedder="")
         assert reg.create(config) is None
 
-    def test_default_registry_has_nomic_and_sentence_tf(self) -> None:
+    def test_default_registry_has_builtin_embedders(self) -> None:
         assert default_embedder_registry.get("nomic") is not None
         assert default_embedder_registry.get("sentence_transformers") is not None
+        assert default_embedder_registry.get("jina-v2") is not None
+        assert default_embedder_registry.get("coderank") is not None
 
     def test_load_entry_points(self) -> None:
         reg = EmbedderRegistry()
