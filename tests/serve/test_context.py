@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import xml.etree.ElementTree as ET
 
-from archex.index.rerank import DEFAULT_TOP_K, CrossEncoderReranker
+from archex.index.rerank import DEFAULT_TOP_K, RERANK_CANDIDATE_LIMIT, CrossEncoderReranker
 from archex.index.graph import DependencyGraph
 from archex.models import CodeChunk, ContextBundle, Module, SymbolKind
 from archex.serve.context import assemble_context
@@ -55,6 +55,7 @@ def make_graph_with_edges() -> DependencyGraph:
 class RecordingReranker(CrossEncoderReranker):
     def __init__(self) -> None:
         super().__init__()
+        self.seen_candidate_count: int | None = None
         self.seen_top_k: int | None = None
 
     def rerank(
@@ -63,6 +64,7 @@ class RecordingReranker(CrossEncoderReranker):
         candidates: list[tuple[CodeChunk, float]],
         top_k: int = DEFAULT_TOP_K,
     ) -> list[tuple[CodeChunk, float]]:
+        self.seen_candidate_count = len(candidates)
         self.seen_top_k = top_k
         return candidates[:top_k]
 
@@ -697,8 +699,82 @@ def test_assemble_context_honors_reranker_default_top_k() -> None:
         token_budget=1000,
         reranker=reranker,
     )
-
+    assert reranker.seen_candidate_count == RERANK_CANDIDATE_LIMIT
     assert reranker.seen_top_k == DEFAULT_TOP_K
+
+
+def test_assemble_context_reranker_preserves_candidates_outside_rerank_window() -> None:
+    graph = DependencyGraph()
+    distractors = [
+        make_chunk(f"d{i}", f"distractor_{i}.py", token_count=10)
+        for i in range(RERANK_CANDIDATE_LIMIT)
+    ]
+    needle = make_chunk("needle", "needle.py", symbol_kind=SymbolKind.CLASS, token_count=10)
+    chunks = [*distractors, needle]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+
+    search_results = [(chunk, 1.0) for chunk in distractors]
+    search_results.append((needle, 100.0))
+    reranker = RecordingReranker()
+
+    bundle = assemble_context(
+        search_results=search_results,
+        graph=graph,
+        all_chunks=chunks,
+        question="needle",
+        token_budget=1000,
+        reranker=reranker,
+    )
+
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert reranker.seen_candidate_count == RERANK_CANDIDATE_LIMIT
+    assert bundle.retrieval_metadata.candidates_after_expansion == len(chunks)
+    assert "needle.py" in included_files
+
+
+def test_assemble_context_reranker_does_not_demote_existing_scores() -> None:
+    class DemotingReranker(CrossEncoderReranker):
+        def __init__(self) -> None:
+            super().__init__()
+
+        def rerank(
+            self,
+            query: str,
+            candidates: list[tuple[CodeChunk, float]],
+            top_k: int = DEFAULT_TOP_K,
+        ) -> list[tuple[CodeChunk, float]]:
+            del query, top_k
+            return [(chunk, 0.0) for chunk, _ in candidates]
+
+    graph = DependencyGraph()
+    important = make_chunk("important", "important.py", token_count=10)
+    other = make_chunk("other", "other.py", token_count=10)
+    for chunk in (important, other):
+        graph.add_file_node(chunk.file_path)
+
+    bundle = assemble_context(
+        search_results=[(important, 100.0), (other, 1.0)],
+        graph=graph,
+        all_chunks=[important, other],
+        question="important",
+        token_budget=1000,
+        reranker=DemotingReranker(),
+    )
+
+    important_rank = next(rc for rc in bundle.chunks if rc.chunk.id == "important")
+    assert important_rank.relevance_score == 1.0
+
+
+def test_normalized_rerank_scores_shift_negative_logits() -> None:
+    from archex.serve.context import _normalized_rerank_scores  # pyright: ignore[reportPrivateUsage]
+
+    low = make_chunk("low", "low.py")
+    high = make_chunk("high", "high.py")
+
+    scores = _normalized_rerank_scores([(low, -3.0), (high, -1.0)])
+
+    assert scores == {"low": 0.0, "high": 1.0}
 
 
 def test_vector_only_recovery_when_bm25_empty() -> None:
