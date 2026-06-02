@@ -320,7 +320,6 @@ class TestCrossEncoderReranker:
         result = reranker.rerank("query", [])
         assert result == []
 
-
     def test_default_rerank_uses_transformers_rerank_results(self) -> None:
         reranker = CrossEncoderReranker()
         mock_model = MagicMock()
