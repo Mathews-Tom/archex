@@ -2,11 +2,41 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Disable global coverage threshold for benchmark-only test slices."""
+    _disable_benchmark_coverage_threshold(config)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionstart(session: pytest.Session) -> None:
+    _disable_benchmark_coverage_threshold(session.config)
+
+
+def _disable_benchmark_coverage_threshold(config: pytest.Config) -> None:
+    if not _benchmark_only_paths(config.invocation_params.args):
+        return
+    if getattr(config.option, "cov_fail_under", None) is not None:
+        config.option.cov_fail_under = 0
+    cov_plugin: Any = config.pluginmanager.getplugin("_cov")
+    cov_options: Any = getattr(cov_plugin, "options", None)
+    if cov_options is not None and getattr(cov_options, "cov_fail_under", None) is not None:
+        cov_options.cov_fail_under = 0
+
+
+def _benchmark_only_paths(args: Sequence[str]) -> bool:
+    paths = [arg.rstrip("/") for arg in args if arg and not arg.startswith("-")]
+    return bool(paths) and all(
+        path == "tests/benchmark" or path.startswith("tests/benchmark/") for path in paths
+    )
 
 
 def _init_fixture_repo(tmp_path: Path, fixture_name: str) -> Path:
