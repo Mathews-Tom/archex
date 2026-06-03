@@ -46,9 +46,10 @@ graph = [
 ]
 vector-torch = [
     "sentence-transformers>=5.2,<6",
+    "transformers>=4.41,<5",
 ]
 splade = [
-    "transformers>=4.30",
+    "transformers>=4.41,<5",
     "torch>=2.0",
 ]
 mcp = ["mcp>=1.0"]

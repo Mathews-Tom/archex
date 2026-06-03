@@ -223,6 +223,37 @@ class TestSentenceTransformerEmbedder:
 
         mock_st_module.SentenceTransformer.assert_called_once()
 
+    def test_load_model_passes_revision_and_remote_code_kwargs(self) -> None:
+        from unittest.mock import ANY, MagicMock
+
+        mock_st_module = MagicMock()
+        mock_model = MagicMock()
+        mock_model.get_sentence_embedding_dimension.return_value = 768
+        mock_st_module.SentenceTransformer.return_value = mock_model
+
+        with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
+            from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+
+            embedder = SentenceTransformerEmbedder(
+                model_name="test-model",
+                trust_remote_code=True,
+                revision="model-revision",
+                local_files_only=True,
+                model_kwargs={"code_revision": "code-revision"},
+                config_kwargs={"code_revision": "code-revision"},
+            )
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+        mock_st_module.SentenceTransformer.assert_called_once_with(
+            "test-model",
+            device=ANY,
+            trust_remote_code=True,
+            revision="model-revision",
+            local_files_only=True,
+            model_kwargs={"code_revision": "code-revision"},
+            config_kwargs={"code_revision": "code-revision"},
+        )
+
 
 class TestFastEmbedder:
     def test_import_error_raises_archex_index_error(self) -> None:
