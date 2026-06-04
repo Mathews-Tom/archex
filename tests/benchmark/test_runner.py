@@ -314,10 +314,20 @@ class TestRunBenchmark:
             reset_benchmark_retrieval_options,
             set_benchmark_retrieval_options,
         )
+        from archex.index.embeddings import (
+            JINA_BERT_CODE_REVISION,
+            JINA_V2_MAX_SEQ_LENGTH,
+            JINA_V2_MODEL_REVISION,
+        )
 
         task, repo_path = fixture_task
+        jina_identity = (
+            f"jina-v2@{JINA_V2_MODEL_REVISION}"
+            f"+code={JINA_BERT_CODE_REVISION}"
+            f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
+        )
         source = benchmark_repo_source(task, repo_path)
-        assert source.stable_identity == "test/python_simple@HEAD#embedder=jina-v2"
+        assert source.stable_identity == f"test/python_simple@HEAD#embedder={jina_identity}"
 
         token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(splade=True))
         try:
@@ -325,7 +335,9 @@ class TestRunBenchmark:
         finally:
             reset_benchmark_retrieval_options(token)
 
-        assert splade_source.stable_identity == "test/python_simple@HEAD#embedder=jina-v2+splade"
+        assert splade_source.stable_identity == (
+            f"test/python_simple@HEAD#embedder={jina_identity}+splade"
+        )
 
         coderank_token = set_benchmark_retrieval_options(
             BenchmarkRetrievalOptions(embedder="coderank")

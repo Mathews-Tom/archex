@@ -506,8 +506,24 @@ def reset_benchmark_retrieval_options(token: Token[BenchmarkRetrievalOptions | N
     _BENCHMARK_RETRIEVAL_OPTIONS.reset(token)
 
 
+def _embedder_cache_identity(embedder: str) -> str:
+    if embedder != "jina-v2":
+        return embedder
+    from archex.index.embeddings import (
+        JINA_BERT_CODE_REVISION,
+        JINA_V2_MAX_SEQ_LENGTH,
+        JINA_V2_MODEL_REVISION,
+    )
+
+    return (
+        f"{embedder}@{JINA_V2_MODEL_REVISION}"
+        f"+code={JINA_BERT_CODE_REVISION}"
+        f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
+    )
+
+
 def _retrieval_cache_suffix(options: BenchmarkRetrievalOptions) -> str:
-    enabled: list[str] = [f"embedder={options.embedder}"]
+    enabled: list[str] = [f"embedder={_embedder_cache_identity(options.embedder)}"]
     if options.splade:
         enabled.append("splade")
     if options.module_prefilter:

@@ -34,8 +34,18 @@ from archex.benchmark.strategies import (
 )
 from archex.cache import CacheManager
 from archex.exceptions import ConfigError
+from archex.index.embeddings import (
+    JINA_BERT_CODE_REVISION,
+    JINA_V2_MAX_SEQ_LENGTH,
+    JINA_V2_MODEL_REVISION,
+)
 from archex.models import CodeChunk, ContextBundle, IndexConfig, RankedChunk, RetrievalMetadata
 
+JINA_V2_CACHE_IDENTITY = (
+    f"jina-v2@{JINA_V2_MODEL_REVISION}"
+    f"+code={JINA_BERT_CODE_REVISION}"
+    f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
+)
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -337,8 +347,8 @@ class TestRunArchexQuery:
         source_a = benchmark_repo_source(sample_task, repo_a)
         source_b = benchmark_repo_source(sample_task, repo_b)
 
-        assert source_a.stable_identity == "test/repo@abc#embedder=jina-v2"
-        assert source_b.stable_identity == "test/repo@abc#embedder=jina-v2"
+        assert source_a.stable_identity == f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}"
+        assert source_b.stable_identity == f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}"
         assert cache.cache_key(source_a) == cache.cache_key(source_b)
 
     def test_benchmark_source_resolves_missing_commit_from_git_head(
@@ -356,7 +366,7 @@ class TestRunArchexQuery:
         with patch.object(CacheManager, "git_head", return_value="resolved"):
             source = benchmark_repo_source(task, tmp_path)
 
-        assert source.stable_identity == "test/repo@resolved#embedder=jina-v2"
+        assert source.stable_identity == (f"test/repo@resolved#embedder={JINA_V2_CACHE_IDENTITY}")
 
     def test_benchmark_source_rejects_missing_commit_without_git_head(
         self,
