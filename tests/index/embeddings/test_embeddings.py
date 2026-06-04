@@ -223,7 +223,7 @@ class TestSentenceTransformerEmbedder:
 
         mock_st_module.SentenceTransformer.assert_called_once()
 
-    def test_load_model_passes_revision_and_remote_code_kwargs(self) -> None:
+    def test_load_model_passes_revision_remote_code_kwargs_and_sequence_cap(self) -> None:
         from unittest.mock import ANY, MagicMock
 
         mock_st_module = MagicMock()
@@ -241,6 +241,7 @@ class TestSentenceTransformerEmbedder:
                 local_files_only=True,
                 model_kwargs={"code_revision": "code-revision"},
                 config_kwargs={"code_revision": "code-revision"},
+                max_seq_length=1024,
             )
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
@@ -253,6 +254,7 @@ class TestSentenceTransformerEmbedder:
             model_kwargs={"code_revision": "code-revision"},
             config_kwargs={"code_revision": "code-revision"},
         )
+        assert mock_model.max_seq_length == 1024
 
 
 class TestFastEmbedder:

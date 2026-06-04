@@ -24,6 +24,7 @@ class SentenceTransformerEmbedder:
         local_files_only: bool = False,
         model_kwargs: Mapping[str, object] = MappingProxyType({}),
         config_kwargs: Mapping[str, object] = MappingProxyType({}),
+        max_seq_length: int | None = None,
     ) -> None:
         try:
             import sentence_transformers as _st  # pyright: ignore[reportUnusedImport]  # noqa: F401
@@ -40,6 +41,7 @@ class SentenceTransformerEmbedder:
         self._local_files_only = local_files_only
         self._model_kwargs = dict(model_kwargs)
         self._config_kwargs = dict(config_kwargs)
+        self._max_seq_length = max_seq_length
         self._model: Any = None
         self._dimension: int | None = None
 
@@ -65,6 +67,8 @@ class SentenceTransformerEmbedder:
             model_kwargs=self._model_kwargs,
             config_kwargs=self._config_kwargs,
         )
+        if self._max_seq_length is not None:
+            self._model.max_seq_length = self._max_seq_length
         self._dimension = self._model.get_sentence_embedding_dimension()
 
     def encode(self, texts: list[str]) -> list[list[float]]:

@@ -9,6 +9,7 @@ import pytest
 from archex.exceptions import ConfigError
 from archex.index.embeddings import (
     JINA_BERT_CODE_REVISION,
+    JINA_V2_MAX_SEQ_LENGTH,
     JINA_V2_MODEL_ID,
     JINA_V2_MODEL_REVISION,
     EmbedderRegistry,
@@ -63,6 +64,7 @@ class TestEmbedderRegistry:
         assert embedder._config_kwargs == {  # pyright: ignore[reportPrivateUsage]
             "code_revision": JINA_BERT_CODE_REVISION
         }
+        assert embedder._max_seq_length == JINA_V2_MAX_SEQ_LENGTH  # pyright: ignore[reportPrivateUsage]
 
     def test_load_entry_points(self) -> None:
         reg = EmbedderRegistry()

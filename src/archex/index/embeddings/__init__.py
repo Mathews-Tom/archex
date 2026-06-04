@@ -19,6 +19,7 @@ EmbedderFactory = Callable[[], Embedder]
 JINA_V2_MODEL_ID = "jinaai/jina-embeddings-v2-base-code"
 JINA_V2_MODEL_REVISION = "516f4baf13dec4ddddda8631e019b5737c8bc250"
 JINA_BERT_CODE_REVISION = "3baf9e3ac750e76e8edd3019170176884695fb94"
+JINA_V2_MAX_SEQ_LENGTH = 1024
 
 
 __all__ = [
@@ -49,6 +50,7 @@ def _jina_v2_factory() -> Embedder:
         revision=JINA_V2_MODEL_REVISION,
         model_kwargs={"code_revision": JINA_BERT_CODE_REVISION},
         config_kwargs={"code_revision": JINA_BERT_CODE_REVISION},
+        max_seq_length=JINA_V2_MAX_SEQ_LENGTH,
     )
 
 
