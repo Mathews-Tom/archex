@@ -46,6 +46,28 @@ class TestBenchmarkTask:
         assert task.token_budget == 8192
         assert task.keywords == []
         assert task.expected_symbols == []
+        assert task.include_paths == []
+
+    def test_include_paths_must_be_relative(self) -> None:
+        with pytest.raises(ValidationError):
+            BenchmarkTask(
+                task_id="test",
+                repo="owner/repo",
+                commit="abc",
+                question="test",
+                expected_files=["src/main.py"],
+                include_paths=["../secret"],
+            )
+
+        with pytest.raises(ValidationError):
+            BenchmarkTask(
+                task_id="test",
+                repo="owner/repo",
+                commit="abc",
+                question="test",
+                expected_files=["src/main.py"],
+                include_paths=["/tmp/repo"],
+            )
 
     def test_missing_required_field(self) -> None:
         with pytest.raises(ValidationError):

@@ -3,6 +3,10 @@ repo: gin-gonic/gin
 commit: "v1.10.0"
 category: architecture-broad
 languages: [go]
+include_paths:
+  - gin.go
+  - context.go
+  - routergroup.go
 question: "How does gin implement middleware chaining and abort handling?"
 expected_files:
   - gin.go

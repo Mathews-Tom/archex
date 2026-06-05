@@ -2,6 +2,11 @@ task_id: httpx_pooling
 repo: encode/httpx
 commit: "0.28.1"
 category: external-framework
+languages: [python]
+include_paths:
+  - httpx/_transports/default.py
+  - httpx/_client.py
+  - httpx/_config.py
 question: "How does httpx manage HTTP connection pooling and keep-alive?"
 expected_files:
   - httpx/_transports/default.py

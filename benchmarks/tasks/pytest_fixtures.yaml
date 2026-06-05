@@ -3,6 +3,9 @@ repo: pytest-dev/pytest
 commit: "8.3.4"
 category: external-framework
 languages: [python]
+include_paths:
+  - src/_pytest/fixtures.py
+  - src/_pytest/python.py
 question: "How does pytest discover and inject fixtures?"
 expected_files:
   - src/_pytest/fixtures.py

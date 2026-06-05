@@ -262,7 +262,7 @@ def run_all(
     output_dir.mkdir(parents=True, exist_ok=True)
     reports: list[BenchmarkReport] = []
     failures: list[tuple[str, str]] = []
-    repo_cache: dict[tuple[str, str], Path] = {}
+    repo_cache: dict[tuple[str, str, tuple[str, ...]], Path] = {}
     cleanup_paths: list[Path] = []
 
     try:
@@ -331,23 +331,63 @@ def load_selected_tasks(
 
 def _repo_path_for_task(
     task: BenchmarkTask,
-    repo_cache: dict[tuple[str, str], Path],
+    repo_cache: dict[tuple[str, str, tuple[str, ...]], Path],
     cleanup_paths: list[Path],
 ) -> Path:
     """Return a stable repo path for a task within one benchmark run."""
     if task.repo == ".":
         return Path.cwd()
 
-    key = (task.repo, task.commit)
+    key = (task.repo, task.commit, tuple(task.include_paths))
     cached = repo_cache.get(key)
     if cached is not None:
         return cached
 
-    repo_path, needs_cleanup = clone_at_commit(task.repo, task.commit)
-    repo_cache[key] = repo_path
+    clone_path, needs_cleanup = clone_at_commit(task.repo, task.commit)
     if needs_cleanup:
+        cleanup_paths.append(clone_path)
+    repo_path = clone_path
+    if task.include_paths:
+        repo_path = _slice_repo_for_task(clone_path, task)
         cleanup_paths.append(repo_path)
+    repo_cache[key] = repo_path
     return repo_path
+
+
+def _slice_repo_for_task(repo_path: Path, task: BenchmarkTask) -> Path:
+    """Copy only task-relevant repository paths into a temporary benchmark corpus."""
+    target = Path(tempfile.mkdtemp(prefix="archex-bench-slice-"))
+    for rel_path in task.include_paths:
+        source = repo_path / rel_path
+        if not source.exists():
+            shutil.rmtree(target, ignore_errors=True)
+            raise BenchmarkCloneError(
+                f"include path {rel_path!r} does not exist in {task.repo}@{task.commit}"
+            )
+        _copy_benchmark_path(source, target / rel_path)
+    init = _run_git(["git", "init", "--quiet"], cwd=target, timeout=30)
+    if init.returncode != 0:
+        shutil.rmtree(target, ignore_errors=True)
+        detail = init.stderr.strip() or "unknown git error"
+        raise BenchmarkCloneError(f"git init failed for scoped benchmark repo: {detail}")
+    return target
+
+
+def _copy_benchmark_path(source: Path, target: Path) -> None:
+    if source.is_dir():
+        for child in source.rglob("*"):
+            if ".git" in child.parts:
+                continue
+            relative = child.relative_to(source)
+            destination = target / relative
+            if child.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+            elif child.is_file():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(child, destination)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
 
 
 def _log_progress(progress: BenchmarkProgress | None, message: str) -> None:

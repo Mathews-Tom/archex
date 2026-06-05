@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -347,6 +348,17 @@ class TestRunBenchmark:
         finally:
             reset_benchmark_retrieval_options(coderank_token)
 
+        scoped_token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions())
+        scoped_task = task.model_copy(update={"include_paths": ["src", "tests"]})
+        try:
+            scoped_source = benchmark_repo_source(scoped_task, repo_path)
+        finally:
+            reset_benchmark_retrieval_options(scoped_token)
+
+        assert scoped_source.stable_identity == (
+            f"test/python_simple@HEAD#scope=src|tests+embedder={jina_identity}"
+        )
+
         assert coderank_source.stable_identity == "test/python_simple@HEAD#embedder=coderank"
 
     def test_benchmark_index_config_applies_module_prefilter_only_with_bm25(self) -> None:
@@ -614,6 +626,48 @@ expected_files:
 
         assert {report.task_id for report in reports} == {"test_all", "other_task"}
         assert clone_calls == [("test/repo", "HEAD")]
+
+    def test_repo_path_for_task_slices_include_paths(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import archex.benchmark.runner as runner_mod
+
+        clone_dir = tmp_path / "clone"
+        (clone_dir / "pkg" / "sub").mkdir(parents=True)
+        (clone_dir / "pkg" / "sub" / "kept.py").write_text("kept = True\n")
+        (clone_dir / "pkg" / "discarded.py").write_text("discarded = True\n")
+        (clone_dir / "other.py").write_text("other = True\n")
+
+        def fake_clone(_repo: str, _commit: str) -> tuple[Path, bool]:
+            return clone_dir, True
+
+        monkeypatch.setattr(runner_mod, "clone_at_commit", fake_clone)
+        task = BenchmarkTask(
+            task_id="slice",
+            repo="owner/repo",
+            commit="abc",
+            question="How?",
+            expected_files=["pkg/sub/kept.py"],
+            include_paths=["pkg/sub"],
+        )
+        cleanup_paths: list[Path] = []
+
+        sliced = runner_mod._repo_path_for_task(  # pyright: ignore[reportPrivateUsage]
+            task,
+            {},
+            cleanup_paths,
+        )
+
+        try:
+            assert (sliced / "pkg" / "sub" / "kept.py").exists()
+            assert not (sliced / "pkg" / "discarded.py").exists()
+            assert not (sliced / "other.py").exists()
+            assert (sliced / ".git").is_dir()
+            assert cleanup_paths == [clone_dir, sliced]
+        finally:
+            shutil.rmtree(sliced, ignore_errors=True)
 
     def test_run_all_cleans_reused_external_clone(
         self,

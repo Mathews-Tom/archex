@@ -3,6 +3,10 @@ repo: celery/celery
 commit: "v5.4.0"
 category: external-large
 languages: [python]
+include_paths:
+  - celery/app/task.py
+  - celery/app/amqp.py
+  - celery/worker/strategy.py
 question: "How does Celery dispatch and execute distributed tasks?"
 expected_files:
   - celery/app/task.py

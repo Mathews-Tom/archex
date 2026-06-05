@@ -3,6 +3,10 @@ repo: django/django
 commit: "5.1.4"
 category: architecture-broad
 languages: [python]
+include_paths:
+  - django/core/handlers/base.py
+  - django/core/handlers/wsgi.py
+  - django/middleware/common.py
 question: "How does Django implement the middleware chain for request/response processing?"
 expected_files:
   - django/core/handlers/base.py

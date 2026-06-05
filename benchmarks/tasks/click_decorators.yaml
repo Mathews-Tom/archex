@@ -2,6 +2,11 @@ task_id: click_decorators
 repo: pallets/click
 commit: "8.1.8"
 category: external-framework
+languages: [python]
+include_paths:
+  - src/click/decorators.py
+  - src/click/core.py
+  - src/click/types.py
 question: "How does click implement command decorators and parameter decoration?"
 expected_files:
   - src/click/decorators.py

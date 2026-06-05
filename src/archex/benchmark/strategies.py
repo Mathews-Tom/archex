@@ -531,6 +531,12 @@ def _retrieval_cache_suffix(options: BenchmarkRetrievalOptions) -> str:
     return "+".join(enabled)
 
 
+def _corpus_cache_suffix(task: BenchmarkTask) -> str:
+    if not task.include_paths:
+        return ""
+    return "scope=" + "|".join(sorted(task.include_paths))
+
+
 def benchmark_index_config(index_config: IndexConfig) -> IndexConfig:
     options = current_benchmark_retrieval_options()
     updates: dict[str, bool | str] = {}
@@ -557,9 +563,16 @@ def benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
             f"Benchmark task {task.task_id!r} has no commit and {repo_path} has no git HEAD"
         )
     stable_identity = f"{task.repo}@{commit}"
-    suffix = _retrieval_cache_suffix(current_benchmark_retrieval_options())
-    if suffix:
-        stable_identity = f"{stable_identity}#{suffix}"
+    suffixes = [
+        suffix
+        for suffix in (
+            _corpus_cache_suffix(task),
+            _retrieval_cache_suffix(current_benchmark_retrieval_options()),
+        )
+        if suffix
+    ]
+    if suffixes:
+        stable_identity = f"{stable_identity}#{'+'.join(suffixes)}"
     return RepoSource(
         local_path=str(repo_path),
         stable_identity=stable_identity,

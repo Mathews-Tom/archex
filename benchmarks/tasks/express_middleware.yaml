@@ -2,6 +2,11 @@ task_id: express_middleware
 repo: expressjs/express
 commit: "4.21.2"
 category: framework-semantic
+languages: [javascript]
+include_paths:
+  - lib/router/index.js
+  - lib/router/route.js
+  - lib/router/layer.js
 question: "How does express implement the middleware chain and next() function?"
 expected_files:
   - lib/router/index.js

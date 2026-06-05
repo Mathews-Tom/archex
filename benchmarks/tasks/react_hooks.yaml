@@ -3,6 +3,9 @@ repo: facebook/react
 commit: "v19.0.0"
 category: external-large
 languages: [javascript]
+include_paths:
+  - packages/react-reconciler/src/ReactFiberHooks.js
+  - packages/react/src/ReactHooks.js
 question: "How does React implement the hooks state management system?"
 expected_files:
   - packages/react-reconciler/src/ReactFiberHooks.js
