@@ -34,7 +34,7 @@ class ArchexRetriever(_LIBase):  # type: ignore[misc]
         self,
         repo_source: RepoSource,
         config: Config | None = None,
-        token_budget: int = 8192,
+        token_budget: int | None = None,
         **kwargs: Any,
     ) -> None:
         if not _llamaindex_available:
@@ -42,7 +42,8 @@ class ArchexRetriever(_LIBase):  # type: ignore[misc]
         super().__init__(**kwargs)
         self._repo_source = repo_source
         self._config = config
-        self._token_budget = token_budget
+        self._token_budget = DEFAULT_TOKEN_BUDGET if token_budget is None else token_budget
+        self._explicit_token_budget = token_budget is not None
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:  # type: ignore[override]
         from llama_index.core.schema import NodeWithScore as _NodeWithScore
@@ -55,7 +56,7 @@ class ArchexRetriever(_LIBase):  # type: ignore[misc]
             query_bundle.query_str,
             token_budget=self._token_budget,
             config=self._config,
-            explicit_token_budget=self._token_budget != DEFAULT_TOKEN_BUDGET,
+            explicit_token_budget=self._explicit_token_budget,
         )
         return [
             _NodeWithScore(

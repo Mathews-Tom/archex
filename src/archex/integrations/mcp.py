@@ -325,9 +325,9 @@ def build_server() -> Any:
                         },
                         "budget": {
                             "type": "integer",
-                            "default": DEFAULT_TOKEN_BUDGET,
                             "description": (
-                                "Explicit token budget override for the returned context."
+                                "Optional explicit token budget override. Omit to use "
+                                "adaptive intent routing with the 8192 product ceiling."
                             ),
                         },
                     },
