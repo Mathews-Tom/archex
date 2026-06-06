@@ -561,6 +561,7 @@ def assemble_context(
     expansion_min_override: float | None = None,
     avg_idf: float | None = None,
     reranker: object | None = None,
+    apply_intent_budget: bool = True,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
 
@@ -575,9 +576,16 @@ def assemble_context(
     assembly_start = time.perf_counter()
     # Intent-based weight routing: when no explicit weights are provided,
     # classify the query intent and select optimized weight presets.
-    from archex.serve.intent import INTENT_WEIGHTS, QueryIntent, classify_intent
+    from archex.serve.intent import (
+        INTENT_TOKEN_BUDGETS,
+        INTENT_WEIGHTS,
+        QueryIntent,
+        classify_intent,
+    )
 
     intent = classify_intent(question)
+    if apply_intent_budget:
+        token_budget = min(token_budget, INTENT_TOKEN_BUDGETS[intent])
     weights = INTENT_WEIGHTS[intent] if scoring_weights is None else scoring_weights
 
     strategy = "hybrid+graph" if vector_results else "bm25+graph"

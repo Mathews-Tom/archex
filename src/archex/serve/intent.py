@@ -19,6 +19,19 @@ class QueryIntent(StrEnum):
     GENERAL = "general"
 
 
+DEFAULT_TOKEN_BUDGET = 8192
+
+# Token-budget presets per intent. Simple symbol lookups should not emit a full
+# explanation bundle; architecture queries keep the product default capacity.
+INTENT_TOKEN_BUDGETS: dict[QueryIntent, int] = {
+    QueryIntent.DEFINITION_LOOKUP: 2048,
+    QueryIntent.ARCHITECTURE_BROAD: DEFAULT_TOKEN_BUDGET,
+    QueryIntent.USAGE_SEARCH: 4096,
+    QueryIntent.DEBUGGING: 6144,
+    QueryIntent.CLI: 3072,
+    QueryIntent.GENERAL: 6144,
+}
+
 # Scoring weight presets per intent — each sums to 1.0.
 INTENT_WEIGHTS: dict[QueryIntent, ScoringWeights] = {
     # Symbol lookup: maximize relevance, minimize structural noise
@@ -174,3 +187,9 @@ def weights_for_query(question: str) -> ScoringWeights:
     """
     intent = classify_intent(question)
     return INTENT_WEIGHTS[intent]
+
+
+def token_budget_for_query(question: str) -> int:
+    """Return the default token-budget cap for the query's detected intent."""
+    intent = classify_intent(question)
+    return INTENT_TOKEN_BUDGETS[intent]
