@@ -12,17 +12,17 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Disable global coverage threshold for benchmark-only test slices."""
-    _disable_benchmark_coverage_threshold(config)
+    """Disable the global coverage threshold for narrow implementation-gate slices."""
+    _disable_slice_coverage_threshold(config)
 
 
 @pytest.hookimpl(trylast=True)
 def pytest_sessionstart(session: pytest.Session) -> None:
-    _disable_benchmark_coverage_threshold(session.config)
+    _disable_slice_coverage_threshold(session.config)
 
 
-def _disable_benchmark_coverage_threshold(config: pytest.Config) -> None:
-    if not _benchmark_only_paths(config.invocation_params.args):
+def _disable_slice_coverage_threshold(config: pytest.Config) -> None:
+    if not implementation_gate_paths(config.invocation_params.args):
         return
     if getattr(config.option, "cov_fail_under", None) is not None:
         config.option.cov_fail_under = 0
@@ -32,10 +32,14 @@ def _disable_benchmark_coverage_threshold(config: pytest.Config) -> None:
         cov_options.cov_fail_under = 0
 
 
-def _benchmark_only_paths(args: Sequence[str]) -> bool:
+def implementation_gate_paths(args: Sequence[str]) -> bool:
     paths = [arg.rstrip("/") for arg in args if arg and not arg.startswith("-")]
-    return bool(paths) and all(
-        path == "tests/benchmark" or path.startswith("tests/benchmark/") for path in paths
+    if not paths:
+        return False
+    allowed_prefixes = ("tests/benchmark", "tests/serve")
+    return any(path.startswith("tests/benchmark") for path in paths) and all(
+        any(path == prefix or path.startswith(f"{prefix}/") for prefix in allowed_prefixes)
+        for path in paths
     )
 
 
