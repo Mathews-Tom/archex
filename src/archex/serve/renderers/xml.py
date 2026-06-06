@@ -67,6 +67,53 @@ def render_xml(bundle: ContextBundle) -> str:
     return "\n".join(lines)
 
 
+def render_xml_envelope(bundle: ContextBundle) -> str:
+    """Render only the XML wrapper structure for token-overhead accounting."""
+    lines: list[str] = []
+    lines.append('<context query="">')
+
+    sc = bundle.structural_context
+    lines.append("  <structural-context>")
+    if sc.file_tree:
+        lines.append("    <file-tree><![CDATA[\n\n    ]]></file-tree>")
+    lines.append("  </structural-context>")
+
+    lines.append("  <chunks>")
+    for rc in bundle.chunks:
+        chunk = rc.chunk
+        attrs = ' file="" lines=""'
+        if chunk.symbol_name:
+            attrs += ' symbol=""'
+        attrs += ' score=""'
+        attrs += ' tokens=""'
+        lines.append(f"    <chunk{attrs}>")
+        if chunk.imports_context:
+            lines.append("      <imports><![CDATA[]]></imports>")
+        lines.append("      <code><![CDATA[\n\n      ]]></code>")
+        lines.append("    </chunk>")
+    lines.append("  </chunks>")
+
+    if bundle.type_definitions:
+        lines.append("  <type-definitions>")
+        for _ in bundle.type_definitions:
+            lines.append('    <type-def file="" symbol="" lines="">')
+            lines.append("      <![CDATA[]]>")
+            lines.append("    </type-def>")
+        lines.append("  </type-definitions>")
+
+    dep = bundle.dependency_summary
+    if dep.internal or dep.external:
+        lines.append("  <dependencies>")
+        for _ in dep.internal:
+            lines.append("    <internal></internal>")
+        for _ in dep.external:
+            lines.append("    <external></external>")
+        lines.append("  </dependencies>")
+
+    lines.append("</context>")
+    return "\n".join(lines)
+
+
 def _attr(value: str) -> str:
     """Return a double-quoted XML attribute value with escaping."""
     return f'"{escape(value, {chr(34): "&quot;"})}"'

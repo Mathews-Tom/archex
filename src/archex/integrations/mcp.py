@@ -25,6 +25,7 @@ from archex.models import PipelineTiming
 from archex.reporting import compute_meta, count_tokens
 from archex.serve.compare import validate_dimensions
 from archex.serve.intent import DEFAULT_TOKEN_BUDGET
+from archex.serve.renderers.xml import render_xml, render_xml_envelope
 from archex.utils import resolve_source
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         explicit_token_budget=budget is not None,
     )
 
-    content = bundle.to_prompt(format="xml")
+    content = render_xml(bundle)
     metadata = bundle.retrieval_metadata
     raw_file_paths = sorted(
         {
@@ -104,7 +105,7 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         }
     )
     raw_tokens = get_files_token_count(source, raw_file_paths)
-    envelope_overhead = max(count_tokens(content) - bundle.token_count, 0)
+    envelope_overhead = count_tokens(render_xml_envelope(bundle))
     meta = compute_meta(
         tool_name="query_repo",
         response_text=content,
