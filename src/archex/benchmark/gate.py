@@ -9,6 +9,10 @@ from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runt
     DeltaBenchmarkResult,
 )
 
+# Tier 2.5 product-default `archex_query` minimum token efficiency was 0.094;
+# the gate rounds down to keep that accepted floor while failing bundle bloat.
+PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR = 0.09
+
 
 class QualityThresholds(BaseModel):
     min_recall: float = 0.60
@@ -17,7 +21,7 @@ class QualityThresholds(BaseModel):
     min_mrr: float = 0.55
     min_ndcg: float = 0.0
     min_map: float = 0.0
-    min_token_efficiency: float = 0.0
+    min_token_efficiency: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR
     # Latency: warn-only, does not fail the gate
     warn_latency_ms: float = 5000.0
     # Strategies exempt from gate checks (results are informational only)
