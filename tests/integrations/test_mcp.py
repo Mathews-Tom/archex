@@ -355,6 +355,11 @@ class TestBuildServer:
         assert "query_repo" in tool_names
         assert "compare_repos" in tool_names
 
+        query_repo = next(tool for tool in result.tools if tool.name == "query_repo")
+        budget_schema = query_repo.inputSchema["properties"]["budget"]
+        assert "default" not in budget_schema
+        assert "Omit to use adaptive intent routing" in budget_schema["description"]
+
     @pytest.mark.asyncio
     async def test_call_tool_analyze_repo(self) -> None:
         with patch("archex.integrations.mcp.handle_analyze_repo", return_value='{"repo": {}}'):
