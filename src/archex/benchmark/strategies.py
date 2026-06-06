@@ -506,8 +506,24 @@ def reset_benchmark_retrieval_options(token: Token[BenchmarkRetrievalOptions | N
     _BENCHMARK_RETRIEVAL_OPTIONS.reset(token)
 
 
+def _embedder_cache_identity(embedder: str) -> str:
+    if embedder != "jina-v2":
+        return embedder
+    from archex.index.embeddings import (
+        JINA_BERT_CODE_REVISION,
+        JINA_V2_MAX_SEQ_LENGTH,
+        JINA_V2_MODEL_REVISION,
+    )
+
+    return (
+        f"{embedder}@{JINA_V2_MODEL_REVISION}"
+        f"+code={JINA_BERT_CODE_REVISION}"
+        f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
+    )
+
+
 def _retrieval_cache_suffix(options: BenchmarkRetrievalOptions) -> str:
-    enabled: list[str] = []
+    enabled: list[str] = [f"embedder={_embedder_cache_identity(options.embedder)}"]
     if options.splade:
         enabled.append("splade")
     if options.module_prefilter:
@@ -515,9 +531,17 @@ def _retrieval_cache_suffix(options: BenchmarkRetrievalOptions) -> str:
     return "+".join(enabled)
 
 
+def _corpus_cache_suffix(task: BenchmarkTask) -> str:
+    if not task.include_paths:
+        return ""
+    return "scope=" + "|".join(sorted(task.include_paths))
+
+
 def benchmark_index_config(index_config: IndexConfig) -> IndexConfig:
     options = current_benchmark_retrieval_options()
-    updates: dict[str, bool] = {}
+    updates: dict[str, bool | str] = {}
+    if index_config.vector:
+        updates["embedder"] = options.embedder
     if options.splade:
         updates["splade"] = True
     if options.module_prefilter and index_config.bm25:
@@ -539,9 +563,16 @@ def benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
             f"Benchmark task {task.task_id!r} has no commit and {repo_path} has no git HEAD"
         )
     stable_identity = f"{task.repo}@{commit}"
-    suffix = _retrieval_cache_suffix(current_benchmark_retrieval_options())
-    if suffix:
-        stable_identity = f"{stable_identity}#{suffix}"
+    suffixes = [
+        suffix
+        for suffix in (
+            _corpus_cache_suffix(task),
+            _retrieval_cache_suffix(current_benchmark_retrieval_options()),
+        )
+        if suffix
+    ]
+    if suffixes:
+        stable_identity = f"{stable_identity}#{'+'.join(suffixes)}"
     return RepoSource(
         local_path=str(repo_path),
         stable_identity=stable_identity,
@@ -625,9 +656,7 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     timing = PipelineTiming()
     source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(
-        IndexConfig(bm25=False, vector=True, embedder="fastembed")
-    )
+    index_config = benchmark_index_config(IndexConfig(bm25=False, vector=True))
 
     bundle = query(
         source,
@@ -703,7 +732,7 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
         IndexConfig(
             bm25=False,
             vector=True,
-            embedder="fastembed",
+            embedder=current_benchmark_retrieval_options().embedder,
             vector_mode=VectorMode.SURROGATE,
             retrieval_policy=RetrievalPolicy.VECTOR_ONLY,
         )
@@ -773,7 +802,7 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
     timing = PipelineTiming()
     source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(IndexConfig(vector=True, embedder="fastembed"))
+    index_config = benchmark_index_config(IndexConfig(vector=True))
 
     bundle = query(
         source,
@@ -845,9 +874,7 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
     timing = PipelineTiming()
     source = benchmark_repo_source(task, repo_path)
     config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(
-        IndexConfig(vector=True, embedder="fastembed", rerank=True)
-    )
+    index_config = benchmark_index_config(IndexConfig(vector=True, rerank=True))
 
     bundle = query(
         source,
@@ -915,7 +942,7 @@ def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
     index_config = benchmark_index_config(
         IndexConfig(
             vector=True,
-            embedder="fastembed",
+            embedder=current_benchmark_retrieval_options().embedder,
             vector_mode=VectorMode.SURROGATE,
             retrieval_policy=RetrievalPolicy.CROSS_LAYER,
         )

@@ -3,6 +3,11 @@ repo: tiangolo/fastapi
 commit: "0.115.6"
 category: external-framework
 languages: [python]
+include_paths:
+  - fastapi/routing.py
+  - fastapi/applications.py
+  - fastapi/params.py
+  - fastapi/dependencies
 question: "How does FastAPI handle route registration and path parameter parsing?"
 expected_files:
   - fastapi/routing.py

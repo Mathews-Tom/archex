@@ -106,6 +106,12 @@ def benchmark_cmd() -> None:
     help="Enable the opt-in module responsibility prefilter for BM25-backed archex strategies.",
 )
 @click.option(
+    "--embedder",
+    default="jina-v2",
+    show_default=True,
+    help="Embedder to pin across every vector-backed benchmark strategy.",
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -127,6 +133,7 @@ def run_cmd(
     rerank: bool,
     splade: bool,
     module_prefilter: bool,
+    embedder: str,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -149,6 +156,7 @@ def run_cmd(
     retrieval_options = BenchmarkRetrievalOptions(
         splade=splade,
         module_prefilter=module_prefilter,
+        embedder=embedder,
     )
     warmed_models = warm_benchmark_models(strategies, retrieval_options)
     if warmed_models:

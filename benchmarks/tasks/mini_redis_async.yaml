@@ -2,6 +2,9 @@ task_id: mini_redis_async
 repo: tokio-rs/mini-redis
 commit: "e186482ca00f8d884ddcbe20417f3654d03315a4"
 category: external-framework
+languages: [rust]
+include_paths:
+  - src
 question: "How does mini-redis handle async command processing and connection management?"
 expected_files:
   - src/server.rs

@@ -3,6 +3,13 @@ repo: django/django
 commit: "5.1.4"
 category: external-large
 languages: [python]
+include_paths:
+  - django/db/models/sql
+  - django/db/models/query.py
+  - django/db/models/manager.py
+  - django/db/models/expressions.py
+  - django/db/models/fields
+  - django/db/backends/base
 question: "How does Django's ORM build and execute SQL queries?"
 expected_files:
   - django/db/models/sql/query.py

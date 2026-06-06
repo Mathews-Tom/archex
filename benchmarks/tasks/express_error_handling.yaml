@@ -3,6 +3,8 @@ repo: expressjs/express
 commit: "4.21.2"
 category: architecture-broad
 languages: [javascript]
+include_paths:
+  - lib
 question: "How does express handle errors in the middleware chain?"
 expected_files:
   - lib/router/layer.js

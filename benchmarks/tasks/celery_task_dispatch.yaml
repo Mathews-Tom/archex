@@ -3,6 +3,9 @@ repo: celery/celery
 commit: "v5.4.0"
 category: external-large
 languages: [python]
+include_paths:
+  - celery/app
+  - celery/worker
 question: "How does Celery dispatch and execute distributed tasks?"
 expected_files:
   - celery/app/task.py

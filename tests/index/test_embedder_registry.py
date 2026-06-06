@@ -7,7 +7,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from archex.exceptions import ConfigError
-from archex.index.embeddings import EmbedderRegistry, default_embedder_registry
+from archex.index.embeddings import (
+    JINA_BERT_CODE_REVISION,
+    JINA_V2_MAX_SEQ_LENGTH,
+    JINA_V2_MODEL_ID,
+    JINA_V2_MODEL_REVISION,
+    EmbedderRegistry,
+    default_embedder_registry,
+)
 from archex.index.embeddings.base import Embedder
 from archex.models import IndexConfig
 
@@ -38,9 +45,26 @@ class TestEmbedderRegistry:
         config = IndexConfig(vector=False, embedder="")
         assert reg.create(config) is None
 
-    def test_default_registry_has_nomic_and_sentence_tf(self) -> None:
+    def test_default_registry_has_builtin_embedders(self) -> None:
         assert default_embedder_registry.get("nomic") is not None
         assert default_embedder_registry.get("sentence_transformers") is not None
+        assert default_embedder_registry.get("jina-v2") is not None
+        assert default_embedder_registry.get("coderank") is not None
+
+    def test_jina_v2_factory_pins_model_and_code_revisions(self) -> None:
+        from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+
+        embedder = default_embedder_registry.create(IndexConfig(vector=True, embedder="jina-v2"))
+        assert isinstance(embedder, SentenceTransformerEmbedder)
+        assert embedder._model_name == JINA_V2_MODEL_ID  # pyright: ignore[reportPrivateUsage]
+        assert embedder._revision == JINA_V2_MODEL_REVISION  # pyright: ignore[reportPrivateUsage]
+        assert embedder._model_kwargs == {  # pyright: ignore[reportPrivateUsage]
+            "code_revision": JINA_BERT_CODE_REVISION
+        }
+        assert embedder._config_kwargs == {  # pyright: ignore[reportPrivateUsage]
+            "code_revision": JINA_BERT_CODE_REVISION
+        }
+        assert embedder._max_seq_length == JINA_V2_MAX_SEQ_LENGTH  # pyright: ignore[reportPrivateUsage]
 
     def test_load_entry_points(self) -> None:
         reg = EmbedderRegistry()

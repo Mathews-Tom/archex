@@ -3,6 +3,9 @@ repo: "pydantic/pydantic"
 commit: "v2.10.5"
 category: external-framework
 languages: [python]
+include_paths:
+  - pydantic/_internal
+  - pydantic/functional_validators.py
 question: "How does Pydantic chain and apply field validators?"
 expected_files:
   - pydantic/_internal/_validate_call.py

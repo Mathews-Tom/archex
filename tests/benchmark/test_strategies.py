@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from archex.benchmark.models import BenchmarkTask, Strategy
+from archex.benchmark.models import BenchmarkRetrievalOptions, BenchmarkTask, Strategy
 from archex.benchmark.strategies import (
     _archex_fields,  # pyright: ignore[reportPrivateUsage]
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
@@ -20,6 +20,7 @@ from archex.benchmark.strategies import (
     compute_symbol_recall,
     count_file_tokens,
     extract_keywords,
+    reset_benchmark_retrieval_options,
     run_archex_query,
     run_archex_query_fusion,
     run_archex_query_fusion_rerank,
@@ -29,11 +30,22 @@ from archex.benchmark.strategies import (
     run_raw_files,
     run_raw_grepped,
     run_surrogate_vector,
+    set_benchmark_retrieval_options,
 )
 from archex.cache import CacheManager
 from archex.exceptions import ConfigError
-from archex.models import CodeChunk, ContextBundle, RankedChunk, RetrievalMetadata
+from archex.index.embeddings import (
+    JINA_BERT_CODE_REVISION,
+    JINA_V2_MAX_SEQ_LENGTH,
+    JINA_V2_MODEL_REVISION,
+)
+from archex.models import CodeChunk, ContextBundle, IndexConfig, RankedChunk, RetrievalMetadata
 
+JINA_V2_CACHE_IDENTITY = (
+    f"jina-v2@{JINA_V2_MODEL_REVISION}"
+    f"+code={JINA_BERT_CODE_REVISION}"
+    f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
+)
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -335,8 +347,8 @@ class TestRunArchexQuery:
         source_a = benchmark_repo_source(sample_task, repo_a)
         source_b = benchmark_repo_source(sample_task, repo_b)
 
-        assert source_a.stable_identity == "test/repo@abc"
-        assert source_b.stable_identity == "test/repo@abc"
+        assert source_a.stable_identity == f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}"
+        assert source_b.stable_identity == f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}"
         assert cache.cache_key(source_a) == cache.cache_key(source_b)
 
     def test_benchmark_source_resolves_missing_commit_from_git_head(
@@ -354,7 +366,7 @@ class TestRunArchexQuery:
         with patch.object(CacheManager, "git_head", return_value="resolved"):
             source = benchmark_repo_source(task, tmp_path)
 
-        assert source.stable_identity == "test/repo@resolved"
+        assert source.stable_identity == (f"test/repo@resolved#embedder={JINA_V2_CACHE_IDENTITY}")
 
     def test_benchmark_source_rejects_missing_commit_without_git_head(
         self,
@@ -487,6 +499,47 @@ class _StubEmbedder:
 
 def _stub_get_embedder(_index_config: object) -> _StubEmbedder:
     return _StubEmbedder()
+
+
+def test_vector_strategies_read_configured_embedder(
+    sample_task: BenchmarkTask,
+    python_simple_repo: Path,
+) -> None:
+    captured: list[str | None] = []
+
+    def fake_query(
+        _source: object,
+        question: str,
+        *,
+        token_budget: int,
+        config: object,
+        index_config: IndexConfig,
+        timing: object | None = None,
+    ) -> ContextBundle:
+        del config, timing
+        captured.append(index_config.embedder)
+        return ContextBundle(
+            query=question,
+            chunks=[],
+            token_count=0,
+            token_budget=token_budget,
+        )
+
+    token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(embedder="coderank"))
+    try:
+        with patch("archex.api.query", fake_query):
+            for runner in (
+                run_archex_query_vector,
+                run_surrogate_vector,
+                run_archex_query_fusion,
+                run_cross_layer_fusion,
+                run_archex_query_fusion_rerank,
+            ):
+                runner(sample_task, python_simple_repo)
+    finally:
+        reset_benchmark_retrieval_options(token)
+
+    assert captured == ["coderank"] * 5
 
 
 class TestRunArchexQueryVector:

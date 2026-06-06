@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from archex.exceptions import ArchexIndexError
@@ -17,6 +19,12 @@ class SentenceTransformerEmbedder:
         self,
         model_name: str = "all-MiniLM-L6-v2",
         batch_size: int = 32,
+        trust_remote_code: bool = False,
+        revision: str | None = None,
+        local_files_only: bool = False,
+        model_kwargs: Mapping[str, object] = MappingProxyType({}),
+        config_kwargs: Mapping[str, object] = MappingProxyType({}),
+        max_seq_length: int | None = None,
     ) -> None:
         try:
             import sentence_transformers as _st  # pyright: ignore[reportUnusedImport]  # noqa: F401
@@ -28,6 +36,12 @@ class SentenceTransformerEmbedder:
 
         self._model_name = model_name
         self._batch_size = batch_size
+        self._trust_remote_code = trust_remote_code
+        self._revision = revision
+        self._local_files_only = local_files_only
+        self._model_kwargs = dict(model_kwargs)
+        self._config_kwargs = dict(config_kwargs)
+        self._max_seq_length = max_seq_length
         self._model: Any = None
         self._dimension: int | None = None
 
@@ -44,7 +58,17 @@ class SentenceTransformerEmbedder:
             _best_device,  # pyright: ignore[reportPrivateUsage]
         )
 
-        self._model = SentenceTransformer(self._model_name, device=_best_device())
+        self._model = SentenceTransformer(
+            self._model_name,
+            device=_best_device(),
+            trust_remote_code=self._trust_remote_code,
+            revision=self._revision,
+            local_files_only=self._local_files_only,
+            model_kwargs=self._model_kwargs,
+            config_kwargs=self._config_kwargs,
+        )
+        if self._max_seq_length is not None:
+            self._model.max_seq_length = self._max_seq_length
         self._dimension = self._model.get_sentence_embedding_dimension()
 
     def encode(self, texts: list[str]) -> list[list[float]]:

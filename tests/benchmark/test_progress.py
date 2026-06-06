@@ -33,9 +33,15 @@ def test_progress_renders_overall_and_active_task_text() -> None:
     with BenchmarkProgress(tasks, console=console, refresh_per_second=30) as progress:
         progress.start_task(tasks[0])
         progress.start_warmup()
+        active = progress.active_task
+        assert active is not None
+        assert active.fields["activity"] == WARMING_ACTIVITY
         progress.refresh()
         progress.finish_warmup([Strategy.RAW_FILES, Strategy.ARCHEX_QUERY])
         progress.start_strategy(Strategy.RAW_FILES)
+        active = progress.active_task
+        assert active is not None
+        assert active.fields["activity"] == "raw_files"
         progress.refresh()
         progress.finish_strategy()
         progress.start_strategy(Strategy.ARCHEX_QUERY)
@@ -44,9 +50,7 @@ def test_progress_renders_overall_and_active_task_text() -> None:
     output = _strip_ansi(buffer.getvalue())
     assert "task_one (owner/repo)" in output
     assert "0/2" in output
-    assert "raw_files" in output
     assert "archex_query" in output
-    assert WARMING_ACTIVITY in output
 
 
 def test_warmup_is_indeterminate_then_flips_to_strategy_total() -> None:

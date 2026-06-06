@@ -25,10 +25,18 @@ def warm_benchmark_models(
     warmed: list[str] = []
 
     if any(strategy in _VECTOR_MODEL_STRATEGIES for strategy in strategies):
-        from archex.index.embeddings.fast import FastEmbedder
+        from archex.index.embeddings import default_embedder_registry
+        from archex.models import IndexConfig
 
-        _ = FastEmbedder().dimension
-        warmed.append("fastembed")
+        default_embedder_registry.load_entry_points()
+        embedder = default_embedder_registry.create(
+            IndexConfig(vector=True, embedder=retrieval_options.embedder)
+        )
+        if embedder is None:
+            msg = "Benchmark vector strategy requires a configured embedder"
+            raise ValueError(msg)
+        _ = embedder.dimension
+        warmed.append(retrieval_options.embedder)
 
     if retrieval_options.splade:
         from archex.index.splade import DEFAULT_MODEL_NAME, SPLADEEncoder

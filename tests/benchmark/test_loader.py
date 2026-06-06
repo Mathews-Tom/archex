@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
@@ -14,9 +14,6 @@ from archex.benchmark.loader import (
     validate_task,
 )
 from archex.benchmark.models import BenchmarkTask, DeltaBenchmarkTask
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 @pytest.fixture
@@ -61,6 +58,22 @@ class TestLoadTask:
         assert task.commit == "abc123"
         assert len(task.expected_files) == 2
         assert task.keywords == ["main", "utils"]
+        assert task.include_paths == []
+
+    def test_load_include_paths(self, tmp_path: Path) -> None:
+        p = tmp_path / "scoped.yaml"
+        p.write_text("""\
+task_id: scoped
+repo: owner/repo
+commit: abc
+question: "How?"
+include_paths:
+  - src/pkg
+expected_files:
+  - src/pkg/main.py
+""")
+        task = load_task(p)
+        assert task.include_paths == ["src/pkg"]
 
     def test_load_missing_file(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
@@ -84,6 +97,30 @@ class TestLoadTasks:
         tasks = load_tasks(tasks_dir)
         assert len(tasks) == 3
         assert all(isinstance(t, BenchmarkTask) for t in tasks)
+
+    def test_benchmark_scopes_cover_expected_files(self) -> None:
+        tasks_dir = Path(__file__).resolve().parents[2] / "benchmarks" / "tasks"
+        tasks = load_tasks(tasks_dir)
+        for task in tasks:
+            if not task.include_paths:
+                continue
+            for expected_file in task.expected_files:
+                assert any(
+                    expected_file == include_path
+                    or expected_file.startswith(f"{include_path.rstrip('/')}/")
+                    for include_path in task.include_paths
+                ), f"{task.task_id}: {expected_file} is outside include_paths"
+
+    def test_external_benchmark_scopes_include_distractors(self) -> None:
+        tasks_dir = Path(__file__).resolve().parents[2] / "benchmarks" / "tasks"
+        tasks = load_tasks(tasks_dir)
+        external_tasks = [task for task in tasks if task.repo != "."]
+        assert external_tasks
+        for task in external_tasks:
+            assert task.include_paths, f"{task.task_id}: external task must declare include_paths"
+            assert set(task.include_paths) != set(task.expected_files), (
+                f"{task.task_id}: include_paths must be broader than exact expected files"
+            )
 
     def test_load_empty_directory(self, tmp_path: Path) -> None:
         tasks = load_tasks(tmp_path)

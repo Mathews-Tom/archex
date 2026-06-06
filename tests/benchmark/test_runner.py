@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -111,14 +113,14 @@ class TestRunBenchmark:
         from archex.benchmark.strategies import default_strategy_registry
         from archex.exceptions import ArchexIndexError
 
-        warmed: list[Path] = []
+        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None]] = []
 
         def _record(
             _task: BenchmarkTask,
             path: Path,
-            _options: BenchmarkRetrievalOptions | None = None,
+            options: BenchmarkRetrievalOptions | None = None,
         ) -> None:
-            warmed.append(path)
+            warmed.append((path, options))
 
         def _raise(_task: BenchmarkTask, _path: Path) -> None:
             raise ArchexIndexError("no vector backend in test")
@@ -133,8 +135,45 @@ class TestRunBenchmark:
             task,
             strategies=[Strategy.RAW_FILES, Strategy.ARCHEX_QUERY_FUSION],
             repo_path=repo_path,
+            retrieval_options=BenchmarkRetrievalOptions(embedder="coderank"),
         )
-        assert warmed == [repo_path]
+        assert warmed == [(repo_path, BenchmarkRetrievalOptions(embedder="coderank"))]
+
+    def test_warm_repo_index_uses_configured_embedder(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+    ) -> None:
+        from archex.benchmark import runner as runner_mod
+        from archex.models import ContextBundle, IndexConfig
+
+        task, repo_path = fixture_task
+        captured: list[str | None] = []
+
+        def fake_query(
+            _source: object,
+            question: str,
+            *,
+            token_budget: int,
+            config: object,
+            index_config: IndexConfig,
+        ) -> ContextBundle:
+            del config
+            captured.append(index_config.embedder)
+            return ContextBundle(
+                query=question,
+                chunks=[],
+                token_count=0,
+                token_budget=token_budget,
+            )
+
+        with patch("archex.api.query", fake_query):
+            runner_mod._warm_repo_index(  # pyright: ignore[reportPrivateUsage]
+                task,
+                repo_path,
+                BenchmarkRetrievalOptions(embedder="coderank"),
+            )
+
+        assert captured == ["coderank"]
 
     def test_skips_warmup_for_raw_only_strategies(
         self,
@@ -276,10 +315,20 @@ class TestRunBenchmark:
             reset_benchmark_retrieval_options,
             set_benchmark_retrieval_options,
         )
+        from archex.index.embeddings import (
+            JINA_BERT_CODE_REVISION,
+            JINA_V2_MAX_SEQ_LENGTH,
+            JINA_V2_MODEL_REVISION,
+        )
 
         task, repo_path = fixture_task
+        jina_identity = (
+            f"jina-v2@{JINA_V2_MODEL_REVISION}"
+            f"+code={JINA_BERT_CODE_REVISION}"
+            f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
+        )
         source = benchmark_repo_source(task, repo_path)
-        assert source.stable_identity == "test/python_simple@HEAD"
+        assert source.stable_identity == f"test/python_simple@HEAD#embedder={jina_identity}"
 
         token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(splade=True))
         try:
@@ -287,7 +336,30 @@ class TestRunBenchmark:
         finally:
             reset_benchmark_retrieval_options(token)
 
-        assert splade_source.stable_identity == "test/python_simple@HEAD#splade"
+        assert splade_source.stable_identity == (
+            f"test/python_simple@HEAD#embedder={jina_identity}+splade"
+        )
+
+        coderank_token = set_benchmark_retrieval_options(
+            BenchmarkRetrievalOptions(embedder="coderank")
+        )
+        try:
+            coderank_source = benchmark_repo_source(task, repo_path)
+        finally:
+            reset_benchmark_retrieval_options(coderank_token)
+
+        scoped_token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions())
+        scoped_task = task.model_copy(update={"include_paths": ["src", "tests"]})
+        try:
+            scoped_source = benchmark_repo_source(scoped_task, repo_path)
+        finally:
+            reset_benchmark_retrieval_options(scoped_token)
+
+        assert scoped_source.stable_identity == (
+            f"test/python_simple@HEAD#scope=src|tests+embedder={jina_identity}"
+        )
+
+        assert coderank_source.stable_identity == "test/python_simple@HEAD#embedder=coderank"
 
     def test_benchmark_index_config_applies_module_prefilter_only_with_bm25(self) -> None:
         from archex.benchmark.strategies import (
@@ -314,6 +386,8 @@ class TestRunBenchmark:
         assert bm25_config.module_prefilter is True
         assert vector_config.splade is True
         assert vector_config.module_prefilter is False
+        assert bm25_config.embedder == "jina-v2"
+        assert vector_config.embedder == "jina-v2"
         assert cache_enabled is True
 
 
@@ -552,6 +626,48 @@ expected_files:
 
         assert {report.task_id for report in reports} == {"test_all", "other_task"}
         assert clone_calls == [("test/repo", "HEAD")]
+
+    def test_repo_path_for_task_slices_include_paths(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import archex.benchmark.runner as runner_mod
+
+        clone_dir = tmp_path / "clone"
+        (clone_dir / "pkg" / "sub").mkdir(parents=True)
+        (clone_dir / "pkg" / "sub" / "kept.py").write_text("kept = True\n")
+        (clone_dir / "pkg" / "discarded.py").write_text("discarded = True\n")
+        (clone_dir / "other.py").write_text("other = True\n")
+
+        def fake_clone(_repo: str, _commit: str) -> tuple[Path, bool]:
+            return clone_dir, True
+
+        monkeypatch.setattr(runner_mod, "clone_at_commit", fake_clone)
+        task = BenchmarkTask(
+            task_id="slice",
+            repo="owner/repo",
+            commit="abc",
+            question="How?",
+            expected_files=["pkg/sub/kept.py"],
+            include_paths=["pkg/sub"],
+        )
+        cleanup_paths: list[Path] = []
+
+        sliced = runner_mod._repo_path_for_task(  # pyright: ignore[reportPrivateUsage]
+            task,
+            {},
+            cleanup_paths,
+        )
+
+        try:
+            assert (sliced / "pkg" / "sub" / "kept.py").exists()
+            assert not (sliced / "pkg" / "discarded.py").exists()
+            assert not (sliced / "other.py").exists()
+            assert (sliced / ".git").is_dir()
+            assert cleanup_paths == [clone_dir, sliced]
+        finally:
+            shutil.rmtree(sliced, ignore_errors=True)
 
     def test_run_all_cleans_reused_external_clone(
         self,

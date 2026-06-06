@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 EmbedderFactory = Callable[[], Embedder]
+JINA_V2_MODEL_ID = "jinaai/jina-embeddings-v2-base-code"
+JINA_V2_MODEL_REVISION = "516f4baf13dec4ddddda8631e019b5737c8bc250"
+JINA_BERT_CODE_REVISION = "3baf9e3ac750e76e8edd3019170176884695fb94"
+JINA_V2_MAX_SEQ_LENGTH = 1024
+
 
 __all__ = [
     "Embedder",
@@ -34,6 +39,19 @@ def _nomic_factory() -> Embedder:
     from archex.index.embeddings.nomic import NomicCodeEmbedder
 
     return NomicCodeEmbedder()
+
+
+def _jina_v2_factory() -> Embedder:
+    from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
+
+    return SentenceTransformerEmbedder(
+        model_name=JINA_V2_MODEL_ID,
+        trust_remote_code=True,
+        revision=JINA_V2_MODEL_REVISION,
+        model_kwargs={"code_revision": JINA_BERT_CODE_REVISION},
+        config_kwargs={"code_revision": JINA_BERT_CODE_REVISION},
+        max_seq_length=JINA_V2_MAX_SEQ_LENGTH,
+    )
 
 
 def _sentence_tf_factory() -> Embedder:
@@ -105,4 +123,5 @@ default_embedder_registry = EmbedderRegistry()
 default_embedder_registry.register("fastembed", _fastembed_factory)
 default_embedder_registry.register("nomic", _nomic_factory)
 default_embedder_registry.register("sentence_transformers", _sentence_tf_factory)
+default_embedder_registry.register("jina-v2", _jina_v2_factory)
 default_embedder_registry.register("coderank", _coderank_factory)

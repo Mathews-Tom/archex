@@ -3,6 +3,8 @@ repo: psf/requests
 commit: "v2.32.3"
 category: external-framework
 languages: [python]
+include_paths:
+  - src/requests
 question: "How does requests manage HTTP sessions and connection pooling?"
 expected_files:
   - src/requests/sessions.py

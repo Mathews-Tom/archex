@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from archex.models import (  # noqa: TCH001 — Pydantic needs at runtime
     DeltaMeta,
@@ -43,12 +43,22 @@ class BenchmarkTask(BaseModel):
     token_budget: int = 8192
     keywords: list[str] = []
     languages: list[str] | None = None
+    include_paths: list[str] = []
     category: TaskCategory | None = None
+
+    @model_validator(mode="after")
+    def _validate_include_paths(self) -> BenchmarkTask:
+        for path in self.include_paths:
+            if not path or path.startswith("/") or ".." in path.split("/"):
+                msg = f"include_paths entries must be relative paths: {path!r}"
+                raise ValueError(msg)
+        return self
 
 
 class BenchmarkRetrievalOptions(BaseModel):
     splade: bool = False
     module_prefilter: bool = False
+    embedder: str = "jina-v2"
 
 
 class BenchmarkResult(BaseModel):
