@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from archex.benchmark.gate import QualityThresholds, check_gate
+from archex.benchmark.gate import (
+    PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
+    QualityThresholds,
+    check_gate,
+)
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy
 
 
@@ -13,6 +17,7 @@ def _make_report(
     mrr: float = 0.7,
     ndcg: float = 0.7,
     map_score: float = 0.6,
+    token_efficiency: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
 ) -> BenchmarkReport:
     result = BenchmarkResult(
         task_id="test_task",
@@ -27,6 +32,7 @@ def _make_report(
         ndcg=ndcg,
         map_score=map_score,
         savings_vs_raw=50.0,
+        token_efficiency=token_efficiency,
         wall_time_ms=100.0,
         cached=False,
         timestamp="2026-01-01T00:00:00Z",
@@ -89,17 +95,22 @@ def test_check_gate_custom_thresholds() -> None:
     assert violations == []
 
 
-def test_check_gate_token_efficiency_violation() -> None:
-    reports = [_make_report()]
-    thresholds = QualityThresholds(min_token_efficiency=0.5)
-    violations = check_gate(reports, thresholds)
-    violated_metrics = {v.metric for v in violations}
-    assert "token_efficiency" in violated_metrics
+def test_check_gate_token_efficiency_floor_fails_bloat() -> None:
+    reports = [_make_report(token_efficiency=PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR - 0.001)]
+    violations = check_gate(reports)
+    assert [
+        (v.metric, v.threshold, v.actual) for v in violations if v.metric == "token_efficiency"
+    ] == [
+        (
+            "token_efficiency",
+            PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
+            PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR - 0.001,
+        )
+    ]
 
 
-def test_check_gate_token_efficiency_default_passes() -> None:
-    """Default min_token_efficiency=0.0 never triggers a violation."""
-    reports = [_make_report()]
+def test_check_gate_token_efficiency_floor_passes_at_floor() -> None:
+    reports = [_make_report(token_efficiency=PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR)]
     violations = check_gate(reports)
     violated_metrics = {v.metric for v in violations}
     assert "token_efficiency" not in violated_metrics
