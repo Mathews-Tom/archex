@@ -7,6 +7,9 @@ include_paths:
   - tree.go
   - routergroup.go
   - gin.go
+  - context.go
+  - logger.go
+  - recovery.go
 question: "How does gin implement HTTP routing with its radix tree?"
 expected_files:
   - tree.go

@@ -4,9 +4,7 @@ commit: "v2.32.3"
 category: external-framework
 languages: [python]
 include_paths:
-  - src/requests/sessions.py
-  - src/requests/adapters.py
-  - src/requests/models.py
+  - src/requests
 question: "How does requests manage HTTP sessions and connection pooling?"
 expected_files:
   - src/requests/sessions.py

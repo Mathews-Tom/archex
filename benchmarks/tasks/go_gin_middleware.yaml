@@ -7,6 +7,10 @@ include_paths:
   - gin.go
   - context.go
   - routergroup.go
+  - logger.go
+  - recovery.go
+  - middleware_test.go
+  - utils.go
 question: "How does gin implement middleware chaining and abort handling?"
 expected_files:
   - gin.go

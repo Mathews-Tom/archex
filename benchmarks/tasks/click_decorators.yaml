@@ -4,9 +4,7 @@ commit: "8.1.8"
 category: external-framework
 languages: [python]
 include_paths:
-  - src/click/decorators.py
-  - src/click/core.py
-  - src/click/types.py
+  - src/click
 question: "How does click implement command decorators and parameter decoration?"
 expected_files:
   - src/click/decorators.py

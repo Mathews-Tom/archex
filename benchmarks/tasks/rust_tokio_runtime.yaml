@@ -4,9 +4,8 @@ commit: "tokio-1.42.0"
 category: external-large
 languages: [rust]
 include_paths:
-  - tokio/src/runtime/scheduler/current_thread/mod.rs
-  - tokio/src/runtime/scheduler/multi_thread/mod.rs
-  - tokio/src/runtime/scheduler/multi_thread/worker.rs
+  - tokio/src/runtime/scheduler/current_thread
+  - tokio/src/runtime/scheduler/multi_thread
 question: "How does tokio implement the async task runtime and scheduler?"
 expected_files:
   - tokio/src/runtime/scheduler/current_thread/mod.rs

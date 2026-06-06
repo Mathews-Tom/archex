@@ -111,6 +111,17 @@ class TestLoadTasks:
                     for include_path in task.include_paths
                 ), f"{task.task_id}: {expected_file} is outside include_paths"
 
+    def test_external_benchmark_scopes_include_distractors(self) -> None:
+        tasks_dir = Path(__file__).resolve().parents[2] / "benchmarks" / "tasks"
+        tasks = load_tasks(tasks_dir)
+        external_tasks = [task for task in tasks if task.repo != "."]
+        assert external_tasks
+        for task in external_tasks:
+            assert task.include_paths, f"{task.task_id}: external task must declare include_paths"
+            assert set(task.include_paths) != set(task.expected_files), (
+                f"{task.task_id}: include_paths must be broader than exact expected files"
+            )
+
     def test_load_empty_directory(self, tmp_path: Path) -> None:
         tasks = load_tasks(tmp_path)
         assert tasks == []

@@ -6,6 +6,8 @@ languages: [python]
 include_paths:
   - src/_pytest/fixtures.py
   - src/_pytest/python.py
+  - src/_pytest/nodes.py
+  - src/_pytest/config
 question: "How does pytest discover and inject fixtures?"
 expected_files:
   - src/_pytest/fixtures.py

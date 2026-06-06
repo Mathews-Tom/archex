@@ -4,9 +4,12 @@ commit: "0.115.6"
 category: framework-semantic
 languages: [python]
 include_paths:
-  - fastapi/dependencies/utils.py
-  - fastapi/dependencies/models.py
+  - fastapi/dependencies
   - fastapi/routing.py
+  - fastapi/params.py
+  - fastapi/exceptions.py
+  - fastapi/security
+  - fastapi/utils.py
 question: "How does FastAPI implement dependency injection for route handlers?"
 expected_files:
   - fastapi/dependencies/utils.py
