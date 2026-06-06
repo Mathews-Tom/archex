@@ -78,6 +78,7 @@ class TestArchexRetrieverLangChain:
             "what does foo do?",
             token_budget=8192,
             config=None,
+            explicit_token_budget=False,
         )
         assert len(docs) == 1
 

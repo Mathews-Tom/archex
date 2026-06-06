@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from archex.exceptions import ArchexIndexError
 from archex.models import Config, RepoSource  # noqa: TCH001
+from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 
 if TYPE_CHECKING:
     from llama_index.core.schema import NodeWithScore, QueryBundle
@@ -54,6 +55,7 @@ class ArchexRetriever(_LIBase):  # type: ignore[misc]
             query_bundle.query_str,
             token_budget=self._token_budget,
             config=self._config,
+            explicit_token_budget=self._token_budget != DEFAULT_TOKEN_BUDGET,
         )
         return [
             _NodeWithScore(

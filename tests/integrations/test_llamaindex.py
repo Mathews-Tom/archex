@@ -81,6 +81,7 @@ class TestArchexRetrieverLlamaIndex:
             "bar function",
             token_budget=8192,
             config=None,
+            explicit_token_budget=False,
         )
         assert len(nodes) == 1
 

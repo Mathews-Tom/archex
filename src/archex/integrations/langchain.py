@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from archex.exceptions import ArchexIndexError
 from archex.models import Config, RepoSource  # noqa: TCH001
+from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 
 if TYPE_CHECKING:
     from langchain_core.callbacks import CallbackManagerForRetrieverRun
@@ -56,6 +57,7 @@ class ArchexRetriever(_BaseRetriever):  # type: ignore[misc]
             query,
             token_budget=self.token_budget,
             config=self.config,
+            explicit_token_budget=self.token_budget != DEFAULT_TOKEN_BUDGET,
         )
         return [
             _Document(
