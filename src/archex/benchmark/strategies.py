@@ -374,6 +374,13 @@ class _ArchexFields:
         "expansion_ratio",
         "seed_recall",
         "seed_precision",
+        "expansion_eligible_seeds",
+        "expansion_candidates_found",
+        "expansion_import_neighbor_edges",
+        "expansion_same_module_candidates",
+        "expansion_hub_candidates",
+        "expansion_test_candidates_skipped",
+        "expansion_zero_candidate_reason",
     )
 
     def __init__(
@@ -390,6 +397,13 @@ class _ArchexFields:
         expansion_ratio: float,
         seed_recall: float,
         seed_precision: float,
+        expansion_eligible_seeds: int,
+        expansion_candidates_found: int,
+        expansion_import_neighbor_edges: int,
+        expansion_same_module_candidates: int,
+        expansion_hub_candidates: int,
+        expansion_test_candidates_skipped: int,
+        expansion_zero_candidate_reason: str,
     ) -> None:
         self.tokens_input = tokens_input
         self.tokens_output = tokens_output
@@ -402,6 +416,13 @@ class _ArchexFields:
         self.expansion_ratio = expansion_ratio
         self.seed_recall = seed_recall
         self.seed_precision = seed_precision
+        self.expansion_eligible_seeds = expansion_eligible_seeds
+        self.expansion_candidates_found = expansion_candidates_found
+        self.expansion_import_neighbor_edges = expansion_import_neighbor_edges
+        self.expansion_same_module_candidates = expansion_same_module_candidates
+        self.expansion_hub_candidates = expansion_hub_candidates
+        self.expansion_test_candidates_skipped = expansion_test_candidates_skipped
+        self.expansion_zero_candidate_reason = expansion_zero_candidate_reason
 
 
 def _archex_fields(
@@ -444,6 +465,13 @@ def _archex_fields(
             expansion_ratio=expansion_ratio,
             seed_recall=seed_recall_val,
             seed_precision=seed_precision_val,
+            expansion_eligible_seeds=meta.expansion_eligible_seeds,
+            expansion_candidates_found=meta.expansion_candidates_found,
+            expansion_import_neighbor_edges=meta.expansion_import_neighbor_edges,
+            expansion_same_module_candidates=meta.expansion_same_module_candidates,
+            expansion_hub_candidates=meta.expansion_hub_candidates,
+            expansion_test_candidates_skipped=meta.expansion_test_candidates_skipped,
+            expansion_zero_candidate_reason=meta.expansion_zero_candidate_reason,
         )
 
     seed_file_count = meta.seed_files_found
@@ -485,6 +513,13 @@ def _archex_fields(
         expansion_ratio=expansion_ratio,
         seed_recall=seed_recall_val,
         seed_precision=seed_precision_val,
+        expansion_eligible_seeds=meta.expansion_eligible_seeds,
+        expansion_candidates_found=meta.expansion_candidates_found,
+        expansion_import_neighbor_edges=meta.expansion_import_neighbor_edges,
+        expansion_same_module_candidates=meta.expansion_same_module_candidates,
+        expansion_hub_candidates=meta.expansion_hub_candidates,
+        expansion_test_candidates_skipped=meta.expansion_test_candidates_skipped,
+        expansion_zero_candidate_reason=meta.expansion_zero_candidate_reason,
     )
 
 
@@ -641,6 +676,13 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         expansion_ratio=af.expansion_ratio,
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
+        expansion_eligible_seeds=af.expansion_eligible_seeds,
+        expansion_candidates_found=af.expansion_candidates_found,
+        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
+        expansion_same_module_candidates=af.expansion_same_module_candidates,
+        expansion_hub_candidates=af.expansion_hub_candidates,
+        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
+        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -713,6 +755,13 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         expansion_ratio=af.expansion_ratio,
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
+        expansion_eligible_seeds=af.expansion_eligible_seeds,
+        expansion_candidates_found=af.expansion_candidates_found,
+        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
+        expansion_same_module_candidates=af.expansion_same_module_candidates,
+        expansion_hub_candidates=af.expansion_hub_candidates,
+        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
+        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -786,6 +835,13 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
         expansion_ratio=af.expansion_ratio,
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
+        expansion_eligible_seeds=af.expansion_eligible_seeds,
+        expansion_candidates_found=af.expansion_candidates_found,
+        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
+        expansion_same_module_candidates=af.expansion_same_module_candidates,
+        expansion_hub_candidates=af.expansion_hub_candidates,
+        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
+        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         category=task.category,
         vector_mode=index_config.vector_mode,
         surrogate_version=index_config.surrogate_version,
@@ -859,6 +915,13 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         expansion_ratio=af.expansion_ratio,
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
+        expansion_eligible_seeds=af.expansion_eligible_seeds,
+        expansion_candidates_found=af.expansion_candidates_found,
+        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
+        expansion_same_module_candidates=af.expansion_same_module_candidates,
+        expansion_hub_candidates=af.expansion_hub_candidates,
+        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
+        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -924,6 +987,13 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
         expansion_ratio=af.expansion_ratio,
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
+        expansion_eligible_seeds=af.expansion_eligible_seeds,
+        expansion_candidates_found=af.expansion_candidates_found,
+        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
+        expansion_same_module_candidates=af.expansion_same_module_candidates,
+        expansion_hub_candidates=af.expansion_hub_candidates,
+        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
+        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -996,6 +1066,13 @@ def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         expansion_ratio=af.expansion_ratio,
         seed_recall=af.seed_recall,
         seed_precision=af.seed_precision,
+        expansion_eligible_seeds=af.expansion_eligible_seeds,
+        expansion_candidates_found=af.expansion_candidates_found,
+        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
+        expansion_same_module_candidates=af.expansion_same_module_candidates,
+        expansion_hub_candidates=af.expansion_hub_candidates,
+        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
+        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         category=task.category,
         vector_mode=index_config.vector_mode,
         surrogate_version=index_config.surrogate_version,

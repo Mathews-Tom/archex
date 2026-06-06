@@ -574,6 +574,11 @@ class RetrievalMetadata(BaseModel):
     expansion_eligible_seeds: int = 0
     expansion_candidates_found: int = 0
     expansion_files_added: int = 0
+    expansion_zero_candidate_reason: str = ""
+    expansion_import_neighbor_edges: int = 0
+    expansion_same_module_candidates: int = 0
+    expansion_hub_candidates: int = 0
+    expansion_test_candidates_skipped: int = 0
     # Fusion gating
     fusion_skipped: bool = False
     fusion_skip_reason: str = ""

@@ -36,6 +36,13 @@ class TriageFinding:
     seed_files: list[str]
     expanded_files: list[str]
     expansion_ratio: float
+    expansion_eligible_seeds: int
+    expansion_candidates_found: int
+    expansion_import_neighbor_edges: int
+    expansion_same_module_candidates: int
+    expansion_hub_candidates: int
+    expansion_test_candidates_skipped: int
+    expansion_zero_candidate_reason: str
     raw_grepped_recall: float | None
     raw_grepped_precision: float | None
     raw_grepped_f1_score: float | None
@@ -65,6 +72,15 @@ class TriageFinding:
             "seed_files": self.seed_files,
             "expanded_files": self.expanded_files,
             "expansion_ratio": self.expansion_ratio,
+            "expansion_diagnostics": {
+                "eligible_seeds": self.expansion_eligible_seeds,
+                "candidates_found": self.expansion_candidates_found,
+                "import_neighbor_edges": self.expansion_import_neighbor_edges,
+                "same_module_candidates": self.expansion_same_module_candidates,
+                "hub_candidates": self.expansion_hub_candidates,
+                "test_candidates_skipped": self.expansion_test_candidates_skipped,
+                "zero_candidate_reason": self.expansion_zero_candidate_reason,
+            },
             "raw_grepped_metrics": {
                 "recall": self.raw_grepped_recall,
                 "precision": self.raw_grepped_precision,
@@ -133,6 +149,13 @@ def triage_failures(
                 seed_files=result.seed_files,
                 expanded_files=result.expanded_files,
                 expansion_ratio=result.expansion_ratio,
+                expansion_eligible_seeds=result.expansion_eligible_seeds,
+                expansion_candidates_found=result.expansion_candidates_found,
+                expansion_import_neighbor_edges=result.expansion_import_neighbor_edges,
+                expansion_same_module_candidates=result.expansion_same_module_candidates,
+                expansion_hub_candidates=result.expansion_hub_candidates,
+                expansion_test_candidates_skipped=result.expansion_test_candidates_skipped,
+                expansion_zero_candidate_reason=result.expansion_zero_candidate_reason,
                 raw_grepped_recall=raw_grepped.recall if raw_grepped is not None else None,
                 raw_grepped_precision=raw_grepped.precision if raw_grepped is not None else None,
                 raw_grepped_f1_score=raw_grepped.f1_score if raw_grepped is not None else None,
@@ -188,6 +211,17 @@ def format_triage_markdown(findings: list[TriageFinding]) -> str:
                 f"precision `{finding.raw_grepped_precision:.3f}`, "
                 f"F1 `{finding.raw_grepped_f1_score:.3f}`"
             )
+        lines.append(
+            "- Expansion: "
+            f"eligible seeds `{finding.expansion_eligible_seeds}`, "
+            f"candidates `{finding.expansion_candidates_found}`, "
+            f"import edges `{finding.expansion_import_neighbor_edges}`, "
+            f"same-module `{finding.expansion_same_module_candidates}`, "
+            f"hubs `{finding.expansion_hub_candidates}`, "
+            f"test skips `{finding.expansion_test_candidates_skipped}`"
+        )
+        if finding.expansion_zero_candidate_reason:
+            lines.append(f"- Zero expansion reason: `{finding.expansion_zero_candidate_reason}`")
         lines.append("- Expected files:")
         lines.extend(_file_bullets(finding.expected_files))
         lines.append("- Returned files:")

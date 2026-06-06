@@ -30,6 +30,9 @@ def _result(
     tokens_total: int = 100,
     token_efficiency: float = 0.5,
     savings_vs_raw: float = 25.0,
+    expansion_eligible_seeds: int = 0,
+    expansion_candidates_found: int = 0,
+    expansion_zero_candidate_reason: str = "",
 ) -> BenchmarkResult:
     return BenchmarkResult(
         task_id="task",
@@ -49,6 +52,9 @@ def _result(
         seed_files=seed_files or [],
         expanded_files=expanded_files or [],
         expansion_ratio=0.5,
+        expansion_eligible_seeds=expansion_eligible_seeds,
+        expansion_candidates_found=expansion_candidates_found,
+        expansion_zero_candidate_reason=expansion_zero_candidate_reason,
         category=category,
     )
 
@@ -181,6 +187,7 @@ def test_format_triage_outputs_are_stable() -> None:
     assert "Tokens Total" in markdown
     assert "Token Efficiency" in markdown
     assert "Savings vs Raw" in markdown
+    assert "Expansion:" in markdown
 
     payload = json.loads(format_triage_json(findings))
     assert payload[0]["task_id"] == "zero"
@@ -188,6 +195,7 @@ def test_format_triage_outputs_are_stable() -> None:
     assert payload[0]["metrics"]["tokens_total"] == 100
     assert payload[0]["metrics"]["token_efficiency"] == 0.5
     assert payload[0]["metrics"]["savings_vs_raw"] == 25.0
+    assert payload[0]["expansion_diagnostics"]["eligible_seeds"] == 0
 
 
 def test_format_triage_json_serializes_expansion_diagnostics() -> None:
@@ -198,6 +206,9 @@ def test_format_triage_json_serializes_expansion_diagnostics() -> None:
         f1_score=0.33,
         seed_files=["src/task.py"],
         expanded_files=["src/worker.py", "src/noise.py"],
+        expansion_eligible_seeds=1,
+        expansion_candidates_found=2,
+        expansion_zero_candidate_reason="",
     )
     findings = triage_failures([_report("expanded", result)], {"expanded": _task("expanded")})
 
@@ -209,3 +220,5 @@ def test_format_triage_json_serializes_expansion_diagnostics() -> None:
     assert payload[0]["seed_files"] == ["src/task.py"]
     assert payload[0]["expanded_files"] == ["src/worker.py", "src/noise.py"]
     assert payload[0]["expansion_ratio"] == 0.5
+    assert payload[0]["expansion_diagnostics"]["eligible_seeds"] == 1
+    assert payload[0]["expansion_diagnostics"]["candidates_found"] == 2
