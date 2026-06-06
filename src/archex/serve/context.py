@@ -447,13 +447,15 @@ def _hop2_expansion_priority(expansion: _Hop2Expansion) -> dict[str, float]:
     return hop2_priority
 
 
-def _add_hop2_expansion(expansion: _Hop2Expansion) -> list[str]:
+def _add_hop2_expansion(expansion: _Hop2Expansion) -> tuple[list[str], int]:
     hop2_priority = _hop2_expansion_priority(expansion)
     hop2_files_added: list[str] = []
+    test_candidates_skipped = 0
     for file_path in sorted(hop2_priority.keys(), key=lambda f: -hop2_priority[f]):
         if len(hop2_files_added) >= expansion.remaining_budget:
             break
         if _is_test_file(file_path):
+            test_candidates_skipped += 1
             continue
         added = _add_file_chunks(
             expansion.candidate_map,
@@ -469,7 +471,7 @@ def _add_hop2_expansion(expansion: _Hop2Expansion) -> list[str]:
         len(hop2_priority),
         len(hop2_files_added),
     )
-    return hop2_files_added
+    return hop2_files_added, test_candidates_skipped
 
 
 def _dependency_subgraph(
@@ -519,6 +521,30 @@ def _neighbor_boosts(
                 seed_score * NEIGHBOR_IMPORTER_DECAY,
             )
     return boosts
+
+
+def _file_to_module(modules: list[Module] | None) -> dict[str, Module]:
+    if not modules:
+        return {}
+    return {file_path: module for module in modules for file_path in module.files}
+
+
+def _zero_expansion_reason(
+    *,
+    seed_files: set[str],
+    expansion_eligible_seeds: int,
+    total_expansion_candidates: int,
+    expansion_files_added: int,
+) -> str:
+    if not seed_files:
+        return "no_seed_files"
+    if expansion_eligible_seeds == 0:
+        return "no_eligible_seeds"
+    if total_expansion_candidates == 0:
+        return "no_import_neighbors"
+    if expansion_files_added == 0:
+        return "candidates_filtered_or_missing_chunks"
+    return ""
 
 
 def assemble_context(
@@ -673,6 +699,8 @@ def assemble_context(
     norm_seed_scores = {fp: s / max_seed_score for fp, s in seed_file_scores.items()}
 
     # Extract query terms for path-aware import prioritization
+    file_to_module = _file_to_module(modules)
+
     q_terms = _query_terms(question)
     alignment_terms = {QueryIntent.CLI.value} if intent == QueryIntent.CLI else q_terms
 
@@ -700,17 +728,25 @@ def assemble_context(
             imports_of_count,
             imported_by_count,
         )
-
     expansion_priority: dict[str, float] = {}
     expansion_source_count: dict[str, int] = {}
+    import_neighbor_edges = 0
+    same_module_candidates: set[str] = set()
+    hub_candidates: set[str] = set()
     for file_path in seed_files:
         # Only expand from seeds above the confidence threshold
         if norm_seed_scores.get(file_path, 0.0) < effective_expansion_min:
             continue
         seed_score = seed_file_scores.get(file_path, 0.0)
+        seed_module = file_to_module.get(file_path)
         # Direct imports get full seed score — they're in the same call chain
         for dep in graph.imports_of(file_path):
             if dep not in seed_files:
+                import_neighbor_edges += 1
+                if seed_module is not None and file_to_module.get(dep) == seed_module:
+                    same_module_candidates.add(dep)
+                if len(graph.imports_of(dep)) + len(graph.imported_by(dep)) >= 4:
+                    hub_candidates.add(dep)
                 # Boost imports whose file path matches a query term
                 path_lower = dep.lower()
                 path_match = any(t in path_lower for t in q_terms)
@@ -720,12 +756,16 @@ def assemble_context(
         # Importers get half seed score — they're consumers, not dependencies
         for imp in graph.imported_by(file_path):
             if imp not in seed_files:
+                import_neighbor_edges += 1
+                if seed_module is not None and file_to_module.get(imp) == seed_module:
+                    same_module_candidates.add(imp)
+                if len(graph.imports_of(imp)) + len(graph.imported_by(imp)) >= 4:
+                    hub_candidates.add(imp)
                 path_lower = imp.lower()
                 path_match = any(t in path_lower for t in q_terms)
                 priority = seed_score * (0.75 if path_match else 0.5)
                 expansion_priority[imp] = expansion_priority.get(imp, 0.0) + priority
                 expansion_source_count[imp] = expansion_source_count.get(imp, 0) + 1
-
     # Convergence bonus: files reached by multiple independent seeds are structurally
     # corroborated — more likely to be genuinely relevant than files from a single seed.
     for dep in expansion_priority:
@@ -734,7 +774,7 @@ def assemble_context(
 
     total_expansion_candidates = len(expansion_priority)
     if total_expansion_candidates == 0:
-        logger.warning(
+        logger.debug(
             "graph_expansion: zero candidates found. seed_files=%s norm_scores=%s",
             list(seed_files),
             {fp: f"{norm_seed_scores.get(fp, 0.0):.3f}" for fp in seed_files},
@@ -758,10 +798,12 @@ def assemble_context(
     # for that file.
     candidate_map = _initial_candidate_map(search_results, effective_vector, effective_splade)
     expansion_files_added = 0
+    expansion_test_candidates_skipped = 0
     hop1_files_added: list[str] = []
     expanded_file_paths: list[str] = []
     for file_path in sorted_expansion:
         if _is_test_file(file_path):
+            expansion_test_candidates_skipped += 1
             continue
         added = _add_file_chunks(
             candidate_map,
@@ -776,11 +818,18 @@ def assemble_context(
         if expansion_files_added >= MAX_EXPANSION_FILES:
             break
 
+    expansion_zero_candidate_reason = _zero_expansion_reason(
+        seed_files=seed_files,
+        expansion_eligible_seeds=expansion_eligible_seeds,
+        total_expansion_candidates=total_expansion_candidates,
+        expansion_files_added=expansion_files_added,
+    )
+
     # 2-hop expansion for architecture queries: follow imports_of for top hop-1 candidates
     if is_arch_query and hop1_files_added:
         remaining_budget = MAX_EXPANSION_FILES - expansion_files_added
         if remaining_budget > 0:
-            hop2_files_added = _add_hop2_expansion(
+            hop2_files_added, hop2_test_candidates_skipped = _add_hop2_expansion(
                 _Hop2Expansion(
                     graph=graph,
                     candidate_map=candidate_map,
@@ -793,9 +842,9 @@ def assemble_context(
                     max_per_file=max_per_file,
                 )
             )
+            expansion_test_candidates_skipped += hop2_test_candidates_skipped
             expansion_files_added += len(hop2_files_added)
             expanded_file_paths.extend(hop2_files_added)
-
     candidates_after_expansion = len(candidate_map)
 
     if trace is not None:
@@ -808,6 +857,13 @@ def assemble_context(
                     "seed_files": len(seed_files),
                     "expansion_files_added": expansion_files_added,
                     "candidates_after_expansion": candidates_after_expansion,
+                    "expansion_eligible_seeds": expansion_eligible_seeds,
+                    "expansion_candidates_found": total_expansion_candidates,
+                    "expansion_import_neighbor_edges": import_neighbor_edges,
+                    "expansion_same_module_candidates": len(same_module_candidates),
+                    "expansion_hub_candidates": len(hub_candidates),
+                    "expansion_test_candidates_skipped": expansion_test_candidates_skipped,
+                    "expansion_zero_candidate_reason": expansion_zero_candidate_reason,
                 },
             )
         )
@@ -860,13 +916,6 @@ def assemble_context(
 
     # Get structural centrality scores
     centrality = graph.structural_centrality()
-
-    # Build file-to-module mapping for cohesion signal
-    file_to_module: dict[str, Module] = {}
-    if modules:
-        for mod in modules:
-            for fp in mod.files:
-                file_to_module[fp] = mod
 
     # Signal agreement was computed pre-fusion; carry it forward for metadata
     signal_agreement: float | None = signal_agreement_pre if vector_results else None
@@ -1045,6 +1094,11 @@ def assemble_context(
         expansion_files_added=expansion_files_added,
         fusion_skipped=fusion_skipped,
         fusion_skip_reason=fusion_skip_reason,
+        expansion_zero_candidate_reason=expansion_zero_candidate_reason,
+        expansion_import_neighbor_edges=import_neighbor_edges,
+        expansion_same_module_candidates=len(same_module_candidates),
+        expansion_hub_candidates=len(hub_candidates),
+        expansion_test_candidates_skipped=expansion_test_candidates_skipped,
         bm25_cv=bm25_cv_val,
         splade_results=len(splade_results or []),
         splade_used=bool(effective_splade),

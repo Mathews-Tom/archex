@@ -90,6 +90,13 @@ class BenchmarkResult(BaseModel):
     expansion_ratio: float = 0.0
     seed_recall: float = 0.0
     seed_precision: float = 0.0
+    expansion_eligible_seeds: int = 0
+    expansion_candidates_found: int = 0
+    expansion_import_neighbor_edges: int = 0
+    expansion_same_module_candidates: int = 0
+    expansion_hub_candidates: int = 0
+    expansion_test_candidates_skipped: int = 0
+    expansion_zero_candidate_reason: str = ""
     category: TaskCategory | None = None
     vector_mode: VectorMode = VectorMode.RAW
     surrogate_version: str | None = None

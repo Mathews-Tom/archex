@@ -416,6 +416,31 @@ def test_expansion_metadata_records_seed_and_expanded_file_paths() -> None:
     assert meta.seed_file_paths == ["seed.py"]
     assert meta.expanded_file_paths == ["expanded.py"]
     assert meta.expansion_files_added == 1
+    assert meta.expansion_eligible_seeds == 1
+    assert meta.expansion_candidates_found == 1
+    assert meta.expansion_import_neighbor_edges == 1
+    assert meta.expansion_zero_candidate_reason == ""
+
+
+def test_expansion_metadata_records_zero_candidate_reason() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("seed.py")
+    seed_chunk = make_chunk("seed", "seed.py", token_count=10)
+
+    bundle = assemble_context(
+        [(seed_chunk, 5.0)],
+        graph,
+        [seed_chunk],
+        "graph expansion",
+        token_budget=1000,
+    )
+
+    meta = bundle.retrieval_metadata
+    assert meta.seed_files_found == 1
+    assert meta.expansion_eligible_seeds == 1
+    assert meta.expansion_candidates_found == 0
+    assert meta.expansion_import_neighbor_edges == 0
+    assert meta.expansion_zero_candidate_reason == "no_import_neighbors"
 
 
 def test_ranked_chunk_carries_cohesion_score() -> None:

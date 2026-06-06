@@ -424,6 +424,13 @@ class TestRunArchexQuery:
                 candidates_after_expansion=5,
                 seed_files_found=2,
                 expansion_files_added=2,
+                expansion_eligible_seeds=2,
+                expansion_candidates_found=3,
+                expansion_import_neighbor_edges=3,
+                expansion_same_module_candidates=1,
+                expansion_hub_candidates=1,
+                expansion_test_candidates_skipped=1,
+                expansion_zero_candidate_reason="",
             ),
         )
         task = BenchmarkTask(
@@ -440,6 +447,13 @@ class TestRunArchexQuery:
         assert fields.expanded_files == ["expanded_a.py", "expanded_b.py"]
         assert fields.expansion_ratio == 1.0
         assert fields.seed_recall == 0.0
+        assert fields.expansion_eligible_seeds == 2
+        assert fields.expansion_candidates_found == 3
+        assert fields.expansion_import_neighbor_edges == 3
+        assert fields.expansion_same_module_candidates == 1
+        assert fields.expansion_hub_candidates == 1
+        assert fields.expansion_test_candidates_skipped == 1
+        assert fields.expansion_zero_candidate_reason == ""
 
     def test_expanded_files_uses_metadata_paths_when_expansion_is_not_included(
         self,
@@ -462,6 +476,13 @@ class TestRunArchexQuery:
                 seed_file_paths=["seed_a.py", "seed_b.py"],
                 expanded_file_paths=["expanded_a.py", "expanded_b.py"],
                 expansion_files_added=2,
+                expansion_eligible_seeds=2,
+                expansion_candidates_found=0,
+                expansion_import_neighbor_edges=0,
+                expansion_same_module_candidates=0,
+                expansion_hub_candidates=0,
+                expansion_test_candidates_skipped=0,
+                expansion_zero_candidate_reason="no_import_neighbors",
             ),
         )
         task = BenchmarkTask(
@@ -477,6 +498,8 @@ class TestRunArchexQuery:
         assert fields.seed_files == ["seed_a.py", "seed_b.py"]
         assert fields.expanded_files == ["expanded_a.py", "expanded_b.py"]
         assert fields.expansion_ratio == 1.0
+
+        assert fields.expansion_zero_candidate_reason == "no_import_neighbors"
 
 
 class _StubEmbedder:
