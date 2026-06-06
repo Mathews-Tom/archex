@@ -18,9 +18,12 @@ from archex.integrations.mcp import (
 )
 from archex.models import (
     ArchProfile,
+    CodeChunk,
     ComparisonResult,
     ContextBundle,
+    RankedChunk,
     RepoMetadata,
+    RetrievalMetadata,
 )
 
 # ---------------------------------------------------------------------------
@@ -157,6 +160,41 @@ class TestHandleQueryRepo:
             handle_query_repo("/fake/repo", "what is the entry point?", budget=4000)
         assert mock_query.call_args.kwargs["token_budget"] == 4000
         assert mock_query.call_args.kwargs["explicit_token_budget"] is True
+
+    def test_query_savings_use_candidate_files_and_payload_tokens(self) -> None:
+        chunk = CodeChunk(
+            id="c1",
+            content="def selected(): pass",
+            file_path="selected.py",
+            start_line=1,
+            end_line=1,
+            language="python",
+            token_count=5,
+        )
+        bundle = ContextBundle(
+            query="Where is selected defined?",
+            chunks=[RankedChunk(chunk=chunk, final_score=1.0)],
+            token_count=5,
+            token_budget=2048,
+            retrieval_metadata=RetrievalMetadata(
+                seed_file_paths=["selected.py", "candidate.py"],
+                expanded_file_paths=["neighbor.py"],
+            ),
+        )
+        with (
+            patch("archex.integrations.mcp.query", return_value=bundle),
+            patch("archex.integrations.mcp.get_files_token_count", return_value=100) as raw_mock,
+        ):
+            output = handle_query_repo("/fake/repo", "Where is selected defined?")
+
+        raw_mock.assert_called_once()
+        assert raw_mock.call_args.args[1] == ["candidate.py", "neighbor.py", "selected.py"]
+
+        import json
+
+        parsed = json.loads(output)
+        assert parsed["_meta"]["tokens_returned"] == 5
+        assert parsed["_meta"]["savings_pct"] == 95.0
 
     def test_rejects_empty_question(self) -> None:
         with pytest.raises(ValueError, match="question must not be empty"):
