@@ -27,18 +27,22 @@ def _result(
     category: TaskCategory | None = None,
     seed_files: list[str] | None = None,
     expanded_files: list[str] | None = None,
+    tokens_total: int = 100,
+    token_efficiency: float = 0.5,
+    savings_vs_raw: float = 25.0,
 ) -> BenchmarkResult:
     return BenchmarkResult(
         task_id="task",
         strategy=strategy,
-        tokens_total=100,
+        tokens_total=tokens_total,
+        token_efficiency=token_efficiency,
         tool_calls=1,
         files_accessed=1,
         recall=recall,
         precision=precision,
         f1_score=f1_score,
         mrr=recall,
-        savings_vs_raw=0.0,
+        savings_vs_raw=savings_vs_raw,
         wall_time_ms=10.0,
         cached=False,
         timestamp="2026-01-01T00:00:00Z",
@@ -174,10 +178,16 @@ def test_format_triage_outputs_are_stable() -> None:
     assert "# Benchmark Failure Triage" in markdown
     assert "`zero_recall`" in markdown
     assert "`src/task.py`" in markdown
+    assert "Tokens Total" in markdown
+    assert "Token Efficiency" in markdown
+    assert "Savings vs Raw" in markdown
 
     payload = json.loads(format_triage_json(findings))
     assert payload[0]["task_id"] == "zero"
     assert payload[0]["failure_bucket"] == "zero_recall"
+    assert payload[0]["metrics"]["tokens_total"] == 100
+    assert payload[0]["metrics"]["token_efficiency"] == 0.5
+    assert payload[0]["metrics"]["savings_vs_raw"] == 25.0
 
 
 def test_format_triage_json_serializes_expansion_diagnostics() -> None:

@@ -233,16 +233,20 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
     for report in reports:
         lines.append(f"## {report.task_id}")
         lines.append("")
-        lines.append("| Strategy | Recall | Precision | F1 | MRR | nDCG | MAP | Tokens | Savings |")
         lines.append(
-            "|----------|--------|-----------|------|------|------|------|--------|---------|"
+            "| Strategy | Recall | Precision | F1 | MRR | nDCG | MAP | Tokens Total "
+            "| Token Efficiency | Savings vs Raw |"
+        )
+        lines.append(
+            "|----------|--------|-----------|------|------|------|------|-------------"
+            "|------------------|---------------|"
         )
         for r in report.results:
             lines.append(
                 f"| {r.strategy.value} | {r.recall:.2f} | {r.precision:.2f} "
                 f"| {r.f1_score:.2f} | {r.mrr:.2f} | {r.ndcg:.2f} "
-                f"| {r.map_score:.2f} "
-                f"| {r.tokens_total:,} | {r.savings_vs_raw:.1f}% |"
+                f"| {r.map_score:.2f} | {r.tokens_total:,} "
+                f"| {r.token_efficiency:.2f} | {r.savings_vs_raw:.1f}% |"
             )
         lines.append("")
 

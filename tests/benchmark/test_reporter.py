@@ -143,6 +143,9 @@ class TestFormatStrategyComparison:
         assert "## test" in result
         assert "raw_files" in result
         assert "archex_query" in result
+        assert "Tokens Total" in result
+        assert "Token Efficiency" in result
+        assert "Savings vs Raw" in result
 
     def test_contains_head_to_head(self) -> None:
         report = _make_report()

@@ -30,6 +30,9 @@ class TriageFinding:
     precision: float
     f1_score: float
     mrr: float
+    tokens_total: int
+    token_efficiency: float
+    savings_vs_raw: float
     seed_files: list[str]
     expanded_files: list[str]
     expansion_ratio: float
@@ -55,6 +58,9 @@ class TriageFinding:
                 "precision": self.precision,
                 "f1_score": self.f1_score,
                 "mrr": self.mrr,
+                "tokens_total": self.tokens_total,
+                "token_efficiency": self.token_efficiency,
+                "savings_vs_raw": self.savings_vs_raw,
             },
             "seed_files": self.seed_files,
             "expanded_files": self.expanded_files,
@@ -121,6 +127,9 @@ def triage_failures(
                 precision=result.precision,
                 f1_score=result.f1_score,
                 mrr=result.mrr,
+                tokens_total=result.tokens_total,
+                token_efficiency=result.token_efficiency,
+                savings_vs_raw=result.savings_vs_raw,
                 seed_files=result.seed_files,
                 expanded_files=result.expanded_files,
                 expansion_ratio=result.expansion_ratio,
@@ -141,13 +150,18 @@ def format_triage_markdown(findings: list[TriageFinding]) -> str:
         return "# Benchmark Failure Triage\n\nNo failures matched the triage thresholds."
 
     lines = ["# Benchmark Failure Triage", ""]
-    lines.append("| Rank | Task | Category | Bucket | Recall | Precision | F1 | Missing | Extra |")
-    lines.append("|---:|---|---|---|---:|---:|---:|---|---|")
+    lines.append(
+        "| Rank | Task | Category | Bucket | Recall | Precision | F1 | Tokens Total "
+        "| Token Efficiency | Savings vs Raw | Missing | Extra |"
+    )
+    lines.append("|---:|---|---|---|---:|---:|---:|---:|---:|---:|---|---|")
     for idx, finding in enumerate(findings, start=1):
         lines.append(
             f"| {idx} | `{finding.task_id}` | {finding.category} | {finding.failure_bucket} "
             f"| {finding.recall:.3f} | {finding.precision:.3f} | {finding.f1_score:.3f} "
-            f"| {_inline_files(finding.missing_files)} | {_inline_files(finding.extra_files)} |"
+            f"| {finding.tokens_total:,} | {finding.token_efficiency:.3f} "
+            f"| {finding.savings_vs_raw:.1f}% | {_inline_files(finding.missing_files)} "
+            f"| {_inline_files(finding.extra_files)} |"
         )
     lines.append("")
 
@@ -162,7 +176,10 @@ def format_triage_markdown(findings: list[TriageFinding]) -> str:
         lines.append(
             "- Metrics: "
             f"recall `{finding.recall:.3f}`, precision `{finding.precision:.3f}`, "
-            f"F1 `{finding.f1_score:.3f}`, MRR `{finding.mrr:.3f}`"
+            f"F1 `{finding.f1_score:.3f}`, MRR `{finding.mrr:.3f}`, "
+            f"tokens `{finding.tokens_total:,}`, "
+            f"token efficiency `{finding.token_efficiency:.3f}`, "
+            f"savings vs raw `{finding.savings_vs_raw:.1f}%`"
         )
         if finding.raw_grepped_f1_score is not None:
             lines.append(

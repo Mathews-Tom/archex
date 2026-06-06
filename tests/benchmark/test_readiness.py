@@ -26,20 +26,24 @@ def _result(
     f1_score: float,
     mrr: float = 1.0,
     wall_time_ms: float = 10.0,
+    tokens_total: int = 100,
+    token_efficiency: float = 0.5,
+    savings_vs_raw: float = 25.0,
     category: TaskCategory | None = None,
     strategy: Strategy = Strategy.ARCHEX_QUERY,
 ) -> BenchmarkResult:
     return BenchmarkResult(
         task_id=task_id,
         strategy=strategy,
-        tokens_total=100,
+        tokens_total=tokens_total,
+        token_efficiency=token_efficiency,
         tool_calls=1,
         files_accessed=1,
         recall=recall,
         precision=precision,
         f1_score=f1_score,
         mrr=mrr,
-        savings_vs_raw=0.0,
+        savings_vs_raw=savings_vs_raw,
         wall_time_ms=wall_time_ms,
         cached=False,
         timestamp="2026-01-01T00:00:00Z",
@@ -110,6 +114,9 @@ def test_build_readiness_report_tracks_targets_and_counts() -> None:
     assert readiness.low_precision_tasks == 1
     assert readiness.median_latency_ms == 200.0
     assert readiness.p95_latency_ms == 290.0
+    assert readiness.tokens_total == 200
+    assert readiness.token_efficiency == 0.5
+    assert readiness.savings_vs_raw == 25.0
     assert readiness.ready is False
     assert [target.name for target in readiness.targets] == [
         "mean_recall",
@@ -173,6 +180,9 @@ def test_format_readiness_outputs_are_stable() -> None:
     assert "mean_recall" in markdown
     assert "P95 latency" in markdown
     assert "Top Blocking Tasks" in markdown
+    assert "Tokens Total" in markdown
+    assert "Token Efficiency" in markdown
+    assert "Savings vs Raw" in markdown
     assert "`miss`" in markdown
 
     payload = json.loads(format_readiness_json(readiness))
@@ -180,4 +190,7 @@ def test_format_readiness_outputs_are_stable() -> None:
     assert payload["ready"] is False
     assert payload["median_latency_ms"] == 10.0
     assert payload["p95_latency_ms"] == 10.0
+    assert payload["tokens_total"] == 100
+    assert payload["token_efficiency"] == 0.5
+    assert payload["savings_vs_raw"] == 25.0
     assert payload["blocking_tasks"][0]["task_id"] == "miss"
