@@ -11,6 +11,7 @@ from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runt
 
 # Tier 2.5 product-default `archex_query` minimum token efficiency was 0.094;
 # the gate rounds down to keep that accepted floor while failing bundle bloat.
+PRODUCT_DEFAULT_STRATEGY = "archex_query"
 PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR = 0.09
 
 
@@ -21,7 +22,9 @@ class QualityThresholds(BaseModel):
     min_mrr: float = 0.55
     min_ndcg: float = 0.0
     min_map: float = 0.0
-    min_token_efficiency: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR
+    min_token_efficiency: float = 0.0
+    product_default_strategy: str = PRODUCT_DEFAULT_STRATEGY
+    product_default_min_token_efficiency: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR
     # Latency: warn-only, does not fail the gate
     warn_latency_ms: float = 5000.0
     # Strategies exempt from gate checks (results are informational only)
@@ -50,7 +53,12 @@ class LatencyWarning(BaseModel):
     actual_ms: float
 
 
-def _gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
+def _gate_checks(t: QualityThresholds, strategy: str) -> list[tuple[str, float]]:
+    token_efficiency_floor = (
+        t.product_default_min_token_efficiency
+        if strategy == t.product_default_strategy
+        else t.min_token_efficiency
+    )
     return [
         ("recall", t.min_recall),
         ("precision", t.min_precision),
@@ -58,7 +66,7 @@ def _gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
         ("mrr", t.min_mrr),
         ("ndcg", t.min_ndcg),
         ("map_score", t.min_map),
-        ("token_efficiency", t.min_token_efficiency),
+        ("token_efficiency", token_efficiency_floor),
     ]
 
 
@@ -83,7 +91,7 @@ def check_gate(
             if strategy_val in thresholds.gate_exempt_strategies:
                 continue
             effective = thresholds.strategy_thresholds.get(strategy_val, thresholds)
-            for metric_name, threshold_val in _gate_checks(effective):
+            for metric_name, threshold_val in _gate_checks(effective, strategy_val):
                 actual = getattr(r, metric_name)
                 if actual < threshold_val:
                     violations.append(
