@@ -138,15 +138,25 @@ class TestHandleQueryRepo:
         assert parsed["_meta"]["tool_name"] == "query_repo"
         assert parsed["_meta"]["strategy"] == "bm25+graph"
 
-    def test_passes_token_budget(self) -> None:
+    def test_uses_adaptive_default_budget_when_omitted(self) -> None:
+        bundle = _make_context_bundle()
+        with (
+            patch("archex.integrations.mcp.query", return_value=bundle) as mock_query,
+            patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+        ):
+            handle_query_repo("/fake/repo", "what is the entry point?")
+        assert mock_query.call_args.kwargs["token_budget"] == 8192
+        assert mock_query.call_args.kwargs["explicit_token_budget"] is False
+
+    def test_passes_explicit_token_budget_override(self) -> None:
         bundle = _make_context_bundle()
         with (
             patch("archex.integrations.mcp.query", return_value=bundle) as mock_query,
             patch("archex.integrations.mcp.get_files_token_count", return_value=0),
         ):
             handle_query_repo("/fake/repo", "what is the entry point?", budget=4000)
-        budget = mock_query.call_args[1].get("token_budget") or mock_query.call_args[0][2]
-        assert budget == 4000
+        assert mock_query.call_args.kwargs["token_budget"] == 4000
+        assert mock_query.call_args.kwargs["explicit_token_budget"] is True
 
     def test_rejects_empty_question(self) -> None:
         with pytest.raises(ValueError, match="question must not be empty"):

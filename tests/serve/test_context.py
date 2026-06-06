@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import xml.etree.ElementTree as ET
 
-from archex.index.rerank import DEFAULT_TOP_K, RERANK_CANDIDATE_LIMIT, CrossEncoderReranker
 from archex.index.graph import DependencyGraph
+from archex.index.rerank import DEFAULT_TOP_K, RERANK_CANDIDATE_LIMIT, CrossEncoderReranker
 from archex.models import CodeChunk, ContextBundle, Module, SymbolKind
 from archex.serve.context import assemble_context
+from archex.serve.intent import INTENT_TOKEN_BUDGETS, QueryIntent
 from archex.serve.renderers.json import render_json
 from archex.serve.renderers.markdown import render_markdown
 from archex.serve.renderers.xml import render_xml
@@ -89,6 +90,43 @@ def test_token_count_within_budget() -> None:
     results = [(c, float(i + 1)) for i, c in enumerate(chunks)]
     bundle = assemble_context(results, graph, chunks, "query", token_budget=250)
     assert bundle.token_count <= 250
+
+
+def test_definition_lookup_uses_smaller_intent_budget() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("models.py")
+    chunks = [
+        make_chunk("c1", "models.py", token_count=1500),
+        make_chunk("c2", "models.py", token_count=1500),
+    ]
+    results = [(chunk, 10.0 - idx) for idx, chunk in enumerate(chunks)]
+
+    bundle = assemble_context(
+        results,
+        graph,
+        chunks,
+        "Where is QuerySet defined?",
+        token_budget=8192,
+    )
+
+    assert bundle.token_budget == INTENT_TOKEN_BUDGETS[QueryIntent.DEFINITION_LOOKUP]
+    assert bundle.token_count <= INTENT_TOKEN_BUDGETS[QueryIntent.DEFINITION_LOOKUP]
+
+
+def test_architecture_query_keeps_large_intent_budget() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("pipeline.py")
+    chunk = make_chunk("c1", "pipeline.py", token_count=1500)
+
+    bundle = assemble_context(
+        [(chunk, 1.0)],
+        graph,
+        [chunk],
+        "Explain the middleware architecture",
+        token_budget=8192,
+    )
+
+    assert bundle.token_budget == INTENT_TOKEN_BUDGETS[QueryIntent.ARCHITECTURE_BROAD]
 
 
 def test_truncated_flag_when_budget_exceeded() -> None:

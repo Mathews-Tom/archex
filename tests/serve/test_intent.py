@@ -6,9 +6,12 @@ import pytest
 
 from archex.models import ScoringWeights
 from archex.serve.intent import (
+    DEFAULT_TOKEN_BUDGET,
+    INTENT_TOKEN_BUDGETS,
     INTENT_WEIGHTS,
     QueryIntent,
     classify_intent,
+    token_budget_for_query,
     weights_for_query,
 )
 
@@ -223,6 +226,26 @@ def test_intent_weights_all_sum_to_one() -> None:
     for intent, weights in INTENT_WEIGHTS.items():
         total = weights.relevance + weights.structural + weights.type_coverage + weights.cohesion
         assert abs(total - 1.0) < 1e-9, f"{intent} weights sum to {total}, expected 1.0"
+
+
+def test_intent_token_budgets_route_simple_queries_smaller_than_broad_queries() -> None:
+    assert INTENT_TOKEN_BUDGETS[QueryIntent.DEFINITION_LOOKUP] < DEFAULT_TOKEN_BUDGET
+    assert (
+        INTENT_TOKEN_BUDGETS[QueryIntent.DEFINITION_LOOKUP]
+        < INTENT_TOKEN_BUDGETS[QueryIntent.ARCHITECTURE_BROAD]
+    )
+    assert INTENT_TOKEN_BUDGETS[QueryIntent.ARCHITECTURE_BROAD] == DEFAULT_TOKEN_BUDGET
+
+
+def test_token_budget_for_query_uses_detected_intent() -> None:
+    assert (
+        token_budget_for_query("Where is QuerySet defined?")
+        == INTENT_TOKEN_BUDGETS[QueryIntent.DEFINITION_LOOKUP]
+    )
+    assert (
+        token_budget_for_query("Explain the middleware architecture")
+        == INTENT_TOKEN_BUDGETS[QueryIntent.ARCHITECTURE_BROAD]
+    )
 
 
 def test_architecture_weights_higher_structural() -> None:
