@@ -7,12 +7,19 @@ import click
 from archex.api import get_files_token_count, query
 from archex.exceptions import ArchexError
 from archex.reporting import print_savings, print_timing
+from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 from archex.utils import resolve_source
 
 
 @click.command("query")
 @click.argument("args", nargs=-1, required=True)
-@click.option("--budget", default=8192, type=int, help="Token budget for the context bundle.")
+@click.option(
+    "--budget",
+    default=None,
+    show_default=str(DEFAULT_TOKEN_BUDGET),
+    type=int,
+    help="Override the intent-routed token budget for the context bundle.",
+)
 @click.option(
     "--format",
     "output_format",
@@ -38,7 +45,7 @@ from archex.utils import resolve_source
 )
 def query_cmd(
     args: tuple[str, ...],
-    budget: int,
+    budget: int | None,
     output_format: str,
     language: tuple[str, ...],
     strategy: str | None,
@@ -65,11 +72,13 @@ def query_cmd(
         index_config = index_config.model_copy(update={"module_prefilter": True})
 
     pt = PipelineTiming() if (timing or metrics) else None
+    token_budget = DEFAULT_TOKEN_BUDGET if budget is None else budget
     try:
         bundle = query(
             repo_source,
             question,
-            token_budget=budget,
+            token_budget=token_budget,
+            explicit_token_budget=budget is not None,
             config=config,
             index_config=index_config,
             timing=pt,
@@ -84,7 +93,7 @@ def query_cmd(
         unique_files = list({c.chunk.file_path for c in bundle.chunks})
         raw = get_files_token_count(repo_source, unique_files, config)
         print_savings(
-            bundle.token_count, raw, pt.total_ms, budget=budget, file_count=len(unique_files)
+            bundle.token_count, raw, pt.total_ms, budget=token_budget, file_count=len(unique_files)
         )
 
     if metrics and pt is not None:
