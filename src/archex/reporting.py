@@ -22,6 +22,7 @@ def compute_meta(
     response_text: str,
     raw_file_tokens: int,
     strategy: str,
+    envelope_overhead_tokens: int = 0,
     cached: bool = False,
     index_time_ms: float = 0.0,
     query_time_ms: float = 0.0,
@@ -29,9 +30,10 @@ def compute_meta(
 ) -> TokenMeta:
     """Compute token efficiency metrics for a tool response."""
     returned = count_tokens(response_text)
-    savings = (1 - returned / raw_file_tokens) * 100 if raw_file_tokens > 0 else 0.0
+    payload_tokens = max(returned - envelope_overhead_tokens, 0)
+    savings = (1 - payload_tokens / raw_file_tokens) * 100 if raw_file_tokens > 0 else 0.0
     return TokenMeta(
-        tokens_returned=returned,
+        tokens_returned=payload_tokens,
         tokens_raw_equivalent=raw_file_tokens,
         savings_pct=round(savings, 1),
         strategy=strategy,
