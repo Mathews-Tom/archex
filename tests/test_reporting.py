@@ -41,6 +41,21 @@ def test_compute_meta_basic() -> None:
     assert meta.query_time_ms == 0.0
 
 
+def test_compute_meta_subtracts_envelope_overhead_from_savings() -> None:
+    response_text = "wrapper tokens around payload"
+    returned = count_tokens(response_text)
+    meta = compute_meta(
+        tool_name="query_repo",
+        response_text=response_text,
+        raw_file_tokens=10,
+        envelope_overhead_tokens=returned - 1,
+        strategy="bm25+graph",
+    )
+
+    assert meta.tokens_returned == 1
+    assert meta.savings_pct == 90.0
+
+
 def test_compute_meta_zero_raw() -> None:
     meta = compute_meta(
         tool_name="t",
