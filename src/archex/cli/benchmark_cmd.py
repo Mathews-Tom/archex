@@ -16,6 +16,9 @@ from archex.benchmark.gate import (
     check_delta_gate,
     check_gate,
     check_latency_warnings,
+    check_recall_regressions,
+    non_token_quality_warnings,
+    token_efficiency_violations,
 )
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import (
@@ -437,6 +440,13 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
 @click.option("--min-f1", default=0.30, type=float, help="Minimum F1 threshold.")
 @click.option("--min-mrr", default=0.55, type=float, help="Minimum MRR threshold.")
 @click.option(
+    "--baseline",
+    "baseline_dir",
+    default=None,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Optional baseline result directory for recall-regression gating.",
+)
+@click.option(
     "--warn-latency-ms",
     default=5000.0,
     type=float,
@@ -448,6 +458,7 @@ def gate_cmd(
     min_precision: float,
     min_f1: float,
     min_mrr: float,
+    baseline_dir: str | None,
     warn_latency_ms: float,
 ) -> None:
     """Check benchmark results against quality thresholds."""
@@ -479,15 +490,58 @@ def gate_cmd(
                 f" (threshold: {w.threshold_ms:.0f}ms)"
             )
 
-    violations = check_gate(reports, thresholds)
+    absolute_violations = check_gate(reports, thresholds)
+    token_violations = token_efficiency_violations(absolute_violations)
+    advisory_warnings = non_token_quality_warnings(absolute_violations)
 
-    if violations:
-        click.echo(f"QUALITY GATE FAILED: {len(violations)} violation(s)")
-        for v in violations:
+    if baseline_dir is not None:
+        baseline_path = Path(baseline_dir)
+        baseline_reports: list[BenchmarkReport] = []
+        for json_file in sorted(baseline_path.glob("*.json")):
+            data = json.loads(json_file.read_text(encoding="utf-8"))
+            baseline_reports.append(BenchmarkReport.model_validate(data))
+        if not baseline_reports:
+            raise click.ClickException(f"No baseline result files found in {baseline_dir}")
+
+        recall_regressions = check_recall_regressions(reports, baseline_reports, thresholds)
+        if advisory_warnings:
+            click.echo(
+                f"QUALITY WARNING: {len(advisory_warnings)} non-token absolute-threshold warning(s)"
+            )
+            for v in advisory_warnings:
+                click.echo(
+                    f"  {v.task_id}/{v.strategy} {v.metric}: {v.actual:.3f} < {v.threshold:.3f}"
+                )
+
+        failures = token_violations
+        if failures or recall_regressions:
+            click.echo(
+                f"QUALITY GATE FAILED: {len(failures) + len(recall_regressions)} violation(s)"
+            )
+            for v in failures:
+                click.echo(
+                    f"  {v.task_id}/{v.strategy} {v.metric}: {v.actual:.3f} < {v.threshold:.3f}"
+                )
+            for v in recall_regressions:
+                if v.metric == "baseline_missing":
+                    click.echo(f"  {v.task_id}/{v.strategy}: missing baseline result")
+                else:
+                    click.echo(
+                        f"  {v.task_id}/{v.strategy} {v.metric}: "
+                        f"{v.actual:.3f} < baseline {v.baseline:.3f}"
+                    )
+            raise SystemExit(1)
+
+        click.echo("Quality gate passed.")
+        return
+
+    if absolute_violations:
+        click.echo(f"QUALITY GATE FAILED: {len(absolute_violations)} violation(s)")
+        for v in absolute_violations:
             click.echo(f"  {v.task_id}/{v.strategy} {v.metric}: {v.actual:.3f} < {v.threshold:.3f}")
         raise SystemExit(1)
-    else:
-        click.echo("Quality gate passed.")
+
+    click.echo("Quality gate passed.")
 
 
 # ---------------------------------------------------------------------------

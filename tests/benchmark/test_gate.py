@@ -6,6 +6,9 @@ from archex.benchmark.gate import (
     PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
     QualityThresholds,
     check_gate,
+    check_recall_regressions,
+    non_token_quality_warnings,
+    token_efficiency_violations,
 )
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy
 
@@ -114,6 +117,47 @@ def test_check_gate_token_efficiency_floor_passes_at_floor() -> None:
     violations = check_gate(reports)
     violated_metrics = {v.metric for v in violations}
     assert "token_efficiency" not in violated_metrics
+
+
+def test_baseline_gate_flags_recall_regression() -> None:
+    baseline = [_make_report(recall=0.8)]
+    current = [_make_report(recall=0.6)]
+
+    violations = check_recall_regressions(current, baseline)
+
+    assert [(v.metric, v.baseline, v.actual) for v in violations] == [("recall", 0.8, 0.6)]
+
+
+def test_baseline_gate_allows_non_recall_rank_drop() -> None:
+    baseline = [_make_report(recall=0.6, mrr=1.0)]
+    current = [_make_report(recall=0.7, mrr=0.3)]
+
+    violations = check_recall_regressions(current, baseline)
+
+    assert violations == []
+
+
+def test_baseline_gate_reports_missing_baseline_result() -> None:
+    baseline = [_make_report_for_strategy(Strategy.ARCHEX_QUERY_FUSION)]
+    current = [_make_report_for_strategy(Strategy.ARCHEX_QUERY, recall=0.7)]
+
+    violations = check_recall_regressions(current, baseline)
+
+    assert [(v.strategy, v.metric) for v in violations] == [("archex_query", "baseline_missing")]
+
+
+def test_absolute_gate_separates_token_failures_from_quality_warnings() -> None:
+    reports = [
+        _make_report(
+            recall=0.1,
+            token_efficiency=PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR - 0.001,
+        )
+    ]
+
+    violations = check_gate(reports)
+
+    assert [v.metric for v in token_efficiency_violations(violations)] == ["token_efficiency"]
+    assert {v.metric for v in non_token_quality_warnings(violations)} == {"recall"}
 
 
 def _make_report_for_strategy(

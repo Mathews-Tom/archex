@@ -47,6 +47,14 @@ class GateViolation(BaseModel):
     actual: float
 
 
+class BaselineGateViolation(BaseModel):
+    task_id: str
+    strategy: str
+    metric: str
+    baseline: float
+    actual: float
+
+
 class LatencyWarning(BaseModel):
     task_id: str
     strategy: str
@@ -105,6 +113,65 @@ def check_gate(
                         )
                     )
     return violations
+
+
+def check_recall_regressions(
+    reports: list[BenchmarkReport],
+    baseline_reports: list[BenchmarkReport],
+    thresholds: QualityThresholds | None = None,
+) -> list[BaselineGateViolation]:
+    """Return recall regressions against a baseline run.
+
+    Baseline-aware gating protects the retrieval contract without treating
+    every accepted low-signal benchmark row as a hard absolute floor.
+    """
+    if thresholds is None:
+        thresholds = QualityThresholds()
+
+    baseline_by_result = {
+        (report.task_id, result.strategy.value): result
+        for report in baseline_reports
+        for result in report.results
+    }
+    violations: list[BaselineGateViolation] = []
+    for report in reports:
+        for result in report.results:
+            strategy_val = result.strategy.value
+            if strategy_val in thresholds.gate_exempt_strategies:
+                continue
+            baseline = baseline_by_result.get((report.task_id, strategy_val))
+            if baseline is None:
+                violations.append(
+                    BaselineGateViolation(
+                        task_id=report.task_id,
+                        strategy=strategy_val,
+                        metric="baseline_missing",
+                        baseline=1.0,
+                        actual=0.0,
+                    )
+                )
+                continue
+            if result.recall < baseline.recall:
+                violations.append(
+                    BaselineGateViolation(
+                        task_id=report.task_id,
+                        strategy=strategy_val,
+                        metric="recall",
+                        baseline=baseline.recall,
+                        actual=result.recall,
+                    )
+                )
+    return violations
+
+
+def token_efficiency_violations(violations: list[GateViolation]) -> list[GateViolation]:
+    """Return hard token-efficiency violations from absolute gate checks."""
+    return [violation for violation in violations if violation.metric == "token_efficiency"]
+
+
+def non_token_quality_warnings(violations: list[GateViolation]) -> list[GateViolation]:
+    """Return advisory non-token absolute-threshold warnings."""
+    return [violation for violation in violations if violation.metric != "token_efficiency"]
 
 
 def check_latency_warnings(
