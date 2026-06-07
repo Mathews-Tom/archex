@@ -9,6 +9,12 @@ from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runt
     DeltaBenchmarkResult,
 )
 
+# Tier 2.5 product-default `archex_query` minimum higher-is-better token
+# efficiency recalculates to 0.095. The operational floor rounds down with
+# headroom for token-count drift while still failing bundles with <8% savings.
+PRODUCT_DEFAULT_STRATEGY = "archex_query"
+PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR = 0.08
+
 
 class QualityThresholds(BaseModel):
     min_recall: float = 0.60
@@ -18,6 +24,8 @@ class QualityThresholds(BaseModel):
     min_ndcg: float = 0.0
     min_map: float = 0.0
     min_token_efficiency: float = 0.0
+    product_default_strategy: str = PRODUCT_DEFAULT_STRATEGY
+    product_default_min_token_efficiency: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR
     # Latency: warn-only, does not fail the gate
     warn_latency_ms: float = 5000.0
     # Strategies exempt from gate checks (results are informational only)
@@ -39,6 +47,14 @@ class GateViolation(BaseModel):
     actual: float
 
 
+class BaselineGateViolation(BaseModel):
+    task_id: str
+    strategy: str
+    metric: str
+    baseline: float
+    actual: float
+
+
 class LatencyWarning(BaseModel):
     task_id: str
     strategy: str
@@ -46,7 +62,12 @@ class LatencyWarning(BaseModel):
     actual_ms: float
 
 
-def _gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
+def _gate_checks(t: QualityThresholds, strategy: str) -> list[tuple[str, float]]:
+    token_efficiency_floor = (
+        t.product_default_min_token_efficiency
+        if strategy == t.product_default_strategy
+        else t.min_token_efficiency
+    )
     return [
         ("recall", t.min_recall),
         ("precision", t.min_precision),
@@ -54,7 +75,7 @@ def _gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
         ("mrr", t.min_mrr),
         ("ndcg", t.min_ndcg),
         ("map_score", t.min_map),
-        ("token_efficiency", t.min_token_efficiency),
+        ("token_efficiency", token_efficiency_floor),
     ]
 
 
@@ -79,7 +100,7 @@ def check_gate(
             if strategy_val in thresholds.gate_exempt_strategies:
                 continue
             effective = thresholds.strategy_thresholds.get(strategy_val, thresholds)
-            for metric_name, threshold_val in _gate_checks(effective):
+            for metric_name, threshold_val in _gate_checks(effective, strategy_val):
                 actual = getattr(r, metric_name)
                 if actual < threshold_val:
                     violations.append(
@@ -92,6 +113,65 @@ def check_gate(
                         )
                     )
     return violations
+
+
+def check_recall_regressions(
+    reports: list[BenchmarkReport],
+    baseline_reports: list[BenchmarkReport],
+    thresholds: QualityThresholds | None = None,
+) -> list[BaselineGateViolation]:
+    """Return recall regressions against a baseline run.
+
+    Baseline-aware gating protects the retrieval contract without treating
+    every accepted low-signal benchmark row as a hard absolute floor.
+    """
+    if thresholds is None:
+        thresholds = QualityThresholds()
+
+    baseline_by_result = {
+        (report.task_id, result.strategy.value): result
+        for report in baseline_reports
+        for result in report.results
+    }
+    violations: list[BaselineGateViolation] = []
+    for report in reports:
+        for result in report.results:
+            strategy_val = result.strategy.value
+            if strategy_val in thresholds.gate_exempt_strategies:
+                continue
+            baseline = baseline_by_result.get((report.task_id, strategy_val))
+            if baseline is None:
+                violations.append(
+                    BaselineGateViolation(
+                        task_id=report.task_id,
+                        strategy=strategy_val,
+                        metric="baseline_missing",
+                        baseline=1.0,
+                        actual=0.0,
+                    )
+                )
+                continue
+            if result.recall < baseline.recall:
+                violations.append(
+                    BaselineGateViolation(
+                        task_id=report.task_id,
+                        strategy=strategy_val,
+                        metric="recall",
+                        baseline=baseline.recall,
+                        actual=result.recall,
+                    )
+                )
+    return violations
+
+
+def token_efficiency_violations(violations: list[GateViolation]) -> list[GateViolation]:
+    """Return hard token-efficiency violations from absolute gate checks."""
+    return [violation for violation in violations if violation.metric == "token_efficiency"]
+
+
+def non_token_quality_warnings(violations: list[GateViolation]) -> list[GateViolation]:
+    """Return advisory non-token absolute-threshold warnings."""
+    return [violation for violation in violations if violation.metric != "token_efficiency"]
 
 
 def check_latency_warnings(

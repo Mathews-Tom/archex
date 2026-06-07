@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from archex.benchmark.gate import QualityThresholds, check_gate
+from archex.benchmark.gate import (
+    PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
+    QualityThresholds,
+    check_gate,
+    check_recall_regressions,
+    non_token_quality_warnings,
+    token_efficiency_violations,
+)
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy
 
 
@@ -13,6 +20,7 @@ def _make_report(
     mrr: float = 0.7,
     ndcg: float = 0.7,
     map_score: float = 0.6,
+    token_efficiency: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
 ) -> BenchmarkReport:
     result = BenchmarkResult(
         task_id="test_task",
@@ -27,6 +35,7 @@ def _make_report(
         ndcg=ndcg,
         map_score=map_score,
         savings_vs_raw=50.0,
+        token_efficiency=token_efficiency,
         wall_time_ms=100.0,
         cached=False,
         timestamp="2026-01-01T00:00:00Z",
@@ -89,23 +98,76 @@ def test_check_gate_custom_thresholds() -> None:
     assert violations == []
 
 
-def test_check_gate_token_efficiency_violation() -> None:
-    reports = [_make_report()]
-    thresholds = QualityThresholds(min_token_efficiency=0.5)
-    violations = check_gate(reports, thresholds)
-    violated_metrics = {v.metric for v in violations}
-    assert "token_efficiency" in violated_metrics
+def test_check_gate_token_efficiency_floor_fails_bloat() -> None:
+    reports = [_make_report(token_efficiency=PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR - 0.001)]
+    violations = check_gate(reports)
+    assert [
+        (v.metric, v.threshold, v.actual) for v in violations if v.metric == "token_efficiency"
+    ] == [
+        (
+            "token_efficiency",
+            PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
+            PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR - 0.001,
+        )
+    ]
 
 
-def test_check_gate_token_efficiency_default_passes() -> None:
-    """Default min_token_efficiency=0.0 never triggers a violation."""
-    reports = [_make_report()]
+def test_check_gate_token_efficiency_floor_passes_at_floor() -> None:
+    reports = [_make_report(token_efficiency=PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR)]
     violations = check_gate(reports)
     violated_metrics = {v.metric for v in violations}
     assert "token_efficiency" not in violated_metrics
 
 
-def _make_report_for_strategy(strategy: Strategy, recall: float = 0.1) -> BenchmarkReport:
+def test_baseline_gate_flags_recall_regression() -> None:
+    baseline = [_make_report(recall=0.8)]
+    current = [_make_report(recall=0.6)]
+
+    violations = check_recall_regressions(current, baseline)
+
+    assert [(v.metric, v.baseline, v.actual) for v in violations] == [("recall", 0.8, 0.6)]
+
+
+def test_baseline_gate_allows_non_recall_rank_drop() -> None:
+    baseline = [_make_report(recall=0.6, mrr=1.0)]
+    current = [_make_report(recall=0.7, mrr=0.3)]
+
+    violations = check_recall_regressions(current, baseline)
+
+    assert violations == []
+
+
+def test_baseline_gate_reports_missing_baseline_result() -> None:
+    baseline = [_make_report_for_strategy(Strategy.ARCHEX_QUERY_FUSION)]
+    current = [_make_report_for_strategy(Strategy.ARCHEX_QUERY, recall=0.7)]
+
+    violations = check_recall_regressions(current, baseline)
+
+    assert [(v.strategy, v.metric) for v in violations] == [("archex_query", "baseline_missing")]
+
+
+def test_absolute_gate_separates_token_failures_from_quality_warnings() -> None:
+    reports = [
+        _make_report(
+            recall=0.1,
+            token_efficiency=PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR - 0.001,
+        )
+    ]
+
+    violations = check_gate(reports)
+
+    assert [v.metric for v in token_efficiency_violations(violations)] == ["token_efficiency"]
+    assert {v.metric for v in non_token_quality_warnings(violations)} == {"recall"}
+
+
+def _make_report_for_strategy(
+    strategy: Strategy,
+    recall: float = 0.1,
+    precision: float = 0.05,
+    f1_score: float = 0.05,
+    mrr: float = 0.0,
+    token_efficiency: float = 0.0,
+) -> BenchmarkReport:
     result = BenchmarkResult(
         task_id="test_task",
         strategy=strategy,
@@ -113,10 +175,11 @@ def _make_report_for_strategy(strategy: Strategy, recall: float = 0.1) -> Benchm
         tool_calls=1,
         files_accessed=3,
         recall=recall,
-        precision=0.05,
-        f1_score=0.05,
-        mrr=0.0,
+        precision=precision,
+        f1_score=f1_score,
+        mrr=mrr,
         savings_vs_raw=0.0,
+        token_efficiency=token_efficiency,
         wall_time_ms=100.0,
         cached=False,
         timestamp="2026-01-01T00:00:00Z",
@@ -148,6 +211,21 @@ def test_check_gate_non_exempt_strategy_still_checked() -> None:
     reports = [_make_report_for_strategy(Strategy.ARCHEX_QUERY, recall=0.0)]
     violations = check_gate(reports)
     assert any(v.metric == "recall" for v in violations)
+
+
+def test_check_gate_product_token_floor_only_applies_to_product_default() -> None:
+    reports = [
+        _make_report_for_strategy(
+            Strategy.ARCHEX_QUERY_FUSION,
+            recall=0.8,
+            precision=0.5,
+            f1_score=0.6,
+            mrr=0.7,
+            token_efficiency=PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR - 0.02,
+        )
+    ]
+    violations = check_gate(reports)
+    assert {v.metric for v in violations} == set()
 
 
 def test_check_gate_strategy_thresholds_override() -> None:

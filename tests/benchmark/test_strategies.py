@@ -18,6 +18,7 @@ from archex.benchmark.strategies import (
     compute_precision,
     compute_recall,
     compute_symbol_recall,
+    compute_token_efficiency,
     count_file_tokens,
     extract_keywords,
     reset_benchmark_retrieval_options,
@@ -240,6 +241,20 @@ class TestCountFileTokens:
         assert tokens == 0
 
 
+class TestComputeTokenEfficiency:
+    def test_full_raw_read_has_no_savings(self) -> None:
+        assert compute_token_efficiency(tokens_output=100, tokens_input=100) == 0.0
+
+    def test_smaller_output_has_higher_efficiency(self) -> None:
+        assert compute_token_efficiency(tokens_output=25, tokens_input=100) == 0.75
+
+    def test_empty_input_has_no_efficiency(self) -> None:
+        assert compute_token_efficiency(tokens_output=25, tokens_input=0) == 0.0
+
+    def test_output_larger_than_input_clamps_to_zero(self) -> None:
+        assert compute_token_efficiency(tokens_output=125, tokens_input=100) == 0.0
+
+
 class TestComputeSymbolRecall:
     def test_full_recall(self) -> None:
         assert compute_symbol_recall({"foo", "bar"}, ["foo", "bar"]) == 1.0
@@ -276,7 +291,7 @@ class TestRunRawFiles:
         # Token efficiency fields
         assert result.tokens_input == result.tokens_total
         assert result.tokens_output == result.tokens_total
-        assert result.token_efficiency == 1.0
+        assert result.token_efficiency == 0.0
         assert result.tokens_raw_baseline == result.tokens_total
 
 
