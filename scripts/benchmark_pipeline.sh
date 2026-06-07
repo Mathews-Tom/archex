@@ -2,6 +2,7 @@
 set -Euo pipefail
 
 output_dir=".archex/e2e-tokens"
+baseline_dir=".archex/e2e-tier2"
 log_file=".docs/pipeline.log"
 
 mkdir -p .archex .docs
@@ -64,6 +65,7 @@ run_pipeline() {
     run_step "Benchmark Gate" \
         uv run archex benchmark gate \
         --input "$output_dir" \
+        --baseline "$baseline_dir" \
         --warn-latency-ms 3000 || status=$?
 
     run_step "Dogfood Delta" \
