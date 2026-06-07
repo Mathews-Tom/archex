@@ -231,15 +231,15 @@ archex gives AI agents structural priors about codebases they've never seen. Pre
 
 ## Performance and Gates
 
-archex optimizes for the amount of context the downstream agent must read, not recall alone. Benchmark reports track recall, precision, F1, MRR, NDCG, MAP, latency, returned tokens, raw-file baselines, and token efficiency.
+archex optimizes for the amount of context the downstream agent must read, not recall alone. Benchmark reports track recall, precision, F1, MRR, NDCG, MAP, latency, returned tokens, raw-file baselines, and token efficiency. Token efficiency is higher-is-better: `1 - returned_tokens / accessed_file_tokens`.
 
-Current 35-task local benchmark snapshot for the product-default `archex_query` strategy, compared with the accepted Tier 2.5 run:
+Latest 35-task local benchmark counts for the product-default `archex_query` strategy, compared with the accepted Tier 2.5 run:
 
-| Metric | Tier 2.5 | Current | Delta |
+| Metric | Tier 2.5 | Latest run | Delta |
 | --- | ---: | ---: | ---: |
-| Mean returned tokens | 7,110 | 5,528 | -22.3% |
+| Mean returned tokens | 7,110 | 5,527 | -22.3% |
 | Mean recall | 0.629 | 0.694 | +0.065 |
-| Mean token efficiency | 0.351 | 0.296 | -0.056 |
+| Mean token efficiency | 0.649 | 0.701 | +0.052 |
 
 Fusion and rerank currently reduce mean returned tokens by roughly 11% while improving mean recall from 0.627 to 0.640. Gate thresholds are intentionally stricter than averages: a run fails if individual tasks regress recall or fall below the product-default token-efficiency floor. Treat the gate output, not the aggregate table, as the release signal.
 
