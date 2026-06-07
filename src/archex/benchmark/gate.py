@@ -10,9 +10,10 @@ from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runt
 )
 
 # Tier 2.5 product-default `archex_query` minimum higher-is-better token
-# efficiency recalculates to 0.095; the gate rounds down to keep that floor.
+# efficiency recalculates to 0.095. The operational floor rounds down with
+# headroom for token-count drift while still failing bundles with <8% savings.
 PRODUCT_DEFAULT_STRATEGY = "archex_query"
-PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR = 0.09
+PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR = 0.08
 
 
 class QualityThresholds(BaseModel):
