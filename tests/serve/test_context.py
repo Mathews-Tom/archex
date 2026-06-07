@@ -202,6 +202,26 @@ def test_packing_covers_selected_files_before_extra_chunks() -> None:
     assert bundle.token_count <= 460
 
 
+def test_packing_delays_test_files_until_production_files_are_covered() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("tests/test_patterns.py")
+    graph.add_file_node("src/archex/analyze/patterns.py")
+    graph.add_file_node("src/archex/models.py")
+    test_chunk = make_chunk("test_chunk", "tests/test_patterns.py", token_count=50)
+    patterns = make_chunk("patterns", "src/archex/analyze/patterns.py", token_count=50)
+    models = make_chunk("models", "src/archex/models.py", token_count=50)
+
+    bundle = assemble_context(
+        [(test_chunk, 40.0), (patterns, 10.0), (models, 8.0)],
+        graph,
+        [test_chunk, patterns, models],
+        "How does archex detect architectural patterns?",
+        token_budget=1000,
+    )
+
+    assert [rc.chunk.id for rc in bundle.chunks] == ["patterns", "models", "test_chunk"]
+
+
 def test_packing_skips_nested_line_ranges() -> None:
     graph = DependencyGraph()
     graph.add_file_node("module.py")

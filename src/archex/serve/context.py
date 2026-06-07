@@ -458,14 +458,20 @@ def _pack_ranked_chunks(
     best_by_file: dict[str, RankedChunk] = {}
     for rc in ranked:
         best_by_file.setdefault(rc.chunk.file_path, rc)
-    for file_path, _score in sorted_files:
-        if file_path not in top_files:
-            continue
-        best = best_by_file.get(file_path)
-        if best is None:
-            continue
+    ordered_files = [
+        file_path
+        for file_path, _score in sorted_files
+        if file_path in top_files and file_path in best_by_file
+    ]
+    ordered_files.sort(
+        key=lambda file_path: (
+            _is_test_file(file_path),
+            -best_by_file[file_path].final_score,
+        )
+    )
+    for file_path in ordered_files:
         total_tokens = _try_include_ranked_chunk(
-            best,
+            best_by_file[file_path],
             included,
             included_ids,
             included_ranges,
