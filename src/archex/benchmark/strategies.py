@@ -259,6 +259,14 @@ def compute_symbol_recall(result_symbols: set[str], expected_symbols: list[str])
     return found / len(expected_symbols)
 
 
+def compute_token_efficiency(tokens_output: int, tokens_input: int) -> float:
+    """Return higher-is-better token savings for the accessed context."""
+    if tokens_input <= 0:
+        return 0.0
+    ratio = 1.0 - (tokens_output / tokens_input)
+    return max(0.0, min(1.0, ratio))
+
+
 def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Baseline strategy: read all expected files, count tokens."""
     t0 = time.perf_counter()
@@ -271,7 +279,7 @@ def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         tokens_total=tokens,
         tokens_input=tokens,
         tokens_output=tokens,
-        token_efficiency=1.0,
+        token_efficiency=compute_token_efficiency(tokens, tokens),
         tokens_raw_baseline=tokens,
         tool_calls=len(task.expected_files),
         files_accessed=len(task.expected_files),
@@ -342,7 +350,7 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         tokens_total=tokens,
         tokens_input=tokens,
         tokens_output=tokens,
-        token_efficiency=1.0 if tokens > 0 else 0.0,
+        token_efficiency=compute_token_efficiency(tokens, tokens),
         tokens_raw_baseline=tokens_raw_baseline,
         tool_calls=len(keywords),
         files_accessed=len(matched_files_seen),
@@ -437,7 +445,7 @@ def _archex_fields(
     unique_files = _deduplicate_ranked([c.chunk.file_path for c in bundle.chunks])
     tokens_input = count_file_tokens(repo_path, unique_files)
     tokens_output = bundle.token_count
-    token_efficiency = tokens_output / tokens_input if tokens_input > 0 else 0.0
+    token_efficiency = compute_token_efficiency(tokens_output, tokens_input)
     tokens_raw_baseline = count_file_tokens(repo_path, task.expected_files)
     result_symbols = {c.chunk.symbol_name for c in bundle.chunks if c.chunk.symbol_name}
     symbol_recall = compute_symbol_recall(result_symbols, task.expected_symbols)

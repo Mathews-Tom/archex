@@ -9,8 +9,8 @@ from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runt
     DeltaBenchmarkResult,
 )
 
-# Tier 2.5 product-default `archex_query` minimum token efficiency was 0.094;
-# the gate rounds down to keep that accepted floor while failing bundle bloat.
+# Tier 2.5 product-default `archex_query` minimum higher-is-better token
+# efficiency recalculates to 0.095; the gate rounds down to keep that floor.
 PRODUCT_DEFAULT_STRATEGY = "archex_query"
 PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR = 0.09
 
