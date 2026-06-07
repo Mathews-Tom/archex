@@ -29,13 +29,15 @@ def make_chunk(
     symbol_kind: SymbolKind | None = None,
     symbol_name: str | None = None,
     token_count: int = 10,
+    start_line: int = 1,
+    end_line: int = 5,
 ) -> CodeChunk:
     return CodeChunk(
         id=chunk_id,
         content=content,
         file_path=file_path,
-        start_line=1,
-        end_line=5,
+        start_line=start_line,
+        end_line=end_line,
         symbol_name=symbol_name,
         symbol_kind=symbol_kind,
         language="python",
@@ -176,6 +178,66 @@ def test_chunks_ranked_by_score_descending() -> None:
     bundle = assemble_context(results, graph, [c1, c2, c3], "q", token_budget=1000)
     scores = [rc.final_score for rc in bundle.chunks]
     assert scores == sorted(scores, reverse=True)
+
+
+def test_packing_covers_selected_files_before_extra_chunks() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("primary.py")
+    graph.add_file_node("secondary.py")
+    primary_a = make_chunk("primary_a", "primary.py", token_count=200)
+    primary_b = make_chunk("primary_b", "primary.py", token_count=200)
+    secondary = make_chunk("secondary", "secondary.py", token_count=50)
+
+    bundle = assemble_context(
+        [(primary_a, 10.0), (primary_b, 9.0), (secondary, 3.0)],
+        graph,
+        [primary_a, primary_b, secondary],
+        "query",
+        token_budget=420,
+    )
+
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "secondary.py" in included_files
+    assert bundle.token_count <= 420
+
+
+def test_packing_skips_nested_line_ranges() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("module.py")
+    parent = make_chunk(
+        "parent",
+        "module.py",
+        token_count=300,
+        start_line=1,
+        end_line=100,
+    )
+    child = make_chunk(
+        "child",
+        "module.py",
+        token_count=100,
+        start_line=20,
+        end_line=30,
+    )
+    sibling = make_chunk(
+        "sibling",
+        "module.py",
+        token_count=50,
+        start_line=120,
+        end_line=130,
+    )
+
+    bundle = assemble_context(
+        [(parent, 10.0), (child, 9.0), (sibling, 8.0)],
+        graph,
+        [parent, child, sibling],
+        "query",
+        token_budget=1000,
+    )
+
+    included_ids = {rc.chunk.id for rc in bundle.chunks}
+    assert "parent" in included_ids
+    assert "child" not in included_ids
+    assert "sibling" in included_ids
 
 
 def test_structural_expansion_adds_neighbor_chunks() -> None:
@@ -1001,6 +1063,28 @@ def test_query_terms_drop_repo_name_noise() -> None:
     from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
 
     assert "archex" not in _query_terms("How does archex implement the query pipeline?")
+
+
+def test_query_terms_do_not_expand_generic_query_to_bm25() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex expose repository query workflows through MCP?")
+    assert "query" in terms
+    assert "bm25" not in terms
+    assert "rank" not in terms
+
+
+def test_query_terms_expand_mcp_to_product_query_contract_files() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex expose repository query workflows through MCP?")
+    assert {"api", "context", "mcp_cmd", "models"} <= terms
+
+
+def test_path_alignment_matches_private_module_stem_without_underscore() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+
+    assert _path_alignment_boost("pydantic/_internal/_validators.py", {"validators"}) == 2.0
 
 
 def test_type_alignment_requires_query_overlap_for_general_queries() -> None:
