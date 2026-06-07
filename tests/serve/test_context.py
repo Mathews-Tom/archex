@@ -193,12 +193,13 @@ def test_packing_covers_selected_files_before_extra_chunks() -> None:
         graph,
         [primary_a, primary_b, secondary],
         "query",
-        token_budget=420,
+        token_budget=460,
     )
 
     included_files = {rc.chunk.file_path for rc in bundle.chunks}
     assert "secondary.py" in included_files
-    assert bundle.token_count <= 420
+    assert [rc.chunk.id for rc in bundle.chunks] == ["primary_a", "secondary", "primary_b"]
+    assert bundle.token_count <= 460
 
 
 def test_packing_skips_nested_line_ranges() -> None:

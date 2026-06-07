@@ -487,7 +487,6 @@ def _pack_ranked_chunks(
             token_budget,
         )
 
-    included.sort(key=lambda r: r.final_score, reverse=True)
     return included, total_tokens
 
 
