@@ -1081,13 +1081,13 @@ def assemble_context(
         if len(top_files) >= adaptive_max:
             break
     for fp, score in sorted_files:
+        if len(top_files) >= adaptive_max:
+            break
         if fp in top_files:
             continue
         if score < score_cutoff:
             break
         top_files.add(fp)
-        if len(top_files) >= adaptive_max:
-            break
     ranked = [rc for rc in ranked if rc.chunk.file_path in top_files]
 
     # Greedy bin-packing within token budget with score cutoff
