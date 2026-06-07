@@ -243,12 +243,13 @@ Current 35-task local benchmark snapshot for the product-default `archex_query` 
 
 Fusion and rerank currently reduce mean returned tokens by roughly 11% while improving mean recall from 0.627 to 0.640. Gate thresholds are intentionally stricter than averages: a run fails if individual tasks regress recall or fall below the product-default token-efficiency floor. Treat the gate output, not the aggregate table, as the release signal.
 
-Reproduce the full retrieval gate locally:
+Reproduce the full retrieval gate and dogfood delta locally:
 
 ```bash
-uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --tasks-dir benchmarks/tasks --output .archex/e2e
-uv run archex benchmark gate --input .archex/e2e --warn-latency-ms 3000
+scripts/benchmark_pipeline.sh
 ```
+
+The script removes prior `.archex/e2e-tokens` output, writes a fresh `.docs/pipeline.log`, runs benchmark generation, runs the gate, and then runs dogfood even when the gate fails. It exits non-zero at the end if any step failed.
 
 ## Language Support
 
