@@ -78,8 +78,22 @@ class TestArchexRetrieverLangChain:
             "what does foo do?",
             token_budget=8192,
             config=None,
+            explicit_token_budget=False,
         )
         assert len(docs) == 1
+
+    def test_explicit_default_budget_disables_adaptive_routing(self) -> None:
+        from archex.integrations.langchain import ArchexRetriever
+
+        source = RepoSource(local_path="/tmp/repo")
+        retriever = ArchexRetriever(repo_source=source, token_budget=8192)
+        bundle = _make_bundle()
+
+        with patch("archex.api.query", return_value=bundle) as mock_query:
+            retriever.invoke("where is Foo defined?")
+
+        assert mock_query.call_args.kwargs["token_budget"] == 8192
+        assert mock_query.call_args.kwargs["explicit_token_budget"] is True
 
     def test_document_mapping(self) -> None:
         from archex.integrations.langchain import ArchexRetriever

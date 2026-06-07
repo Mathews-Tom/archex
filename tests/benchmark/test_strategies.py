@@ -550,11 +550,12 @@ def test_vector_strategies_read_configured_embedder(
         question: str,
         *,
         token_budget: int,
+        explicit_token_budget: bool,
         config: object,
         index_config: IndexConfig,
         timing: object | None = None,
     ) -> ContextBundle:
-        del config, timing
+        del config, explicit_token_budget, timing
         captured.append(index_config.embedder)
         return ContextBundle(
             query=question,

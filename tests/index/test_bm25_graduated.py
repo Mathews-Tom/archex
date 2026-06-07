@@ -161,8 +161,10 @@ class TestSanitizeTokensEdgeCases:
         assert len(tokens) == 2
 
     def test_stopwords_removed(self) -> None:
-        tokens = _sanitize_tokens("the quick fox")
+        tokens = _sanitize_tokens("the quick fox implement work")
         assert '"the"' not in tokens
+        assert '"implement"' not in tokens
+        assert '"work"' not in tokens
         assert '"quick"' in tokens
         assert '"fox"' in tokens
 

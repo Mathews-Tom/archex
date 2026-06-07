@@ -453,6 +453,32 @@ def test_query_uses_project_config_when_cli_args_omitted(python_simple_repo: Pat
     assert index_config.vector is False
     assert index_config.splade is False
     assert index_config.module_prefilter is False
+    assert query_mock.call_args.kwargs["token_budget"] == 8192
+    assert query_mock.call_args.kwargs["explicit_token_budget"] is False
+
+
+def test_query_budget_flag_overrides_intent_routing(python_simple_repo: Path) -> None:
+    from archex.project import init_project
+
+    class FakeBundle:
+        chunks: list[object] = []
+        token_count = 0
+
+        def to_prompt(self, *, format: str) -> str:
+            return f"format={format}"
+
+    init_project(python_simple_repo)
+    runner = CliRunner()
+
+    with patch("archex.cli.query_cmd.query", return_value=FakeBundle()) as query_mock:
+        result = runner.invoke(
+            cli,
+            ["query", str(python_simple_repo), "Where is QuerySet defined?", "--budget", "7000"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert query_mock.call_args.kwargs["token_budget"] == 7000
+    assert query_mock.call_args.kwargs["explicit_token_budget"] is True
 
 
 def test_query_cli_options_override_project_config(python_simple_repo: Path) -> None:

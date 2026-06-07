@@ -81,8 +81,25 @@ class TestArchexRetrieverLlamaIndex:
             "bar function",
             token_budget=8192,
             config=None,
+            explicit_token_budget=False,
         )
         assert len(nodes) == 1
+
+    def test_explicit_default_budget_disables_adaptive_routing(self) -> None:
+        from llama_index.core.schema import QueryBundle
+
+        from archex.integrations.llamaindex import ArchexRetriever
+
+        source = RepoSource(local_path="/tmp/repo")
+        retriever = ArchexRetriever(repo_source=source, token_budget=8192)
+        bundle = _make_bundle()
+        qb = QueryBundle(query_str="where is Foo defined?")
+
+        with patch("archex.api.query", return_value=bundle) as mock_query:
+            retriever._retrieve(qb)
+
+        assert mock_query.call_args.kwargs["token_budget"] == 8192
+        assert mock_query.call_args.kwargs["explicit_token_budget"] is True
 
     def test_node_mapping(self) -> None:
         from llama_index.core.schema import QueryBundle

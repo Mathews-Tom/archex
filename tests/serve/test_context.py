@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import xml.etree.ElementTree as ET
 
-from archex.index.rerank import DEFAULT_TOP_K, RERANK_CANDIDATE_LIMIT, CrossEncoderReranker
 from archex.index.graph import DependencyGraph
+from archex.index.rerank import DEFAULT_TOP_K, RERANK_CANDIDATE_LIMIT, CrossEncoderReranker
 from archex.models import CodeChunk, ContextBundle, Module, SymbolKind
 from archex.serve.context import assemble_context
+from archex.serve.intent import INTENT_TOKEN_BUDGETS, QueryIntent
 from archex.serve.renderers.json import render_json
 from archex.serve.renderers.markdown import render_markdown
 from archex.serve.renderers.xml import render_xml
@@ -28,13 +29,15 @@ def make_chunk(
     symbol_kind: SymbolKind | None = None,
     symbol_name: str | None = None,
     token_count: int = 10,
+    start_line: int = 1,
+    end_line: int = 5,
 ) -> CodeChunk:
     return CodeChunk(
         id=chunk_id,
         content=content,
         file_path=file_path,
-        start_line=1,
-        end_line=5,
+        start_line=start_line,
+        end_line=end_line,
         symbol_name=symbol_name,
         symbol_kind=symbol_kind,
         language="python",
@@ -91,6 +94,61 @@ def test_token_count_within_budget() -> None:
     assert bundle.token_count <= 250
 
 
+def test_definition_lookup_uses_smaller_intent_budget() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("models.py")
+    chunks = [
+        make_chunk("c1", "models.py", token_count=1500),
+        make_chunk("c2", "models.py", token_count=1500),
+    ]
+    results = [(chunk, 10.0 - idx) for idx, chunk in enumerate(chunks)]
+
+    bundle = assemble_context(
+        results,
+        graph,
+        chunks,
+        "Where is QuerySet defined?",
+        token_budget=8192,
+    )
+
+    assert bundle.token_budget == INTENT_TOKEN_BUDGETS[QueryIntent.DEFINITION_LOOKUP]
+    assert bundle.token_count <= INTENT_TOKEN_BUDGETS[QueryIntent.DEFINITION_LOOKUP]
+
+
+def test_architecture_query_keeps_large_intent_budget() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("pipeline.py")
+    chunk = make_chunk("c1", "pipeline.py", token_count=1500)
+
+    bundle = assemble_context(
+        [(chunk, 1.0)],
+        graph,
+        [chunk],
+        "Explain the middleware architecture",
+        token_budget=8192,
+    )
+
+    assert bundle.token_budget == INTENT_TOKEN_BUDGETS[QueryIntent.ARCHITECTURE_BROAD]
+
+
+def test_underfilled_bundle_continues_below_score_floor() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("src/query_pipeline.py")
+    high = make_chunk("high", "src/query_pipeline.py", token_count=100)
+    low = make_chunk("low", "src/query_pipeline.py", token_count=100)
+
+    bundle = assemble_context(
+        [(high, 1.0), (low, 0.01)],
+        graph,
+        [high, low],
+        "How does the query pipeline work?",
+        token_budget=1000,
+    )
+
+    assert [rc.chunk.id for rc in bundle.chunks] == ["high", "low"]
+    assert bundle.token_count == 200
+
+
 def test_truncated_flag_when_budget_exceeded() -> None:
     graph = DependencyGraph()
     graph.add_file_node("a.py")
@@ -120,6 +178,87 @@ def test_chunks_ranked_by_score_descending() -> None:
     bundle = assemble_context(results, graph, [c1, c2, c3], "q", token_budget=1000)
     scores = [rc.final_score for rc in bundle.chunks]
     assert scores == sorted(scores, reverse=True)
+
+
+def test_packing_covers_selected_files_before_extra_chunks() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("primary.py")
+    graph.add_file_node("secondary.py")
+    primary_a = make_chunk("primary_a", "primary.py", token_count=200)
+    primary_b = make_chunk("primary_b", "primary.py", token_count=200)
+    secondary = make_chunk("secondary", "secondary.py", token_count=50)
+
+    bundle = assemble_context(
+        [(primary_a, 10.0), (primary_b, 9.0), (secondary, 3.0)],
+        graph,
+        [primary_a, primary_b, secondary],
+        "query",
+        token_budget=460,
+    )
+
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "secondary.py" in included_files
+    assert [rc.chunk.id for rc in bundle.chunks] == ["primary_a", "secondary", "primary_b"]
+    assert bundle.token_count <= 460
+
+
+def test_packing_delays_test_files_until_production_files_are_covered() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("tests/test_patterns.py")
+    graph.add_file_node("src/archex/analyze/patterns.py")
+    graph.add_file_node("src/archex/models.py")
+    test_chunk = make_chunk("test_chunk", "tests/test_patterns.py", token_count=50)
+    patterns = make_chunk("patterns", "src/archex/analyze/patterns.py", token_count=50)
+    models = make_chunk("models", "src/archex/models.py", token_count=50)
+
+    bundle = assemble_context(
+        [(test_chunk, 40.0), (patterns, 10.0), (models, 8.0)],
+        graph,
+        [test_chunk, patterns, models],
+        "How does archex detect architectural patterns?",
+        token_budget=1000,
+    )
+
+    assert [rc.chunk.id for rc in bundle.chunks] == ["patterns", "models", "test_chunk"]
+
+
+def test_packing_skips_nested_line_ranges() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("module.py")
+    parent = make_chunk(
+        "parent",
+        "module.py",
+        token_count=300,
+        start_line=1,
+        end_line=100,
+    )
+    child = make_chunk(
+        "child",
+        "module.py",
+        token_count=100,
+        start_line=20,
+        end_line=30,
+    )
+    sibling = make_chunk(
+        "sibling",
+        "module.py",
+        token_count=50,
+        start_line=120,
+        end_line=130,
+    )
+
+    bundle = assemble_context(
+        [(parent, 10.0), (child, 9.0), (sibling, 8.0)],
+        graph,
+        [parent, child, sibling],
+        "query",
+        token_budget=1000,
+    )
+
+    included_ids = {rc.chunk.id for rc in bundle.chunks}
+    assert "parent" in included_ids
+    assert "child" not in included_ids
+    assert "sibling" in included_ids
 
 
 def test_structural_expansion_adds_neighbor_chunks() -> None:
@@ -847,7 +986,11 @@ def test_entry_point_boost_ranks_mod_rs_higher() -> None:
     leaf_chunk = make_chunk("c_leaf", "src/runtime/scheduler/current_thread.rs", token_count=10)
     results = [(mod_chunk, 1.0), (leaf_chunk, 1.0)]
     bundle = assemble_context(
-        results, graph, [mod_chunk, leaf_chunk], "how does the runtime work?", token_budget=1000
+        results,
+        graph,
+        [mod_chunk, leaf_chunk],
+        "how does the execution model work?",
+        token_budget=1000,
     )
     scores = {rc.chunk.file_path: rc.final_score for rc in bundle.chunks}
     assert scores["src/runtime/mod.rs"] > scores["src/runtime/scheduler/current_thread.rs"]
@@ -903,18 +1046,98 @@ def test_directory_alignment_boosts_matching_path() -> None:
     assert scores["lib/router/route.js"] > scores["lib/application.js"]
 
 
-def test_directory_alignment_no_boost_without_match() -> None:
-    """No directory boost when query terms don't match any directory."""
-    from archex.serve.context import _directory_alignment_boost  # pyright: ignore[reportPrivateUsage]
+def test_path_alignment_no_boost_without_match() -> None:
+    """No path boost when query terms don't match the file path."""
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
 
-    assert _directory_alignment_boost("lib/utils/helpers.py", {"router", "middleware"}) == 1.0
+    assert _path_alignment_boost("lib/utils/helpers.py", {"router", "middleware"}) == 1.0
 
 
-def test_directory_alignment_matches_query_term() -> None:
-    """Directory matching returns 1.2 boost."""
-    from archex.serve.context import _directory_alignment_boost  # pyright: ignore[reportPrivateUsage]
+def test_path_alignment_matches_query_term_in_directory() -> None:
+    """Directory matching returns a path-alignment boost."""
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
 
-    assert _directory_alignment_boost("lib/router/index.js", {"router"}) == 1.2
+    assert _path_alignment_boost("lib/router/index.js", {"router"}) == 1.35
+
+
+def test_path_alignment_matches_query_term_in_filename() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+
+    assert _path_alignment_boost("src/archex/cli/index_cmd.py", {"index"}) == 1.35
+
+
+def test_query_terms_expand_query_pipeline_to_bm25_context_signals() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex implement the query pipeline?")
+    assert {"api", "bm25", "context", "rank", "score"} <= terms
+
+
+def test_query_pipeline_terms_boost_api_path() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex implement the query pipeline?")
+    assert _path_alignment_boost("src/archex/api.py", terms) == 2.0
+
+
+def test_query_terms_expand_index_to_cache_project_signals() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex explicitly build or refresh a repo-local index?")
+    assert {"cache", "config", "project", "store"} <= terms
+
+
+def test_query_terms_drop_repo_name_noise() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    assert "archex" not in _query_terms("How does archex implement the query pipeline?")
+
+
+def test_query_terms_do_not_expand_generic_query_to_bm25() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex expose repository query workflows through MCP?")
+    assert "query" in terms
+    assert "bm25" not in terms
+    assert "rank" not in terms
+
+
+def test_query_terms_expand_mcp_to_product_query_contract_files() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex expose repository query workflows through MCP?")
+    assert {"api", "context", "mcp_cmd", "models"} <= terms
+
+
+def test_path_alignment_matches_private_module_stem_without_underscore() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+
+    assert _path_alignment_boost("pydantic/_internal/_validators.py", {"validators"}) == 2.0
+
+
+def test_type_alignment_requires_query_overlap_for_general_queries() -> None:
+    from archex.serve.context import _type_alignment_score  # pyright: ignore[reportPrivateUsage]
+
+    chunk = make_chunk(
+        "c_type",
+        "src/archex/models.py",
+        symbol_kind=SymbolKind.CLASS,
+        symbol_name="Visibility",
+    )
+    assert _type_alignment_score(chunk, {"query", "pipeline"}, definition_lookup=False) == 0.0
+
+
+def test_type_alignment_keeps_definition_lookup_bonus() -> None:
+    from archex.serve.context import _type_alignment_score  # pyright: ignore[reportPrivateUsage]
+
+    chunk = make_chunk(
+        "c_type",
+        "src/archex/models.py",
+        symbol_kind=SymbolKind.CLASS,
+        symbol_name="Visibility",
+    )
+    assert _type_alignment_score(chunk, {"visibility"}, definition_lookup=True) == 0.5
 
 
 # ---------------------------------------------------------------------------

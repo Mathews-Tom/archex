@@ -24,6 +24,7 @@ from archex.api import (
 from archex.models import PipelineTiming
 from archex.reporting import compute_meta
 from archex.serve.compare import validate_dimensions
+from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 from archex.utils import resolve_source
 
 logger = logging.getLogger(__name__)
@@ -65,25 +66,33 @@ def handle_analyze_repo(repo_url: str, output_format: str = "json") -> str:
     return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
 
 
-def handle_query_repo(repo_url: str, question: str, budget: int = 8000) -> str:
+def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -> str:
     """Retrieve context from a repository for a natural-language question.
 
     Args:
         repo_url: Local path or HTTP(S) URL of the repository to query.
         question: Natural-language question to answer from the codebase.
-        budget: Maximum token budget for the returned context. Defaults to 8000.
+        budget: Optional explicit token budget override. Defaults to adaptive
+            intent routing with a product ceiling of 8192.
 
     Returns:
         JSON envelope with ContextBundle content and _meta efficiency block.
     """
     if not question.strip():
         raise ValueError("question must not be empty")
-    if budget <= 0:
+    if budget is not None and budget <= 0:
         raise ValueError(f"budget must be positive, got {budget}")
 
     source = resolve_source(repo_url)
     pt = PipelineTiming()
-    bundle = query(source, question, token_budget=budget, timing=pt)
+    token_budget = DEFAULT_TOKEN_BUDGET if budget is None else budget
+    bundle = query(
+        source,
+        question,
+        token_budget=token_budget,
+        timing=pt,
+        explicit_token_budget=budget is not None,
+    )
 
     content = bundle.to_prompt(format="xml")
     unique_files = list({c.chunk.file_path for c in bundle.chunks})
@@ -316,8 +325,10 @@ def build_server() -> Any:
                         },
                         "budget": {
                             "type": "integer",
-                            "default": 8000,
-                            "description": "Maximum token budget for the returned context.",
+                            "description": (
+                                "Optional explicit token budget override. Omit to use "
+                                "adaptive intent routing with the 8192 product ceiling."
+                            ),
                         },
                     },
                     "required": ["repo_url", "question"],
@@ -491,7 +502,8 @@ def build_server() -> Any:
         elif name == "query_repo":
             repo_url = arguments["repo_url"]
             question: str = arguments["question"]
-            budget: int = int(arguments.get("budget", 8000))
+            budget_arg = arguments.get("budget")
+            budget = int(budget_arg) if budget_arg is not None else None
             result_text = await loop.run_in_executor(
                 None, handle_query_repo, repo_url, question, budget
             )

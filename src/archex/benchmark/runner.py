@@ -102,6 +102,7 @@ def _warm_repo_index(
         source,
         task.question,
         token_budget=task.token_budget,
+        explicit_token_budget=True,
         config=config,
         index_config=index_config,
     )

@@ -154,10 +154,12 @@ class TestRunBenchmark:
             question: str,
             *,
             token_budget: int,
+            explicit_token_budget: bool,
             config: object,
             index_config: IndexConfig,
         ) -> ContextBundle:
             del config
+            del explicit_token_budget
             captured.append(index_config.embedder)
             return ContextBundle(
                 query=question,

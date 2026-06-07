@@ -230,8 +230,9 @@ def test_escape_fts_query_strips_stopwords() -> None:
     assert '"how"' not in result.lower()
     assert '"does"' not in result.lower()
     assert '"the"' not in result.lower()
+    assert '"work"' not in result.lower()
+    assert '"archex"' not in escape_fts_query("how does archex index work").lower()
     assert '"adapter"' in result
-    assert '"work"' in result
 
 
 def test_escape_fts_query_all_stopwords_returns_empty() -> None:

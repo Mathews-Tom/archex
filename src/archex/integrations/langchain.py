@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from pydantic import PrivateAttr
+
 from archex.exceptions import ArchexIndexError
 from archex.models import Config, RepoSource  # noqa: TCH001
+from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 
 if TYPE_CHECKING:
     from langchain_core.callbacks import CallbackManagerForRetrieverRun
@@ -34,12 +37,15 @@ class ArchexRetriever(_BaseRetriever):  # type: ignore[misc]
 
     repo_source: RepoSource
     config: Config | None = None
-    token_budget: int = 8192
+    token_budget: int = DEFAULT_TOKEN_BUDGET
+    _explicit_token_budget: bool = PrivateAttr(default=False)
 
     def __init__(self, **data: Any) -> None:
+        explicit_token_budget = "token_budget" in data
         if not _langchain_available:
             raise ArchexIndexError("Install langchain-core: uv add archex[langchain]")
         super().__init__(**data)
+        self._explicit_token_budget = explicit_token_budget
 
     def _get_relevant_documents(
         self,
@@ -56,6 +62,7 @@ class ArchexRetriever(_BaseRetriever):  # type: ignore[misc]
             query,
             token_budget=self.token_budget,
             config=self.config,
+            explicit_token_budget=self._explicit_token_budget,
         )
         return [
             _Document(

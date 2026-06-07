@@ -567,6 +567,7 @@ def _modules_or_raise(store: IndexStore, index_config: IndexConfig) -> list[Modu
 
 _PATH_NOISE = frozenset(
     {
+        "archex",
         "how",
         "does",
         "implement",
@@ -600,6 +601,9 @@ _PATH_TERM_EXPANSIONS: dict[str, tuple[str, ...]] = {
     "dispatch": ("dispatcher", "strategy", "worker"),
     "execute": ("worker", "runner"),
     "executing": ("worker", "runner"),
+    "index": ("cache", "config", "project", "store", "api"),
+    "pipeline": ("api", "context", "bm25", "assemble_context"),
+    "query": ("api", "context", "bm25"),
     "task": ("worker", "strategy"),
     "tasks": ("task", "worker", "strategy"),
     "runtime": ("scheduler",),
@@ -687,7 +691,16 @@ _RETRIEVAL_QUERY_EXPANSIONS: dict[str, tuple[str, ...]] = {
     "retrieval": ("search", "rank", "score", "bm25", "context"),
 }
 
-_QUERY_PIPELINE_EXPANSIONS = ("bm25", "BM25Index", "assemble_context")
+_QUERY_PIPELINE_EXPANSIONS = ("api", "bm25", "BM25Index", "assemble_context")
+_INDEX_QUERY_EXPANSIONS = (
+    "cache",
+    "config",
+    "project",
+    "store",
+    "CacheManager",
+    "ProjectState",
+    "uses_project_cache_layout",
+)
 
 
 def _expand_retrieval_question(question: str) -> str:
@@ -709,6 +722,8 @@ def _expand_retrieval_question(question: str) -> str:
 
     if {"query", "pipeline"} <= raw_terms:
         expansions.extend(_QUERY_PIPELINE_EXPANSIONS)
+    if "index" in raw_terms:
+        expansions.extend(_INDEX_QUERY_EXPANSIONS)
 
     if not expansions:
         return question
@@ -1005,24 +1020,33 @@ def _surrogate_lookup(
     return stored_by_id
 
 
-def _compute_dynamic_budget(total_repo_tokens: int, user_budget: int) -> int:
-    """Scale token budget proportional to repo size.
+def _compute_dynamic_budget(
+    total_repo_tokens: int,
+    user_budget: int,
+    intent_budget: int | None = None,
+) -> int:
+    """Scale token budget proportional to repo size and query intent.
+
+    ``user_budget`` is a hard ceiling. When intent routing supplies a lower
+    budget, that lower cap becomes the arithmetic budget unless the caller
+    marks the user budget as explicit and omits ``intent_budget``.
 
     - total ≤ budget: return total (passthrough — everything fits)
     - budget < total ≤ 3× budget: linear ramp from total down to budget
-    - total > 3× budget: return user_budget (full retrieval mode)
+    - total > 3× budget: return budget (full retrieval mode)
 
     This prevents noise inflation on small repos while preserving full
     retrieval capacity for large ones.
     """
-    if total_repo_tokens <= user_budget:
+    budget = min(user_budget, intent_budget) if intent_budget is not None else user_budget
+    if total_repo_tokens <= budget:
         return total_repo_tokens
-    cap = user_budget * 3
+    cap = budget * 3
     if total_repo_tokens >= cap:
-        return user_budget
-    # Linear interpolation: at 1× → total_repo_tokens, at 3× → user_budget
-    t = (total_repo_tokens - user_budget) / (cap - user_budget)
-    return int(total_repo_tokens * (1.0 - t) + user_budget * t)
+        return budget
+    # Linear interpolation: at 1× → total_repo_tokens, at 3× → budget
+    t = (total_repo_tokens - budget) / (cap - budget)
+    return int(total_repo_tokens * (1.0 - t) + budget * t)
 
 
 def _total_chunk_tokens(chunks: list[CodeChunk]) -> int:
@@ -1143,6 +1167,7 @@ def query(
     chunker: Chunker | None = None,
     timing: PipelineTiming | None = None,
     trace: PipelineTrace | None = None,
+    explicit_token_budget: bool = False,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -1157,6 +1182,9 @@ def query(
     if index_config is None:
         index_config = load_index_config(source)
     _bootstrap_plugins()
+    from archex.serve.intent import token_budget_for_query
+
+    intent_budget = None if explicit_token_budget else token_budget_for_query(question)
 
     t0 = time.perf_counter()
     if trace is not None:
@@ -1191,7 +1219,11 @@ def query(
                 chunk_count = (
                     int(stored_count) if stored_count is not None else len(store.get_chunks())
                 )
-                effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget)
+                effective_budget = _compute_dynamic_budget(
+                    total_repo_tokens,
+                    token_budget,
+                    intent_budget,
+                )
 
                 # Passthrough: entire repo fits within budget
                 if effective_budget >= total_repo_tokens:
@@ -1352,6 +1384,7 @@ def query(
                     trace=trace,
                     avg_idf=query_avg_idf,
                     reranker=_reranker,
+                    apply_intent_budget=False,
                 )
                 bundle.retrieval_metadata.vector_mode = index_config.vector_mode
                 bundle.retrieval_metadata.surrogate_version = (
@@ -1447,7 +1480,7 @@ def query(
         logger.info("Chunked into %d chunks in %.0fms", len(all_chunks), _elapsed_ms(t4))
 
         total_repo_tokens = _total_chunk_tokens(all_chunks)
-        effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget)
+        effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget, intent_budget)
 
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
@@ -1686,6 +1719,7 @@ def query(
                 trace=trace,
                 avg_idf=query_avg_idf_miss,
                 reranker=_reranker_miss,
+                apply_intent_budget=False,
             )
             bundle.retrieval_metadata.vector_mode = index_config.vector_mode
             bundle.retrieval_metadata.surrogate_version = (

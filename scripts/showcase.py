@@ -395,7 +395,7 @@ def run_batch_symbols(source: RepoSource, r: ShowcaseResults) -> float:
 def run_query_cold(source: RepoSource, budget: int, r: ShowcaseResults) -> float:
     question = "What are the main entry points and how is the codebase structured?"
     t0 = time.perf_counter()
-    bundle = query(source, question, token_budget=budget)
+    bundle = query(source, question, token_budget=budget, explicit_token_budget=True)
     elapsed = time.perf_counter() - t0
     r.cold_bundle = bundle
     r.cold_elapsed = elapsed
@@ -425,7 +425,7 @@ def run_query_cold(source: RepoSource, budget: int, r: ShowcaseResults) -> float
 def run_query_warm(source: RepoSource, budget: int, r: ShowcaseResults) -> float:
     question = "How does error handling work across the codebase?"
     t0 = time.perf_counter()
-    bundle = query(source, question, token_budget=budget)
+    bundle = query(source, question, token_budget=budget, explicit_token_budget=True)
     elapsed = time.perf_counter() - t0
     r.warm_bundle = bundle
     r.warm_elapsed = elapsed

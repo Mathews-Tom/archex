@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from archex.api import (
+    _compute_dynamic_budget,  # pyright: ignore[reportPrivateUsage]
     _compute_top_k,  # pyright: ignore[reportPrivateUsage]
     _compute_vector_top_k,  # pyright: ignore[reportPrivateUsage]
     analyze,
@@ -134,6 +135,10 @@ class TestQueryEndToEnd:
         )
 
         assert bundle.token_count <= budget
+
+    def test_dynamic_budget_uses_intent_cap_unless_budget_is_explicit(self) -> None:
+        assert _compute_dynamic_budget(50_000, 8192, 2048) == 2048
+        assert _compute_dynamic_budget(50_000, 8192, None) == 8192
 
     def test_query_with_custom_scoring_weights(self, python_simple_repo: Path) -> None:
         source = RepoSource(local_path=str(python_simple_repo))
