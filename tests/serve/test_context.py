@@ -129,6 +129,24 @@ def test_architecture_query_keeps_large_intent_budget() -> None:
     assert bundle.token_budget == INTENT_TOKEN_BUDGETS[QueryIntent.ARCHITECTURE_BROAD]
 
 
+def test_underfilled_bundle_continues_below_score_floor() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("src/query_pipeline.py")
+    high = make_chunk("high", "src/query_pipeline.py", token_count=100)
+    low = make_chunk("low", "src/query_pipeline.py", token_count=100)
+
+    bundle = assemble_context(
+        [(high, 1.0), (low, 0.01)],
+        graph,
+        [high, low],
+        "How does the query pipeline work?",
+        token_budget=1000,
+    )
+
+    assert [rc.chunk.id for rc in bundle.chunks] == ["high", "low"]
+    assert bundle.token_count == 200
+
+
 def test_truncated_flag_when_budget_exceeded() -> None:
     graph = DependencyGraph()
     graph.add_file_node("a.py")
@@ -885,7 +903,11 @@ def test_entry_point_boost_ranks_mod_rs_higher() -> None:
     leaf_chunk = make_chunk("c_leaf", "src/runtime/scheduler/current_thread.rs", token_count=10)
     results = [(mod_chunk, 1.0), (leaf_chunk, 1.0)]
     bundle = assemble_context(
-        results, graph, [mod_chunk, leaf_chunk], "how does the runtime work?", token_budget=1000
+        results,
+        graph,
+        [mod_chunk, leaf_chunk],
+        "how does the execution model work?",
+        token_budget=1000,
     )
     scores = {rc.chunk.file_path: rc.final_score for rc in bundle.chunks}
     assert scores["src/runtime/mod.rs"] > scores["src/runtime/scheduler/current_thread.rs"]
@@ -941,18 +963,68 @@ def test_directory_alignment_boosts_matching_path() -> None:
     assert scores["lib/router/route.js"] > scores["lib/application.js"]
 
 
-def test_directory_alignment_no_boost_without_match() -> None:
-    """No directory boost when query terms don't match any directory."""
-    from archex.serve.context import _directory_alignment_boost  # pyright: ignore[reportPrivateUsage]
+def test_path_alignment_no_boost_without_match() -> None:
+    """No path boost when query terms don't match the file path."""
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
 
-    assert _directory_alignment_boost("lib/utils/helpers.py", {"router", "middleware"}) == 1.0
+    assert _path_alignment_boost("lib/utils/helpers.py", {"router", "middleware"}) == 1.0
 
 
-def test_directory_alignment_matches_query_term() -> None:
-    """Directory matching returns 1.2 boost."""
-    from archex.serve.context import _directory_alignment_boost  # pyright: ignore[reportPrivateUsage]
+def test_path_alignment_matches_query_term_in_directory() -> None:
+    """Directory matching returns a path-alignment boost."""
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
 
-    assert _directory_alignment_boost("lib/router/index.js", {"router"}) == 1.2
+    assert _path_alignment_boost("lib/router/index.js", {"router"}) == 1.35
+
+
+def test_path_alignment_matches_query_term_in_filename() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+
+    assert _path_alignment_boost("src/archex/cli/index_cmd.py", {"index"}) == 1.35
+
+
+def test_query_terms_expand_query_pipeline_to_bm25_context_signals() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex implement the query pipeline?")
+    assert {"bm25", "context", "rank", "score"} <= terms
+
+
+def test_query_terms_expand_index_to_cache_project_signals() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex explicitly build or refresh a repo-local index?")
+    assert {"cache", "config", "project", "store"} <= terms
+
+
+def test_query_terms_drop_repo_name_noise() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    assert "archex" not in _query_terms("How does archex implement the query pipeline?")
+
+
+def test_type_alignment_requires_query_overlap_for_general_queries() -> None:
+    from archex.serve.context import _type_alignment_score  # pyright: ignore[reportPrivateUsage]
+
+    chunk = make_chunk(
+        "c_type",
+        "src/archex/models.py",
+        symbol_kind=SymbolKind.CLASS,
+        symbol_name="Visibility",
+    )
+    assert _type_alignment_score(chunk, {"query", "pipeline"}, definition_lookup=False) == 0.0
+
+
+def test_type_alignment_keeps_definition_lookup_bonus() -> None:
+    from archex.serve.context import _type_alignment_score  # pyright: ignore[reportPrivateUsage]
+
+    chunk = make_chunk(
+        "c_type",
+        "src/archex/models.py",
+        symbol_kind=SymbolKind.CLASS,
+        symbol_name="Visibility",
+    )
+    assert _type_alignment_score(chunk, {"visibility"}, definition_lookup=True) == 0.5
 
 
 # ---------------------------------------------------------------------------

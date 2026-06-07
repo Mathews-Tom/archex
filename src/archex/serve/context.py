@@ -48,6 +48,8 @@ NEIGHBOR_IMPORT_TARGET_DECAY = 0.65
 NEIGHBOR_IMPORTER_DECAY = 0.35
 
 MIN_SCORE_RATIO = 0.30
+MIN_BUDGET_FILL_RATIO = 0.50
+
 
 MAX_EXPANSION_FILES = 8
 
@@ -157,6 +159,7 @@ def passthrough_context(
 
 _QUERY_STOP = frozenset(
     {
+        "archex",
         "how",
         "does",
         "implement",
@@ -196,15 +199,26 @@ _QUERY_STOP = frozenset(
 # These expand BM25 misses caused by vocabulary gaps between natural-language queries
 # and the actual identifiers/comments in source files.
 _ARCH_SYNONYMS: dict[str, list[str]] = {
-    "pipeline": ["workflow", "chain", "process", "pipe", "stage"],
+    "pipeline": ["workflow", "chain", "process", "pipe", "stage", "assembly", "context"],
     "middleware": ["handler", "interceptor", "filter", "hook"],
     "registry": ["register", "catalog", "factory", "provider"],
     "adapter": ["plugin", "connector", "driver", "bridge"],
     "injection": ["inject", "resolve", "depend", "wire"],
     "routing": ["route", "router", "dispatch", "endpoint", "path"],
-    "indexing": ["index", "reindex", "delta", "catalog"],
+    "index": ["indexing", "indexed", "cache", "config", "project", "store", "build"],
+    "indexing": ["index", "indexed", "delta", "catalog", "cache", "store"],
     "dependency": ["depend", "resolve", "inject", "require"],
-    "query": ["search", "retrieve", "lookup", "find", "fetch"],
+    "query": [
+        "search",
+        "retrieve",
+        "retrieval",
+        "lookup",
+        "find",
+        "fetch",
+        "bm25",
+        "rank",
+        "score",
+    ],
     "session": ["connection", "pool", "client", "transport"],
     "hook": ["callback", "listener", "subscriber", "event"],
     "orm": ["model", "schema", "mapper", "table", "entity"],
@@ -323,22 +337,58 @@ def _is_entry_point(file_path: str) -> bool:
     return basename in _ENTRY_POINT_NAMES
 
 
-def _directory_alignment_boost(file_path: str, query_terms: set[str]) -> float:
-    """Return a multiplier >1.0 when the file's directory path matches query terms.
-
-    If the query mentions "router" and the file lives under ``lib/router/``,
-    this returns 1.2.  Stacks once — multiple directory matches don't compound.
-    """
-    parts = file_path.lower().rsplit("/", 1)
-    if len(parts) < 2:
+def _path_alignment_boost(file_path: str, query_terms: set[str]) -> float:
+    """Return a multiplier >1.0 when a file path matches query terms."""
+    lower_path = file_path.lower()
+    parts = lower_path.rsplit("/", 1)
+    dir_path = parts[0] if len(parts) == 2 else ""
+    basename = parts[-1]
+    stem = basename.rsplit(".", 1)[0]
+    path_terms = {segment for segment in dir_path.replace("-", "_").split("/") if len(segment) >= 3}
+    path_terms.update(
+        part for token in stem.replace("-", "_").split("_") for part in _split_compound_token(token)
+    )
+    path_terms = {term.lower() for term in path_terms if len(term) >= 3}
+    if not (path_terms & query_terms):
         return 1.0
-    dir_path = parts[0]
-    dir_segments = {seg for seg in dir_path.split("/") if len(seg) >= 3}
-    if dir_segments & query_terms:
-        if "cli" in dir_segments and "cli" in query_terms:
-            return 1.6
-        return 1.2
-    return 1.0
+    if "cli" in path_terms and "cli" in query_terms:
+        return 1.6
+    return 1.35
+
+
+def _type_alignment_score(
+    chunk: CodeChunk,
+    query_terms: set[str],
+    *,
+    definition_lookup: bool,
+) -> float:
+    if chunk.symbol_kind not in _TYPE_LIKE:
+        return 0.0
+    if definition_lookup:
+        return 0.5
+    symbol_parts: set[str] = set()
+    if chunk.symbol_name:
+        symbol_parts.update(part.lower() for part in _split_compound_token(chunk.symbol_name))
+    path_lower = chunk.file_path.lower()
+    if symbol_parts & query_terms or any(term in path_lower for term in query_terms):
+        return 0.5
+    return 0.0
+
+
+def _aggregate_file_scores(ranked: list[RankedChunk]) -> dict[str, float]:
+    per_file: dict[str, list[float]] = {}
+    for rc in ranked:
+        per_file.setdefault(rc.chunk.file_path, []).append(rc.final_score)
+
+    aggregated: dict[str, float] = {}
+    for file_path, scores in per_file.items():
+        total = 0.0
+        weight = 1.0
+        for score in sorted(scores, reverse=True):
+            total += score * weight
+            weight *= 0.5
+        aggregated[file_path] = total
+    return aggregated
 
 
 def _normalized_scores(results: list[tuple[CodeChunk, float]]) -> dict[str, float]:
@@ -710,7 +760,11 @@ def assemble_context(
     file_to_module = _file_to_module(modules)
 
     q_terms = _query_terms(question)
-    alignment_terms = {QueryIntent.CLI.value} if intent == QueryIntent.CLI else q_terms
+    alignment_terms = (
+        {QueryIntent.CLI.value}
+        if intent == QueryIntent.CLI
+        else {term for term in q_terms if term not in _ARCH_KEYWORDS} or q_terms
+    )
 
     # Determine whether this is an architecture query (enables 2-hop expansion)
     is_arch_query = _is_architecture_query(question)
@@ -948,7 +1002,11 @@ def assemble_context(
     for chunk in candidate_map.values():
         relevance = bm25_by_id.get(chunk.id, 0.0) or neighbor_boost.get(chunk.file_path, 0.0)
         structural = centrality.get(chunk.file_path, 0.0)
-        type_coverage = 0.5 if chunk.symbol_kind in _TYPE_LIKE else 0.0
+        type_coverage = _type_alignment_score(
+            chunk,
+            alignment_terms,
+            definition_lookup=intent == QueryIntent.DEFINITION_LOOKUP,
+        )
 
         # Cohesion signal: proportion of co-module files present * module cohesion
         cohesion = 0.0
@@ -965,7 +1023,7 @@ def assemble_context(
         entry_boost = _ENTRY_POINT_BOOST if _is_entry_point(chunk.file_path) else 1.0
 
         # Directory-path alignment: files under directories matching query terms
-        dir_boost = _directory_alignment_boost(chunk.file_path, alignment_terms)
+        path_boost = _path_alignment_boost(chunk.file_path, alignment_terms)
 
         final = (
             (
@@ -976,7 +1034,7 @@ def assemble_context(
             )
             * test_penalty
             * entry_boost
-            * dir_boost
+            * path_boost
         )
         ranked.append(
             RankedChunk(
@@ -993,14 +1051,10 @@ def assemble_context(
 
     # File-level ranking: aggregate per-file scores, apply score-relative cutoff,
     # then hard-cap at adaptive MAX_FILES to limit tail noise.
-    # Aggregate per-file score as the sum of its chunk scores: a file with
-    # several relevant chunks outranks one with a single strong match. Max-based
-    # aggregation under-ranks large multi-chunk files and regresses recall on
-    # framework-heavy repos — do not switch back to max.
-    file_agg: dict[str, float] = {}
-    for rc in ranked:
-        fp = rc.chunk.file_path
-        file_agg[fp] = file_agg.get(fp, 0.0) + rc.final_score
+    # Use diminishing returns per file so one noisy file with many moderately
+    # relevant chunks does not swamp a file with one or two highly relevant
+    # chunks. The strongest chunk keeps full weight; each later chunk halves.
+    file_agg = _aggregate_file_scores(ranked)
     sorted_files = sorted(file_agg.items(), key=lambda x: -x[1])
     top_file_score = sorted_files[0][1] if sorted_files else 0.0
     score_cutoff = top_file_score * _file_score_cutoff_ratio(
@@ -1017,18 +1071,32 @@ def assemble_context(
         "edges",
     }:
         adaptive_max = min(adaptive_max, 4)
-    for fp, score in sorted_files[:adaptive_max]:
+    aligned_files = {
+        fp for fp, _score in sorted_files if _path_alignment_boost(fp, alignment_terms) > 1.0
+    }
+    for fp, _score in sorted_files:
+        if fp not in aligned_files:
+            continue
+        top_files.add(fp)
+        if len(top_files) >= adaptive_max:
+            break
+    for fp, score in sorted_files:
+        if fp in top_files:
+            continue
         if score < score_cutoff:
             break
         top_files.add(fp)
+        if len(top_files) >= adaptive_max:
+            break
     ranked = [rc for rc in ranked if rc.chunk.file_path in top_files]
 
     # Greedy bin-packing within token budget with score cutoff
     included: list[RankedChunk] = []
     total_tokens = 0
     score_floor = ranked[0].final_score * MIN_SCORE_RATIO if ranked else 0.0
+    min_fill_tokens = int(token_budget * MIN_BUDGET_FILL_RATIO)
     for rc in ranked:
-        if rc.final_score < score_floor:
+        if rc.final_score < score_floor and total_tokens >= min_fill_tokens:
             break
         tokens = estimate_tokens(rc.chunk)
         if total_tokens + tokens > token_budget:

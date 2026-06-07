@@ -248,6 +248,14 @@ def test_token_budget_for_query_uses_detected_intent() -> None:
     )
 
 
+def test_behavioral_framework_query_is_not_symbol_lookup() -> None:
+    assert classify_intent("How does SQLAlchemy manage sessions?") == QueryIntent.GENERAL
+    assert (
+        token_budget_for_query("How does SQLAlchemy manage sessions?")
+        == INTENT_TOKEN_BUDGETS[QueryIntent.GENERAL]
+    )
+
+
 def test_architecture_weights_higher_structural() -> None:
     # Arrange
     arch_weights = INTENT_WEIGHTS[QueryIntent.ARCHITECTURE_BROAD]

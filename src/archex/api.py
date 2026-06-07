@@ -567,6 +567,7 @@ def _modules_or_raise(store: IndexStore, index_config: IndexConfig) -> list[Modu
 
 _PATH_NOISE = frozenset(
     {
+        "archex",
         "how",
         "does",
         "implement",
@@ -600,6 +601,9 @@ _PATH_TERM_EXPANSIONS: dict[str, tuple[str, ...]] = {
     "dispatch": ("dispatcher", "strategy", "worker"),
     "execute": ("worker", "runner"),
     "executing": ("worker", "runner"),
+    "index": ("cache", "config", "project", "store", "api"),
+    "pipeline": ("api", "context", "bm25", "assemble_context"),
+    "query": ("api", "context", "bm25"),
     "task": ("worker", "strategy"),
     "tasks": ("task", "worker", "strategy"),
     "runtime": ("scheduler",),
@@ -687,7 +691,16 @@ _RETRIEVAL_QUERY_EXPANSIONS: dict[str, tuple[str, ...]] = {
     "retrieval": ("search", "rank", "score", "bm25", "context"),
 }
 
-_QUERY_PIPELINE_EXPANSIONS = ("bm25", "BM25Index", "assemble_context")
+_QUERY_PIPELINE_EXPANSIONS = ("api", "bm25", "BM25Index", "assemble_context")
+_INDEX_QUERY_EXPANSIONS = (
+    "cache",
+    "config",
+    "project",
+    "store",
+    "CacheManager",
+    "ProjectState",
+    "uses_project_cache_layout",
+)
 
 
 def _expand_retrieval_question(question: str) -> str:
@@ -709,6 +722,8 @@ def _expand_retrieval_question(question: str) -> str:
 
     if {"query", "pipeline"} <= raw_terms:
         expansions.extend(_QUERY_PIPELINE_EXPANSIONS)
+    if "index" in raw_terms:
+        expansions.extend(_INDEX_QUERY_EXPANSIONS)
 
     if not expansions:
         return question

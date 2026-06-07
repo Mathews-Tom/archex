@@ -121,6 +121,22 @@ _CLI_PATTERNS = [
 ]
 
 
+_BEHAVIORAL_PREFIX_RE = re.compile(
+    r"^\s*(?:how\s+does|how\s+do|how\s+is|how\s+are|explain|describe)\b"
+)
+
+
+def _is_behavioral_query(question: str) -> bool:
+    return _BEHAVIORAL_PREFIX_RE.search(question.lower()) is not None
+
+
+def _is_short_symbol_behavioral_query(question: str, identifiers: list[str]) -> bool:
+    tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", question)
+    generic = {"how", "does", "work", "explain", "describe"}
+    content_tokens = [token for token in tokens if token.lower() not in generic]
+    return len(content_tokens) <= len(identifiers)
+
+
 def classify_intent(question: str) -> QueryIntent:
     """Classify a search query into an intent bucket for scoring weight routing.
 
@@ -166,10 +182,19 @@ def classify_intent(question: str) -> QueryIntent:
 
     # Identifier heuristic: classify as definition lookup when query is dominated
     # by CamelCase/snake_case/dotted identifiers (symbol-targeted queries with no
-    # other structural signals)
+    # other structural signals). Behavioral "how/explain/describe" questions can
+    # contain framework identifiers ("SQLAlchemy", "FastAPI") without asking for
+    # that symbol's definition.
     identifiers = _IDENTIFIER_RE.findall(question)  # case-sensitive search
     words = question.split()
-    if identifiers and len(identifiers) >= len(words) * 0.20:
+    if (
+        identifiers
+        and (
+            not _is_behavioral_query(question)
+            or _is_short_symbol_behavioral_query(question, identifiers)
+        )
+        and len(identifiers) >= len(words) * 0.20
+    ):
         return QueryIntent.DEFINITION_LOOKUP
 
     # Architecture broad: how does, pipeline, middleware, overview
