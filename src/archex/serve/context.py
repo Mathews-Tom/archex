@@ -285,7 +285,9 @@ def _query_terms(question: str) -> set[str]:
     # every generic "query" question look like BM25 internals.
     question_lower = question.lower()
     if "query pipeline" in question_lower:
-        expanded.update({"search", "retrieve", "retrieval", "lookup", "bm25", "rank", "score"})
+        expanded.update(
+            {"api", "search", "retrieve", "retrieval", "lookup", "bm25", "rank", "score"}
+        )
     if "mcp" in expanded:
         expanded.update({"api", "context", "mcp_cmd", "model", "models"})
     if "query" in expanded and "cache" in expanded:

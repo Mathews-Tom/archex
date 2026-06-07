@@ -1049,7 +1049,15 @@ def test_query_terms_expand_query_pipeline_to_bm25_context_signals() -> None:
     from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
 
     terms = _query_terms("How does archex implement the query pipeline?")
-    assert {"bm25", "context", "rank", "score"} <= terms
+    assert {"api", "bm25", "context", "rank", "score"} <= terms
+
+
+def test_query_pipeline_terms_boost_api_path() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does archex implement the query pipeline?")
+    assert _path_alignment_boost("src/archex/api.py", terms) == 2.0
 
 
 def test_query_terms_expand_index_to_cache_project_signals() -> None:
