@@ -41,6 +41,39 @@ class TestAvailableStrategies:
         assert Strategy.ARCHEX_SYMBOL_LOOKUP not in AVAILABLE_STRATEGIES
 
 
+class TestBenchmarkPreflight:
+    def test_warms_configured_rerank_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from archex.benchmark.preflight import warm_benchmark_models
+
+        warmed_models: list[str] = []
+
+        class RecordingEmbedder:
+            dimension = 768
+
+        class RecordingReranker:
+            def __init__(self, model_name: str) -> None:
+                self._model_name = model_name
+
+            def warm(self) -> None:
+                warmed_models.append(self._model_name)
+
+        def create_embedder(_index_config: object) -> RecordingEmbedder:
+            return RecordingEmbedder()
+
+        from archex.index.embeddings import default_embedder_registry
+
+        monkeypatch.setattr(default_embedder_registry, "load_entry_points", lambda: None)
+        monkeypatch.setattr(default_embedder_registry, "create", create_embedder)
+        monkeypatch.setattr("archex.index.rerank.CrossEncoderReranker", RecordingReranker)
+        warmed = warm_benchmark_models(
+            [Strategy.ARCHEX_QUERY_FUSION_RERANK],
+            BenchmarkRetrievalOptions(rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2"),
+        )
+
+        assert warmed_models == ["cross-encoder/ms-marco-MiniLM-L-6-v2"]
+        assert warmed == ["jina-v2", "cross-encoder/ms-marco-MiniLM-L-6-v2"]
+
+
 class TestRunBenchmark:
     def test_run_with_fixture_repo(
         self,
@@ -375,11 +408,16 @@ class TestRunBenchmark:
         assert benchmark_cache_enabled(default=False) is False
 
         token = set_benchmark_retrieval_options(
-            BenchmarkRetrievalOptions(splade=True, module_prefilter=True)
+            BenchmarkRetrievalOptions(
+                splade=True,
+                module_prefilter=True,
+                rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            )
         )
         try:
             bm25_config = benchmark_index_config(IndexConfig(vector=True))
             vector_config = benchmark_index_config(IndexConfig(bm25=False, vector=True))
+            rerank_config = benchmark_index_config(IndexConfig(vector=True, rerank=True))
             cache_enabled = benchmark_cache_enabled(default=False)
         finally:
             reset_benchmark_retrieval_options(token)
@@ -389,7 +427,10 @@ class TestRunBenchmark:
         assert vector_config.splade is True
         assert vector_config.module_prefilter is False
         assert bm25_config.embedder == "jina-v2"
+        assert bm25_config.rerank_model is None
         assert vector_config.embedder == "jina-v2"
+        assert vector_config.rerank_model is None
+        assert rerank_config.rerank_model == "cross-encoder/ms-marco-MiniLM-L-6-v2"
         assert cache_enabled is True
 
 

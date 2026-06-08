@@ -29,3 +29,27 @@ uv run archex benchmark run --query-fusion --rerank --embedder coderank --tasks-
 uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
 uv run archex benchmark readiness --input .archex/e2e-coderank --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
 ```
+
+## Reranker decision
+
+Candidate rerankers:
+
+| Candidate | Benchmark flag | Decision role |
+| --- | --- | --- |
+| Jina reranker v3 on detected device | omit `--rerank-model` | Current default reranker |
+| MiniLM cross-encoder | `--rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2` | Lighter fallback if Jina exceeds the p95 budget |
+
+Keep the highest-quality reranker that holds p95 latency at or below `3000 ms` on the operator's hardware. Evaluate Jina first with MPS device selection; use the MiniLM fallback only if Jina remains over budget.
+
+Before comparing reranker p95, run the Jina command once as a cache warm-up and discard that output, then rerun both candidates against the warmed index cache.
+
+Operator commands:
+
+```bash
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --tasks-dir benchmarks/tasks --output .archex/e2e-rerank-jina
+uv run archex benchmark readiness --input .archex/e2e-rerank-jina --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
+uv run archex benchmark gate --input .archex/e2e-rerank-jina --warn-latency-ms 3000
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2 --tasks-dir benchmarks/tasks --output .archex/e2e-rerank-minilm
+uv run archex benchmark readiness --input .archex/e2e-rerank-minilm --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
+uv run archex benchmark gate --input .archex/e2e-rerank-minilm --warn-latency-ms 3000
+```

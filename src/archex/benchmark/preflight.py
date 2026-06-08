@@ -47,7 +47,8 @@ def warm_benchmark_models(
     if Strategy.ARCHEX_QUERY_FUSION_RERANK in strategies:
         from archex.index.rerank import DEFAULT_MODEL, CrossEncoderReranker
 
-        CrossEncoderReranker().warm()
-        warmed.append(DEFAULT_MODEL)
+        rerank_model = retrieval_options.rerank_model or DEFAULT_MODEL
+        CrossEncoderReranker(model_name=rerank_model).warm()
+        warmed.append(rerank_model)
 
     return warmed

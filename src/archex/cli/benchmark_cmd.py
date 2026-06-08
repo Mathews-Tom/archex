@@ -115,6 +115,11 @@ def benchmark_cmd() -> None:
     help="Embedder to pin across every vector-backed benchmark strategy.",
 )
 @click.option(
+    "--rerank-model",
+    default=None,
+    help="Cross-encoder model to use for the fusion+rerank benchmark strategy.",
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -137,6 +142,7 @@ def run_cmd(
     splade: bool,
     module_prefilter: bool,
     embedder: str,
+    rerank_model: str | None,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -160,6 +166,7 @@ def run_cmd(
         splade=splade,
         module_prefilter=module_prefilter,
         embedder=embedder,
+        rerank_model=rerank_model,
     )
     warmed_models = warm_benchmark_models(strategies, retrieval_options)
     if warmed_models:
