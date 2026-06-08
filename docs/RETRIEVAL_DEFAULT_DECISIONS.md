@@ -53,3 +53,22 @@ uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --rerank-
 uv run archex benchmark readiness --input .archex/e2e-rerank-minilm --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
 uv run archex benchmark gate --input .archex/e2e-rerank-minilm --warn-latency-ms 3000
 ```
+
+## Product strategy decision
+
+Candidate product defaults:
+
+| Candidate | Meaning | Decision role |
+| --- | --- | --- |
+| `archex_query` | Current BM25 + graph product path | Default to keep unless beaten on the full frontier |
+| `archex_query_fusion_rerank` | BM25 + vector fusion + cross-encoder rerank | Candidate only if quality and latency both clear the rule |
+
+Switch to `archex_query_fusion_rerank` only if the clean warm run shows mean F1 at least `0.05` higher than `archex_query`, token efficiency at least as high as `archex_query`, and p95 latency at or below `3000 ms`. If the rule does not pass, keep `archex_query` as the product default.
+
+Operator commands:
+
+```bash
+uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmarks/tasks --strategy archex_query --format markdown
+uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
+uv run archex benchmark gate --input .archex/e2e-jina --baseline .archex/e2e-tier2 --warn-latency-ms 3000
+```
