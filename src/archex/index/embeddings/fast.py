@@ -12,6 +12,9 @@ from archex.exceptions import ArchexIndexError
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+_MODEL_DIMENSIONS = {
+    _DEFAULT_MODEL: 384,
+}
 
 
 class FastEmbedder:
@@ -31,7 +34,7 @@ class FastEmbedder:
         self._model_name = model_name
         self._batch_size = batch_size
         self._model: Any = None
-        self._dimension: int | None = None
+        self._dimension: int | None = _MODEL_DIMENSIONS.get(model_name)
 
     def _load_model(self) -> None:
         if self._model is not None:
@@ -53,6 +56,10 @@ class FastEmbedder:
             self._model_name,
             self._dimension,
         )
+
+    def warm(self) -> None:
+        """Load the fastembed model before latency-sensitive work starts."""
+        self._load_model()
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         self._load_model()

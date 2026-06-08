@@ -73,6 +73,35 @@ class TestBenchmarkPreflight:
         assert warmed_models == ["cross-encoder/ms-marco-MiniLM-L-6-v2"]
         assert warmed == ["jina-v2", "cross-encoder/ms-marco-MiniLM-L-6-v2"]
 
+    def test_warms_embedder_with_explicit_warm_method(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from archex.benchmark.preflight import warm_benchmark_models
+
+        warmed_embedders: list[str] = []
+
+        class RecordingEmbedder:
+            dimension = 768
+
+            def warm(self) -> None:
+                warmed_embedders.append("coderank")
+
+        def create_embedder(_index_config: object) -> RecordingEmbedder:
+            return RecordingEmbedder()
+
+        from archex.index.embeddings import default_embedder_registry
+
+        monkeypatch.setattr(default_embedder_registry, "load_entry_points", lambda: None)
+        monkeypatch.setattr(default_embedder_registry, "create", create_embedder)
+
+        warmed = warm_benchmark_models(
+            [Strategy.ARCHEX_QUERY_FUSION],
+            BenchmarkRetrievalOptions(embedder="coderank"),
+        )
+
+        assert warmed_embedders == ["coderank"]
+        assert warmed == ["coderank"]
+
 
 class TestRunBenchmark:
     def test_run_with_fixture_repo(

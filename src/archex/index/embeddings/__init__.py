@@ -72,28 +72,35 @@ class EmbedderRegistry:
     def __init__(self) -> None:
         self._factories: dict[str, EmbedderFactory] = {}
         self._entry_points_loaded: bool = False
+        self._instances: dict[str, Embedder] = {}
         self._entry_points_strict: bool = False
 
     def register(self, name: str, factory: EmbedderFactory) -> None:
         """Register an embedder factory by name."""
         self._factories[name] = factory
+        self._instances.pop(name, None)
 
     def get(self, name: str) -> EmbedderFactory | None:
         """Return the factory for an embedder name, or None."""
         return self._factories.get(name)
 
     def create(self, index_config: IndexConfig) -> Embedder | None:
-        """Create an embedder from index_config.
+        """Return a cached embedder for index_config.
 
         Returns None when no embedder is configured.
         Raises ConfigError for unknown embedder names.
         """
         if not index_config.embedder:
             return None
+        cached = self._instances.get(index_config.embedder)
+        if cached is not None:
+            return cached
         factory = self._factories.get(index_config.embedder)
         if factory is None:
             raise ConfigError(f"Unknown embedder: {index_config.embedder!r}")
-        return factory()
+        embedder = factory()
+        self._instances[index_config.embedder] = embedder
+        return embedder
 
     def load_entry_points(
         self,
@@ -108,6 +115,7 @@ class EmbedderRegistry:
             try:
                 factory = ep.load()
                 self._factories[ep.name] = factory
+                self._instances.pop(ep.name, None)
                 logger.info("Loaded embedder %s from entry point", ep.name)
             except (ImportError, AttributeError, TypeError, ValueError) as exc:
                 if strict:

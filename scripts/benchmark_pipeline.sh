@@ -29,6 +29,7 @@ run_step() {
     fi
 
     echo
+    printf -- '=+%.0s' {1..25}
     echo "===== $(date '+%Y-%m-%d %H:%M:%S') : Starting \"$label\" ====="
     echo "Command: $cmd"
 
@@ -48,6 +49,8 @@ run_step() {
         echo "===== $(date '+%Y-%m-%d %H:%M:%S') : FAILED \"$label\" (exit $status) ====="
     fi
     echo "===== Time taken: $(format_duration "$duration") ====="
+    printf -- '=+%.0s' {1..25}
+    echo
     return "$status"
 }
 

@@ -293,7 +293,7 @@ archex gives AI agents structural priors about codebases they have not seen. A p
 ## Performance and gates
 
 archex optimizes the amount of context the downstream agent must read, not recall alone. Benchmark reports track recall, precision, F1, MRR, NDCG, MAP, latency, returned tokens, raw-file baselines, and token efficiency (`1 − returned_tokens / accessed_file_tokens`, higher is better).
-Default embedder, reranker, and strategy switches are evidence-gated in `docs/RETRIEVAL_DEFAULT_DECISIONS.md`; the product default stays unchanged until the clean warm-cache frontier satisfies those rules.
+Default embedder, reranker, and strategy switches are evidence-gated in `docs/RETRIEVAL_DEFAULT_DECISIONS.md`; the 2026-06-09 retrieval-default run kept `archex_query` as the product default and did not refresh `benchmarks/dogfood_baseline.json`.
 
 Latest local 35-task benchmark, compared with the previous accepted baseline:
 

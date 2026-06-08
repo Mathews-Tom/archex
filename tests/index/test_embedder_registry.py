@@ -34,6 +34,35 @@ class TestEmbedderRegistry:
         assert emb is not None
         assert isinstance(emb, Embedder)
 
+    def test_create_reuses_embedder_instance(self) -> None:
+        call_count = 0
+
+        def factory() -> Embedder:
+            nonlocal call_count
+            call_count += 1
+            return _fake_factory()
+
+        reg = EmbedderRegistry()
+        reg.register("test_emb", factory)
+        config = IndexConfig(vector=True, embedder="test_emb")
+
+        first = reg.create(config)
+        second = reg.create(config)
+
+        assert first is second
+        assert call_count == 1
+
+    def test_register_replaces_cached_embedder_instance(self) -> None:
+        reg = EmbedderRegistry()
+        reg.register("test_emb", _fake_factory)
+        config = IndexConfig(vector=True, embedder="test_emb")
+        first = reg.create(config)
+
+        reg.register("test_emb", _fake_factory)
+        second = reg.create(config)
+
+        assert first is not second
+
     def test_create_unknown_raises_config_error(self) -> None:
         reg = EmbedderRegistry()
         config = IndexConfig(vector=True, embedder="unknown")
