@@ -261,6 +261,7 @@ class TestRunCommand:
         assert "--self-only" in result.output
         assert "--no-progress" in result.output
         assert "--embedder" in result.output
+        assert "--rerank-model" in result.output
 
     def test_run_uses_default_strategies_without_flags(
         self,
@@ -420,6 +421,38 @@ class TestRunCommand:
         result = runner.invoke(benchmark_cmd, ["run", "--embedder", "coderank"])
         assert result.exit_code == 0
         assert captured["retrieval_options"] == BenchmarkRetrievalOptions(embedder="coderank")
+
+    def test_run_passes_rerank_model_flag(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter, self_only, progress, tasks
+            captured["retrieval_options"] = retrieval_options
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(
+            benchmark_cmd,
+            ["run", "--rerank-model", "cross-encoder/ms-marco-MiniLM-L-6-v2"],
+        )
+        assert result.exit_code == 0
+        assert captured["retrieval_options"] == BenchmarkRetrievalOptions(
+            rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2"
+        )
 
     def test_run_preflights_models_before_loading_tasks(
         self,

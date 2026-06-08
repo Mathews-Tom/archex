@@ -59,6 +59,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     splade: bool = False
     module_prefilter: bool = False
     embedder: str = "jina-v2"
+    rerank_model: str | None = None
 
 
 class BenchmarkResult(BaseModel):
