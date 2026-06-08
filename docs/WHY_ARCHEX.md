@@ -485,7 +485,7 @@ archex is Apache 2.0 licensed. Contributions welcome.
 git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
-uv run pytest  # 1274 tests, 92% coverage
+uv run pytest  # 2061 tests, 91% coverage
 ```
 
 Extensible via entry points: add language adapters and pattern detectors without modifying core.

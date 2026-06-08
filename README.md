@@ -8,61 +8,90 @@
 
 **archex gives AI agents the right code context with fewer tokens.**
 
-Agents waste context windows by crawling files one at a time. archex indexes a repository locally, ranks the relevant code, expands the dependency/type context, and emits a compact XML/JSON/Markdown bundle for the downstream agent or MCP client to explain. It does not call a hosted LLM, generate prose, or require API keys.
+Your agent reads files. archex reads codebases.
 
-Latest local 35-task benchmark, product-default `archex_query` vs the previous accepted baseline:
+Today, an agent that needs to understand unfamiliar code opens one file, then follows an import, then opens a type definition, then backtracks — burning 15,000 tokens to end up with maybe 60% of what it needed. archex replaces that whole exploration loop with one call: it indexes the repository locally, ranks the relevant code, pulls in the dependencies and type context the agent would have had to chase by hand, and hands back a compact, structured bundle. No hosted LLM, no prose, no API key.
 
-| Product-default metric | Previous baseline | Current | Delta |
-| --- | ---: | ---: | ---: |
-| Mean returned tokens | 7,110 | 6,037 | -15.1% |
-| Weighted raw-baseline savings | 66.2% | 71.3% | +5.1 pts |
-| Mean recall | 0.629 | 0.819 | +0.190 |
-| Mean token efficiency | 0.351 | 0.702 | +0.351 |
-| Dogfood regressions | — | 0 | pass |
+> Want the longer version of the story first? Read [Why archex](docs/WHY_ARCHEX.md).
 
-> Your agent reads files. archex reads codebases. See [Why archex](docs/WHY_ARCHEX.md).
-
-## How archex works
-
-```text
-Repository → local index → intent classifier → hybrid retrieval → dependency/type expansion → token-budgeted bundle → agent / MCP client
-```
-
-archex optimizes the bundle the agent reads, not a generated answer. Explanation queries run outside archex: the CLI, Python API, LangChain/LlamaIndex retrievers, or MCP server emits structured context; the caller decides which model, prompt, or editing workflow consumes it.
-
-Core properties:
-
-- **Local first** — BM25F, optional local embeddings, optional local reranking. No hosted LLM inference.
-- **Token-budgeted by design** — definition lookups stay small; broad architecture questions get larger budgets; explicit `--budget` still overrides.
-- **Structured for agents** — XML, JSON, and Markdown bundles include ranked chunks, symbol metadata, imports, type context, dependency expansion, and provenance.
-- **Language-aware** — Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, C#, and Swift through tree-sitter adapters.
-- **Deterministic architecture views** — modules, symbols, patterns, dependency graph, file tree, impact analysis, onboarding, and cross-repo comparisons.
-
-## Quick start
+## Try it in 30 seconds
 
 ```bash
-# Install the CLI
+# Install the CLI (no init, no config, no API key)
 uv tool install archex
 
-# Query any local repository
+# Ask any local repository a question
 archex query ./my-project "How does authentication work?"
 
-# Emit XML for an agent prompt or MCP-style workflow
-archex query ./my-project "Where is connection pooling implemented?" --format xml
-
-# Override the adaptive budget only when the caller needs a hard cap
-archex query ./my-project "Explain the architecture" --budget 12000
+# Point it at a public GitHub repo when you have network access
+archex query https://github.com/encode/httpx "Where is connection pooling implemented?"
 ```
 
-No init step, language config, hosted model, or API key is required for ad-hoc local queries. GitHub URLs are also supported when network access is available:
+That's the whole on-ramp. There is no project to set up and nothing to register — archex indexes the repo on the fly and answers.
 
-```bash
-archex query https://github.com/encode/httpx "Where is connection pooling implemented?" --format xml
+## What you get back
+
+archex returns a *context bundle*, not an answer. Here is a trimmed XML bundle for "How does authentication work?":
+
+```xml
+<context query="How does authentication work?">
+  <structural-context>
+    <file-tree><![CDATA[
+src/auth/
+  middleware.py
+  tokens.py
+  models.py
+    ]]></file-tree>
+  </structural-context>
+  <chunks>
+    <chunk file="src/auth/middleware.py" lines="42-78" symbol="authenticate" score="0.9312" tokens="284">
+      <imports><![CDATA[from auth.tokens import verify_jwt]]></imports>
+      <code><![CDATA[
+def authenticate(request: Request) -> User:
+    token = extract_bearer(request)
+    claims = verify_jwt(token)
+    return load_user(claims.sub)
+      ]]></code>
+    </chunk>
+  </chunks>
+  <type-definitions>
+    <type-def file="src/auth/models.py" symbol="User" lines="10-24"><![CDATA[
+@dataclass
+class User: ...
+    ]]></type-def>
+  </type-definitions>
+  <dependencies>
+    <internal>auth.tokens.verify_jwt</internal>
+    <external>pyjwt</external>
+  </dependencies>
+</context>
 ```
+
+Ranked code chunks, the imports and type definitions they depend on, the dependency chain, and provenance — packed to a token budget. You decide which model, prompt, or editing workflow consumes it. Prefer JSON or Markdown instead? Add `--format json` or `--format markdown`.
+
+## Why it helps
+
+On the latest local 35-task benchmark, the product-default `archex query` improved on every axis against the previous accepted baseline:
+
+- **15% fewer returned tokens** — 7,110 → 6,037 mean tokens per query.
+- **71.3% saved versus reading raw files** — up 5.1 points.
+- **Recall 0.629 → 0.819** — the agent gets more of what it actually needed.
+- **Token efficiency 0.351 → 0.702** — `1 − returned_tokens / accessed_file_tokens`, higher is better.
+
+Every number is measured and gated in CI, not asserted. Full tables and the gate rules live in [Performance and gates](#performance-and-gates).
+
+## Who it's for
+
+| If you are a…              | archex gives you…                                                                                     |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **AI agent developer**     | Precise codebase context without burning the context window — one call replaces multi-file crawling.  |
+| **Solo developer**         | An architectural map and pattern detection for an unfamiliar repo in minutes instead of hours.        |
+| **Team lead**              | Cross-repo comparison and architectural-drift detection you can wire into CI.                          |
+| **Open-source contributor**| A read on a project's structure before you open a PR — find the right place to make the change.        |
 
 ## Choose your integration
 
-### CLI: any agent, any shell
+### CLI — any agent, any shell
 
 ```bash
 archex query ./repo "Where is cache invalidation handled?" --format xml
@@ -70,7 +99,7 @@ archex tree ./repo --depth 3
 archex symbol ./repo "src/auth/middleware.py::authenticate#function"
 ```
 
-### MCP server: Claude Code, Claude Desktop, and MCP clients
+### MCP server — Claude Code, Claude Desktop, and other MCP clients
 
 ```json
 {
@@ -82,7 +111,7 @@ archex symbol ./repo "src/auth/middleware.py::authenticate#function"
 
 Eight tools register automatically: `analyze_repo`, `query_repo`, `compare_repos`, `get_file_tree`, `get_file_outline`, `search_symbols`, `get_symbol`, and `get_symbols_batch`.
 
-### Python API: applications and retrieval frameworks
+### Python API — applications and retrieval frameworks
 
 ```python
 from archex import analyze, query
@@ -98,25 +127,29 @@ print(bundle.to_prompt(format="xml"))
 
 LangChain and LlamaIndex retrievers ship in the `[langchain]` and `[llamaindex]` extras.
 
-## What archex gives you
+## What archex does well
 
-| Outcome | Capabilities |
+| Outcome | How |
 | --- | --- |
 | **Find the right files** | BM25F weighted-field search, optional local vector retrieval, confidence-weighted RRF, local cross-encoder reranking, path/symbol boosts, dependency expansion. |
 | **Spend fewer tokens** | Intent-routed budgets, file-diverse packing, nested-range suppression, raw-file baselines, token-efficiency gates, honest MCP envelope accounting. |
-| **Give agents structured context** | XML, JSON, and Markdown context bundles with ranked chunks, provenance, imports, type definitions, and stable symbol IDs. |
+| **Give agents structured context** | XML, JSON, and Markdown bundles with ranked chunks, provenance, imports, type definitions, and stable symbol IDs. |
 | **Understand architecture deterministically** | Module detection, pattern recognition, interface extraction, architecture graph export, onboarding, impact analysis, and cross-repo comparison. |
-| **Stay local and CI-friendly** | Repo-local `.archex/` indexes, generated artifacts outside source control, no hosted model dependency, deterministic gates. |
+| **Stay local and CI-friendly** | Repo-local `.archex/` indexes, generated artifacts outside source control, no hosted-model dependency, deterministic gates. |
+
+Core properties:
+
+- **Local first** — BM25F, optional local embeddings, optional local reranking. No hosted LLM inference.
+- **Token-budgeted by design** — definition lookups stay small; broad architecture questions get larger budgets; explicit `--budget` always overrides.
+- **Structured for agents** — bundles carry ranked chunks, symbol metadata, imports, type context, dependency expansion, and provenance.
+- **Language-aware** — Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, C#, and Swift via tree-sitter adapters.
+- **Deterministic architecture views** — modules, symbols, patterns, dependency graph, file tree, impact analysis, onboarding, and cross-repo comparisons.
+
+```text
+Repository → local index → intent classifier → hybrid retrieval → dependency/type expansion → token-budgeted bundle → agent / MCP client
+```
 
 Full pipeline anatomy lives in [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
-
-## What archex is not
-
-- **Not a chatbot** — it emits context bundles; another agent or LLM explains.
-- **Not a hosted RAG service** — indexes and retrieval run locally unless you explicitly query a remote Git URL.
-- **Not a vector database** — vector search is optional; BM25 and structural signals are first-class.
-- **Not an LSP replacement** — use LSAP/LSP where compiler-backed type resolution matters; archex packages repository-scale context for agents.
-- **Not a prompt template library** — output is structured retrieval evidence, not prompt prose.
 
 ## Installation
 
@@ -172,7 +205,7 @@ bundle = query(
 print(bundle.to_prompt(format="xml"))
 ```
 
-`query()` returns a `ContextBundle`, not a generated explanation. Feed that bundle to your agent, MCP client, or downstream LLM. Pass `token_budget=...` when the caller needs an explicit override; otherwise archex uses the intent-routed budget.
+`query()` returns a `ContextBundle`, not a generated explanation. Feed that bundle to your agent, MCP client, or downstream LLM. Pass `token_budget=...` when you need an explicit override; otherwise archex uses the intent-routed budget.
 
 ### Surgical lookups that replace whole-file reads
 
@@ -244,9 +277,9 @@ archex query "Where is cache invalidation handled?"
 
 The entire `.archex/` directory is generated state — SQLite index, vector artifacts, graph artifacts, cache metadata, and dogfood reports — and stays out of source control. `archex status --strict` fails on stale or dirty state, which is useful in CI gates.
 
-## When to use archex
+## archex vs. the alternatives
 
-archex gives AI agents structural priors about codebases they have not seen. Pre-computed map → cheap, fast, complete. File-by-file exploration → expensive, slow, incomplete.
+archex gives AI agents structural priors about codebases they have not seen. A pre-computed map is cheap, fast, and complete; file-by-file exploration is expensive, slow, and incomplete.
 
 | Capability | archex | archex + LSAP | Claude Code | LSP |
 | --- | --- | --- | --- | --- |
@@ -259,7 +292,7 @@ archex gives AI agents structural priors about codebases they have not seen. Pre
 
 ## Performance and gates
 
-archex optimizes the amount of context the downstream agent must read, not recall alone. Benchmark reports track recall, precision, F1, MRR, NDCG, MAP, latency, returned tokens, raw-file baselines, and token efficiency. Token efficiency is higher-is-better: `1 - returned_tokens / accessed_file_tokens`.
+archex optimizes the amount of context the downstream agent must read, not recall alone. Benchmark reports track recall, precision, F1, MRR, NDCG, MAP, latency, returned tokens, raw-file baselines, and token efficiency (`1 − returned_tokens / accessed_file_tokens`, higher is better).
 
 Latest local 35-task benchmark, compared with the previous accepted baseline:
 
@@ -338,6 +371,14 @@ dart = "mypackage.adapters:DartAdapter"
 
 Implement the `LanguageAdapter` protocol from `archex.parse.adapters.base` and archex picks it up automatically. The same pattern applies to `archex.pattern_detectors`. See [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) for the full extension surface.
 
+## What archex is not
+
+- **Not a chatbot** — it emits context bundles; another agent or LLM does the explaining.
+- **Not a hosted RAG service** — indexing and retrieval run locally unless you explicitly query a remote Git URL.
+- **Not a vector database** — vector search is optional; BM25 and structural signals are first-class.
+- **Not an LSP replacement** — use LSAP/LSP where compiler-backed type resolution matters; archex packages repository-scale context for agents.
+- **Not a prompt template library** — output is structured retrieval evidence, not prompt prose.
+
 ## Development
 
 ```bash
@@ -345,12 +386,12 @@ git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
 
-uv run pytest                    # full test suite, 85% minimum coverage
+uv run pytest                    # 2061 tests, 91% coverage (85% gate floor)
 uv run ruff check && uv run ruff format --check .
 uv run pyright                   # strict mode
 ```
 
-Contribution guidelines and the dogfood gate workflow live in [CONTRIBUTING.md](CONTRIBUTING.md).
+Contribution guidelines and the dogfood gate workflow live in [CONTRIBUTING.md](CONTRIBUTING.md). New contributors welcome — language adapters and pattern detectors are the easiest first PRs.
 
 ## Learn more
 
