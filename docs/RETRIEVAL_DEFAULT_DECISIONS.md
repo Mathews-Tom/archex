@@ -1,13 +1,13 @@
 # Retrieval Default Decision Protocol
 
-Tier 3 decisions stay pending until the operator provides clean warm-cache benchmark evidence. Product defaults remain unchanged until the switch rules in this document pass and the operator approves the change.
+Operator evidence from the 2026-06-09 retrieval-default benchmark keeps `archex_query` as the product default. CodeRankEmbed and reranker default changes remain blocked until a clean full run clears the recall/F1, token-efficiency, and p95 latency rules.
 
 ## Invariants
 
 - Run benchmarks locally only; no network or generative LLM inference.
 - Pin exactly one embedder per benchmark run with `--embedder`.
 - Compare candidates on recall, F1, token efficiency, median latency, and p95 latency. Recall/F1 alone is not sufficient.
-- Keep `archex_query` as the product default until the final strategy switch rule passes.
+- Keep `archex_query` as the product default; the 2026-06-09 run did not satisfy the strategy switch rule.
 - Do not refresh `benchmarks/dogfood_baseline.json` without explicit approval after a proven improvement.
 
 ## Embedder decision
@@ -20,6 +20,8 @@ Candidate embedders:
 | CodeRankEmbed | `--embedder coderank` | Registered as `coderank`; no product default flip before approval |
 
 Switch from Jina v2 to CodeRankEmbed only when a warm full run shows `archex_query_fusion_rerank` recall and F1 improve, token efficiency is not worse, and p95 latency does not regress.
+
+2026-06-09 result: do not switch. The CodeRank run completed only `28/35` tasks because seven GitHub clones failed DNS resolution, so it is invalid as final A/B evidence. Even on the partial set, CodeRank fusion rerank underperformed Jina fusion rerank on recall (`0.774` vs `0.818`), F1 (`0.590` vs `0.594`), token efficiency (`0.597` vs `0.612`), and p95 latency (`253658 ms` vs `16588 ms`).
 
 Operator commands:
 
@@ -38,8 +40,11 @@ Candidate rerankers:
 | --- | --- | --- |
 | Jina reranker v3 on detected device | omit `--rerank-model` | Current default reranker |
 | MiniLM cross-encoder | `--rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2` | Lighter fallback if Jina exceeds the p95 budget |
+| TinyBERT cross-encoder | `--rerank-model cross-encoder/ms-marco-TinyBERT-L-2-v2` | Lighter candidate to test after MiniLM missed p95 |
 
-Keep the highest-quality reranker that holds p95 latency at or below `3000 ms` on the operator's hardware. Evaluate Jina first with MPS device selection; use the MiniLM fallback only if Jina remains over budget.
+Keep the highest-quality reranker that holds p95 latency at or below `3000 ms` on the operator's hardware. Evaluate Jina first with MPS device selection, then MiniLM, then TinyBERT only if heavier candidates remain over budget.
+
+2026-06-09 result: do not change the reranker default. Jina reranker p95 was `16522 ms`, and MiniLM p95 was `3924 ms`; both miss the `<= 3000 ms` budget. MiniLM is the better latency candidate observed so far, but it still needs further tuning or a lighter local reranker before it can be selected. The next local candidate is TinyBERT.
 
 Before comparing reranker p95, run the Jina command once as a cache warm-up and discard that output, then rerun both candidates against the warmed index cache.
 
@@ -52,6 +57,9 @@ uv run archex benchmark gate --input .archex/e2e-rerank-jina --warn-latency-ms 3
 uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2 --tasks-dir benchmarks/tasks --output .archex/e2e-rerank-minilm
 uv run archex benchmark readiness --input .archex/e2e-rerank-minilm --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
 uv run archex benchmark gate --input .archex/e2e-rerank-minilm --warn-latency-ms 3000
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --rerank-model cross-encoder/ms-marco-TinyBERT-L-2-v2 --tasks-dir benchmarks/tasks --output .archex/e2e-rerank-tinybert
+uv run archex benchmark readiness --input .archex/e2e-rerank-tinybert --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
+uv run archex benchmark gate --input .archex/e2e-rerank-tinybert --warn-latency-ms 3000
 ```
 
 ## Product strategy decision
@@ -64,6 +72,8 @@ Candidate product defaults:
 | `archex_query_fusion_rerank` | BM25 + vector fusion + cross-encoder rerank | Candidate only if quality and latency both clear the rule |
 
 Switch to `archex_query_fusion_rerank` only if the clean warm run shows mean F1 at least `0.05` higher than `archex_query`, token efficiency at least as high as `archex_query`, and p95 latency at or below `3000 ms`. If the rule does not pass, keep `archex_query` as the product default.
+
+2026-06-09 result: keep `archex_query`. On the clean Jina run, `archex_query` had F1 `0.589`, token efficiency `0.701`, and p95 `2186 ms`; `archex_query_fusion_rerank` had F1 `0.594`, token efficiency `0.612`, and p95 `16588 ms`. The F1 delta was only `+0.005`, token efficiency regressed, and p95 exceeded the `3000 ms` limit.
 
 Operator commands:
 
