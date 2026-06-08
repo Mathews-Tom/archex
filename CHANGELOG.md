@@ -1,13 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-06-08)
+
+### Added
+
+- Added product-default token-efficiency gating for benchmark runs. `archex_query` now fails the gate when its measured savings falls below the calibrated floor.
+- Added baseline-aware benchmark gating with `archex benchmark gate --baseline <dir>`. Baseline mode keeps token efficiency as a hard floor, fails recall regressions against the accepted baseline, and reports brittle absolute non-token rows as warnings.
+- Added intent-routed context budgets so definition/symbol lookups produce tighter bundles while broad architecture questions keep larger budgets.
+- Added `scripts/benchmark_pipeline.sh` as the standardized local benchmark, gate, and dogfood runner.
 
 ### Changed
 
+- Reframed retrieval optimization around fewer tokens per retrieval/explanation query without recall regression.
+- Changed benchmark `token_efficiency` to higher-is-better savings: `1 - returned_tokens / accessed_file_tokens`, clamped to `0..1`.
+- Improved context assembly with file-diverse packing, nested line-range suppression, contextual query expansion, production-before-test ordering, and stronger self-query path alignment.
+- Switched MCP savings accounting to use the honest raw candidate-file denominator and subtract only XML envelope scaffolding overhead.
+- Refreshed the README around the product pitch, current local benchmark results, context-bundle architecture, and baseline-aware release gates.
 - Removed unused Personalized PageRank graph-expansion helpers. Measured candidate ordering showed no recall gain on `archex_graph_expansion` or the external-large benchmark bucket, and introduced a `rust_tokio_runtime` candidate-recall regression risk.
 - Corrected retrieval-pipeline documentation to describe the wired deterministic dependency expansion path instead of stale PPR wording.
 - Kept the fast vector benchmark default after a CodeRankEmbed full-suite run crossed six hours at task 19/35; CodeRankEmbed remains pinned and configurable as `embedder="coderank"` for targeted evaluation.
 - Switched the opt-in cross-encoder reranker default from `cross-encoder/ms-marco-MiniLM-L-6-v2` to pinned `jinaai/jina-reranker-v3`; the MiniLM model remains selectable via `IndexConfig(rerank_model=...)`.
+
+### Fixed
+
+- Fixed self-query retrieval regressions for repo index, query pipeline, MCP lifecycle, cache lifecycle, project reset, and pattern-detection questions.
+- Fixed explicit `8192` budget handling in LangChain and LlamaIndex integrations so a caller-supplied default-sized budget remains an override.
+- Fixed MCP `_meta.savings_pct` under-reporting by accounting for seed, expanded, and returned candidate files instead of only final bundle files.
 
 ## 0.6.2 (2026-05-25)
 
