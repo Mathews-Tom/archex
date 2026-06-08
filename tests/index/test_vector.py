@@ -45,6 +45,53 @@ class FakeEmbedder:
         return self._dim
 
 
+class QueryPrefixEmbedder:
+    dimension = 2
+
+    def __init__(self) -> None:
+        self.encoded_documents: list[str] = []
+        self.encoded_queries: list[str] = []
+
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        self.encoded_documents.extend(texts)
+        return [self._vector(text) for text in texts]
+
+    def encode_queries(self, queries: list[str]) -> list[list[float]]:
+        self.encoded_queries.extend(queries)
+        return [self._vector(f"query:{query}") for query in queries]
+
+    def _vector(self, text: str) -> list[float]:
+        if text in {"target", "query:target"}:
+            return [1.0, 0.0]
+        return [0.0, 1.0]
+
+
+QUERY_PREFIX_CHUNKS = [
+    CodeChunk(
+        id="target.py:target:1",
+        content="target",
+        file_path="target.py",
+        start_line=1,
+        end_line=1,
+        symbol_name="target",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=1,
+    ),
+    CodeChunk(
+        id="other.py:other:1",
+        content="other",
+        file_path="other.py",
+        start_line=1,
+        end_line=1,
+        symbol_name="other",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=1,
+    ),
+]
+
+
 SAMPLE_CHUNKS = [
     CodeChunk(
         id="utils.py:calculate_sum:5",
@@ -176,6 +223,29 @@ class TestVectorIndexSearch:
         )
         assert len(results) > 0
         assert results[0][0].id == "utils.py:calculate_sum:5"
+
+    def test_search_uses_embedder_query_encoder(self) -> None:
+        embedder = QueryPrefixEmbedder()
+        index = VectorIndex()
+        index.build(QUERY_PREFIX_CHUNKS, embedder)
+
+        results = index.search("target", embedder, top_k=1)
+
+        assert results[0][0].id == "target.py:target:1"
+        assert embedder.encoded_queries == ["target"]
+        assert embedder.encoded_documents == ["target", "other"]
+
+
+class TestVectorIndexRerank:
+    def test_rerank_uses_embedder_query_encoder(self) -> None:
+        embedder = QueryPrefixEmbedder()
+        index = VectorIndex()
+
+        results = index.rerank("target", list(reversed(QUERY_PREFIX_CHUNKS)), embedder)
+
+        assert results[0][0].id == "target.py:target:1"
+        assert embedder.encoded_queries == ["target"]
+        assert embedder.encoded_documents == ["other", "target"]
 
 
 class TestVectorIndexPersistence:

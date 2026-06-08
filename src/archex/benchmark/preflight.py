@@ -35,7 +35,11 @@ def warm_benchmark_models(
         if embedder is None:
             msg = "Benchmark vector strategy requires a configured embedder"
             raise ValueError(msg)
-        _ = embedder.dimension
+        warm = getattr(embedder, "warm", None)
+        if callable(warm):
+            warm()
+        else:
+            _ = embedder.dimension
         warmed.append(retrieval_options.embedder)
 
     if retrieval_options.splade:

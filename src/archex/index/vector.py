@@ -29,6 +29,13 @@ def _chunk_embedding_text(chunk: CodeChunk) -> str:
     return chunk.content
 
 
+def _encode_query(embedder: Embedder, query: str) -> list[float]:
+    encode_queries = getattr(embedder, "encode_queries", None)
+    if encode_queries is not None:
+        return encode_queries([query])[0]
+    return embedder.encode([query])[0]
+
+
 class VectorIndex:
     """Dense vector index for semantic search over CodeChunks.
 
@@ -120,7 +127,7 @@ class VectorIndex:
         if self._vectors is None and self._quantized_codes is None:
             return []
 
-        query_vec = np.array(embedder.encode([query])[0], dtype=np.float32)
+        query_vec = np.array(_encode_query(embedder, query), dtype=np.float32)
         norm = np.linalg.norm(query_vec)
         if norm < 1e-9:
             return []
@@ -310,7 +317,7 @@ class VectorIndex:
         if not candidates:
             return []
 
-        texts = [query] + [
+        candidate_texts = [
             surrogates_by_chunk_id[c.id].surrogate_text
             if (
                 vector_mode == VectorMode.SURROGATE
@@ -320,11 +327,13 @@ class VectorIndex:
             else _chunk_embedding_text(c)
             for c in candidates
         ]
+        query_vec_raw = np.array(_encode_query(embedder, query), dtype=np.float32)
         encode_np = getattr(embedder, "encode_ndarray", None)
         if encode_np is not None:
-            vecs = encode_np(texts)
+            candidate_vecs_raw = encode_np(candidate_texts)
         else:
-            vecs = np.array(embedder.encode(texts), dtype=np.float32)
+            candidate_vecs_raw = np.array(embedder.encode(candidate_texts), dtype=np.float32)
+        vecs = np.vstack([query_vec_raw, candidate_vecs_raw])
 
         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
         norms = np.maximum(norms, 1e-9)
