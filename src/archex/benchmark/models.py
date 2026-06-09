@@ -9,6 +9,7 @@ from pydantic import BaseModel, model_validator
 from archex.models import (  # noqa: TCH001 — Pydantic needs at runtime
     DeltaMeta,
     PipelineTiming,
+    SymbolKind,
     VectorMode,
 )
 
@@ -48,6 +49,56 @@ class BenchmarkTask(BaseModel):
 
     @model_validator(mode="after")
     def _validate_include_paths(self) -> BenchmarkTask:
+        for path in self.include_paths:
+            if not path or path.startswith("/") or ".." in path.split("/"):
+                msg = f"include_paths entries must be relative paths: {path!r}"
+                raise ValueError(msg)
+        return self
+
+
+class ArchitectureExpectedModule(BaseModel):
+    name: str
+    root_path: str
+    files: list[str]
+    responsibility_terms: list[str] = []
+
+
+class ArchitectureExpectedPattern(BaseModel):
+    name: str
+    evidence_symbols: list[str] = []
+
+
+class ArchitectureExpectedInterface(BaseModel):
+    name: str
+    file_path: str
+    kind: SymbolKind | None = None
+
+
+class ArchitectureExpectedDecision(BaseModel):
+    decision_terms: list[str]
+
+
+class ArchitectureOracle(BaseModel):
+    modules: list[ArchitectureExpectedModule] = []
+    patterns: list[ArchitectureExpectedPattern] = []
+    interfaces: list[ArchitectureExpectedInterface] = []
+    decisions: list[ArchitectureExpectedDecision] = []
+
+
+class ArchitectureBenchmarkTask(BaseModel):
+    task_id: str
+    repo: str
+    commit: str
+    question: str
+    include_paths: list[str]
+    languages: list[str] | None = None
+    arch_oracle: ArchitectureOracle
+
+    @model_validator(mode="after")
+    def _validate_include_paths(self) -> ArchitectureBenchmarkTask:
+        if not self.include_paths:
+            msg = "architecture benchmark tasks must declare include_paths"
+            raise ValueError(msg)
         for path in self.include_paths:
             if not path or path.startswith("/") or ".." in path.split("/"):
                 msg = f"include_paths entries must be relative paths: {path!r}"

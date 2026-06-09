@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from archex.benchmark.models import BenchmarkTask, DeltaBenchmarkTask
+from archex.benchmark.models import ArchitectureBenchmarkTask, BenchmarkTask, DeltaBenchmarkTask
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,6 +28,25 @@ def load_tasks(directory: Path) -> list[BenchmarkTask]:
     tasks: list[BenchmarkTask] = []
     for yaml_file in sorted(directory.glob("*.yaml")):
         tasks.append(load_task(yaml_file))
+    return tasks
+
+
+def load_arch_task(path: Path) -> ArchitectureBenchmarkTask:
+    """Parse a single YAML file into an ArchitectureBenchmarkTask."""
+    raw = path.read_text(encoding="utf-8")
+    data = yaml.safe_load(raw)
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected a YAML mapping in {path}, got {type(data).__name__}")
+    return ArchitectureBenchmarkTask.model_validate(data)
+
+
+def load_arch_tasks(directory: Path) -> list[ArchitectureBenchmarkTask]:
+    """Load all *.yaml files from a directory into ArchitectureBenchmarkTasks."""
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Architecture tasks directory not found: {directory}")
+    tasks: list[ArchitectureBenchmarkTask] = []
+    for yaml_file in sorted(directory.glob("*.yaml")):
+        tasks.append(load_arch_task(yaml_file))
     return tasks
 
 
