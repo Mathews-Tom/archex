@@ -71,14 +71,13 @@ Ranked code chunks, the imports and type definitions they depend on, the depende
 
 ## Why it helps
 
-On the latest local 35-task benchmark, the product-default `archex query` improved on every axis against the previous accepted baseline:
+On the latest local 35-task benchmark, the product-default `archex query` reduced what the downstream agent had to read versus a raw-file crawl while keeping retrieval quality high:
 
-- **15% fewer returned tokens** — 7,110 → 6,037 mean tokens per query.
-- **71.3% saved versus reading raw files** — up 5.1 points.
-- **Recall 0.629 → 0.819** — the agent gets more of what it actually needed.
-- **Token efficiency 0.351 → 0.702** — `1 − returned_tokens / accessed_file_tokens`, higher is better.
+- **71.3% fewer returned tokens than reading raw files** — archex returns 6,037 mean tokens per query instead of making the agent read the full raw-file baseline.
+- **Recall 0.819** — the agent still gets most of what it actually needed.
+- **Token efficiency 0.702** — `1 − returned_tokens / accessed_file_tokens`, higher is better.
 
-Every number is measured and gated in CI, not asserted. Full tables and the gate rules live in [Performance and gates](#performance-and-gates).
+Every number is measured and gated in CI, not asserted. Full baseline-vs-current release tables and gate rules live in [Performance and gates](#performance-and-gates).
 
 ## Who it's for
 
@@ -314,10 +313,10 @@ Release gates are intentionally tied to the product contract:
 Reproduce the full retrieval gate and dogfood delta locally:
 
 ```bash
-scripts/benchmark_pipeline.sh
+bash scripts/benchmark_pipeline.sh
 ```
 
-The script removes prior `.archex/e2e-tokens` output, writes a fresh `.docs/pipeline.log`, runs benchmark generation, runs the baseline-aware gate, and then runs dogfood even when the gate fails. It exits non-zero at the end if any step failed.
+The script resolves the repo root from its own location, removes prior `.archex/e2e-tokens` output, writes a fresh `.docs/pipeline.log`, streams the run to the terminal that started it, runs benchmark generation, runs the baseline-aware gate, and then runs dogfood even when the gate fails. It exits non-zero at the end if any step failed.
 
 ## Language support
 
