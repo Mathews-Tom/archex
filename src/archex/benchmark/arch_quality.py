@@ -161,7 +161,9 @@ def load_architecture_results(input_dir: Path) -> list[ArchitectureBenchmarkResu
     """Load architecture-quality result JSON files from a directory."""
     results: list[ArchitectureBenchmarkResult] = []
     for json_file in sorted(input_dir.glob("*.json")):
-        results.append(ArchitectureBenchmarkResult.model_validate_json(json_file.read_text()))
+        results.append(
+            ArchitectureBenchmarkResult.model_validate_json(json_file.read_text(encoding="utf-8"))
+        )
     return results
 
 
@@ -246,12 +248,17 @@ def _responsibility_recall(
     matches = 0
     detected = profile.module_map
     for expected, term in expected_terms:
+        expected_files = set(expected.files)
         matched_module = max(
             detected,
-            key=lambda module: len(set(module.files) & set(expected.files)),
+            key=lambda module: len(set(module.files) & expected_files),
             default=None,
         )
-        if matched_module is None or matched_module.responsibility is None:
+        if (
+            matched_module is None
+            or not set(matched_module.files) & expected_files
+            or matched_module.responsibility is None
+        ):
             continue
         if term in matched_module.responsibility.lower():
             matches += 1

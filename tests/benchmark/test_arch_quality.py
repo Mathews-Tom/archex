@@ -134,6 +134,27 @@ def test_score_architecture_profile_penalizes_false_positive_patterns() -> None:
     assert scores.pattern_recall == 1.0
 
 
+def test_score_architecture_profile_does_not_match_unrelated_module_responsibility() -> None:
+    task = _architecture_task().model_copy(
+        update={
+            "arch_oracle": ArchitectureOracle(
+                modules=[
+                    ArchitectureExpectedModule(
+                        name="missing",
+                        root_path="missing",
+                        files=["missing/module.py"],
+                        responsibility_terms=["sort"],
+                    )
+                ]
+            )
+        }
+    )
+
+    scores = score_architecture_profile(task, _profile())
+
+    assert scores.responsibility_recall == 0.0
+
+
 def test_architecture_gate_warnings_are_advisory() -> None:
     result = ArchitectureBenchmarkResult(
         task_id="arch_fixture",
