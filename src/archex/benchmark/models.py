@@ -106,6 +106,30 @@ class ArchitectureBenchmarkTask(BaseModel):
         return self
 
 
+class ArchitectureDimensionScores(BaseModel):
+    boundary_precision: float = 1.0
+    boundary_recall: float = 1.0
+    boundary_f1: float = 1.0
+    responsibility_recall: float = 1.0
+    pattern_precision: float = 1.0
+    pattern_recall: float = 1.0
+    interface_completeness: float = 1.0
+    decision_recall: float = 1.0
+    overall: float = 1.0
+
+
+class ArchitectureBenchmarkResult(BaseModel):
+    task_id: str
+    repo: str
+    commit: str
+    scores: ArchitectureDimensionScores
+    detected_modules: list[str] = []
+    detected_patterns: list[str] = []
+    detected_interfaces: list[str] = []
+    detected_decisions: list[str] = []
+    advisory: bool = True
+
+
 class BenchmarkRetrievalOptions(BaseModel):
     splade: bool = False
     module_prefilter: bool = False
