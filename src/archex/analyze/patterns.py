@@ -429,8 +429,7 @@ def _detect_strategy(
 
     if protocol_candidates:
         protocol_methods: set[str] = set()
-        for pf, proto, methods in protocol_candidates:
-            protocol_methods |= methods
+        for pf, proto, _methods in protocol_candidates:
             protocol_methods |= {
                 symbol.name
                 for symbol in pf.symbols
