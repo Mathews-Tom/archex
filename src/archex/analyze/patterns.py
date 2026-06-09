@@ -375,111 +375,103 @@ def _detect_strategy(
     parsed_files: list[ParsedFile],
     graph: DependencyGraph,  # noqa: ARG001
 ) -> DetectedPattern | None:
-    """Detect Strategy pattern.
+    """Detect Strategy pattern across files in a repository slice.
 
     Looks for the triad: protocol/interface + multiple concrete implementations sharing
-    the same method name + a context class that holds and delegates to the strategy.
+    method names + a context class that holds and delegates to the strategy.
     """
     all_evidence: list[PatternEvidence] = []
     seen: set[str] = set()
+    strategy_keywords = {"strategy", "policy", "algorithm", "interface", "protocol"}
+    context_keywords = {"context", "executor", "runner", "engine", "sorter", "dispatcher"}
 
     def _add(pf: ParsedFile, sym: Symbol, explanation: str) -> None:
         key = f"{pf.path}:{sym.name}"
-        if key not in seen:
-            seen.add(key)
-            all_evidence.append(
-                PatternEvidence(
-                    file_path=pf.path,
-                    start_line=sym.start_line,
-                    end_line=sym.end_line,
-                    symbol=sym.name,
-                    explanation=explanation,
-                )
+        if key in seen:
+            return
+        seen.add(key)
+        all_evidence.append(
+            PatternEvidence(
+                file_path=pf.path,
+                start_line=sym.start_line,
+                end_line=sym.end_line,
+                symbol=sym.name,
+                explanation=explanation,
             )
+        )
 
+    class_records: list[tuple[ParsedFile, Symbol, set[str]]] = []
+    method_to_classes: dict[str, list[tuple[ParsedFile, Symbol, set[str]]]] = {}
     for pf in parsed_files:
-        classes = _classes(pf.symbols)
-        if len(classes) < 2:
-            continue
+        for cls in _classes(pf.symbols):
+            methods = {
+                method.name
+                for method in _public_methods_of(cls.name, pf.symbols)
+                if not (method.name.startswith("__") and method.name.endswith("__"))
+            }
+            if not methods:
+                continue
+            record = (pf, cls, methods)
+            class_records.append(record)
+            for method in methods:
+                method_to_classes.setdefault(method, []).append(record)
 
-        # Collect method name -> classes that implement it (excluding __init__, __repr__, etc.)
-        method_to_classes: dict[str, list[Symbol]] = {}
-        for cls in classes:
-            for m in _public_methods_of(cls.name, pf.symbols):
-                if not (m.name.startswith("__") and m.name.endswith("__")):
-                    method_to_classes.setdefault(m.name, []).append(cls)
+    shared_records = {
+        id(record)
+        for records in method_to_classes.values()
+        if len(records) >= 2
+        for record in records
+    }
 
-        # Find methods implemented by 2+ classes (shared interface method — strategy indicator)
-        shared_methods = {m: clss for m, clss in method_to_classes.items() if len(clss) >= 2}
-        if not shared_methods:
-            continue
+    protocol_candidates: list[tuple[ParsedFile, Symbol, set[str]]] = []
+    context_candidates: list[tuple[ParsedFile, Symbol, set[str]]] = []
+    concrete_candidates: list[tuple[ParsedFile, Symbol, set[str]]] = []
 
-        # Determine protocol-like classes (name contains strategy/policy keywords or has very few
-        # public non-dunder methods — Protocol classes typically have 1-2)
-        strategy_keywords = {"strategy", "policy", "algorithm", "interface", "protocol"}
-        context_keywords = {"context", "executor", "runner", "engine", "sorter", "dispatcher"}
+    for record in class_records:
+        _pf, cls, methods = record
+        name_lower = cls.name.lower()
+        is_protocol_name = any(keyword in name_lower for keyword in strategy_keywords)
+        is_context_name = any(keyword in name_lower for keyword in context_keywords)
+        if is_context_name:
+            context_candidates.append(record)
+        elif is_protocol_name and len(methods) <= 3:
+            protocol_candidates.append(record)
+        elif id(record) in shared_records:
+            concrete_candidates.append(record)
 
-        protocol_candidates: list[Symbol] = []
-        context_candidates: list[Symbol] = []
-        concrete_candidates: list[Symbol] = []
+    if protocol_candidates:
+        protocol_methods: set[str] = set()
+        for pf, proto, methods in protocol_candidates:
+            protocol_methods |= methods
+            protocol_methods |= {
+                symbol.name
+                for symbol in pf.symbols
+                if symbol.kind == SymbolKind.METHOD
+                and symbol.parent == proto.name
+                and not (symbol.name.startswith("__") and symbol.name.endswith("__"))
+            }
+        for record in class_records:
+            if record in protocol_candidates or record in context_candidates:
+                continue
+            _pf, _cls, methods = record
+            if methods & protocol_methods and record not in concrete_candidates:
+                concrete_candidates.append(record)
 
-        for cls in classes:
-            name_lower = cls.name.lower()
-            public_non_dunder = [
-                s
-                for s in pf.symbols
-                if s.kind == SymbolKind.METHOD
-                and s.parent == cls.name
-                and not (s.name.startswith("__") and s.name.endswith("__"))
-            ]
-            non_dunder_count = len(public_non_dunder)
-
-            is_protocol_name = any(kw in name_lower for kw in strategy_keywords)
-            is_context_name = any(kw in name_lower for kw in context_keywords)
-            in_shared = shared_methods and any(cls in clss for clss in shared_methods.values())
-
-            # Context takes priority; check it first
-            if is_context_name and non_dunder_count >= 1:
-                context_candidates.append(cls)
-            elif is_protocol_name and non_dunder_count <= 3:
-                protocol_candidates.append(cls)
-            elif in_shared:
-                concrete_candidates.append(cls)
-
-        # If we found a protocol but no explicit concretes from name-based heuristic,
-        # treat all non-protocol classes that share the same method as concretes.
-        if protocol_candidates and not concrete_candidates:
-            proto_methods: set[str] = set()
-            for proto in protocol_candidates:
-                proto_methods |= {
-                    s.name
-                    for s in pf.symbols
-                    if s.kind == SymbolKind.METHOD
-                    and s.parent == proto.name
-                    and not (s.name.startswith("__") and s.name.endswith("__"))
-                }
-            for cls in classes:
-                if cls in protocol_candidates or cls in context_candidates:
-                    continue
-                cls_methods = _method_names(cls.name, pf.symbols) - {
-                    m for m in _method_names(cls.name, pf.symbols) if m.startswith("__")
-                }
-                if cls_methods & proto_methods:
-                    concrete_candidates.append(cls)
-
-        # Only emit evidence if we have at least: protocol + concretes OR concretes + context
-        if (protocol_candidates and concrete_candidates) or (
-            concrete_candidates and context_candidates
-        ):
-            for proto in protocol_candidates:
-                _add(pf, proto, f"Protocol/ABC '{proto.name}' defines strategy interface")
-            for concrete in concrete_candidates:
-                _add(pf, concrete, f"Concrete strategy implementation: '{concrete.name}'")
-            for ctx in context_candidates:
-                _add(pf, ctx, f"Context class '{ctx.name}' delegates to a strategy")
-
-    if not all_evidence:
+    has_protocol_and_concretes = (
+        bool(protocol_candidates)
+        and bool(concrete_candidates)
+        and len(protocol_candidates) + len(concrete_candidates) >= 3
+    )
+    has_context_and_concretes = bool(context_candidates) and len(concrete_candidates) >= 2
+    if not (has_protocol_and_concretes or has_context_and_concretes):
         return None
+
+    for pf, proto, _methods in protocol_candidates:
+        _add(pf, proto, f"Protocol/ABC '{proto.name}' defines strategy interface")
+    for pf, concrete, _methods in concrete_candidates:
+        _add(pf, concrete, f"Concrete strategy implementation: '{concrete.name}'")
+    for pf, ctx, _methods in context_candidates:
+        _add(pf, ctx, f"Context class '{ctx.name}' delegates to a strategy")
 
     return DetectedPattern(
         name="strategy",
