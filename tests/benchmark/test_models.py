@@ -6,6 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from archex.benchmark.models import (
+    ArchitectureBenchmarkTask,
+    ArchitectureExpectedInterface,
+    ArchitectureExpectedModule,
+    ArchitectureExpectedPattern,
+    ArchitectureOracle,
     BenchmarkReport,
     BenchmarkResult,
     BenchmarkTask,
@@ -97,6 +102,59 @@ class TestBenchmarkTask:
             token_budget=4096,
         )
         assert task.token_budget == 4096
+
+
+class TestArchitectureBenchmarkTask:
+    def test_valid_architecture_task(self) -> None:
+        task = ArchitectureBenchmarkTask(
+            task_id="arch_test",
+            repo=".",
+            commit="HEAD",
+            question="What architecture does this fixture use?",
+            include_paths=["tests/fixtures/python_patterns"],
+            arch_oracle=ArchitectureOracle(
+                modules=[
+                    ArchitectureExpectedModule(
+                        name="python_patterns",
+                        root_path="tests/fixtures/python_patterns",
+                        files=["tests/fixtures/python_patterns/strategies.py"],
+                    )
+                ],
+                patterns=[ArchitectureExpectedPattern(name="strategy")],
+                interfaces=[
+                    ArchitectureExpectedInterface(
+                        name="SortStrategy",
+                        file_path="tests/fixtures/python_patterns/strategies.py",
+                    )
+                ],
+            ),
+        )
+
+        assert task.repo == "."
+        assert task.include_paths == ["tests/fixtures/python_patterns"]
+        assert task.arch_oracle.patterns[0].name == "strategy"
+
+    def test_architecture_task_requires_include_paths(self) -> None:
+        with pytest.raises(ValidationError):
+            ArchitectureBenchmarkTask(
+                task_id="arch_test",
+                repo=".",
+                commit="HEAD",
+                question="What architecture does this fixture use?",
+                include_paths=[],
+                arch_oracle=ArchitectureOracle(),
+            )
+
+    def test_architecture_include_paths_must_be_relative(self) -> None:
+        with pytest.raises(ValidationError):
+            ArchitectureBenchmarkTask(
+                task_id="arch_test",
+                repo=".",
+                commit="HEAD",
+                question="What architecture does this fixture use?",
+                include_paths=["/tmp/repo"],
+                arch_oracle=ArchitectureOracle(),
+            )
 
 
 class TestBenchmarkResult:

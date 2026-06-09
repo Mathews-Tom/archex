@@ -36,7 +36,7 @@ def implementation_gate_paths(args: Sequence[str]) -> bool:
     paths = [arg.rstrip("/") for arg in args if arg and not arg.startswith("-")]
     if not paths:
         return False
-    allowed_prefixes = ("tests/benchmark", "tests/serve")
+    allowed_prefixes = ("tests/analyze", "tests/benchmark", "tests/serve")
     return any(path.startswith("tests/benchmark") for path in paths) and all(
         any(path == prefix or path.startswith(f"{prefix}/") for prefix in allowed_prefixes)
         for path in paths

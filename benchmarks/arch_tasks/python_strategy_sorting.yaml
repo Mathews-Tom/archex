@@ -1,0 +1,47 @@
+task_id: python_strategy_sorting_architecture
+repo: "."
+commit: "HEAD"
+question: "Which architecture does the strategy sorting fixture expose?"
+languages: [python]
+include_paths:
+  - tests/fixtures/repos/python_strategy_sorting
+arch_oracle:
+  modules:
+    - name: sorters
+      root_path: tests/fixtures/repos/python_strategy_sorting/sorters
+      files:
+        - tests/fixtures/repos/python_strategy_sorting/sorters/base.py
+        - tests/fixtures/repos/python_strategy_sorting/sorters/context.py
+        - tests/fixtures/repos/python_strategy_sorting/sorters/implementations.py
+      responsibility_terms:
+        - sort
+        - strategy
+        - implementation
+  patterns:
+    - name: strategy
+      evidence_symbols:
+        - SortStrategy
+        - BubbleSort
+        - MergeSort
+        - QuickSort
+        - SortContext
+  interfaces:
+    - name: SortStrategy
+      file_path: tests/fixtures/repos/python_strategy_sorting/sorters/base.py
+      kind: class
+    - name: SortContext
+      file_path: tests/fixtures/repos/python_strategy_sorting/sorters/context.py
+      kind: class
+    - name: BubbleSort
+      file_path: tests/fixtures/repos/python_strategy_sorting/sorters/implementations.py
+      kind: class
+    - name: MergeSort
+      file_path: tests/fixtures/repos/python_strategy_sorting/sorters/implementations.py
+      kind: class
+    - name: QuickSort
+      file_path: tests/fixtures/repos/python_strategy_sorting/sorters/implementations.py
+      kind: class
+  decisions:
+    - decision_terms:
+        - strategy
+        - algorithm
