@@ -171,6 +171,25 @@ def test_architecture_gate_warnings_are_advisory() -> None:
     ]
 
 
+def test_architecture_gate_warns_on_baseline_regression() -> None:
+    current = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(pattern_recall=0.5),
+    )
+    baseline = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(pattern_recall=1.0),
+    )
+
+    warnings = architecture_gate_warnings([current], baseline_results=[baseline])
+
+    assert "arch_fixture pattern_recall regressed: 0.500 < baseline 1.000" in warnings
+
+
 def test_format_architecture_summary_includes_gate_mode() -> None:
     result = ArchitectureBenchmarkResult(
         task_id="arch_fixture",
@@ -212,6 +231,35 @@ def test_arch_gate_cli_exits_zero_for_advisory_warning(tmp_path: Path) -> None:
 
     assert output.exit_code == 0
     assert "ARCHITECTURE QUALITY ADVISORY" in output.output
+
+
+def test_arch_gate_cli_accepts_baseline_results(tmp_path: Path) -> None:
+    current_dir = tmp_path / "current"
+    baseline_dir = tmp_path / "baseline"
+    current_dir.mkdir()
+    baseline_dir.mkdir()
+    current = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(pattern_recall=0.5),
+    )
+    baseline = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(pattern_recall=1.0),
+    )
+    (current_dir / "result.json").write_text(current.model_dump_json())
+    (baseline_dir / "result.json").write_text(baseline.model_dump_json())
+
+    output = CliRunner().invoke(
+        benchmark_cmd,
+        ["arch", "gate", "--input", str(current_dir), "--baseline", str(baseline_dir)],
+    )
+
+    assert output.exit_code == 0
+    assert "pattern_recall regressed" in output.output
 
 
 def test_run_architecture_benchmark_scores_fixture() -> None:

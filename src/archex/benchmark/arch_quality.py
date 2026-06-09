@@ -136,6 +136,7 @@ def format_architecture_summary(results: list[ArchitectureBenchmarkResult]) -> s
 def architecture_gate_warnings(
     results: list[ArchitectureBenchmarkResult],
     *,
+    baseline_results: list[ArchitectureBenchmarkResult] | None = None,
     min_boundary_f1: float = 0.80,
     min_pattern_precision: float = 0.80,
     min_pattern_recall: float = 0.80,
@@ -154,6 +155,31 @@ def architecture_gate_warnings(
             actual = getattr(result.scores, metric)
             if actual < threshold:
                 warnings.append(f"{result.task_id} {metric}: {actual:.3f} < {threshold:.3f}")
+
+    if baseline_results is None:
+        return warnings
+
+    baseline_by_task = {result.task_id: result for result in baseline_results}
+    regression_metrics = [
+        "boundary_f1",
+        "pattern_precision",
+        "pattern_recall",
+        "interface_completeness",
+        "decision_recall",
+        "overall",
+    ]
+    for result in results:
+        baseline = baseline_by_task.get(result.task_id)
+        if baseline is None:
+            warnings.append(f"{result.task_id}: missing architecture baseline result")
+            continue
+        for metric in regression_metrics:
+            actual = getattr(result.scores, metric)
+            expected = getattr(baseline.scores, metric)
+            if actual < expected:
+                warnings.append(
+                    f"{result.task_id} {metric} regressed: {actual:.3f} < baseline {expected:.3f}"
+                )
     return warnings
 
 

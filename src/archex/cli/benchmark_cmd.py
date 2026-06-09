@@ -614,6 +614,13 @@ def arch_report_cmd(input_dir: str) -> None:
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
     help="Directory containing architecture-quality result JSON files.",
 )
+@click.option(
+    "--baseline",
+    "baseline_dir",
+    default=None,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Optional baseline architecture result directory for advisory regression warnings.",
+)
 @click.option("--min-boundary-f1", default=0.80, type=float, help="Advisory boundary F1 floor.")
 @click.option(
     "--min-pattern-precision",
@@ -632,6 +639,7 @@ def arch_report_cmd(input_dir: str) -> None:
 )
 def arch_gate_cmd(
     input_dir: str,
+    baseline_dir: str | None,
     min_boundary_f1: float,
     min_pattern_precision: float,
     min_pattern_recall: float,
@@ -641,8 +649,12 @@ def arch_gate_cmd(
     results = load_architecture_results(Path(input_dir))
     if not results:
         raise click.ClickException(f"No architecture result files found in {input_dir}")
+    baseline_results = load_architecture_results(Path(baseline_dir)) if baseline_dir else None
+    if baseline_dir is not None and not baseline_results:
+        raise click.ClickException(f"No architecture baseline result files found in {baseline_dir}")
     warnings = architecture_gate_warnings(
         results,
+        baseline_results=baseline_results,
         min_boundary_f1=min_boundary_f1,
         min_pattern_precision=min_pattern_precision,
         min_pattern_recall=min_pattern_recall,
