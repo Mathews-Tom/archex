@@ -190,6 +190,38 @@ def test_architecture_gate_warns_on_baseline_regression() -> None:
     assert "arch_fixture pattern_recall regressed: 0.500 < baseline 1.000" in warnings
 
 
+def test_architecture_gate_does_not_warn_for_equal_or_improved_baseline_scores() -> None:
+    current = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(pattern_recall=1.0, overall=1.0),
+    )
+    baseline = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(pattern_recall=0.5, overall=1.0),
+    )
+
+    warnings = architecture_gate_warnings([current], baseline_results=[baseline])
+
+    assert not any("regressed" in warning for warning in warnings)
+
+
+def test_architecture_gate_warns_on_missing_baseline_task() -> None:
+    current = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(),
+    )
+
+    warnings = architecture_gate_warnings([current], baseline_results=[])
+
+    assert warnings == ["arch_fixture: missing architecture baseline result"]
+
+
 def test_format_architecture_summary_includes_gate_mode() -> None:
     result = ArchitectureBenchmarkResult(
         task_id="arch_fixture",
