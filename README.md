@@ -314,10 +314,10 @@ Release gates are intentionally tied to the product contract:
 Reproduce the full retrieval gate and dogfood delta locally:
 
 ```bash
-scripts/benchmark_pipeline.sh
+bash scripts/benchmark_pipeline.sh
 ```
 
-The script removes prior `.archex/e2e-tokens` output, writes a fresh `.docs/pipeline.log`, runs benchmark generation, runs the baseline-aware gate, and then runs dogfood even when the gate fails. It exits non-zero at the end if any step failed.
+The script resolves the repo root from its own location, removes prior `.archex/e2e-tokens` output, writes a fresh `.docs/pipeline.log`, streams the run to the terminal that started it, runs benchmark generation, runs the baseline-aware gate, and then runs dogfood even when the gate fails. It exits non-zero at the end if any step failed.
 
 ## Language support
 
