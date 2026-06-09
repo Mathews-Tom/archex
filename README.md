@@ -71,14 +71,13 @@ Ranked code chunks, the imports and type definitions they depend on, the depende
 
 ## Why it helps
 
-On the latest local 35-task benchmark, the product-default `archex query` improved on every axis against the previous accepted baseline:
+On the latest local 35-task benchmark, the product-default `archex query` reduced what the downstream agent had to read versus a raw-file crawl while keeping retrieval quality high:
 
-- **15% fewer returned tokens** — 7,110 → 6,037 mean tokens per query.
-- **71.3% saved versus reading raw files** — up 5.1 points.
-- **Recall 0.629 → 0.819** — the agent gets more of what it actually needed.
-- **Token efficiency 0.351 → 0.702** — `1 − returned_tokens / accessed_file_tokens`, higher is better.
+- **71.3% fewer returned tokens than reading raw files** — archex returns 6,037 mean tokens per query instead of making the agent read the full raw-file baseline.
+- **Recall 0.819** — the agent still gets most of what it actually needed.
+- **Token efficiency 0.702** — `1 − returned_tokens / accessed_file_tokens`, higher is better.
 
-Every number is measured and gated in CI, not asserted. Full tables and the gate rules live in [Performance and gates](#performance-and-gates).
+Every number is measured and gated in CI, not asserted. Full baseline-vs-current release tables and gate rules live in [Performance and gates](#performance-and-gates).
 
 ## Who it's for
 
