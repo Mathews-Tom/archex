@@ -7,6 +7,12 @@ from pathlib import Path
 
 import click
 
+from archex.benchmark.arch_quality import (
+    architecture_gate_warnings,
+    format_architecture_summary,
+    load_architecture_results,
+    run_architecture_all,
+)
 from archex.benchmark.baseline import compare_baseline, load_baseline, save_baseline
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.gate import (
@@ -549,6 +555,105 @@ def gate_cmd(
         raise SystemExit(1)
 
     click.echo("Quality gate passed.")
+
+
+@benchmark_cmd.group("arch")
+def arch_cmd() -> None:
+    """Architecture-quality benchmarks for analyze/explain outputs."""
+
+
+@arch_cmd.command("run")
+@click.option(
+    "--output",
+    "output_dir",
+    default="benchmarks/arch_results",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Directory to write architecture-quality result JSON files.",
+)
+@click.option("--task", "task_id", default=None, help="Run a single architecture task by task_id.")
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/arch_tasks",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Directory containing architecture task YAML files.",
+)
+def arch_run_cmd(output_dir: str, task_id: str | None, tasks_dir: str) -> None:
+    """Run architecture-quality benchmarks against labeled local repo slices."""
+    try:
+        results = run_architecture_all(
+            Path(tasks_dir),
+            Path(output_dir),
+            task_filter=task_id,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"\nCompleted {len(results)} architecture benchmark(s).", err=True)
+
+
+@arch_cmd.command("report")
+@click.option(
+    "--input",
+    "input_dir",
+    default="benchmarks/arch_results",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Directory containing architecture-quality result JSON files.",
+)
+def arch_report_cmd(input_dir: str) -> None:
+    """Generate a formatted architecture-quality report."""
+    results = load_architecture_results(Path(input_dir))
+    if not results:
+        raise click.ClickException(f"No architecture result files found in {input_dir}")
+    click.echo(format_architecture_summary(results))
+
+
+@arch_cmd.command("gate")
+@click.option(
+    "--input",
+    "input_dir",
+    default="benchmarks/arch_results",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Directory containing architecture-quality result JSON files.",
+)
+@click.option("--min-boundary-f1", default=0.80, type=float, help="Advisory boundary F1 floor.")
+@click.option(
+    "--min-pattern-precision",
+    default=0.80,
+    type=float,
+    help="Advisory pattern precision floor.",
+)
+@click.option(
+    "--min-pattern-recall", default=0.80, type=float, help="Advisory pattern recall floor."
+)
+@click.option(
+    "--min-interface-completeness",
+    default=0.80,
+    type=float,
+    help="Advisory interface completeness floor.",
+)
+def arch_gate_cmd(
+    input_dir: str,
+    min_boundary_f1: float,
+    min_pattern_precision: float,
+    min_pattern_recall: float,
+    min_interface_completeness: float,
+) -> None:
+    """Check architecture-quality scores in advisory mode."""
+    results = load_architecture_results(Path(input_dir))
+    if not results:
+        raise click.ClickException(f"No architecture result files found in {input_dir}")
+    warnings = architecture_gate_warnings(
+        results,
+        min_boundary_f1=min_boundary_f1,
+        min_pattern_precision=min_pattern_precision,
+        min_pattern_recall=min_pattern_recall,
+        min_interface_completeness=min_interface_completeness,
+    )
+    if warnings:
+        click.echo(f"ARCHITECTURE QUALITY ADVISORY: {len(warnings)} warning(s)")
+        for warning in warnings:
+            click.echo(f"  {warning}")
+        return
+    click.echo("Architecture quality advisory gate passed.")
 
 
 # ---------------------------------------------------------------------------
