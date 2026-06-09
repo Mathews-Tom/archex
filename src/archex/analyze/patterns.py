@@ -401,7 +401,6 @@ def _detect_strategy(
         )
 
     class_records: list[tuple[ParsedFile, Symbol, set[str]]] = []
-    method_to_classes: dict[str, list[tuple[ParsedFile, Symbol, set[str]]]] = {}
     for pf in parsed_files:
         for cls in _classes(pf.symbols):
             methods = {
@@ -413,15 +412,6 @@ def _detect_strategy(
                 continue
             record = (pf, cls, methods)
             class_records.append(record)
-            for method in methods:
-                method_to_classes.setdefault(method, []).append(record)
-
-    shared_records = {
-        id(record)
-        for records in method_to_classes.values()
-        if len(records) >= 2
-        for record in records
-    }
 
     protocol_candidates: list[tuple[ParsedFile, Symbol, set[str]]] = []
     context_candidates: list[tuple[ParsedFile, Symbol, set[str]]] = []
@@ -436,8 +426,6 @@ def _detect_strategy(
             context_candidates.append(record)
         elif is_protocol_name and len(methods) <= 3:
             protocol_candidates.append(record)
-        elif id(record) in shared_records:
-            concrete_candidates.append(record)
 
     if protocol_candidates:
         protocol_methods: set[str] = set()
@@ -454,16 +442,14 @@ def _detect_strategy(
             if record in protocol_candidates or record in context_candidates:
                 continue
             _pf, _cls, methods = record
-            if methods & protocol_methods and record not in concrete_candidates:
+            if methods & protocol_methods:
                 concrete_candidates.append(record)
 
-    has_protocol_and_concretes = (
-        bool(protocol_candidates)
-        and bool(concrete_candidates)
+    if not (
+        protocol_candidates
+        and concrete_candidates
         and len(protocol_candidates) + len(concrete_candidates) >= 3
-    )
-    has_context_and_concretes = bool(context_candidates) and len(concrete_candidates) >= 2
-    if not (has_protocol_and_concretes or has_context_and_concretes):
+    ):
         return None
 
     for pf, proto, _methods in protocol_candidates:

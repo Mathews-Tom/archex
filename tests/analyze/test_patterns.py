@@ -137,6 +137,22 @@ def test_strategy_detected_across_files() -> None:
     assert {"SortStrategy", "SortContext", "BubbleSort", "MergeSort", "QuickSort"} <= symbols_found
 
 
+def test_strategy_evidence_excludes_unrelated_shared_method_classes() -> None:
+    parsed_files = [
+        _parse_file("middleware.py", PATTERNS_FIXTURE),
+        _parse_file("plugins.py", PATTERNS_FIXTURE),
+        _parse_file("events.py", PATTERNS_FIXTURE),
+        _parse_file("repository.py", PATTERNS_FIXTURE),
+        _parse_file("strategies.py", PATTERNS_FIXTURE),
+    ]
+    graph = _graph_for(parsed_files)
+    patterns = detect_patterns(parsed_files, graph)
+
+    strategy = next(item for item in patterns if item.name == "strategy")
+    symbols_found = {evidence.symbol for evidence in strategy.evidence}
+    assert symbols_found == {"SortStrategy", "BubbleSort", "QuickSort", "Sorter"}
+
+
 def test_no_false_positives_on_utils() -> None:
     pf = _parse_file("utils.py", SIMPLE_FIXTURE)
     graph = _graph_for([pf])
