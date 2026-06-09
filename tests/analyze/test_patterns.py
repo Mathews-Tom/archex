@@ -435,17 +435,9 @@ def test_middleware_accepts_process_with_handler_name() -> None:
 
 
 def test_strategy_protocol_fallback_finds_concretes() -> None:
-    # Setup: two protocol-named classes share a PUBLIC method ("execute"), making
-    # shared_methods non-empty so the early-exit `continue` is not hit.
-    # SortAlgorithm also has an INTERNAL "sort" method; because _public_methods_of
-    # filters by PUBLIC visibility, the internal method is excluded from
-    # method_to_classes, so "sort" does not appear in shared_methods.
-    # Worker has only a PUBLIC "sort" method — it is absent from shared_methods,
-    # so in_shared is False and it falls through all main-loop branches, leaving
-    # concrete_candidates empty.  The fallback (lines 407-424) builds proto_methods
-    # from raw pf.symbols with no visibility filter, picks up the internal "sort",
-    # and matches it against Worker's PUBLIC "sort" via _method_names, adding Worker
-    # to concrete_candidates.
+    # The protocol matcher intentionally re-reads all protocol methods, not only
+    # public methods. That keeps a neutral concrete class discoverable when it
+    # implements a method that the protocol exposes internally.
     file_path = "fallback_strategy.py"
     symbols = [
         # Protocol 1: PUBLIC "execute" + INTERNAL "sort" → protocol_candidates
@@ -460,14 +452,9 @@ def test_strategy_protocol_fallback_finds_concretes() -> None:
             parent="SortAlgorithm",
             visibility=Visibility.INTERNAL,
         ),
-        # Protocol 2: PUBLIC "execute" → protocol_candidates; also makes
-        # shared_methods["execute"] = [SortAlgorithm, SortInterface] (non-empty)
+        # Second protocol candidate keeps the total protocol+concrete evidence at 3.
         _make_symbol("SortInterface", SymbolKind.CLASS, file_path, 8, 11),
         _make_symbol("execute", SymbolKind.METHOD, file_path, 9, 10, parent="SortInterface"),
-        # Concrete: neutral name, PUBLIC "sort" only.
-        # "sort" appears in method_to_classes only for Worker (SortAlgorithm's sort is
-        # INTERNAL → excluded), so it is not in shared_methods → in_shared=False →
-        # Worker falls through all main-loop branches → found by fallback instead.
         _make_symbol("Worker", SymbolKind.CLASS, file_path, 13, 17),
         _make_symbol("sort", SymbolKind.METHOD, file_path, 14, 16, parent="Worker"),
     ]
@@ -479,3 +466,18 @@ def test_strategy_protocol_fallback_finds_concretes() -> None:
     symbols_found = {ev.symbol for ev in strategy.evidence}
     assert "SortAlgorithm" in symbols_found
     assert "Worker" in symbols_found
+
+
+def test_strategy_rejects_single_protocol_single_concrete() -> None:
+    file_path = "thin_strategy.py"
+    symbols = [
+        _make_symbol("SortStrategy", SymbolKind.CLASS, file_path, 1, 4),
+        _make_symbol("sort", SymbolKind.METHOD, file_path, 2, 3, parent="SortStrategy"),
+        _make_symbol("Worker", SymbolKind.CLASS, file_path, 6, 9),
+        _make_symbol("sort", SymbolKind.METHOD, file_path, 7, 8, parent="Worker"),
+    ]
+    pf = ParsedFile(path=file_path, language="python", symbols=symbols)
+
+    names = _pattern_names([pf])
+
+    assert "strategy" not in names
