@@ -1,5 +1,23 @@
 # Changelog
 
+
+## 0.8.0 (2026-06-09)
+
+### Added
+
+- Added architecture-quality benchmark tasks under `benchmarks/arch_tasks/` with hand-labeled module, pattern, interface, and decision oracles.
+- Added `archex benchmark arch run`, `archex benchmark arch report`, and advisory `archex benchmark arch gate` commands for scoring analyze/explain output quality against labeled fixtures.
+
+### Changed
+
+- Improved Strategy pattern detection to aggregate protocol, concrete, and context evidence across files while rejecting unrelated shared-method false positives.
+- Updated the benchmark pipeline entrypoint so `bash scripts/benchmark_pipeline.sh` works from any current working directory and still mirrors output to `.docs/pipeline.log`.
+- Reframed the README benchmark pitch around `with archex` versus raw-file reading instead of previous-benchmark versus current-benchmark deltas.
+
+### Fixed
+
+- Fixed the implementation-gate pytest slice so `uv run pytest tests/analyze/ tests/benchmark/ -q` no longer fails on the repository-wide coverage floor after test bodies pass.
+
 ## 0.7.0 (2026-06-08)
 
 ### Added
