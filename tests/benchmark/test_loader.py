@@ -7,13 +7,15 @@ from pathlib import Path
 import pytest
 
 from archex.benchmark.loader import (
+    load_arch_task,
+    load_arch_tasks,
     load_delta_task,
     load_delta_tasks,
     load_task,
     load_tasks,
     validate_task,
 )
-from archex.benchmark.models import BenchmarkTask, DeltaBenchmarkTask
+from archex.benchmark.models import ArchitectureBenchmarkTask, BenchmarkTask, DeltaBenchmarkTask
 
 
 @pytest.fixture
@@ -90,6 +92,76 @@ expected_files:
         p.write_text("task_id: test\nrepo: owner/repo\n")
         with pytest.raises(Exception):  # noqa: B017 — Pydantic ValidationError
             load_task(p)
+
+
+class TestLoadArchTask:
+    def test_load_valid_arch_yaml(self, tmp_path: Path) -> None:
+        p = tmp_path / "arch.yaml"
+        p.write_text("""\
+task_id: arch_fixture
+repo: "."
+commit: HEAD
+question: "Which architectural patterns are present?"
+include_paths:
+  - tests/fixtures/python_patterns
+languages: [python]
+arch_oracle:
+  patterns:
+    - name: strategy
+      evidence_symbols:
+        - SortStrategy
+  interfaces:
+    - name: SortStrategy
+      file_path: tests/fixtures/python_patterns/strategies.py
+""")
+        task = load_arch_task(p)
+
+        assert isinstance(task, ArchitectureBenchmarkTask)
+        assert task.task_id.startswith("arch_")
+        assert task.arch_oracle.patterns[0].name == "strategy"
+
+    def test_load_arch_invalid_yaml(self, tmp_path: Path) -> None:
+        p = tmp_path / "bad.yaml"
+        p.write_text("- just a list")
+
+        with pytest.raises(ValueError, match="Expected a YAML mapping"):
+            load_arch_task(p)
+
+    def test_load_arch_tasks_directory(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            (tmp_path / f"{name}.yaml").write_text(f"""\
+task_id: arch_{name}
+repo: "."
+commit: HEAD
+question: "Which architecture is present?"
+include_paths:
+  - tests/fixtures/python_patterns
+arch_oracle:
+  patterns:
+    - name: strategy
+""")
+
+        tasks = load_arch_tasks(tmp_path)
+
+        assert [task.task_id for task in tasks] == ["arch_a", "arch_b"]
+
+    def test_load_arch_tasks_missing_directory(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_arch_tasks(tmp_path / "missing")
+
+    def test_repository_arch_tasks_load(self) -> None:
+        tasks_dir = Path(__file__).resolve().parents[2] / "benchmarks" / "arch_tasks"
+        tasks = load_arch_tasks(tasks_dir)
+
+        assert {task.task_id for task in tasks} == {
+            "python_false_positives_architecture",
+            "python_patterns_architecture",
+            "python_strategy_sorting_architecture",
+        }
+        assert all(
+            task.arch_oracle.patterns or task.arch_oracle.interfaces or task.arch_oracle.modules
+            for task in tasks
+        )
 
 
 class TestLoadTasks:

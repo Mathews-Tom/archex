@@ -1,0 +1,20 @@
+task_id: python_false_positives_architecture
+repo: "."
+commit: "HEAD"
+question: "Which architectural patterns should not be inferred from generic utility method names?"
+languages: [python]
+include_paths:
+  - tests/fixtures/repos/false_positives
+arch_oracle:
+  patterns: []
+  interfaces:
+    - name: DataProcessor
+      file_path: tests/fixtures/repos/false_positives/utils.py
+      kind: class
+    - name: ConfigManager
+      file_path: tests/fixtures/repos/false_positives/utils.py
+      kind: class
+    - name: ButtonWidget
+      file_path: tests/fixtures/repos/false_positives/utils.py
+      kind: class
+  decisions: []

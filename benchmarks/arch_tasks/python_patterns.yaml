@@ -1,0 +1,77 @@
+task_id: python_patterns_architecture
+repo: "."
+commit: "HEAD"
+question: "Which architectural patterns does the Python patterns fixture contain?"
+languages: [python]
+include_paths:
+  - tests/fixtures/python_patterns
+arch_oracle:
+  patterns:
+    - name: middleware_chain
+      evidence_symbols:
+        - Middleware
+        - LoggingMiddleware
+        - AuthMiddleware
+    - name: plugin_system
+      evidence_symbols:
+        - Plugin
+        - PluginRegistry
+    - name: event_bus
+      evidence_symbols:
+        - EventBus
+    - name: repository
+      evidence_symbols:
+        - UserRepository
+    - name: strategy
+      evidence_symbols:
+        - SortStrategy
+        - BubbleSort
+        - QuickSort
+        - Sorter
+  interfaces:
+    - name: SortStrategy
+      file_path: tests/fixtures/python_patterns/strategies.py
+      kind: class
+    - name: BubbleSort
+      file_path: tests/fixtures/python_patterns/strategies.py
+      kind: class
+    - name: QuickSort
+      file_path: tests/fixtures/python_patterns/strategies.py
+      kind: class
+    - name: Sorter
+      file_path: tests/fixtures/python_patterns/strategies.py
+      kind: class
+    - name: EventBus
+      file_path: tests/fixtures/python_patterns/events.py
+      kind: class
+    - name: Middleware
+      file_path: tests/fixtures/python_patterns/middleware.py
+      kind: class
+    - name: LoggingMiddleware
+      file_path: tests/fixtures/python_patterns/middleware.py
+      kind: class
+    - name: AuthMiddleware
+      file_path: tests/fixtures/python_patterns/middleware.py
+      kind: class
+    - name: Plugin
+      file_path: tests/fixtures/python_patterns/plugins.py
+      kind: class
+    - name: PluginRegistry
+      file_path: tests/fixtures/python_patterns/plugins.py
+      kind: class
+    - name: User
+      file_path: tests/fixtures/python_patterns/repository.py
+      kind: class
+    - name: UserRepository
+      file_path: tests/fixtures/python_patterns/repository.py
+      kind: class
+  decisions:
+    - decision_terms:
+        - middleware
+        - chain
+    - decision_terms:
+        - plugin
+        - extension
+    - decision_terms:
+        - strategy
+        - algorithm
