@@ -18,6 +18,9 @@ from archex.parse.engine import TreeSitterEngine
 
 PATTERNS_FIXTURE = Path(__file__).parent.parent / "fixtures" / "python_patterns"
 SIMPLE_FIXTURE = Path(__file__).parent.parent / "fixtures" / "python_simple"
+STRATEGY_SORTING_FIXTURE = (
+    Path(__file__).parent.parent / "fixtures" / "repos" / "python_strategy_sorting"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +120,21 @@ def test_strategy_evidence_symbols() -> None:
     # SortStrategy is the protocol; BubbleSort/QuickSort are concretes
     assert "SortStrategy" in symbols_found
     assert "BubbleSort" in symbols_found or "QuickSort" in symbols_found
+
+
+def test_strategy_detected_across_files() -> None:
+    parsed_files = [
+        _parse_file("sorters/base.py", STRATEGY_SORTING_FIXTURE),
+        _parse_file("sorters/context.py", STRATEGY_SORTING_FIXTURE),
+        _parse_file("sorters/implementations.py", STRATEGY_SORTING_FIXTURE),
+    ]
+    graph = _graph_for(parsed_files)
+    patterns = detect_patterns(parsed_files, graph)
+
+    pattern = next((item for item in patterns if item.name == "strategy"), None)
+    assert pattern is not None
+    symbols_found = {evidence.symbol for evidence in pattern.evidence}
+    assert {"SortStrategy", "SortContext", "BubbleSort", "MergeSort", "QuickSort"} <= symbols_found
 
 
 def test_no_false_positives_on_utils() -> None:
