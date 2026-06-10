@@ -335,6 +335,22 @@ def test_middleware_detects_pascalcase_methods() -> None:
     assert "middleware_chain" in names
 
 
+def test_middleware_detects_go_struct_receivers() -> None:
+    file_path = "handler.go"
+    symbols = [
+        _make_symbol("BaseHandler", SymbolKind.TYPE, file_path, 1, 10),
+        _make_symbol("SetNext", SymbolKind.METHOD, file_path, 2, 4, parent="BaseHandler"),
+        _make_symbol("Handle", SymbolKind.METHOD, file_path, 5, 8, parent="BaseHandler"),
+        _make_symbol("AuthHandler", SymbolKind.TYPE, file_path, 12, 20),
+        _make_symbol("Handle", SymbolKind.METHOD, file_path, 13, 18, parent="AuthHandler"),
+    ]
+    pf = ParsedFile(path=file_path, language="go", symbols=symbols)
+
+    names = _pattern_names([pf])
+
+    assert "middleware_chain" in names
+
+
 def test_repository_detects_camelcase_methods() -> None:
     """Java-style camelCase CRUD methods should trigger repository detection."""
     file_path = "UserRepository.java"
