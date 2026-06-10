@@ -590,6 +590,8 @@ class RetrievalMetadata(BaseModel):
     lexical_confidence: str = ""  # "high", "medium", "low"
     vector_mode: VectorMode = VectorMode.RAW
     surrogate_version: str | None = None
+    expansion_reason_counts: dict[str, int] = {}
+    expanded_file_reasons: dict[str, list[str]] = {}
 
 
 class ContextBundle(BaseModel):

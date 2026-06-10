@@ -184,6 +184,7 @@ def test_format_readiness_outputs_are_stable() -> None:
     assert "Token Efficiency" in markdown
     assert "Savings vs Raw" in markdown
     assert "`miss`" in markdown
+    assert "Expansion Reasons" in markdown
 
     payload = json.loads(format_readiness_json(readiness))
     assert payload["strategy"] == "archex_query"

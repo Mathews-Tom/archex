@@ -43,6 +43,8 @@ class TriageFinding:
     expansion_hub_candidates: int
     expansion_test_candidates_skipped: int
     expansion_zero_candidate_reason: str
+    expansion_reason_counts: dict[str, int]
+    expanded_file_reasons: dict[str, list[str]]
     raw_grepped_recall: float | None
     raw_grepped_precision: float | None
     raw_grepped_f1_score: float | None
@@ -80,6 +82,8 @@ class TriageFinding:
                 "hub_candidates": self.expansion_hub_candidates,
                 "test_candidates_skipped": self.expansion_test_candidates_skipped,
                 "zero_candidate_reason": self.expansion_zero_candidate_reason,
+                "reason_counts": self.expansion_reason_counts,
+                "file_reasons": self.expanded_file_reasons,
             },
             "raw_grepped_metrics": {
                 "recall": self.raw_grepped_recall,
@@ -156,6 +160,8 @@ def triage_failures(
                 expansion_hub_candidates=result.expansion_hub_candidates,
                 expansion_test_candidates_skipped=result.expansion_test_candidates_skipped,
                 expansion_zero_candidate_reason=result.expansion_zero_candidate_reason,
+                expansion_reason_counts=result.expansion_reason_counts,
+                expanded_file_reasons=result.expanded_file_reasons,
                 raw_grepped_recall=raw_grepped.recall if raw_grepped is not None else None,
                 raw_grepped_precision=raw_grepped.precision if raw_grepped is not None else None,
                 raw_grepped_f1_score=raw_grepped.f1_score if raw_grepped is not None else None,
@@ -220,6 +226,12 @@ def format_triage_markdown(findings: list[TriageFinding]) -> str:
             f"hubs `{finding.expansion_hub_candidates}`, "
             f"test skips `{finding.expansion_test_candidates_skipped}`"
         )
+        if finding.expansion_reason_counts:
+            reason_summary = ", ".join(
+                f"`{reason}` `{count}`"
+                for reason, count in sorted(finding.expansion_reason_counts.items())
+            )
+            lines.append(f"- Expansion reasons: {reason_summary}")
         if finding.expansion_zero_candidate_reason:
             lines.append(f"- Zero expansion reason: `{finding.expansion_zero_candidate_reason}`")
         lines.append("- Expected files:")

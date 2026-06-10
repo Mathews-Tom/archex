@@ -177,6 +177,8 @@ class BenchmarkResult(BaseModel):
     vector_mode: VectorMode = VectorMode.RAW
     surrogate_version: str | None = None
     cache_state: str = "cold"
+    expansion_reason_counts: dict[str, int] = {}
+    expanded_file_reasons: dict[str, list[str]] = {}
 
 
 class BenchmarkReport(BaseModel):

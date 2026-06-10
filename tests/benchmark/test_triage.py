@@ -33,6 +33,8 @@ def _result(
     expansion_eligible_seeds: int = 0,
     expansion_candidates_found: int = 0,
     expansion_zero_candidate_reason: str = "",
+    expansion_reason_counts: dict[str, int] | None = None,
+    expanded_file_reasons: dict[str, list[str]] | None = None,
 ) -> BenchmarkResult:
     return BenchmarkResult(
         task_id="task",
@@ -55,6 +57,8 @@ def _result(
         expansion_eligible_seeds=expansion_eligible_seeds,
         expansion_candidates_found=expansion_candidates_found,
         expansion_zero_candidate_reason=expansion_zero_candidate_reason,
+        expansion_reason_counts=expansion_reason_counts or {},
+        expanded_file_reasons=expanded_file_reasons or {},
         category=category,
     )
 
@@ -205,6 +209,8 @@ def test_format_triage_json_serializes_expansion_diagnostics() -> None:
         precision=0.2,
         f1_score=0.33,
         seed_files=["src/task.py"],
+        expansion_reason_counts={"import_target": 2, "test_file": 1},
+        expanded_file_reasons={"src/worker.py": ["import_target"]},
         expanded_files=["src/worker.py", "src/noise.py"],
         expansion_eligible_seeds=1,
         expansion_candidates_found=2,
@@ -216,6 +222,13 @@ def test_format_triage_json_serializes_expansion_diagnostics() -> None:
 
     assert payload[0]["task_id"] == "expanded"
     assert payload[0]["returned_files"] == ["src/task.py", "src/worker.py", "src/noise.py"]
+    assert payload[0]["expansion_diagnostics"]["reason_counts"] == {
+        "import_target": 2,
+        "test_file": 1,
+    }
+    assert payload[0]["expansion_diagnostics"]["file_reasons"] == {
+        "src/worker.py": ["import_target"]
+    }
     assert payload[0]["extra_files"] == ["src/noise.py"]
     assert payload[0]["seed_files"] == ["src/task.py"]
     assert payload[0]["expanded_files"] == ["src/worker.py", "src/noise.py"]
