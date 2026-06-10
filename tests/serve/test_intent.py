@@ -97,6 +97,19 @@ def test_classify_archex_reset_as_cli_command() -> None:
     assert result == QueryIntent.CLI
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "How does archex initialize repo-local project state?",
+        "How does archex inspect whether a repo-local index is fresh, stale, dirty, or corrupt?",
+        "How does archex explicitly build or refresh a repo-local index?",
+        "How does archex resolve project settings into runtime configuration?",
+    ],
+)
+def test_classify_archex_lifecycle_questions_as_cli(query: str) -> None:
+    assert classify_intent(query) == QueryIntent.CLI
+
+
 # ---------------------------------------------------------------------------
 # Usage search tests
 # ---------------------------------------------------------------------------

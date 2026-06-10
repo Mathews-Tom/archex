@@ -288,6 +288,9 @@ _FRAMEWORK_SYNONYMS: dict[str, list[str]] = {
     "routes": ["router", "routing", "endpoint", "handler", "register", "mount"],
 }
 
+_CLI_LIFECYCLE_COMMAND_TERMS = frozenset({"cache", "config", "index", "init", "reset", "status"})
+
+
 # Architecture keywords that trigger 2-hop expansion.
 _ARCH_KEYWORDS = frozenset(_ARCH_SYNONYMS.keys())
 
@@ -361,6 +364,17 @@ def _query_terms(question: str) -> set[str]:
         expanded.update(
             {"api", "search", "retrieve", "retrieval", "lookup", "bm25", "rank", "score"}
         )
+    if "initialize" in expanded or "initialise" in expanded:
+        expanded.update({"init", "cli", "main", "project", "config"})
+    if {"project", "state"} <= expanded:
+        expanded.update({"cli", "project", "config"})
+    state_lifecycle_query = bool({"fresh", "stale", "dirty", "corrupt"} & expanded)
+    if state_lifecycle_query:
+        expanded.update({"status", "fresh", "stale", "dirty", "corrupt", "delta", "project"})
+    if {"build", "refresh"} & expanded and "index" in expanded:
+        expanded.update({"index", "cli", "api", "cache", "project", "config"})
+    if {"settings", "configuration"} & expanded or "runtime_configuration" in expanded:
+        expanded.update({"config", "settings", "runtime", "models", "cache", "project"})
     if "mcp" in expanded:
         expanded.update({"api", "context", "mcp_cmd", "model", "models"})
     if "query" in expanded and "cache" in expanded:
@@ -380,6 +394,9 @@ def _query_terms(question: str) -> set[str]:
             expanded.update(_ARCH_SYNONYMS[term])
         if term in _FRAMEWORK_SYNONYMS:
             expanded.update(_FRAMEWORK_SYNONYMS[term])
+
+    if state_lifecycle_query:
+        expanded.difference_update({"build", "cache", "config", "store"})
 
     return expanded
 
@@ -436,9 +453,14 @@ def _path_alignment_boost(file_path: str, query_terms: set[str]) -> float:
     normalized_stem = stem.lower().lstrip("_")
     if stem.lower() in query_terms or normalized_stem in query_terms:
         return 2.0
-    if not (path_terms & query_terms):
+    matched_terms = path_terms & query_terms
+    if not matched_terms:
         return 1.0
+    if "cli" in path_terms and matched_terms & _CLI_LIFECYCLE_COMMAND_TERMS:
+        return 2.2
     if "cli" in path_terms and "cli" in query_terms:
+        return 1.6
+    if matched_terms & _CLI_LIFECYCLE_COMMAND_TERMS:
         return 1.6
     return 1.35
 
