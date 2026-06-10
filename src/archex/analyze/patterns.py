@@ -81,23 +81,26 @@ default_registry = PatternRegistry()
 # ---------------------------------------------------------------------------
 
 
-def _public_methods_of(class_name: str, symbols: list[Symbol]) -> list[Symbol]:
-    """Return public method symbols belonging to a class."""
+_PATTERN_CONTAINER_KINDS = {SymbolKind.CLASS, SymbolKind.TYPE, SymbolKind.INTERFACE}
+
+
+def _public_methods_of(container_name: str, symbols: list[Symbol]) -> list[Symbol]:
+    """Return public method symbols belonging to a class, type, or interface."""
     return [
         s
         for s in symbols
         if s.kind == SymbolKind.METHOD
-        and s.parent == class_name
+        and s.parent == container_name
         and s.visibility == Visibility.PUBLIC
     ]
 
 
-def _method_names(class_name: str, symbols: list[Symbol]) -> set[str]:
-    return {s.name.lower() for s in _public_methods_of(class_name, symbols)}
+def _method_names(container_name: str, symbols: list[Symbol]) -> set[str]:
+    return {s.name.lower() for s in _public_methods_of(container_name, symbols)}
 
 
 def _classes(symbols: list[Symbol]) -> list[Symbol]:
-    return [s for s in symbols if s.kind == SymbolKind.CLASS]
+    return [s for s in symbols if s.kind in _PATTERN_CONTAINER_KINDS]
 
 
 def _confidence(evidence_count: int) -> float:
@@ -126,7 +129,7 @@ def _detect_middleware(
         classes = _classes(pf.symbols)
         full_chain_found = False
 
-        # First pass: find full chain classes
+        # First pass: find full chain containers
         for cls in classes:
             methods = _method_names(cls.name, pf.symbols)
             has_next = "set_next" in methods or "next" in methods
@@ -141,7 +144,7 @@ def _detect_middleware(
                         end_line=cls.end_line,
                         symbol=cls.name,
                         explanation=(
-                            f"Class '{cls.name}' has set_next/next + process/handle methods"
+                            f"Container '{cls.name}' has set_next/next + process/handle methods"
                         ),
                     )
                 )
@@ -168,7 +171,8 @@ def _detect_middleware(
                             end_line=cls.end_line,
                             symbol=cls.name,
                             explanation=(
-                                f"Class '{cls.name}' overrides process/handle (chain participant)"
+                                f"Container '{cls.name}' overrides process/handle "
+                                "(chain participant)"
                             ),
                         )
                     )
@@ -349,7 +353,7 @@ def _detect_repository(
                         end_line=cls.end_line,
                         symbol=cls.name,
                         explanation=(
-                            f"Class '{cls.name}' has CRUD-like methods: "
+                            f"Container '{cls.name}' has CRUD-like methods: "
                             f"{', '.join(sorted(crud_hits))}"
                         ),
                     )
