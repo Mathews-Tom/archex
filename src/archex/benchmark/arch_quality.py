@@ -18,6 +18,8 @@ from archex.benchmark.models import (
 from archex.exceptions import BenchmarkCloneError
 from archex.models import ArchProfile, Config, RepoSource
 
+DEFAULT_ARCHITECTURE_BASELINE_DIR = Path(".archex/arch-quality-baseline")
+
 
 def run_architecture_benchmark(task: ArchitectureBenchmarkTask) -> ArchitectureBenchmarkResult:
     """Run architecture analysis for a single labeled task and score it against its oracle."""
@@ -112,7 +114,12 @@ def score_architecture_profile(
     )
 
 
-def format_architecture_summary(results: list[ArchitectureBenchmarkResult]) -> str:
+def format_architecture_summary(
+    results: list[ArchitectureBenchmarkResult],
+    *,
+    baseline_dir: Path = DEFAULT_ARCHITECTURE_BASELINE_DIR,
+    baseline_results: list[ArchitectureBenchmarkResult] | None = None,
+) -> str:
     """Render per-dimension architecture-quality scores as Markdown."""
     lines = [
         "# Architecture Quality Benchmark",
@@ -130,6 +137,17 @@ def format_architecture_summary(results: list[ArchitectureBenchmarkResult]) -> s
         )
     lines.append("")
     lines.append("Architecture-quality gate mode: ADVISORY")
+    if baseline_results is None:
+        lines.append(
+            "Architecture baseline mode: FIRST RUN / seed candidate "
+            f"(no accepted baseline loaded from {baseline_dir})"
+        )
+        lines.append(
+            "Accepted baseline seeding remains an operator decision; "
+            f"copy reviewed result JSON files into {baseline_dir} to enable regression comparison."
+        )
+    else:
+        lines.append(f"Architecture baseline mode: REGRESSION COMPARISON ({baseline_dir})")
     return "\n".join(lines)
 
 
