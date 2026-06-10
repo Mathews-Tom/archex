@@ -1,0 +1,36 @@
+task_id: mixed_language_false_positives_architecture
+repo: "."
+commit: "HEAD"
+question: "Which public boundaries are present without inferring architectural patterns across unrelated TypeScript and Go utilities?"
+languages: [typescript, go]
+include_paths:
+  - tests/fixtures/repos/mixed_false_positives
+arch_oracle:
+  modules:
+    - name: web
+      root_path: tests/fixtures/repos/mixed_false_positives/web
+      files:
+        - tests/fixtures/repos/mixed_false_positives/web/toolbar.ts
+      responsibility_terms:
+        - toolbar
+        - state
+        - render
+    - name: worker
+      root_path: tests/fixtures/repos/mixed_false_positives/worker
+      files:
+        - tests/fixtures/repos/mixed_false_positives/worker/collector.go
+      responsibility_terms:
+        - metrics
+        - collector
+  patterns: []
+  interfaces:
+    - name: ToolbarState
+      file_path: tests/fixtures/repos/mixed_false_positives/web/toolbar.ts
+      kind: class
+    - name: renderToolbar
+      file_path: tests/fixtures/repos/mixed_false_positives/web/toolbar.ts
+      kind: function
+    - name: NewMetricsCollector
+      file_path: tests/fixtures/repos/mixed_false_positives/worker/collector.go
+      kind: function
+  decisions: []

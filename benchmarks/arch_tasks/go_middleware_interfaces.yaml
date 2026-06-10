@@ -1,0 +1,30 @@
+task_id: go_middleware_interfaces_architecture
+repo: "."
+commit: "HEAD"
+question: "Which middleware chain and public interface boundaries does the Go handler fixture expose?"
+languages: [go]
+include_paths:
+  - tests/fixtures/go_handler.go
+arch_oracle:
+  modules:
+    - name: fixtures
+      root_path: tests/fixtures
+      files:
+        - tests/fixtures/go_handler.go
+      responsibility_terms:
+        - handler
+        - interface
+  patterns:
+    - name: middleware_chain
+      evidence_symbols:
+        - Handler
+        - BaseHandler
+        - AuthHandler
+  interfaces:
+    - name: Handler
+      file_path: tests/fixtures/go_handler.go
+      kind: interface
+  decisions:
+    - decision_terms:
+        - middleware
+        - chain

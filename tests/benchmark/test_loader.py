@@ -154,9 +154,13 @@ arch_oracle:
         tasks = load_arch_tasks(tasks_dir)
 
         assert {task.task_id for task in tasks} == {
+            "go_middleware_interfaces_architecture",
+            "mixed_language_false_positives_architecture",
             "python_false_positives_architecture",
             "python_patterns_architecture",
             "python_strategy_sorting_architecture",
+            "rust_traits_async_architecture",
+            "typescript_react_hooks_architecture",
         }
         assert all(
             task.arch_oracle.patterns or task.arch_oracle.interfaces or task.arch_oracle.modules

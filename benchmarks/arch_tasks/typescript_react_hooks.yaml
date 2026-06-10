@@ -1,0 +1,32 @@
+task_id: typescript_react_hooks_architecture
+repo: "."
+commit: "HEAD"
+question: "Which public hook and component boundaries does the React hooks fixture expose?"
+languages: [typescript]
+include_paths:
+  - tests/fixtures/repos/react_hooks_state
+arch_oracle:
+  modules:
+    - name: src
+      root_path: tests/fixtures/repos/react_hooks_state/src
+      files:
+        - tests/fixtures/repos/react_hooks_state/src/components/Login.tsx
+        - tests/fixtures/repos/react_hooks_state/src/hooks/useAuth.ts
+        - tests/fixtures/repos/react_hooks_state/src/hooks/useLocalStorage.ts
+      responsibility_terms:
+        - auth
+        - hook
+        - storage
+        - login
+  patterns: []
+  interfaces:
+    - name: Login
+      file_path: tests/fixtures/repos/react_hooks_state/src/components/Login.tsx
+      kind: function
+    - name: useAuth
+      file_path: tests/fixtures/repos/react_hooks_state/src/hooks/useAuth.ts
+      kind: function
+    - name: useLocalStorage
+      file_path: tests/fixtures/repos/react_hooks_state/src/hooks/useLocalStorage.ts
+      kind: function
+  decisions: []
