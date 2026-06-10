@@ -234,6 +234,25 @@ def test_format_architecture_summary_includes_gate_mode() -> None:
 
     assert "| arch_fixture | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |" in summary
     assert "Architecture-quality gate mode: ADVISORY" in summary
+    assert "Architecture baseline mode: FIRST RUN / seed candidate" in summary
+    assert ".archex/arch-quality-baseline" in summary
+
+
+def test_format_architecture_summary_reports_baseline_comparison(tmp_path: Path) -> None:
+    result = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(),
+    )
+
+    summary = format_architecture_summary(
+        [result],
+        baseline_dir=tmp_path,
+        baseline_results=[result],
+    )
+
+    assert f"Architecture baseline mode: REGRESSION COMPARISON ({tmp_path})" in summary
 
 
 def test_load_architecture_results(tmp_path: Path) -> None:
@@ -262,6 +281,8 @@ def test_arch_gate_cli_exits_zero_for_advisory_warning(tmp_path: Path) -> None:
     output = CliRunner().invoke(benchmark_cmd, ["arch", "gate", "--input", str(tmp_path)])
 
     assert output.exit_code == 0
+    assert "Architecture baseline mode: FIRST RUN / seed candidate" in output.output
+    assert ".archex/arch-quality-baseline" in output.output
     assert "ARCHITECTURE QUALITY ADVISORY" in output.output
 
 
@@ -292,6 +313,21 @@ def test_arch_gate_cli_accepts_baseline_results(tmp_path: Path) -> None:
 
     assert output.exit_code == 0
     assert "pattern_recall regressed" in output.output
+
+
+def test_arch_report_cli_defaults_to_seed_mode(tmp_path: Path) -> None:
+    result = ArchitectureBenchmarkResult(
+        task_id="arch_fixture",
+        repo=".",
+        commit="HEAD",
+        scores=ArchitectureDimensionScores(),
+    )
+    (tmp_path / "result.json").write_text(result.model_dump_json())
+
+    output = CliRunner().invoke(benchmark_cmd, ["arch", "report", "--input", str(tmp_path)])
+
+    assert output.exit_code == 0
+    assert "Architecture baseline mode: FIRST RUN / seed candidate" in output.output
 
 
 def test_run_architecture_benchmark_scores_fixture() -> None:

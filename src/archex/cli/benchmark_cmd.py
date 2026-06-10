@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 
 from archex.benchmark.arch_quality import (
+    DEFAULT_ARCHITECTURE_BASELINE_DIR,
     architecture_gate_warnings,
     format_architecture_summary,
     load_architecture_results,
@@ -28,6 +29,7 @@ from archex.benchmark.gate import (
 )
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import (
+    ArchitectureBenchmarkResult,
     BenchmarkReport,
     BenchmarkRetrievalOptions,
     DeltaBenchmarkResult,
@@ -557,6 +559,29 @@ def gate_cmd(
     click.echo("Quality gate passed.")
 
 
+def _load_architecture_baseline(
+    baseline_dir: str | None,
+) -> tuple[Path, list[ArchitectureBenchmarkResult] | None]:
+    baseline_path = Path(baseline_dir) if baseline_dir else DEFAULT_ARCHITECTURE_BASELINE_DIR
+    if not baseline_path.exists():
+        if baseline_dir is not None:
+            raise click.ClickException(
+                f"No architecture baseline directory found at {baseline_path}"
+            )
+        return baseline_path, None
+    if not baseline_path.is_dir():
+        raise click.ClickException(
+            f"Architecture baseline path is not a directory: {baseline_path}"
+        )
+
+    baseline_results = load_architecture_results(baseline_path)
+    if not baseline_results:
+        raise click.ClickException(
+            f"No architecture baseline result files found in {baseline_path}"
+        )
+    return baseline_path, baseline_results
+
+
 @benchmark_cmd.group("arch")
 def arch_cmd() -> None:
     """Architecture-quality benchmarks for analyze/explain outputs."""
@@ -598,12 +623,29 @@ def arch_run_cmd(output_dir: str, task_id: str | None, tasks_dir: str) -> None:
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
     help="Directory containing architecture-quality result JSON files.",
 )
-def arch_report_cmd(input_dir: str) -> None:
+@click.option(
+    "--baseline",
+    "baseline_dir",
+    default=None,
+    type=click.Path(file_okay=False, dir_okay=True),
+    help=(
+        "Optional accepted baseline directory. Defaults to "
+        ".archex/arch-quality-baseline when present; absent default means seed mode."
+    ),
+)
+def arch_report_cmd(input_dir: str, baseline_dir: str | None) -> None:
     """Generate a formatted architecture-quality report."""
     results = load_architecture_results(Path(input_dir))
     if not results:
         raise click.ClickException(f"No architecture result files found in {input_dir}")
-    click.echo(format_architecture_summary(results))
+    baseline_path, baseline_results = _load_architecture_baseline(baseline_dir)
+    click.echo(
+        format_architecture_summary(
+            results,
+            baseline_dir=baseline_path,
+            baseline_results=baseline_results,
+        )
+    )
 
 
 @arch_cmd.command("gate")
@@ -618,8 +660,11 @@ def arch_report_cmd(input_dir: str) -> None:
     "--baseline",
     "baseline_dir",
     default=None,
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Optional baseline architecture result directory for advisory regression warnings.",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help=(
+        "Optional accepted baseline directory. Defaults to "
+        ".archex/arch-quality-baseline when present; absent default means seed mode."
+    ),
 )
 @click.option("--min-boundary-f1", default=0.80, type=float, help="Advisory boundary F1 floor.")
 @click.option(
@@ -649,9 +694,7 @@ def arch_gate_cmd(
     results = load_architecture_results(Path(input_dir))
     if not results:
         raise click.ClickException(f"No architecture result files found in {input_dir}")
-    baseline_results = load_architecture_results(Path(baseline_dir)) if baseline_dir else None
-    if baseline_dir is not None and not baseline_results:
-        raise click.ClickException(f"No architecture baseline result files found in {baseline_dir}")
+    baseline_path, baseline_results = _load_architecture_baseline(baseline_dir)
     warnings = architecture_gate_warnings(
         results,
         baseline_results=baseline_results,
@@ -660,6 +703,17 @@ def arch_gate_cmd(
         min_pattern_recall=min_pattern_recall,
         min_interface_completeness=min_interface_completeness,
     )
+    if baseline_results is None:
+        click.echo(
+            "Architecture baseline mode: FIRST RUN / seed candidate "
+            f"(no accepted baseline loaded from {baseline_path})"
+        )
+        click.echo(
+            "Accepted baseline seeding remains an operator decision; "
+            f"copy reviewed result JSON files into {baseline_path} to enable regression comparison."
+        )
+    else:
+        click.echo(f"Architecture baseline mode: REGRESSION COMPARISON ({baseline_path})")
     if warnings:
         click.echo(f"ARCHITECTURE QUALITY ADVISORY: {len(warnings)} warning(s)")
         for warning in warnings:
