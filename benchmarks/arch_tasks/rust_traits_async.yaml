@@ -1,0 +1,31 @@
+task_id: rust_traits_async_architecture
+repo: "."
+commit: "HEAD"
+question: "Which trait and async request boundaries does the Rust async fixture expose?"
+languages: [rust]
+include_paths:
+  - tests/fixtures/repos/rust_async_boundaries
+arch_oracle:
+  modules:
+    - name: src
+      root_path: tests/fixtures/repos/rust_async_boundaries/src
+      files:
+        - tests/fixtures/repos/rust_async_boundaries/src/auth.rs
+        - tests/fixtures/repos/rust_async_boundaries/src/server.rs
+      responsibility_terms:
+        - token
+        - verifier
+        - authenticate
+        - authorize
+  patterns: []
+  interfaces:
+    - name: TokenVerifier
+      file_path: tests/fixtures/repos/rust_async_boundaries/src/auth.rs
+      kind: interface
+    - name: authenticate
+      file_path: tests/fixtures/repos/rust_async_boundaries/src/auth.rs
+      kind: function
+    - name: authorize_request
+      file_path: tests/fixtures/repos/rust_async_boundaries/src/server.rs
+      kind: function
+  decisions: []
