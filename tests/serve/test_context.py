@@ -1116,6 +1116,35 @@ def test_path_alignment_matches_private_module_stem_without_underscore() -> None
     assert _path_alignment_boost("pydantic/_internal/_validators.py", {"validators"}) == 2.0
 
 
+def test_query_terms_expand_framework_semantics_without_path_hacks() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    middleware_terms = _query_terms("How does express implement the middleware chain?")
+    assert {"router", "route", "layer", "stack", "handler"} <= middleware_terms
+
+    dependency_terms = _query_terms("How does FastAPI implement dependency injection?")
+    assert {"depends", "dependant", "provider", "resolver"} <= dependency_terms
+
+    validator_terms = _query_terms("How does Pydantic chain and apply field validators?")
+    assert {"validate", "validation", "field_validator", "functional_validators"} <= validator_terms
+
+    decorator_terms = _query_terms("How does click implement command decorators?")
+    assert {"decorator", "parameter", "option", "argument", "wrapper"} <= decorator_terms
+
+    orm_terms = _query_terms("How does Django's ORM build and execute SQL queries?")
+    assert {"queryset", "compiler", "expression", "where"} <= orm_terms
+
+
+def test_framework_semantic_terms_boost_router_and_layer_paths() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms("How does express implement the middleware chain and next function?")
+    assert _path_alignment_boost("lib/router/layer.js", terms) > 1.0
+    assert _path_alignment_boost("lib/router/route.js", terms) > 1.0
+    assert _path_alignment_boost("lib/view.js", terms) == 1.0
+
+
 def test_type_alignment_requires_query_overlap_for_general_queries() -> None:
     from archex.serve.context import _type_alignment_score  # pyright: ignore[reportPrivateUsage]
 

@@ -195,24 +195,97 @@ _QUERY_STOP = frozenset(
     }
 )
 
-# Architecture-intent synonyms: map each architectural keyword to code-level equivalents.
-# These expand BM25 misses caused by vocabulary gaps between natural-language queries
-# and the actual identifiers/comments in source files.
+# Architecture-intent synonyms: map broad architectural keywords to code-level
+# equivalents. These keywords still control architecture-specific expansion.
 _ARCH_SYNONYMS: dict[str, list[str]] = {
     "pipeline": ["workflow", "chain", "process", "pipe", "stage", "assembly", "context"],
-    "middleware": ["handler", "interceptor", "filter", "hook"],
+    "middleware": ["handler", "interceptor", "filter", "hook", "router", "route", "layer", "stack"],
     "registry": ["register", "catalog", "factory", "provider"],
     "adapter": ["plugin", "connector", "driver", "bridge"],
-    "injection": ["inject", "resolve", "depend", "wire"],
-    "routing": ["route", "router", "dispatch", "endpoint", "path"],
+    "injection": [
+        "inject",
+        "resolve",
+        "depend",
+        "depends",
+        "dependant",
+        "wire",
+        "provider",
+        "resolver",
+    ],
+    "routing": ["route", "router", "dispatch", "endpoint", "path", "handler", "register", "mount"],
     "index": ["indexing", "indexed", "cache", "config", "project", "store", "build"],
     "indexing": ["index", "indexed", "delta", "catalog", "cache", "store"],
-    "dependency": ["depend", "resolve", "inject", "require"],
+    "dependency": [
+        "depend",
+        "depends",
+        "dependant",
+        "resolve",
+        "inject",
+        "require",
+        "provider",
+        "resolver",
+    ],
     "session": ["connection", "pool", "client", "transport"],
-    "hook": ["callback", "listener", "subscriber", "event"],
-    "orm": ["model", "schema", "mapper", "table", "entity"],
+    "hook": ["callback", "listener", "subscriber", "event", "state", "effect"],
+    "orm": [
+        "model",
+        "schema",
+        "mapper",
+        "table",
+        "entity",
+        "queryset",
+        "sql",
+        "compiler",
+        "expression",
+        "where",
+    ],
     "task": ["job", "worker", "celery", "dispatch", "execute"],
     "runtime": ["scheduler", "executor", "loop", "spawn"],
+}
+
+# Framework-semantic synonyms improve lexical and path alignment without making
+# every framework implementation question trigger architecture-only expansion.
+_FRAMEWORK_SYNONYMS: dict[str, list[str]] = {
+    "validator": [
+        "validate",
+        "validation",
+        "field_validator",
+        "model_validator",
+        "functional_validators",
+        "validate_call",
+    ],
+    "validators": [
+        "validate",
+        "validation",
+        "field_validator",
+        "model_validator",
+        "functional_validators",
+        "validate_call",
+    ],
+    "decorator": [
+        "decorators",
+        "decoration",
+        "parameter",
+        "option",
+        "argument",
+        "command",
+        "callback",
+        "wrapper",
+    ],
+    "decorators": [
+        "decorator",
+        "decoration",
+        "parameter",
+        "option",
+        "argument",
+        "command",
+        "callback",
+        "wrapper",
+    ],
+    "parameter": ["param", "option", "argument", "decorator"],
+    "parameters": ["param", "option", "argument", "decorator"],
+    "route": ["router", "routing", "endpoint", "handler", "register", "mount"],
+    "routes": ["router", "routing", "endpoint", "handler", "register", "mount"],
 }
 
 # Architecture keywords that trigger 2-hop expansion.
@@ -297,16 +370,16 @@ def _query_terms(question: str) -> set[str]:
     if {"benchmark", "dogfood", "gate"} <= expanded:
         expanded.update({"baseline", "benchmark_cmd", "report", "reporter"})
     if "middleware" in expanded:
-        expanded.update({"common", "wsgi"})
+        expanded.update({"common", "wsgi", "asgi"})
     if "pooling" in expanded or "keep_alive" in expanded:
         expanded.update({"client", "config"})
-    if "validators" in expanded or "validator" in expanded:
-        expanded.update({"functional_validators", "validate_call"})
 
-    # Architecture-intent synonym expansion
+    # Semantic synonym expansion
     for term in list(expanded):
         if term in _ARCH_SYNONYMS:
             expanded.update(_ARCH_SYNONYMS[term])
+        if term in _FRAMEWORK_SYNONYMS:
+            expanded.update(_FRAMEWORK_SYNONYMS[term])
 
     return expanded
 
