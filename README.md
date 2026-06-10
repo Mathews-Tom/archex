@@ -310,13 +310,13 @@ Release gates are intentionally tied to the product contract:
 - warn, but do not fail, on absolute non-token rows such as rank-2 MRR or low recall rows already accepted in the baseline;
 - dogfood must report zero regressions.
 
-Reproduce the full retrieval gate and dogfood delta locally:
+Reproduce the architecture-quality smoke, retrieval benchmark/report/gate, and dogfood run locally:
 
 ```bash
 bash scripts/benchmark_pipeline.sh
 ```
 
-The script resolves the repo root from its own location, removes prior `.archex/e2e-tokens` output, writes a fresh `.docs/pipeline.log`, streams the run to the terminal that started it, runs benchmark generation, runs the baseline-aware gate, and then runs dogfood even when the gate fails. It exits non-zero at the end if any step failed.
+The script resolves the repo root from its own location, writes a fresh `logs/benchmark_pipeline.log`, streams output to the terminal that started it, and keeps running later steps so failures are reported together. Defaults are intentionally generic: architecture results go to `.archex/arch-quality-current`, retrieval results go to `.archex/benchmark-current`, retrieval baseline comparison is enabled only when `ARCHEX_BENCHMARK_BASELINE_DIR` is supplied, and dogfood uses `benchmarks/dogfood_baseline.json`. Override paths, thresholds, and extra benchmark flags with `ARCHEX_*` environment variables in `scripts/benchmark_pipeline.sh`; set `ARCHEX_RUN_ARCH_BENCHMARK=0`, `ARCHEX_RUN_RETRIEVAL_BENCHMARK=0`, or `ARCHEX_RUN_DOGFOOD=0` to skip a stage.
 
 ## Language support
 
