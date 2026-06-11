@@ -182,6 +182,24 @@ arch_oracle:
 
         assert [task.task_id for task in tasks] == ["arch_a", "arch_b"]
 
+    def test_load_arch_tasks_rejects_duplicate_ids_with_paths(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            (tmp_path / f"{name}.yaml").write_text("""\
+task_id: arch_duplicate
+repo: "."
+commit: HEAD
+question: "Which architecture is present?"
+include_paths:
+  - tests/fixtures/python_patterns
+arch_oracle:
+  patterns:
+    - name: strategy
+""")
+
+        message = r"Duplicate task_id 'arch_duplicate'.*a\.yaml.*b\.yaml"
+        with pytest.raises(ValueError, match=message):
+            load_arch_tasks(tmp_path)
+
     def test_load_arch_tasks_missing_directory(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             load_arch_tasks(tmp_path / "missing")
@@ -247,6 +265,21 @@ class TestLoadTasks:
         tasks = load_tasks(tasks_dir)
         ids = [t.task_id for t in tasks]
         assert ids == ["task_0", "task_1", "task_2"]
+
+    def test_load_directory_rejects_duplicate_ids_with_paths(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            (tmp_path / f"{name}.yaml").write_text("""\
+task_id: duplicate
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+""")
+
+        message = r"Duplicate task_id 'duplicate'.*a\.yaml.*b\.yaml"
+        with pytest.raises(ValueError, match=message):
+            load_tasks(tmp_path)
 
 
 class TestValidateTask:
@@ -340,6 +373,21 @@ delta_commit: delta{i}
         assert len(tasks) == 2
         assert all(isinstance(t, DeltaBenchmarkTask) for t in tasks)
         assert [t.task_id for t in tasks] == ["delta_0", "delta_1"]
+
+    def test_load_delta_tasks_rejects_duplicate_ids_with_paths(self, tmp_path: Path) -> None:
+        for name in ("a", "b"):
+            (tmp_path / f"{name}.yaml").write_text("""\
+task_id: delta_duplicate
+repo: "."
+base_commit: base
+delta_commit: delta
+""")
+
+        with pytest.raises(
+            ValueError,
+            match=r"Duplicate task_id 'delta_duplicate'.*a\.yaml.*b\.yaml",
+        ):
+            load_delta_tasks(tmp_path)
 
     def test_load_delta_missing_directory(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
