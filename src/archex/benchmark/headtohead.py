@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 from pathlib import Path
 from typing import TypeVar, cast
 
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from archex.benchmark.external_mcp import reset_external_tool_config, set_external_tool_config
 from archex.benchmark.loader import load_tasks
-from archex.benchmark.models import BenchmarkTask, HeadToHeadManifest, Strategy, TaskCategory
+from archex.benchmark.models import (
+    BenchmarkReport,
+    BenchmarkResult,
+    BenchmarkRetrievalOptions,
+    BenchmarkTask,
+    HeadToHeadManifest,
+    Strategy,
+    TaskCategory,
+)
+from archex.benchmark.runner import run_all
 
 ManifestModel = TypeVar("ManifestModel", bound=BaseModel)
 
@@ -144,3 +156,186 @@ def load_headtohead_tasks(
     """Load a manifest and its external benchmark tasks."""
     manifest = load_headtohead_manifest(manifest_path)
     return manifest, select_headtohead_tasks(manifest, tasks_dir)
+
+
+HEADTOHEAD_REPORT_STRATEGIES: tuple[Strategy, ...] = (
+    Strategy.ARCHEX_QUERY,
+    Strategy.EXTERNAL_MCP,
+    Strategy.RAW_GREPPED,
+)
+
+
+def run_headtohead(
+    manifest_path: Path,
+    output_dir: Path,
+    tasks_dir: Path,
+) -> list[BenchmarkReport]:
+    """Run the manifest-pinned comparison across raw, archex, and one external lane."""
+    manifest, tasks = load_headtohead_tasks(manifest_path, tasks_dir)
+    if len(manifest.external_tools) != 1:
+        raise HeadToHeadManifestError(
+            "Head-to-head runner currently requires exactly one external tool"
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for stale_result in output_dir.glob("*.json"):
+        stale_result.unlink()
+    shutil.copy2(manifest_path, output_dir / "manifest.yaml")
+    external_tool = manifest.external_tools[0]
+    token = set_external_tool_config(external_tool)
+    try:
+        return run_all(
+            tasks_dir=tasks_dir,
+            output_dir=output_dir,
+            strategies=[
+                Strategy.RAW_FILES,
+                manifest.raw_read_strategy,
+                manifest.archex.strategy,
+                Strategy.EXTERNAL_MCP,
+            ],
+            tasks=tasks,
+            retrieval_options=BenchmarkRetrievalOptions(embedder=manifest.archex.embedder),
+        )
+    finally:
+        reset_external_tool_config(token)
+
+
+def load_headtohead_results(input_dir: Path) -> list[BenchmarkReport]:
+    """Load result JSON files from a head-to-head output directory."""
+    reports: list[BenchmarkReport] = []
+    for path in sorted(input_dir.glob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        reports.append(BenchmarkReport.model_validate(data))
+    return reports
+
+
+def _lane_label(result: BenchmarkResult) -> str:
+    if result.strategy is Strategy.ARCHEX_QUERY:
+        return "archex"
+    if result.strategy is Strategy.RAW_GREPPED:
+        return "raw-grep/read"
+    if result.strategy is Strategy.EXTERNAL_MCP:
+        return result.strategy_label or result.provenance.get("external_tool", "external")
+    return result.strategy.value
+
+
+def _result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> str:
+    if result.strategy is Strategy.ARCHEX_QUERY:
+        return f"manifest={manifest.name}; lane=archex; embedder={manifest.archex.embedder}"
+    if result.strategy is Strategy.RAW_GREPPED:
+        return f"manifest={manifest.name}; lane=raw-grep/read; source=repo files"
+    tool = result.provenance.get("external_tool", result.strategy_label or "external")
+    version = result.provenance.get("external_tool_version", "")
+    embedder = result.provenance.get("external_tool_embedder", "")
+    return f"manifest={manifest.name}; lane={tool}; version={version}; embedder={embedder}"
+
+
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _metric_cell(value: float, provenance: str, field: str, *, digits: int = 2) -> str:
+    return f"{value:.{digits}f}<br><sub>prov: {provenance}; field={field}</sub>"
+
+
+def _integer_metric_cell(value: float, provenance: str, field: str) -> str:
+    return f"{value:.0f}<br><sub>prov: {provenance}; field={field}</sub>"
+
+
+def _results_by_lane(
+    reports: list[BenchmarkReport],
+) -> dict[str, list[BenchmarkResult]]:
+    lanes: dict[str, list[BenchmarkResult]] = {}
+    for report in reports:
+        for result in report.results:
+            if result.strategy in HEADTOHEAD_REPORT_STRATEGIES:
+                lanes.setdefault(_lane_label(result), []).append(result)
+    return lanes
+
+
+def format_headtohead_markdown(
+    manifest: HeadToHeadManifest,
+    reports: list[BenchmarkReport],
+) -> str:
+    """Render the public three-way comparison without hiding losing cells."""
+    if not reports:
+        return "No head-to-head benchmark results."
+
+    lanes = _results_by_lane(reports)
+    required_lanes = {"archex", manifest.external_tools[0].name, "raw-grep/read"}
+    missing_lanes = sorted(required_lanes.difference(lanes))
+    if missing_lanes:
+        raise HeadToHeadManifestError(
+            "Head-to-head report is missing lane(s): " + ", ".join(missing_lanes)
+        )
+    lines: list[str] = [
+        "# archex Head-to-Head Benchmark",
+        "",
+        f"Manifest: `{manifest.name}`",
+        f"Tasks: `{len(reports)}` external-repo tasks",
+        f"Hardware notes: {manifest.hardware_notes}",
+        "",
+        "Every metric cell includes its provenance. No winner filtering is applied.",
+        "",
+        "| Lane | Recall | Precision | F1 | Token efficiency | Completion penalty tokens "
+        "| Efficiency after completion | Warm latency ms | Cold-start ms |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+
+    for lane in sorted(lanes):
+        results = lanes[lane]
+        provenance = _result_provenance(results[0], manifest) + f"; tasks={len(results)}"
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    lane,
+                    _metric_cell(_mean([r.recall for r in results]), provenance, "recall"),
+                    _metric_cell(_mean([r.precision for r in results]), provenance, "precision"),
+                    _metric_cell(_mean([r.f1_score for r in results]), provenance, "f1_score"),
+                    _metric_cell(
+                        _mean([r.token_efficiency for r in results]),
+                        provenance,
+                        "token_efficiency",
+                    ),
+                    _integer_metric_cell(
+                        _mean([float(r.bundle_completion_tokens) for r in results]),
+                        provenance,
+                        "bundle_completion_tokens",
+                    ),
+                    _metric_cell(
+                        _mean([r.token_efficiency_with_completion for r in results]),
+                        provenance,
+                        "token_efficiency_with_completion",
+                    ),
+                    _integer_metric_cell(
+                        _mean([r.warm_latency_ms or r.wall_time_ms for r in results]),
+                        provenance,
+                        "warm_latency_ms",
+                    ),
+                    _integer_metric_cell(
+                        _mean([r.cold_start_ms for r in results]),
+                        provenance,
+                        "cold_start_ms",
+                    ),
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Reproduction",
+            "",
+            "```bash",
+            "uv tool install cocoindex-code  # operator choice: [full] for local embeddings",
+            "uv run archex benchmark headtohead run --manifest "
+            "benchmarks/headtohead/manifest.yaml --output .archex/headtohead",
+            "uv run archex benchmark headtohead report --input .archex/headtohead "
+            "--format markdown",
+            "```",
+            "",
+        ]
+    )
+    return "\n".join(lines)

@@ -27,6 +27,13 @@ from archex.benchmark.gate import (
     non_token_quality_warnings,
     token_efficiency_violations,
 )
+from archex.benchmark.headtohead import (
+    HeadToHeadManifestError,
+    format_headtohead_markdown,
+    load_headtohead_manifest,
+    load_headtohead_results,
+    run_headtohead,
+)
 from archex.benchmark.loader import load_arch_tasks, load_delta_tasks, load_tasks
 from archex.benchmark.models import (
     ArchitectureBenchmarkResult,
@@ -772,6 +779,84 @@ def arch_gate_cmd(
             click.echo(f"  {warning}")
         return
     click.echo("Architecture quality advisory gate passed.")
+
+
+# ---------------------------------------------------------------------------
+# Head-to-head benchmark subcommands
+# ---------------------------------------------------------------------------
+
+
+@benchmark_cmd.group("headtohead")
+def headtohead_cmd() -> None:
+    """Public same-task comparison harness."""
+
+
+@headtohead_cmd.command("run")
+@click.option(
+    "--manifest",
+    "manifest_path",
+    default="benchmarks/headtohead/manifest.yaml",
+    type=click.Path(exists=True, dir_okay=False),
+    show_default=True,
+    help="Pinned head-to-head comparison manifest.",
+)
+@click.option(
+    "--output",
+    "output_dir",
+    default=".archex/headtohead",
+    type=click.Path(file_okay=False),
+    show_default=True,
+    help="Directory for result JSON files.",
+)
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/tasks",
+    type=click.Path(exists=True, file_okay=False),
+    show_default=True,
+    help="Directory containing benchmark task YAML files.",
+)
+def headtohead_run_cmd(manifest_path: str, output_dir: str, tasks_dir: str) -> None:
+    """Run the public archex/ccc/raw comparison from a manifest."""
+    try:
+        reports = run_headtohead(Path(manifest_path), Path(output_dir), Path(tasks_dir))
+    except HeadToHeadManifestError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"\nCompleted {len(reports)} head-to-head benchmark(s).", err=True)
+
+
+@headtohead_cmd.command("report")
+@click.option(
+    "--input",
+    "input_dir",
+    default=".archex/headtohead",
+    type=click.Path(exists=True, file_okay=False),
+    show_default=True,
+    help="Directory containing head-to-head result JSON files.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    default="markdown",
+    type=click.Choice(["markdown"]),
+    show_default=True,
+    help="Report format.",
+)
+def headtohead_report_cmd(input_dir: str, output_format: str) -> None:
+    """Render the public head-to-head comparison report."""
+    del output_format
+    input_path = Path(input_dir)
+    manifest_path = input_path / "manifest.yaml"
+    try:
+        manifest = load_headtohead_manifest(manifest_path)
+    except (FileNotFoundError, HeadToHeadManifestError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    reports = load_headtohead_results(input_path)
+    if not reports:
+        raise click.ClickException(f"No result files found in {input_dir}")
+    try:
+        click.echo(format_headtohead_markdown(manifest, reports))
+    except HeadToHeadManifestError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
