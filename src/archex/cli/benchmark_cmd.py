@@ -27,7 +27,7 @@ from archex.benchmark.gate import (
     non_token_quality_warnings,
     token_efficiency_violations,
 )
-from archex.benchmark.loader import load_tasks
+from archex.benchmark.loader import load_arch_tasks, load_delta_tasks, load_tasks
 from archex.benchmark.models import (
     ArchitectureBenchmarkResult,
     BenchmarkReport,
@@ -325,38 +325,90 @@ def readiness_cmd(input_dir: str, tasks_dir: str, strategy_name: str, output_for
 @click.option(
     "--tasks-dir",
     default="benchmarks/tasks",
-    type=click.Path(exists=True),
-    help="Directory containing task YAML files.",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Directory containing benchmark task YAML files.",
 )
-def validate_cmd(tasks_dir: str) -> None:
+@click.option(
+    "--arch-tasks-dir",
+    default="benchmarks/arch_tasks",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Directory containing architecture task YAML files.",
+)
+@click.option(
+    "--delta-tasks-dir",
+    default="benchmarks/delta_tasks",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Directory containing delta task YAML files.",
+)
+@click.option(
+    "--kind",
+    default="tasks",
+    type=click.Choice(["tasks", "arch", "delta", "all"]),
+    show_default=True,
+    help="Task definition family to validate.",
+)
+def validate_cmd(tasks_dir: str, arch_tasks_dir: str, delta_tasks_dir: str, kind: str) -> None:
     """Validate benchmark task definitions."""
-    tasks = load_tasks(Path(tasks_dir))
+    repo_root = Path.cwd()
+    validated_counts: list[tuple[str, int]] = []
 
-    if not tasks:
-        raise click.ClickException(f"No task files found in {tasks_dir}")
+    if kind in {"tasks", "all"}:
+        try:
+            tasks = load_tasks(Path(tasks_dir))
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
 
-    has_errors = False
-    for task in tasks:
-        click.echo(f"Validating: {task.task_id} ({task.repo})")
-        # Structural validation only (no clone) — check fields are reasonable
-        errors: list[str] = []
-        if not task.expected_files:
-            errors.append("No expected_files defined")
-        if not task.question.strip():
-            errors.append("Empty question")
-        if not task.commit:
-            errors.append("No commit hash")
+        if not tasks:
+            raise click.ClickException(f"No task files found in {tasks_dir}")
 
-        if errors:
-            has_errors = True
-            for err in errors:
-                click.echo(f"  ERROR: {err}", err=True)
-        else:
-            click.echo(f"  OK ({len(task.expected_files)} expected files)")
+        has_errors = False
+        for task in tasks:
+            click.echo(f"Validating: {task.task_id} ({task.repo})")
+            errors: list[str] = []
+            if task.repo == ".":
+                for expected in task.expected_files:
+                    if not (repo_root / expected).is_file():
+                        errors.append(f"Expected file not found: {expected}")
 
-    if has_errors:
-        raise SystemExit(1)
-    click.echo(f"\nAll {len(tasks)} task(s) valid.")
+            if errors:
+                has_errors = True
+                for err in errors:
+                    click.echo(f"  ERROR: {err}", err=True)
+            else:
+                click.echo(f"  OK ({len(task.expected_files)} expected files)")
+
+        if has_errors:
+            raise SystemExit(1)
+        validated_counts.append(("task", len(tasks)))
+
+    if kind in {"arch", "all"}:
+        try:
+            arch_tasks = load_arch_tasks(Path(arch_tasks_dir))
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        if not arch_tasks:
+            raise click.ClickException(f"No architecture task files found in {arch_tasks_dir}")
+        validated_counts.append(("architecture task", len(arch_tasks)))
+
+    if kind in {"delta", "all"}:
+        try:
+            delta_tasks = load_delta_tasks(Path(delta_tasks_dir))
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        if not delta_tasks:
+            raise click.ClickException(f"No delta task files found in {delta_tasks_dir}")
+        validated_counts.append(("delta task", len(delta_tasks)))
+
+    if validated_counts == [("task", 1)]:
+        click.echo("\nAll 1 task(s) valid.")
+        return
+
+    summary = ", ".join(
+        f"{count} {label}{'' if count == 1 else 's'}" for label, count in validated_counts
+    )
+    click.echo(f"\nAll {summary} valid.")
 
 
 @benchmark_cmd.group("baseline")

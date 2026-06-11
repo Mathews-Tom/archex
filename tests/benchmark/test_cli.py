@@ -227,12 +227,100 @@ class TestValidateCommand:
         (tasks / "bad.yaml").write_text("""\
 task_id: bad_task
 repo: owner/repo
-commit: ""
-question: "  "
+commit: abc
+question: "How?"
 expected_files: []
 """)
         result = runner.invoke(benchmark_cmd, ["validate", "--tasks-dir", str(tasks)])
         assert result.exit_code != 0
+        assert "bad.yaml" in result.output
+        assert "expected_files" in result.output
+
+    def test_validate_rejects_missing_local_expected_file(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        tasks = tmp_path / "tasks"
+        tasks.mkdir()
+        (tasks / "bad.yaml").write_text("""\
+task_id: missing_local_file
+repo: "."
+commit: HEAD
+question: "How?"
+expected_files:
+  - missing.py
+""")
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(benchmark_cmd, ["validate", "--tasks-dir", str(tasks)])
+
+        assert result.exit_code != 0
+        assert "Expected file not found: missing.py" in result.output
+
+    def test_validate_all_task_families(self, runner: CliRunner, tmp_path: Path) -> None:
+        tasks = tmp_path / "tasks"
+        arch_tasks = tmp_path / "arch_tasks"
+        delta_tasks = tmp_path / "delta_tasks"
+        tasks.mkdir()
+        arch_tasks.mkdir()
+        delta_tasks.mkdir()
+        (tasks / "task.yaml").write_text("""\
+task_id: task
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+""")
+        (arch_tasks / "arch.yaml").write_text("""\
+task_id: arch
+repo: "."
+commit: HEAD
+question: "Which architecture is present?"
+include_paths:
+  - src
+arch_oracle:
+  patterns:
+    - name: pattern
+""")
+        (delta_tasks / "delta.yaml").write_text("""\
+task_id: delta
+repo: "."
+base_commit: base
+delta_commit: delta
+expected_delta:
+  - src/main.py
+""")
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "validate",
+                "--kind",
+                "all",
+                "--tasks-dir",
+                str(tasks),
+                "--arch-tasks-dir",
+                str(arch_tasks),
+                "--delta-tasks-dir",
+                str(delta_tasks),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "1 task" in result.output
+        assert "1 architecture task" in result.output
+        assert "1 delta task" in result.output
+
+    def test_validate_reports_malformed_yaml(self, runner: CliRunner, tmp_path: Path) -> None:
+        tasks = tmp_path / "tasks"
+        tasks.mkdir()
+        (tasks / "bad.yaml").write_text("task_id: [unterminated")
+
+        result = runner.invoke(benchmark_cmd, ["validate", "--tasks-dir", str(tasks)])
+        assert result.exit_code != 0
+        assert "Failed to parse YAML" in result.output
 
 
 class TestRunCommand:

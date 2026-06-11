@@ -87,10 +87,17 @@ expected_files:
         with pytest.raises(ValueError, match="Expected a YAML mapping"):
             load_task(p)
 
+    def test_load_malformed_yaml_includes_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "malformed.yaml"
+        p.write_text("task_id: [unterminated")
+
+        with pytest.raises(ValueError, match=r"Failed to parse YAML in .*malformed\.yaml"):
+            load_task(p)
+
     def test_load_missing_fields(self, tmp_path: Path) -> None:
         p = tmp_path / "incomplete.yaml"
         p.write_text("task_id: test\nrepo: owner/repo\n")
-        with pytest.raises(Exception):  # noqa: B017 — Pydantic ValidationError
+        with pytest.raises(ValueError, match=r"incomplete\.yaml.*question"):
             load_task(p)
 
     def test_load_rejects_unknown_field_with_path(self, tmp_path: Path) -> None:
@@ -106,6 +113,64 @@ unexpected: true
 """)
 
         with pytest.raises(ValueError, match=r"unknown\.yaml.*unknown field 'unexpected'"):
+            load_task(p)
+
+    def test_load_rejects_empty_expected_files_with_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "empty_expected.yaml"
+        p.write_text("""\
+task_id: empty_expected
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files: []
+""")
+
+        with pytest.raises(ValueError, match=r"empty_expected\.yaml.*expected_files"):
+            load_task(p)
+
+    def test_load_rejects_empty_question_with_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "empty_question.yaml"
+        p.write_text("""\
+task_id: empty_question
+repo: owner/repo
+commit: abc
+question: "  "
+expected_files:
+  - src/main.py
+""")
+
+        with pytest.raises(ValueError, match=r"empty_question\.yaml.*question"):
+            load_task(p)
+
+    def test_load_rejects_invalid_category_with_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "invalid_category.yaml"
+        p.write_text("""\
+task_id: invalid_category
+repo: owner/repo
+commit: abc
+category: invalid
+question: "How?"
+expected_files:
+  - src/main.py
+""")
+
+        with pytest.raises(ValueError, match=r"invalid_category\.yaml.*category"):
+            load_task(p)
+
+    def test_load_rejects_invalid_include_path_with_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "invalid_include.yaml"
+        p.write_text("""\
+task_id: invalid_include
+repo: owner/repo
+commit: abc
+question: "How?"
+include_paths:
+  - ../src
+expected_files:
+  - src/main.py
+""")
+
+        with pytest.raises(ValueError, match=r"invalid_include\.yaml.*include_paths"):
             load_task(p)
 
 
@@ -367,6 +432,8 @@ task_id: delta_{i}
 repo: "."
 base_commit: base{i}
 delta_commit: delta{i}
+expected_delta:
+  - src/file_{i}.py
 """
             (tmp_path / f"delta_{i}.yaml").write_text(content)
         tasks = load_delta_tasks(tmp_path)
@@ -381,6 +448,8 @@ task_id: delta_duplicate
 repo: "."
 base_commit: base
 delta_commit: delta
+expected_delta:
+  - src/main.py
 """)
 
         with pytest.raises(
