@@ -118,6 +118,14 @@ _DEBUGGING_PATTERNS = [
 
 _CLI_PATTERNS = [
     re.compile(r"\barchex\s+(?:init|reset|status|index|config|cache|delta)\b"),
+    re.compile(
+        r"\barchex\b.*\b(?:"
+        r"initialize|initialise|repo-local\s+project\s+state|"
+        r"fresh|stale|dirty|corrupt|"
+        r"(?:build|refresh)\b.*\bindex|"
+        r"(?:settings|configuration)\b.*\b(?:runtime|project)"
+        r")\b"
+    ),
 ]
 
 

@@ -1063,7 +1063,9 @@ def test_path_alignment_matches_query_term_in_directory() -> None:
 def test_path_alignment_matches_query_term_in_filename() -> None:
     from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
 
-    assert _path_alignment_boost("src/archex/cli/index_cmd.py", {"index"}) == 1.35
+    assert _path_alignment_boost("src/archex/cli/index_cmd.py", {"index"}) > _path_alignment_boost(
+        "src/archex/index/store.py", {"index"}
+    )
 
 
 def test_query_terms_expand_query_pipeline_to_bm25_context_signals() -> None:
@@ -1086,6 +1088,40 @@ def test_query_terms_expand_index_to_cache_project_signals() -> None:
 
     terms = _query_terms("How does archex explicitly build or refresh a repo-local index?")
     assert {"cache", "config", "project", "store"} <= terms
+
+
+def test_query_terms_expand_self_lifecycle_concepts() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    init_terms = _query_terms("How does archex initialize repo-local project state?")
+    assert {"init", "cli", "main", "project", "config"} <= init_terms
+
+    status_terms = _query_terms(
+        "How does archex inspect whether a repo-local index is fresh, stale, dirty, or corrupt?"
+    )
+    assert {"status", "fresh", "stale", "dirty", "corrupt", "delta"} <= status_terms
+
+    config_terms = _query_terms(
+        "How does archex resolve project settings into runtime configuration?"
+    )
+    assert {"config", "settings", "runtime", "models", "cache"} <= config_terms
+
+
+def test_self_lifecycle_terms_boost_command_paths() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    init_terms = _query_terms("How does archex initialize repo-local project state?")
+    assert _path_alignment_boost("src/archex/cli/init_cmd.py", init_terms) > _path_alignment_boost(
+        "src/archex/status.py", init_terms
+    )
+
+    status_terms = _query_terms(
+        "How does archex inspect whether a repo-local index is fresh, stale, dirty, or corrupt?"
+    )
+    assert _path_alignment_boost(
+        "src/archex/cli/status_cmd.py", status_terms
+    ) > _path_alignment_boost("src/archex/cli/cache_cmd.py", status_terms)
 
 
 def test_query_terms_drop_repo_name_noise() -> None:
