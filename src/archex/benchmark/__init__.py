@@ -11,6 +11,8 @@ from archex.benchmark.models import (
     DeltaStrategy,
     ExternalToolBenchmarkConfig,
     ExternalToolCommandConfig,
+    HeadToHeadArchexConfig,
+    HeadToHeadManifest,
     Strategy,
     TaskCategory,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "DeltaStrategy",
     "ExternalToolBenchmarkConfig",
     "ExternalToolCommandConfig",
+    "HeadToHeadArchexConfig",
+    "HeadToHeadManifest",
     "Strategy",
     "TaskCategory",
 ]
