@@ -45,6 +45,23 @@ def _validate_yaml_model(path: Path, model: type[BenchmarkSpec]) -> BenchmarkSpe
         raise ValueError(_format_validation_error(path, exc)) from exc
 
 
+LoadedTask = TypeVar("LoadedTask", BenchmarkTask, ArchitectureBenchmarkTask, DeltaBenchmarkTask)
+
+
+def _append_unique_task(
+    tasks: list[LoadedTask],
+    task: LoadedTask,
+    path: Path,
+    seen_paths: dict[str, Path],
+) -> None:
+    previous_path = seen_paths.get(task.task_id)
+    if previous_path is not None:
+        msg = f"Duplicate task_id {task.task_id!r} in {previous_path} and {path}"
+        raise ValueError(msg)
+    seen_paths[task.task_id] = path
+    tasks.append(task)
+
+
 def load_task(path: Path) -> BenchmarkTask:
     """Parse a single YAML file into a BenchmarkTask."""
     return _validate_yaml_model(path, BenchmarkTask)
@@ -55,8 +72,9 @@ def load_tasks(directory: Path) -> list[BenchmarkTask]:
     if not directory.is_dir():
         raise FileNotFoundError(f"Tasks directory not found: {directory}")
     tasks: list[BenchmarkTask] = []
+    seen_paths: dict[str, Path] = {}
     for yaml_file in sorted(directory.glob("*.yaml")):
-        tasks.append(load_task(yaml_file))
+        _append_unique_task(tasks, load_task(yaml_file), yaml_file, seen_paths)
     return tasks
 
 
@@ -70,8 +88,9 @@ def load_arch_tasks(directory: Path) -> list[ArchitectureBenchmarkTask]:
     if not directory.is_dir():
         raise FileNotFoundError(f"Architecture tasks directory not found: {directory}")
     tasks: list[ArchitectureBenchmarkTask] = []
+    seen_paths: dict[str, Path] = {}
     for yaml_file in sorted(directory.glob("*.yaml")):
-        tasks.append(load_arch_task(yaml_file))
+        _append_unique_task(tasks, load_arch_task(yaml_file), yaml_file, seen_paths)
     return tasks
 
 
@@ -85,8 +104,9 @@ def load_delta_tasks(directory: Path) -> list[DeltaBenchmarkTask]:
     if not directory.is_dir():
         raise FileNotFoundError(f"Tasks directory not found: {directory}")
     tasks: list[DeltaBenchmarkTask] = []
+    seen_paths: dict[str, Path] = {}
     for yaml_file in sorted(directory.glob("*.yaml")):
-        tasks.append(load_delta_task(yaml_file))
+        _append_unique_task(tasks, load_delta_task(yaml_file), yaml_file, seen_paths)
     return tasks
 
 
