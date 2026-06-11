@@ -65,6 +65,9 @@ from archex.benchmark.triage import (
     triage_failures,
 )
 
+DEFAULT_BENCHMARK_RESULTS_DIR = ".archex/benchmark-results"
+DEFAULT_DELTA_RESULTS_DIR = ".archex/delta-results"
+
 
 @click.group("benchmark")
 def benchmark_cmd() -> None:
@@ -75,7 +78,7 @@ def benchmark_cmd() -> None:
 @click.option(
     "--output",
     "output_dir",
-    default="benchmarks/results",
+    default=DEFAULT_BENCHMARK_RESULTS_DIR,
     type=click.Path(),
     help="Directory for result JSON files.",
 )
@@ -218,7 +221,7 @@ def run_cmd(
 @click.option(
     "--input",
     "input_dir",
-    default="benchmarks/results",
+    default=DEFAULT_BENCHMARK_RESULTS_DIR,
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
@@ -248,7 +251,7 @@ def report_cmd(output_format: str, input_dir: str) -> None:
 @click.option(
     "--input",
     "input_dir",
-    default="benchmarks/results",
+    default=DEFAULT_BENCHMARK_RESULTS_DIR,
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
@@ -290,7 +293,7 @@ def triage_cmd(input_dir: str, tasks_dir: str, strategy_name: str, output_format
 @click.option(
     "--input",
     "input_dir",
-    default="benchmarks/results",
+    default=DEFAULT_BENCHMARK_RESULTS_DIR,
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
@@ -427,7 +430,7 @@ def baseline_cmd() -> None:
 @click.option(
     "--input",
     "input_dir",
-    default="benchmarks/results",
+    default=DEFAULT_BENCHMARK_RESULTS_DIR,
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
@@ -460,7 +463,7 @@ def baseline_save_cmd(input_dir: str, output_path: str) -> None:
 @click.option(
     "--input",
     "input_dir",
-    default="benchmarks/results",
+    default=DEFAULT_BENCHMARK_RESULTS_DIR,
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
@@ -505,7 +508,7 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
 @click.option(
     "--input",
     "input_dir",
-    default="benchmarks/results",
+    default=DEFAULT_BENCHMARK_RESULTS_DIR,
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
@@ -873,7 +876,7 @@ def delta_cmd() -> None:
 @click.option(
     "--output",
     "output_dir",
-    default="benchmarks/delta_results",
+    default=DEFAULT_DELTA_RESULTS_DIR,
     type=click.Path(),
     help="Directory for delta result JSON files.",
 )
@@ -898,7 +901,7 @@ def delta_run_cmd(output_dir: str, task_id: str | None, tasks_dir: str) -> None:
 @click.option(
     "--input",
     "input_dir",
-    default="benchmarks/delta_results",
+    default=DEFAULT_DELTA_RESULTS_DIR,
     type=click.Path(exists=True),
     help="Directory containing delta result JSON files.",
 )
@@ -938,7 +941,7 @@ def delta_gate_cmd(input_dir: str, min_speedup: float, require_correctness: bool
 @click.option(
     "--input",
     "input_dir",
-    default="benchmarks/delta_results",
+    default=DEFAULT_DELTA_RESULTS_DIR,
     type=click.Path(exists=True),
     help="Directory containing delta result JSON files.",
 )

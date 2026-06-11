@@ -19,8 +19,6 @@ from archex.benchmark.models import (
 from archex.cli.benchmark_cmd import benchmark_cmd
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from archex.benchmark.progress import BenchmarkProgress
 
 
@@ -368,7 +366,8 @@ class TestRunCommand:
             tasks: object | None = None,
             retrieval_options: BenchmarkRetrievalOptions | None = None,
         ) -> list[BenchmarkReport]:
-            del tasks_dir, output_dir, task_filter, self_only, progress, tasks
+            del tasks_dir, task_filter, self_only, progress, tasks
+            captured["output_dir"] = output_dir
             captured["strategies"] = strategies
             captured["retrieval_options"] = retrieval_options
             return []
@@ -377,6 +376,7 @@ class TestRunCommand:
         monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
         result = runner.invoke(benchmark_cmd, ["run"])
         assert result.exit_code == 0
+        assert captured["output_dir"] == Path(".archex/benchmark-results")
         assert captured["strategies"] == [
             Strategy.RAW_FILES,
             Strategy.RAW_GREPPED,
@@ -639,3 +639,39 @@ class TestRunCommand:
         result = runner.invoke(benchmark_cmd, ["run", "--no-progress"])
         assert result.exit_code == 0
         assert captured["progress_enabled"] is False
+
+
+class TestDeltaCommand:
+    def test_delta_run_defaults_to_generated_state_dir(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        tasks = tmp_path / "delta_tasks"
+        tasks.mkdir()
+        captured: dict[str, object] = {}
+
+        def fake_run_all_delta(
+            tasks_dir: Path,
+            output_dir: Path,
+            task_filter: str | None = None,
+        ) -> list[object]:
+            captured["tasks_dir"] = tasks_dir
+            captured["output_dir"] = output_dir
+            captured["task_filter"] = task_filter
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all_delta", fake_run_all_delta)
+
+        result = runner.invoke(
+            benchmark_cmd,
+            ["delta", "run", "--tasks-dir", str(tasks)],
+        )
+
+        assert result.exit_code == 0
+        assert captured == {
+            "tasks_dir": tasks,
+            "output_dir": Path(".archex/delta-results"),
+            "task_filter": None,
+        }

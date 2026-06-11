@@ -6,7 +6,7 @@ on:
     - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   benchmark-bm25:
@@ -33,13 +33,13 @@ jobs:
         run: |
           uv run archex benchmark run \
             --tasks-dir benchmarks/tasks \
-            --output benchmarks/results/bm25 \
+            --output "$RUNNER_TEMP/archex-benchmark-results/bm25" \
             --strategy archex_query
 
       - name: Quality gate (bm25)
         run: |
           uv run archex benchmark gate \
-            --input benchmarks/results/bm25 \
+            --input "$RUNNER_TEMP/archex-benchmark-results/bm25" \
             --min-recall 0.60 \
             --min-f1 0.30 \
             --min-mrr 0.55
@@ -48,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-bm25
-          path: benchmarks/results/bm25/
+          path: ${{ runner.temp }}/archex-benchmark-results/bm25/
 
   benchmark-fusion:
     runs-on: ubuntu-latest
@@ -74,13 +74,13 @@ jobs:
         run: |
           uv run archex benchmark run \
             --tasks-dir benchmarks/tasks \
-            --output benchmarks/results/fusion \
+            --output "$RUNNER_TEMP/archex-benchmark-results/fusion" \
             --strategy archex_query_fusion
 
       - name: Quality gate (fusion)
         run: |
           uv run archex benchmark gate \
-            --input benchmarks/results/fusion \
+            --input "$RUNNER_TEMP/archex-benchmark-results/fusion" \
             --min-recall 0.60 \
             --min-f1 0.30 \
             --min-mrr 0.55
@@ -89,33 +89,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-fusion
-          path: benchmarks/results/fusion/
+          path: ${{ runner.temp }}/archex-benchmark-results/fusion/
 
-  commit-results:
-    runs-on: ubuntu-latest
-    needs: [benchmark-bm25, benchmark-fusion]
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download bm25 results
-        uses: actions/download-artifact@v4
-        with:
-          name: benchmark-results-bm25
-          path: benchmarks/results/bm25/
-
-      - name: Download fusion results
-        uses: actions/download-artifact@v4
-        with:
-          name: benchmark-results-fusion
-          path: benchmarks/results/fusion/
-
-      - name: Commit results
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          git add benchmarks/results/
-          git diff --cached --quiet || git commit -m "benchmark: update results ${TIMESTAMP}"
-          git push
