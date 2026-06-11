@@ -62,9 +62,52 @@ def _append_unique_task(
     tasks.append(task)
 
 
+def _raise_spec_error(path: Path, field: str, message: str) -> None:
+    raise ValueError(f"Invalid benchmark YAML in {path}: {field}: {message}")
+
+
+def _validate_text_field(path: Path, field: str, value: str) -> None:
+    if not value.strip():
+        _raise_spec_error(path, field, "must not be empty")
+
+
+def _validate_list_field(path: Path, field: str, value: list[str]) -> None:
+    if not value:
+        _raise_spec_error(path, field, "must define at least one entry")
+    for index, entry in enumerate(value):
+        if not entry.strip():
+            _raise_spec_error(path, f"{field}.{index}", "must not be empty")
+
+
+def _validate_benchmark_task(path: Path, task: BenchmarkTask) -> None:
+    _validate_text_field(path, "question", task.question)
+    _validate_text_field(path, "commit", task.commit)
+    _validate_list_field(path, "expected_files", task.expected_files)
+
+
+def _validate_architecture_task(path: Path, task: ArchitectureBenchmarkTask) -> None:
+    _validate_text_field(path, "question", task.question)
+    _validate_text_field(path, "commit", task.commit)
+    if not (
+        task.arch_oracle.modules
+        or task.arch_oracle.patterns
+        or task.arch_oracle.interfaces
+        or task.arch_oracle.decisions
+    ):
+        _raise_spec_error(path, "arch_oracle", "must define at least one expectation")
+
+
+def _validate_delta_task(path: Path, task: DeltaBenchmarkTask) -> None:
+    _validate_text_field(path, "base_commit", task.base_commit)
+    _validate_text_field(path, "delta_commit", task.delta_commit)
+    _validate_list_field(path, "expected_delta", task.expected_delta)
+
+
 def load_task(path: Path) -> BenchmarkTask:
     """Parse a single YAML file into a BenchmarkTask."""
-    return _validate_yaml_model(path, BenchmarkTask)
+    task = _validate_yaml_model(path, BenchmarkTask)
+    _validate_benchmark_task(path, task)
+    return task
 
 
 def load_tasks(directory: Path) -> list[BenchmarkTask]:
@@ -80,7 +123,9 @@ def load_tasks(directory: Path) -> list[BenchmarkTask]:
 
 def load_arch_task(path: Path) -> ArchitectureBenchmarkTask:
     """Parse a single YAML file into an ArchitectureBenchmarkTask."""
-    return _validate_yaml_model(path, ArchitectureBenchmarkTask)
+    task = _validate_yaml_model(path, ArchitectureBenchmarkTask)
+    _validate_architecture_task(path, task)
+    return task
 
 
 def load_arch_tasks(directory: Path) -> list[ArchitectureBenchmarkTask]:
@@ -96,7 +141,9 @@ def load_arch_tasks(directory: Path) -> list[ArchitectureBenchmarkTask]:
 
 def load_delta_task(path: Path) -> DeltaBenchmarkTask:
     """Parse a single YAML file into a DeltaBenchmarkTask."""
-    return _validate_yaml_model(path, DeltaBenchmarkTask)
+    task = _validate_yaml_model(path, DeltaBenchmarkTask)
+    _validate_delta_task(path, task)
+    return task
 
 
 def load_delta_tasks(directory: Path) -> list[DeltaBenchmarkTask]:
