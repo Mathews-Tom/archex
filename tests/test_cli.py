@@ -104,6 +104,7 @@ def test_index_command_uses_project_config(python_simple_repo: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert "Indexed repository:" in result.output
+    assert "Embedding cache:    hits=0, misses=0" in result.output
     assert "Strategy:" in result.output
     assert "python=2" in result.output
     config = index_mock.call_args.kwargs["config"]

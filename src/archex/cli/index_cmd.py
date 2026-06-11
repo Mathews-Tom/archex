@@ -87,6 +87,8 @@ def index_cmd(source: str, output_format: str, splade: bool, module_prefilter: b
             "chunks_indexed": store.get_chunk_count(),
             "languages": languages,
             "duration_ms": duration_ms,
+            "embedding_cache_hits": int(store.get_metadata("embedding_cache_hits") or "0"),
+            "embedding_cache_misses": int(store.get_metadata("embedding_cache_misses") or "0"),
         }
     finally:
         store.close()
@@ -106,4 +108,8 @@ def index_cmd(source: str, output_format: str, splade: bool, module_prefilter: b
     else:
         language_summary = "none"
     click.echo(f"Languages:          {language_summary}")
+    click.echo(
+        "Embedding cache:    "
+        f"hits={summary['embedding_cache_hits']}, misses={summary['embedding_cache_misses']}"
+    )
     click.echo(f"Duration:           {summary['duration_ms']} ms")
