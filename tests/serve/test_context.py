@@ -202,6 +202,40 @@ def test_packing_covers_selected_files_before_extra_chunks() -> None:
     assert bundle.token_count <= 460
 
 
+def test_cli_packing_limits_extra_chunks_per_file() -> None:
+    graph = DependencyGraph()
+    chunks: list[CodeChunk] = []
+    for file_path in ("src/archex/cli/index_cmd.py", "src/archex/project.py"):
+        graph.add_file_node(file_path)
+        for index in range(4):
+            chunks.append(
+                make_chunk(
+                    f"{file_path}:{index}",
+                    file_path,
+                    token_count=50,
+                    start_line=index * 10 + 1,
+                    end_line=index * 10 + 5,
+                )
+            )
+
+    bundle = assemble_context(
+        [(chunk, 10.0 - offset) for offset, chunk in enumerate(chunks)],
+        graph,
+        chunks,
+        "How does archex explicitly build or refresh a repo-local index?",
+        token_budget=1000,
+    )
+
+    counts: dict[str, int] = {}
+    for ranked in bundle.chunks:
+        counts[ranked.chunk.file_path] = counts.get(ranked.chunk.file_path, 0) + 1
+
+    assert counts == {
+        "src/archex/cli/index_cmd.py": 2,
+        "src/archex/project.py": 2,
+    }
+
+
 def test_packing_delays_test_files_until_production_files_are_covered() -> None:
     graph = DependencyGraph()
     graph.add_file_node("tests/test_patterns.py")
@@ -220,6 +254,171 @@ def test_packing_delays_test_files_until_production_files_are_covered() -> None:
     )
 
     assert [rc.chunk.id for rc in bundle.chunks] == ["patterns", "models", "test_chunk"]
+
+
+def test_cli_config_alignment_keeps_runtime_config_files_ahead_of_support_noise() -> None:
+    graph = DependencyGraph()
+    chunks = [
+        make_chunk("project", "src/archex/project.py", symbol_name="project_dir", token_count=50),
+        make_chunk("config", "src/archex/config.py", symbol_name="load_config", token_count=50),
+        make_chunk("cache", "src/archex/cache.py", symbol_name="CacheManager", token_count=50),
+        make_chunk(
+            "context",
+            "src/archex/serve/context.py",
+            symbol_name="_query_terms",
+            token_count=50,
+        ),
+        make_chunk(
+            "compare_config",
+            "src/archex/serve/compare/configuration.py",
+            symbol_name="ConfigurationEvidence",
+            token_count=50,
+        ),
+        make_chunk(
+            "test_project",
+            "tests/test_project.py",
+            symbol_name="test_project_state",
+            token_count=50,
+        ),
+    ]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+
+    bundle = assemble_context(
+        [
+            (chunks[3], 12.0),
+            (chunks[4], 11.0),
+            (chunks[5], 10.0),
+            (chunks[0], 9.0),
+            (chunks[1], 8.0),
+            (chunks[2], 7.0),
+        ],
+        graph,
+        chunks,
+        "How does archex resolve project settings into runtime configuration?",
+        token_budget=220,
+    )
+
+    included_files = [rc.chunk.file_path for rc in bundle.chunks]
+    assert included_files[:3] == [
+        "src/archex/project.py",
+        "src/archex/config.py",
+        "src/archex/cache.py",
+    ]
+
+
+def test_mcp_query_prefers_mcp_command_over_generic_query_command() -> None:
+    graph = DependencyGraph()
+    chunks = [
+        make_chunk("models", "src/archex/models.py", symbol_name="ContextBundle", token_count=60),
+        make_chunk(
+            "context",
+            "src/archex/serve/context.py",
+            symbol_name="assemble_context",
+            token_count=60,
+        ),
+        make_chunk("api", "src/archex/api.py", symbol_name="query", token_count=60),
+        make_chunk(
+            "mcp",
+            "src/archex/integrations/mcp.py",
+            symbol_name="handle_query_repo",
+            token_count=60,
+        ),
+        make_chunk("mcp_cmd", "src/archex/cli/mcp_cmd.py", symbol_name="mcp_cmd", token_count=60),
+        make_chunk(
+            "query_cmd",
+            "src/archex/cli/query_cmd.py",
+            symbol_name="query_cmd",
+            token_count=60,
+        ),
+    ]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+
+    bundle = assemble_context(
+        [
+            (chunks[0], 10.0),
+            (chunks[1], 9.5),
+            (chunks[2], 9.0),
+            (chunks[3], 8.5),
+            (chunks[5], 8.0),
+            (chunks[4], 7.5),
+        ],
+        graph,
+        chunks,
+        "How does archex expose repository query workflows through MCP?",
+        token_budget=300,
+    )
+
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "src/archex/cli/mcp_cmd.py" in included_files
+    assert "src/archex/cli/query_cmd.py" not in included_files
+
+
+def test_cli_index_query_selects_api_as_fifth_product_file() -> None:
+    graph = DependencyGraph()
+    chunks = [
+        make_chunk("index_cmd", "src/archex/cli/index_cmd.py", token_count=80),
+        make_chunk("project", "src/archex/project.py", token_count=80),
+        make_chunk("config", "src/archex/config.py", token_count=80),
+        make_chunk("cache", "src/archex/cache.py", token_count=80),
+        make_chunk("api", "src/archex/api.py", token_count=80),
+        make_chunk("store", "src/archex/index/store.py", token_count=80),
+    ]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+
+    bundle = assemble_context(
+        [
+            (chunks[0], 10.0),
+            (chunks[1], 9.0),
+            (chunks[2], 8.0),
+            (chunks[3], 7.0),
+            (chunks[4], 6.0),
+            (chunks[5], 5.0),
+        ],
+        graph,
+        chunks,
+        "How does archex explicitly build or refresh a repo-local index?",
+        token_budget=500,
+    )
+
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert {
+        "src/archex/cli/index_cmd.py",
+        "src/archex/project.py",
+        "src/archex/config.py",
+        "src/archex/cache.py",
+        "src/archex/api.py",
+    } <= included_files
+
+
+def test_external_lifecycle_terms_preserve_expected_product_files() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    celery_terms = _query_terms("How does Celery dispatch and execute distributed tasks?")
+    assert {"amqp", "strategy", "task", "worker"} <= celery_terms
+    assert _path_alignment_boost("celery/app/amqp.py", celery_terms) == 3.0
+    assert _path_alignment_boost("celery/worker/strategy.py", celery_terms) == 3.0
+
+    requests_terms = _query_terms("How does requests manage HTTP sessions and connection pooling?")
+    assert {"adapter", "adapters", "model", "models", "session"} <= requests_terms
+    assert _path_alignment_boost("src/requests/models.py", requests_terms) == 3.0
+
+    orm_terms = _query_terms("How does Django's ORM build and execute SQL queries?")
+    assert {"query", "queries", "model", "models"} <= orm_terms
+    assert _path_alignment_boost("django/db/models/query.py", orm_terms) == 3.0
+
+
+def test_configuration_query_terms_do_not_promote_generic_models_path() -> None:
+    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
+
+    terms = _query_terms(
+        "How does a query use project configuration and cache state across the indexing lifecycle?"
+    )
+
+    assert "models" not in terms
 
 
 def test_packing_skips_nested_line_ranges() -> None:
@@ -599,6 +798,41 @@ def test_expansion_metadata_records_file_reasons_without_changing_output() -> No
     assert meta.expansion_reason_counts["same_module"] == 1
     assert meta.expansion_reason_counts["cross_module"] == 1
     assert meta.expansion_reason_counts["test_file"] == 1
+
+
+def test_low_signal_hub_expansion_is_suppressed_without_dropping_aligned_file() -> None:
+    graph = DependencyGraph()
+    for file_path in (
+        "lib/application.js",
+        "lib/router/layer.js",
+        "lib/utils.js",
+        "lib/helper-a.js",
+        "lib/helper-b.js",
+        "lib/helper-c.js",
+    ):
+        graph.add_file_node(file_path)
+    graph.add_file_edge("lib/application.js", "lib/router/layer.js", kind="imports")
+    graph.add_file_edge("lib/application.js", "lib/utils.js", kind="imports")
+    graph.add_file_edge("lib/utils.js", "lib/helper-a.js", kind="imports")
+    graph.add_file_edge("lib/utils.js", "lib/helper-b.js", kind="imports")
+    graph.add_file_edge("lib/helper-c.js", "lib/utils.js", kind="imports")
+
+    seed_chunk = make_chunk("seed", "lib/application.js", token_count=10)
+    layer_chunk = make_chunk("layer", "lib/router/layer.js", token_count=10)
+    utils_chunk = make_chunk("utils", "lib/utils.js", token_count=10)
+
+    bundle = assemble_context(
+        [(seed_chunk, 5.0)],
+        graph,
+        [seed_chunk, layer_chunk, utils_chunk],
+        "How does express implement the middleware chain and router layer?",
+        token_budget=1000,
+    )
+
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "lib/router/layer.js" in included_files
+    assert "lib/utils.js" not in included_files
+    assert bundle.retrieval_metadata.expansion_reason_counts["skipped"] == 1
 
 
 def test_expansion_metadata_records_zero_candidate_reason() -> None:
@@ -1120,7 +1354,7 @@ def test_query_pipeline_terms_boost_api_path() -> None:
     from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
 
     terms = _query_terms("How does archex implement the query pipeline?")
-    assert _path_alignment_boost("src/archex/api.py", terms) == 2.0
+    assert _path_alignment_boost("src/archex/api.py", terms) == 3.0
 
 
 def test_query_terms_expand_index_to_cache_project_signals() -> None:
@@ -1144,7 +1378,8 @@ def test_query_terms_expand_self_lifecycle_concepts() -> None:
     config_terms = _query_terms(
         "How does archex resolve project settings into runtime configuration?"
     )
-    assert {"config", "settings", "runtime", "models", "cache"} <= config_terms
+    assert {"config", "settings", "runtime", "cache"} <= config_terms
+    assert "models" not in config_terms
 
 
 def test_self_lifecycle_terms_boost_command_paths() -> None:
@@ -1189,7 +1424,7 @@ def test_query_terms_expand_mcp_to_product_query_contract_files() -> None:
 def test_path_alignment_matches_private_module_stem_without_underscore() -> None:
     from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
 
-    assert _path_alignment_boost("pydantic/_internal/_validators.py", {"validators"}) == 2.0
+    assert _path_alignment_boost("pydantic/_internal/_validators.py", {"validators"}) == 3.0
 
 
 def test_query_terms_expand_framework_semantics_without_path_hacks() -> None:
@@ -1246,12 +1481,12 @@ def test_type_alignment_keeps_definition_lookup_bonus() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stronger test penalty tests
+# Support-file penalty tests
 # ---------------------------------------------------------------------------
 
 
-def test_test_file_penalty_is_0_3() -> None:
-    """Test files receive a 0.3 penalty (stronger than previous 0.6)."""
+def test_support_file_penalty_is_0_15() -> None:
+    """Support files receive a 0.15 penalty unless the query asks for support artifacts."""
     graph = DependencyGraph()
     graph.add_file_node("src/auth.py")
     graph.add_file_node("tests/test_auth.py")
@@ -1260,9 +1495,8 @@ def test_test_file_penalty_is_0_3() -> None:
     results = [(src_chunk, 1.0), (test_chunk, 1.0)]
     bundle = assemble_context(results, graph, [src_chunk, test_chunk], "q", token_budget=1000)
     scores = {rc.chunk.file_path: rc.final_score for rc in bundle.chunks}
-    # Test file should be 0.3x the source file score
     ratio = scores["tests/test_auth.py"] / scores["src/auth.py"]
-    assert 0.25 < ratio < 0.35, f"Expected ~0.3 ratio, got {ratio}"
+    assert 0.10 < ratio < 0.20, f"Expected ~0.15 ratio, got {ratio}"
 
 
 # ---------------------------------------------------------------------------

@@ -92,12 +92,24 @@ def estimate_tokens(chunk: CodeChunk) -> int:
     return int(len(chunk.content.split()) * 1.3)
 
 
+CLI_MAX_CHUNKS_PER_FILE = 2
+
+
 def _file_score_cutoff_ratio(*, fusion_applied: bool) -> float:
     return FUSION_FILE_SCORE_CUTOFF if fusion_applied else FILE_SCORE_CUTOFF
 
 
 def _is_test_file(file_path: str) -> bool:
     return file_path.startswith("test") or "/test" in file_path
+
+
+def _is_support_file(file_path: str, query_terms: set[str]) -> bool:
+    lower_path = file_path.lower()
+    if _is_test_file(lower_path):
+        return not query_terms & {"fixture", "fixtures", "test", "tests"}
+    if any(marker in lower_path for marker in _SUPPORT_PATH_MARKERS):
+        return not query_terms & _SUPPORT_QUERY_TERMS
+    return False
 
 
 def _type_definitions(chunks: list[RankedChunk]) -> list[TypeDefinition]:
@@ -289,6 +301,25 @@ _FRAMEWORK_SYNONYMS: dict[str, list[str]] = {
 }
 
 _CLI_LIFECYCLE_COMMAND_TERMS = frozenset({"cache", "config", "index", "init", "reset", "status"})
+_SUPPORT_QUERY_TERMS = frozenset(
+    {
+        "benchmark",
+        "benchmarks",
+        "compare",
+        "comparison",
+        "dogfood",
+        "evidence",
+        "fixture",
+        "fixtures",
+        "readiness",
+        "report",
+        "reports",
+        "test",
+        "tests",
+        "triage",
+    }
+)
+_SUPPORT_PATH_MARKERS = frozenset(("/benchmark/", "/serve/compare/"))
 
 
 # Architecture keywords that trigger 2-hop expansion.
@@ -318,6 +349,16 @@ def _split_compound_token(token: str) -> list[str]:
         return [token] + [p.lower() for p in camel_parts]
 
     return [token]
+
+
+def _singular_query_variants(term: str) -> set[str]:
+    if len(term) <= 3:
+        return set()
+    if term.endswith("ies") and len(term) > 4:
+        return {term[:-3] + "y"}
+    if term.endswith("s"):
+        return {term[:-1]}
+    return set()
 
 
 def _query_terms(question: str) -> set[str]:
@@ -353,6 +394,8 @@ def _query_terms(question: str) -> set[str]:
     # Add bigram compound forms for adjacent non-stop pairs (e.g. dependency + injection
     # → "dependency_injection") so they match identifiers that use this combined form.
     clean = [t for t in normalized_tokens if t not in _QUERY_STOP and len(t) >= 3]
+    for term in list(expanded):
+        expanded.update(_singular_query_variants(term))
     for i in range(len(clean) - 1):
         compound = f"{clean[i]}_{clean[i + 1]}"
         expanded.add(compound)
@@ -374,7 +417,7 @@ def _query_terms(question: str) -> set[str]:
     if {"build", "refresh"} & expanded and "index" in expanded:
         expanded.update({"index", "cli", "api", "cache", "project", "config"})
     if {"settings", "configuration"} & expanded or "runtime_configuration" in expanded:
-        expanded.update({"config", "settings", "runtime", "models", "cache", "project"})
+        expanded.update({"config", "settings", "runtime", "cache", "project"})
     if "mcp" in expanded:
         expanded.update({"api", "context", "mcp_cmd", "model", "models"})
     if "query" in expanded and "cache" in expanded:
@@ -387,6 +430,13 @@ def _query_terms(question: str) -> set[str]:
         expanded.update({"common", "wsgi", "asgi"})
     if "pooling" in expanded or "keep_alive" in expanded:
         expanded.update({"client", "config"})
+    if {"dispatch", "execute"} & expanded and {"task", "tasks"} & expanded:
+        expanded.update({"amqp", "broker", "message", "queue", "strategy", "worker"})
+    if {"session", "sessions"} & expanded or "connection_pooling" in expanded:
+        expanded.update({"adapter", "adapters", "model", "models", "request", "response"})
+    if "orm" in expanded and "sql" in expanded:
+        expanded.update({"query", "queries", "compiler", "where", "expression", "expressions"})
+        expanded.update({"model", "models"})
 
     # Semantic synonym expansion
     for term in list(expanded):
@@ -445,14 +495,14 @@ def _path_alignment_boost(file_path: str, query_terms: set[str]) -> float:
     dir_path = parts[0] if len(parts) == 2 else ""
     basename = parts[-1]
     stem = basename.rsplit(".", 1)[0]
+    normalized_stem = stem.lower().lstrip("_")
     path_terms = {segment for segment in dir_path.replace("-", "_").split("/") if len(segment) >= 3}
     path_terms.update(
         part for token in stem.replace("-", "_").split("_") for part in _split_compound_token(token)
     )
     path_terms = {term.lower() for term in path_terms if len(term) >= 3}
-    normalized_stem = stem.lower().lstrip("_")
     if stem.lower() in query_terms or normalized_stem in query_terms:
-        return 2.0
+        return 3.0
     matched_terms = path_terms & query_terms
     if not matched_terms:
         return 1.0
@@ -523,10 +573,19 @@ def _try_include_ranked_chunk(
     included: list[RankedChunk],
     included_ids: set[str],
     included_ranges: dict[str, list[tuple[int, int]]],
+    included_file_counts: dict[str, int],
     total_tokens: int,
     token_budget: int,
+    max_chunks_per_file: int | None,
 ) -> int:
-    if rc.chunk.id in included_ids or _nested_included_range(rc.chunk, included_ranges):
+    if (
+        rc.chunk.id in included_ids
+        or _nested_included_range(rc.chunk, included_ranges)
+        or (
+            max_chunks_per_file is not None
+            and included_file_counts.get(rc.chunk.file_path, 0) >= max_chunks_per_file
+        )
+    ):
         return total_tokens
     tokens = estimate_tokens(rc.chunk)
     if total_tokens + tokens > token_budget:
@@ -536,6 +595,7 @@ def _try_include_ranked_chunk(
     included_ranges.setdefault(rc.chunk.file_path, []).append(
         (rc.chunk.start_line, rc.chunk.end_line)
     )
+    included_file_counts[rc.chunk.file_path] = included_file_counts.get(rc.chunk.file_path, 0) + 1
     return total_tokens + tokens
 
 
@@ -544,10 +604,12 @@ def _pack_ranked_chunks(
     sorted_files: list[tuple[str, float]],
     top_files: set[str],
     token_budget: int,
+    max_chunks_per_file: int | None = None,
 ) -> tuple[list[RankedChunk], int]:
     included: list[RankedChunk] = []
     included_ids: set[str] = set()
     included_ranges: dict[str, list[tuple[int, int]]] = {}
+    included_file_counts: dict[str, int] = {}
     total_tokens = 0
 
     best_by_file: dict[str, RankedChunk] = {}
@@ -570,8 +632,10 @@ def _pack_ranked_chunks(
             included,
             included_ids,
             included_ranges,
+            included_file_counts,
             total_tokens,
             token_budget,
+            max_chunks_per_file,
         )
 
     score_floor = ranked[0].final_score * MIN_SCORE_RATIO if ranked else 0.0
@@ -584,8 +648,10 @@ def _pack_ranked_chunks(
             included,
             included_ids,
             included_ranges,
+            included_file_counts,
             total_tokens,
             token_budget,
+            max_chunks_per_file,
         )
 
     return included, total_tokens
@@ -694,6 +760,19 @@ def _record_expansion_reason(
         return
     file_reasons.add(reason)
     reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+
+def _is_low_signal_expansion_candidate(
+    file_path: str,
+    reasons: set[str],
+    source_count: int,
+    query_terms: set[str],
+) -> bool:
+    if "hub" not in reasons or source_count > 1:
+        return False
+    if reasons & {"same_module", "entry_point"}:
+        return False
+    return not any(term in file_path.lower() for term in query_terms)
 
 
 def _hop2_expansion_priority(expansion: _Hop2Expansion) -> dict[str, float]:
@@ -974,7 +1053,9 @@ def assemble_context(
 
     q_terms = _query_terms(question)
     if intent == QueryIntent.CLI:
-        cli_terms = {"init", "index", "main", "project", "query", "reset", "status"}
+        cli_terms = set(_CLI_LIFECYCLE_COMMAND_TERMS) | {"main", "project"}
+        if "api" in q_terms:
+            cli_terms.add("api")
         alignment_terms = q_terms & cli_terms or q_terms
     else:
         alignment_terms = {term for term in q_terms if term not in _ARCH_KEYWORDS} or q_terms
@@ -1142,6 +1223,19 @@ def assemble_context(
                 expansion_reason_counts,
                 file_path,
                 "test_file",
+            )
+            continue
+        if _is_low_signal_expansion_candidate(
+            file_path,
+            expansion_reasons_by_file.get(file_path, set()),
+            expansion_source_count.get(file_path, 0),
+            q_terms,
+        ):
+            _record_expansion_reason(
+                expansion_reasons_by_file,
+                expansion_reason_counts,
+                file_path,
+                "skipped",
             )
             continue
         added = _add_file_chunks(
@@ -1321,9 +1415,9 @@ def assemble_context(
             co_present = sum(1 for f in mod.files if f in candidate_files)
             cohesion = (co_present / len(mod.files)) * mod.cohesion_score
 
-        # Test files mirror implementation vocabulary — strong penalty
-        is_test = _is_test_file(chunk.file_path)
-        test_penalty = 0.3 if is_test else 1.0
+        # Tests and benchmark/diagnostic helpers mirror runtime vocabulary.
+        # Keep them searchable when explicitly requested, but rank product code first.
+        support_penalty = 0.15 if _is_support_file(chunk.file_path, q_terms) else 1.0
 
         # Entry-point files (mod.rs, __init__.py, index.js) define module interfaces
         entry_boost = _ENTRY_POINT_BOOST if _is_entry_point(chunk.file_path) else 1.0
@@ -1338,7 +1432,7 @@ def assemble_context(
                 + weights.type_coverage * type_coverage
                 + weights.cohesion * cohesion
             )
-            * test_penalty
+            * support_penalty
             * entry_boost
             * path_boost
         )
@@ -1376,7 +1470,11 @@ def assemble_context(
         "imports",
         "edges",
     }:
-        adaptive_max = min(adaptive_max, 4)
+        cap = 5 if intent == QueryIntent.CLI and "api" in q_terms else 4
+        if intent == QueryIntent.CLI and "api" in q_terms:
+            adaptive_max = cap
+        else:
+            adaptive_max = min(adaptive_max, cap)
     aligned_files = {
         fp for fp, _score in sorted_files if _path_alignment_boost(fp, alignment_terms) > 1.0
     }
@@ -1405,6 +1503,7 @@ def assemble_context(
         sorted_files,
         top_files,
         token_budget,
+        max_chunks_per_file=CLI_MAX_CHUNKS_PER_FILE if intent == QueryIntent.CLI else None,
     )
 
     chunks_dropped = len(ranked) - len(included)
