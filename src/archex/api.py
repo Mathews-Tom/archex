@@ -162,6 +162,8 @@ def _full_index(
             timing.parse_ms = _elapsed_ms(t_parse)
 
         t_idx = time.perf_counter()
+        from archex.index.delta import compute_file_states
+
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
         store.insert_chunks(all_chunks)
@@ -172,6 +174,7 @@ def _full_index(
             )
         )
         edges = graph.file_edges()
+        store.replace_file_states(compute_file_states(repo_path, files))
         store.insert_edges(edges)
         _build_splade_index(store, all_chunks, effective_index_config)
         _build_module_summaries(store, graph, parsed_files, effective_index_config)
@@ -301,11 +304,8 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
     if not current_commit:
         return None
     same_commit = cached_commit == current_commit
-    if same_commit and attempt.working_tree_signature is None:
-        return None
-
     try:
-        from archex.index.delta import apply_delta, compute_delta, compute_mtime_delta
+        from archex.index.delta import apply_delta, compute_delta, compute_working_tree_delta
 
         repo_path = Path(source.local_path).resolve()
         store = IndexStore(db_path) if same_commit else None
@@ -313,11 +313,7 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
             if same_commit:
                 if store is None:
                     return None
-                indexed_signature = store.get_metadata("working_tree_signature")
-                if indexed_signature == attempt.working_tree_signature:
-                    return None
-                indexed_at = _metadata_float(store.get_metadata("indexed_at"))
-                manifest = compute_mtime_delta(repo_path, store, indexed_at)
+                manifest = compute_working_tree_delta(repo_path, store, config)
                 manifest.base_commit = cached_commit
                 manifest.current_commit = current_commit
             else:
@@ -327,7 +323,15 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                 store.close()
 
         if not manifest.changes and same_commit:
-            return None
+            clean_store = IndexStore(db_path)
+            if attempt.working_tree_signature is not None:
+                clean_store.set_metadata("working_tree_signature", attempt.working_tree_signature)
+            clean_store.set_metadata("indexed_at", str(time.time()))
+            if attempt.timing is not None:
+                attempt.timing.cached = True
+                attempt.timing.strategy = "cached"
+                attempt.timing.index_ms = _elapsed_ms(attempt.t_start)
+            return clean_store
 
         total_files = len(
             discover_files(
@@ -397,15 +401,6 @@ def _set_working_tree_signature(store: IndexStore, repo_path: Path, config: Conf
     from archex.index.delta import compute_working_tree_signature
 
     store.set_metadata("working_tree_signature", compute_working_tree_signature(repo_path, config))
-
-
-def _metadata_float(value: str | None) -> float:
-    if value is None:
-        return 0.0
-    try:
-        return float(value)
-    except ValueError:
-        return 0.0
 
 
 logger = logging.getLogger(__name__)
@@ -1495,6 +1490,9 @@ def query(
             store.insert_chunks(all_chunks)
             store.insert_chunk_surrogates(chunk_surrogates)
             edges = graph.file_edges()
+            from archex.index.delta import compute_file_states
+
+            store.replace_file_states(compute_file_states(repo_path, files))
             store.insert_edges(edges)
             bm25.build(all_chunks)
             _build_splade_index(store, all_chunks, index_config)

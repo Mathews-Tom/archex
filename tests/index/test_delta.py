@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -13,11 +14,17 @@ from archex.exceptions import DeltaIndexError
 from archex.index.delta import (
     apply_delta,
     compute_delta,
+    compute_file_states,
     compute_mtime_delta,
+    compute_working_tree_delta,
     compute_working_tree_signature,
 )
 from archex.index.store import IndexStore
 from archex.models import ChangeStatus, CodeChunk, Config, IndexConfig
+
+if TYPE_CHECKING:
+    from archex.index.graph import DependencyGraph
+
 from archex.pipeline.service import build_chunk_surrogates
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
@@ -172,7 +179,11 @@ class TestComputeDelta:
 
 
 class TestApplyDelta:
-    def _build_initial_index(self, repo_path: Path, tmp_path: Path) -> tuple[IndexStore, object]:
+    def build_initial_index(
+        self,
+        repo_path: Path,
+        tmp_path: Path,
+    ) -> tuple[IndexStore, DependencyGraph]:
         """Build a full index for the repo. Returns (store, graph)."""
         from archex.acquire import discover_files
         from archex.index.bm25 import BM25Index
@@ -209,6 +220,7 @@ class TestApplyDelta:
         db_path = tmp_path / "test_index.db"
         store = IndexStore(db_path)
         store.insert_chunks(chunks)
+        store.replace_file_states(compute_file_states(repo_path, files))
         store.insert_chunk_surrogates(build_chunk_surrogates(chunks))
         store.insert_edges(graph.file_edges())
         bm25 = BM25Index(store)
@@ -218,7 +230,7 @@ class TestApplyDelta:
     def test_modified_replaces_chunks(self, delta_test_repo: Path, tmp_path: Path) -> None:
         from archex.index.graph import DependencyGraph
 
-        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
         assert isinstance(graph, DependencyGraph)
         try:
             old_chunks = store.get_chunks_for_file("utils.py")
@@ -250,7 +262,7 @@ class TestApplyDelta:
     ) -> None:
         from archex.index.graph import DependencyGraph
 
-        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
         assert isinstance(graph, DependencyGraph)
         try:
             base = _git_head(delta_test_repo)
@@ -271,7 +283,7 @@ class TestApplyDelta:
     def test_added_inserts_chunks(self, delta_test_repo: Path, tmp_path: Path) -> None:
         from archex.index.graph import DependencyGraph
 
-        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
         assert isinstance(graph, DependencyGraph)
         try:
             base = _git_head(delta_test_repo)
@@ -297,7 +309,7 @@ class TestApplyDelta:
     ) -> None:
         from archex.index.graph import DependencyGraph
 
-        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
         assert isinstance(graph, DependencyGraph)
         try:
             assert store.get_chunk_surrogates_for_file("utils.py")
@@ -317,7 +329,7 @@ class TestApplyDelta:
     def test_deleted_removes_all(self, delta_test_repo: Path, tmp_path: Path) -> None:
         from archex.index.graph import DependencyGraph
 
-        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
         assert isinstance(graph, DependencyGraph)
         try:
             assert len(store.get_chunks_for_file("utils.py")) > 0
@@ -340,7 +352,7 @@ class TestApplyDelta:
     def test_metadata_updated(self, delta_test_repo: Path, tmp_path: Path) -> None:
         from archex.index.graph import DependencyGraph
 
-        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
         assert isinstance(graph, DependencyGraph)
         try:
             base = _git_head(delta_test_repo)
@@ -361,7 +373,7 @@ class TestApplyDelta:
     def test_empty_manifest_no_op(self, delta_test_repo: Path, tmp_path: Path) -> None:
         from archex.index.graph import DependencyGraph
 
-        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
         assert isinstance(graph, DependencyGraph)
         try:
             commit = _git_head(delta_test_repo)
@@ -380,7 +392,7 @@ class TestApplyDelta:
     def test_delta_meta_full_reindex_avoided(self, delta_test_repo: Path, tmp_path: Path) -> None:
         from archex.index.graph import DependencyGraph
 
-        store, graph = self._build_initial_index(delta_test_repo, tmp_path)
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
         assert isinstance(graph, DependencyGraph)
         try:
             base = _git_head(delta_test_repo)
@@ -419,7 +431,7 @@ class TestApplyDelta:
 
         db_dir = tmp_path / "db_initial"
         db_dir.mkdir()
-        store, graph = self._build_initial_index(repo, db_dir)
+        store, graph = self.build_initial_index(repo, db_dir)
         assert isinstance(graph, DependencyGraph)
         try:
             initial_edges = {(e.source, e.target) for e in store.get_edges()}
@@ -602,6 +614,82 @@ class TestComputeWorkingTreeSignature:
         signature = compute_working_tree_signature(delta_test_repo, Config(languages=["python"]))
 
         assert signature == "clean"
+
+
+# ---------------------------------------------------------------------------
+# TestComputeWorkingTreeDelta
+# ---------------------------------------------------------------------------
+
+
+class TestComputeWorkingTreeDelta:
+    def test_detects_staged_and_unstaged_file_changes(
+        self,
+        delta_test_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        store, graph = TestApplyDelta().build_initial_index(delta_test_repo, tmp_path)
+        try:
+            (delta_test_repo / "utils.py").write_text("def unstaged_edit():\n    return 1\n")
+            (delta_test_repo / "new_module.py").write_text("def staged_add():\n    return 2\n")
+            _git(delta_test_repo, "add", "new_module.py")
+            _git(delta_test_repo, "mv", "models.py", "entities.py")
+            (delta_test_repo / "main.py").unlink()
+
+            manifest = compute_working_tree_delta(
+                delta_test_repo,
+                store,
+                Config(languages=["python"]),
+            )
+
+            assert "utils.py" in manifest.modified_files
+            assert "new_module.py" in manifest.added_files
+            assert "main.py" in manifest.deleted_files
+            assert ("models.py", "entities.py") in manifest.renamed_files
+
+            meta = apply_delta(
+                store,
+                graph,
+                manifest,
+                delta_test_repo,
+                Config(languages=["python"]),
+            )
+
+            assert meta.full_reindex_avoided is True
+            utils_content = " ".join(c.content for c in store.get_chunks_for_file("utils.py"))
+            new_module_content = " ".join(
+                c.content for c in store.get_chunks_for_file("new_module.py")
+            )
+            assert "unstaged_edit" in utils_content
+            assert "staged_add" in new_module_content
+            assert store.get_chunks_for_file("main.py") == []
+            assert store.get_chunks_for_file("models.py") == []
+            assert store.get_chunks_for_file("entities.py")
+            assert "entities.py" in store.get_file_states()
+            assert "models.py" not in store.get_file_states()
+        finally:
+            store.close()
+
+    def test_mtime_change_with_same_content_is_not_dirty(
+        self,
+        delta_test_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        store, _graph = TestApplyDelta().build_initial_index(delta_test_repo, tmp_path)
+        try:
+            path = delta_test_repo / "utils.py"
+            content = path.read_text()
+            time.sleep(0.01)
+            path.write_text(content)
+
+            manifest = compute_working_tree_delta(
+                delta_test_repo,
+                store,
+                Config(languages=["python"]),
+            )
+
+            assert manifest.changes == []
+        finally:
+            store.close()
 
 
 # ---------------------------------------------------------------------------
