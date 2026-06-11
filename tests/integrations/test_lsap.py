@@ -102,7 +102,7 @@ class TestHoverEnrichment:
 
         client = _mock_client()
         lookup = LSAPEnrichedLookup(lsp_client=client)
-        hover = asyncio.get_event_loop().run_until_complete(lookup.get_hover("src/repo.py", 10))
+        hover = asyncio.run(lookup.get_hover("src/repo.py", 10))
         assert isinstance(hover, HoverInfo)
         assert "get_user" in hover.type_signature
         assert hover.documentation == "Fetch a user by ID."
@@ -114,7 +114,7 @@ class TestHoverEnrichment:
         client = _mock_client()
         client.request_hover = AsyncMock(return_value=None)
         lookup = LSAPEnrichedLookup(lsp_client=client)
-        hover = asyncio.get_event_loop().run_until_complete(lookup.get_hover("src/repo.py", 10))
+        hover = asyncio.run(lookup.get_hover("src/repo.py", 10))
         assert hover.type_signature == ""
         assert hover.raw_content == ""
 
@@ -125,7 +125,7 @@ class TestReferences:
 
         client = _mock_client()
         lookup = LSAPEnrichedLookup(lsp_client=client)
-        refs = asyncio.get_event_loop().run_until_complete(lookup.get_references("src/repo.py", 10))
+        refs = asyncio.run(lookup.get_references("src/repo.py", 10))
         assert len(refs) == 2
         assert all(isinstance(r, ReferenceLocation) for r in refs)
         assert refs[0].file_path == "src/service.py"
@@ -138,7 +138,7 @@ class TestReferences:
         client = _mock_client()
         client.request_references = AsyncMock(return_value=None)
         lookup = LSAPEnrichedLookup(lsp_client=client)
-        refs = asyncio.get_event_loop().run_until_complete(lookup.get_references("src/repo.py", 10))
+        refs = asyncio.run(lookup.get_references("src/repo.py", 10))
         assert refs == []
 
 
@@ -148,7 +148,7 @@ class TestDefinition:
 
         client = _mock_client()
         lookup = LSAPEnrichedLookup(lsp_client=client)
-        defn = asyncio.get_event_loop().run_until_complete(lookup.get_definition("src/repo.py", 10))
+        defn = asyncio.run(lookup.get_definition("src/repo.py", 10))
         assert isinstance(defn, DefinitionLocation)
         assert defn.file_path == "src/repo.py"
         assert defn.line == 10
@@ -159,7 +159,7 @@ class TestDefinition:
         client = _mock_client()
         client.request_definition = AsyncMock(return_value=None)
         lookup = LSAPEnrichedLookup(lsp_client=client)
-        defn = asyncio.get_event_loop().run_until_complete(lookup.get_definition("src/repo.py", 10))
+        defn = asyncio.run(lookup.get_definition("src/repo.py", 10))
         assert defn is None
 
 
@@ -170,7 +170,7 @@ class TestEnrichSymbol:
         client = _mock_client()
         lookup = LSAPEnrichedLookup(lsp_client=client)
         symbol = _make_symbol()
-        enriched = asyncio.get_event_loop().run_until_complete(lookup.enrich_symbol(symbol))
+        enriched = asyncio.run(lookup.enrich_symbol(symbol))
         assert enriched.lsap_enrichment is not None
         enr = enriched.lsap_enrichment
         assert enr.hover is not None
@@ -189,7 +189,7 @@ class TestEnrichSymbol:
         client.request_hover = AsyncMock(side_effect=RuntimeError("server error"))
         lookup = LSAPEnrichedLookup(lsp_client=client)
         symbol = _make_symbol()
-        enriched = asyncio.get_event_loop().run_until_complete(lookup.enrich_symbol(symbol))
+        enriched = asyncio.run(lookup.enrich_symbol(symbol))
         assert enriched.lsap_enrichment is not None
         enr = enriched.lsap_enrichment
         assert enr.hover is None  # failed
@@ -207,9 +207,7 @@ class TestBatchConcurrency:
             _make_symbol(name=f"method_{i}", sid=f"src/repo.py::method_{i}#method")
             for i in range(10)
         ]
-        enriched = asyncio.get_event_loop().run_until_complete(
-            lookup.enrich_symbols_batch(symbols, concurrency=3)
-        )
+        enriched = asyncio.run(lookup.enrich_symbols_batch(symbols, concurrency=3))
         assert len(enriched) == 10
         assert all(s.lsap_enrichment is not None for s in enriched)
         # Verify hover was called for each symbol.
@@ -269,9 +267,7 @@ class TestPatternVerifier:
         pattern = self._make_repository_pattern()
         parsed_files = [self._make_parsed_file()]
 
-        adjusted = asyncio.get_event_loop().run_until_complete(
-            verify_repository_pattern(lookup, pattern, parsed_files)
-        )
+        adjusted = asyncio.run(verify_repository_pattern(lookup, pattern, parsed_files))
         assert adjusted is not None
         assert adjusted > pattern.confidence  # boosted
 
@@ -289,9 +285,7 @@ class TestPatternVerifier:
         pattern = self._make_repository_pattern()
         parsed_files = [self._make_parsed_file()]
 
-        adjusted = asyncio.get_event_loop().run_until_complete(
-            verify_repository_pattern(lookup, pattern, parsed_files)
-        )
+        adjusted = asyncio.run(verify_repository_pattern(lookup, pattern, parsed_files))
         assert adjusted is not None
         assert adjusted < pattern.confidence  # reduced
 
@@ -308,7 +302,5 @@ class TestPatternVerifier:
             confidence=0.85,
             evidence=[],
         )
-        result = asyncio.get_event_loop().run_until_complete(
-            verify_repository_pattern(lookup, pattern, [])
-        )
+        result = asyncio.run(verify_repository_pattern(lookup, pattern, []))
         assert result is None

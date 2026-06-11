@@ -9,6 +9,8 @@ from archex.benchmark.models import (
     DeltaBenchmarkResult,
     DeltaBenchmarkTask,
     DeltaStrategy,
+    ExternalToolBenchmarkConfig,
+    ExternalToolCommandConfig,
     Strategy,
     TaskCategory,
 )
@@ -20,6 +22,8 @@ __all__ = [
     "DeltaBenchmarkResult",
     "DeltaBenchmarkTask",
     "DeltaStrategy",
+    "ExternalToolBenchmarkConfig",
+    "ExternalToolCommandConfig",
     "Strategy",
     "TaskCategory",
 ]

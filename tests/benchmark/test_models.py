@@ -29,6 +29,7 @@ class TestStrategy:
         assert Strategy.CROSS_LAYER_FUSION == "cross_layer_fusion"
         assert Strategy.ARCHEX_QUERY_FUSION_RERANK == "archex_query_fusion_rerank"
         assert Strategy.ARCHEX_SYMBOL_LOOKUP == "archex_symbol_lookup"
+        assert Strategy.EXTERNAL_MCP == "external_mcp"
 
     def test_enum_from_value(self) -> None:
         assert Strategy("raw_files") is Strategy.RAW_FILES
