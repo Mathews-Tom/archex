@@ -2,23 +2,52 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar, cast
 
 import yaml
+from pydantic import BaseModel, ValidationError
 
 from archex.benchmark.models import ArchitectureBenchmarkTask, BenchmarkTask, DeltaBenchmarkTask
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+BenchmarkSpec = TypeVar("BenchmarkSpec", bound=BaseModel)
+
+
+def _load_yaml_mapping(path: Path) -> dict[str, object]:
+    raw = path.read_text(encoding="utf-8")
+    try:
+        data = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Failed to parse YAML in {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected a YAML mapping in {path}, got {type(data).__name__}")
+    return cast("dict[str, object]", data)
+
+
+def _format_validation_error(path: Path, exc: ValidationError) -> str:
+    messages: list[str] = []
+    for error in exc.errors():
+        loc = ".".join(str(part) for part in error["loc"])
+        field = loc or "<root>"
+        if error["type"] == "extra_forbidden":
+            messages.append(f"unknown field {field!r}: {error['msg']}")
+        else:
+            messages.append(f"{field}: {error['msg']}")
+    return f"Invalid benchmark YAML in {path}: " + "; ".join(messages)
+
+
+def _validate_yaml_model(path: Path, model: type[BenchmarkSpec]) -> BenchmarkSpec:
+    try:
+        return model.model_validate(_load_yaml_mapping(path))
+    except ValidationError as exc:
+        raise ValueError(_format_validation_error(path, exc)) from exc
+
 
 def load_task(path: Path) -> BenchmarkTask:
     """Parse a single YAML file into a BenchmarkTask."""
-    raw = path.read_text(encoding="utf-8")
-    data = yaml.safe_load(raw)
-    if not isinstance(data, dict):
-        raise ValueError(f"Expected a YAML mapping in {path}, got {type(data).__name__}")
-    return BenchmarkTask.model_validate(data)
+    return _validate_yaml_model(path, BenchmarkTask)
 
 
 def load_tasks(directory: Path) -> list[BenchmarkTask]:
@@ -33,11 +62,7 @@ def load_tasks(directory: Path) -> list[BenchmarkTask]:
 
 def load_arch_task(path: Path) -> ArchitectureBenchmarkTask:
     """Parse a single YAML file into an ArchitectureBenchmarkTask."""
-    raw = path.read_text(encoding="utf-8")
-    data = yaml.safe_load(raw)
-    if not isinstance(data, dict):
-        raise ValueError(f"Expected a YAML mapping in {path}, got {type(data).__name__}")
-    return ArchitectureBenchmarkTask.model_validate(data)
+    return _validate_yaml_model(path, ArchitectureBenchmarkTask)
 
 
 def load_arch_tasks(directory: Path) -> list[ArchitectureBenchmarkTask]:
@@ -52,11 +77,7 @@ def load_arch_tasks(directory: Path) -> list[ArchitectureBenchmarkTask]:
 
 def load_delta_task(path: Path) -> DeltaBenchmarkTask:
     """Parse a single YAML file into a DeltaBenchmarkTask."""
-    raw = path.read_text(encoding="utf-8")
-    data = yaml.safe_load(raw)
-    if not isinstance(data, dict):
-        raise ValueError(f"Expected a YAML mapping in {path}, got {type(data).__name__}")
-    return DeltaBenchmarkTask.model_validate(data)
+    return _validate_yaml_model(path, DeltaBenchmarkTask)
 
 
 def load_delta_tasks(directory: Path) -> list[DeltaBenchmarkTask]:

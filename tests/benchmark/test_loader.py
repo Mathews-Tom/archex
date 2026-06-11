@@ -93,6 +93,21 @@ expected_files:
         with pytest.raises(Exception):  # noqa: B017 — Pydantic ValidationError
             load_task(p)
 
+    def test_load_rejects_unknown_field_with_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "unknown.yaml"
+        p.write_text("""\
+task_id: unknown
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+unexpected: true
+""")
+
+        with pytest.raises(ValueError, match=r"unknown\.yaml.*unknown field 'unexpected'"):
+            load_task(p)
+
 
 class TestLoadArchTask:
     def test_load_valid_arch_yaml(self, tmp_path: Path) -> None:
@@ -125,6 +140,28 @@ arch_oracle:
         p.write_text("- just a list")
 
         with pytest.raises(ValueError, match="Expected a YAML mapping"):
+            load_arch_task(p)
+
+    def test_load_arch_rejects_unknown_nested_oracle_field(self, tmp_path: Path) -> None:
+        p = tmp_path / "arch_unknown.yaml"
+        p.write_text("""\
+task_id: arch_unknown
+repo: "."
+commit: HEAD
+question: "Which architectural patterns are present?"
+include_paths:
+  - tests/fixtures/python_patterns
+arch_oracle:
+  patterns:
+    - name: strategy
+      extra_pattern_field: nope
+""")
+
+        message = (
+            r"arch_unknown\.yaml.*unknown field "
+            r"'arch_oracle\.patterns\.0\.extra_pattern_field'"
+        )
+        with pytest.raises(ValueError, match=message):
             load_arch_task(p)
 
     def test_load_arch_tasks_directory(self, tmp_path: Path) -> None:
@@ -312,4 +349,22 @@ delta_commit: delta{i}
         p = tmp_path / "bad.yaml"
         p.write_text("- just a list")
         with pytest.raises(ValueError, match="Expected a YAML mapping"):
+            load_delta_task(p)
+
+    def test_load_delta_rejects_unknown_field_with_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "delta_unknown.yaml"
+        p.write_text("""\
+task_id: delta_unknown
+repo: "."
+base_commit: abc123
+delta_commit: def456
+expected_delta:
+  - src/main.py
+extra_delta_field: nope
+""")
+
+        with pytest.raises(
+            ValueError,
+            match=r"delta_unknown\.yaml.*unknown field 'extra_delta_field'",
+        ):
             load_delta_task(p)

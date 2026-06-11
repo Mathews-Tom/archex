@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from archex.models import (  # noqa: TCH001 — Pydantic needs at runtime
     DeltaMeta,
@@ -34,7 +34,11 @@ class TaskCategory(StrEnum):
     FRAMEWORK_SEMANTIC = "framework-semantic"
 
 
-class BenchmarkTask(BaseModel):
+class BenchmarkSpecModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class BenchmarkTask(BenchmarkSpecModel):
     task_id: str
     repo: str
     commit: str
@@ -56,36 +60,36 @@ class BenchmarkTask(BaseModel):
         return self
 
 
-class ArchitectureExpectedModule(BaseModel):
+class ArchitectureExpectedModule(BenchmarkSpecModel):
     name: str
     root_path: str
     files: list[str]
     responsibility_terms: list[str] = []
 
 
-class ArchitectureExpectedPattern(BaseModel):
+class ArchitectureExpectedPattern(BenchmarkSpecModel):
     name: str
     evidence_symbols: list[str] = []
 
 
-class ArchitectureExpectedInterface(BaseModel):
+class ArchitectureExpectedInterface(BenchmarkSpecModel):
     name: str
     file_path: str
     kind: SymbolKind | None = None
 
 
-class ArchitectureExpectedDecision(BaseModel):
+class ArchitectureExpectedDecision(BenchmarkSpecModel):
     decision_terms: list[str]
 
 
-class ArchitectureOracle(BaseModel):
+class ArchitectureOracle(BenchmarkSpecModel):
     modules: list[ArchitectureExpectedModule] = []
     patterns: list[ArchitectureExpectedPattern] = []
     interfaces: list[ArchitectureExpectedInterface] = []
     decisions: list[ArchitectureExpectedDecision] = []
 
 
-class ArchitectureBenchmarkTask(BaseModel):
+class ArchitectureBenchmarkTask(BenchmarkSpecModel):
     task_id: str
     repo: str
     commit: str
@@ -201,7 +205,7 @@ class DeltaStrategy(StrEnum):
     FULL_REINDEX = "full_reindex"
 
 
-class DeltaBenchmarkTask(BaseModel):
+class DeltaBenchmarkTask(BenchmarkSpecModel):
     task_id: str
     repo: str
     base_commit: str
