@@ -1,0 +1,49 @@
+manifest_version: 1
+name: archex-vs-ccc-c1-public
+hardware_notes: "Apple M1 Pro arm64, macOS 25.5.0; operator records final run hardware with results"
+task_subset:
+  - celery_task_dispatch
+  - click_decorators
+  - django_middleware
+  - django_orm_queries
+  - express_error_handling
+  - express_middleware
+  - fastapi_dependency_injection
+  - fastapi_routing
+  - flask_blueprints
+  - gin_routing
+  - go_gin_middleware
+  - httpx_pooling
+  - mini_redis_async
+  - pydantic_validators
+  - pytest_fixtures
+  - react_hooks
+  - requests_sessions
+  - rust_tokio_runtime
+  - sqlalchemy_sessions
+archex:
+  strategy: archex_query
+  embedder: jina-v2
+  local_models_only: true
+external_tools:
+  - name: ccc
+    version: "0.2.35"
+    command: ccc
+    args: [mcp]
+    embedder: Snowflake/snowflake-arctic-embed-xs
+    env:
+      COCOINDEX_DISABLE_USAGE_TRACKING: "1"
+    search_tool: search
+    query_argument: query
+    path_argument: paths
+    language_argument: languages
+    limit_argument: limit
+    limit: 10
+    timeout_seconds: 120
+    bootstrap_commands:
+      - command: ccc
+        args: [init, -f]
+      - command: ccc
+        args: [index]
+        timeout_seconds: 900
+raw_read_strategy: raw_grepped
