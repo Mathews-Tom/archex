@@ -683,6 +683,19 @@ def _unique_file_paths(results: list[tuple[CodeChunk, float]]) -> list[str]:
     return paths
 
 
+def _record_expansion_reason(
+    reasons_by_file: dict[str, set[str]],
+    reason_counts: dict[str, int],
+    file_path: str,
+    reason: str,
+) -> None:
+    file_reasons = reasons_by_file.setdefault(file_path, set())
+    if reason in file_reasons:
+        return
+    file_reasons.add(reason)
+    reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+
 def _hop2_expansion_priority(expansion: _Hop2Expansion) -> dict[str, float]:
     hop1_files = set(expansion.hop1_files_added)
     hop2_priority: dict[str, float] = {}
@@ -991,6 +1004,8 @@ def assemble_context(
             imported_by_count,
         )
     expansion_priority: dict[str, float] = {}
+    expansion_reasons_by_file: dict[str, set[str]] = {}
+    expansion_reason_counts: dict[str, int] = {}
     expansion_source_count: dict[str, int] = {}
     import_neighbor_edges = 0
     same_module_candidates: set[str] = set()
@@ -1009,12 +1024,40 @@ def assemble_context(
                     same_module_candidates.add(dep)
                 if len(graph.imports_of(dep)) + len(graph.imported_by(dep)) >= 4:
                     hub_candidates.add(dep)
+                    _record_expansion_reason(
+                        expansion_reasons_by_file,
+                        expansion_reason_counts,
+                        dep,
+                        "hub",
+                    )
                 # Boost imports whose file path matches a query term
                 path_lower = dep.lower()
                 path_match = any(t in path_lower for t in q_terms)
                 priority = seed_score * (1.5 if path_match else 1.0)
                 expansion_priority[dep] = expansion_priority.get(dep, 0.0) + priority
                 expansion_source_count[dep] = expansion_source_count.get(dep, 0) + 1
+                _record_expansion_reason(
+                    expansion_reasons_by_file,
+                    expansion_reason_counts,
+                    dep,
+                    "import_target",
+                )
+                dep_module = file_to_module.get(dep)
+                if seed_module is not None and dep_module is not None:
+                    module_reason = "same_module" if dep_module == seed_module else "cross_module"
+                    _record_expansion_reason(
+                        expansion_reasons_by_file,
+                        expansion_reason_counts,
+                        dep,
+                        module_reason,
+                    )
+                if _is_entry_point(dep):
+                    _record_expansion_reason(
+                        expansion_reasons_by_file,
+                        expansion_reason_counts,
+                        dep,
+                        "entry_point",
+                    )
         # Importers get half seed score — they're consumers, not dependencies
         for imp in graph.imported_by(file_path):
             if imp not in seed_files:
@@ -1023,11 +1066,39 @@ def assemble_context(
                     same_module_candidates.add(imp)
                 if len(graph.imports_of(imp)) + len(graph.imported_by(imp)) >= 4:
                     hub_candidates.add(imp)
+                    _record_expansion_reason(
+                        expansion_reasons_by_file,
+                        expansion_reason_counts,
+                        imp,
+                        "hub",
+                    )
                 path_lower = imp.lower()
                 path_match = any(t in path_lower for t in q_terms)
                 priority = seed_score * (0.75 if path_match else 0.5)
                 expansion_priority[imp] = expansion_priority.get(imp, 0.0) + priority
                 expansion_source_count[imp] = expansion_source_count.get(imp, 0) + 1
+                _record_expansion_reason(
+                    expansion_reasons_by_file,
+                    expansion_reason_counts,
+                    imp,
+                    "importer",
+                )
+                imp_module = file_to_module.get(imp)
+                if seed_module is not None and imp_module is not None:
+                    module_reason = "same_module" if imp_module == seed_module else "cross_module"
+                    _record_expansion_reason(
+                        expansion_reasons_by_file,
+                        expansion_reason_counts,
+                        imp,
+                        module_reason,
+                    )
+                if _is_entry_point(imp):
+                    _record_expansion_reason(
+                        expansion_reasons_by_file,
+                        expansion_reason_counts,
+                        imp,
+                        "entry_point",
+                    )
     # Convergence bonus: files reached by multiple independent seeds are structurally
     # corroborated — more likely to be genuinely relevant than files from a single seed.
     for dep in expansion_priority:
@@ -1066,6 +1137,12 @@ def assemble_context(
     for file_path in sorted_expansion:
         if _is_test_file(file_path):
             expansion_test_candidates_skipped += 1
+            _record_expansion_reason(
+                expansion_reasons_by_file,
+                expansion_reason_counts,
+                file_path,
+                "test_file",
+            )
             continue
         added = _add_file_chunks(
             candidate_map,
@@ -1073,6 +1150,13 @@ def assemble_context(
             file_path,
             max_per_file=max_per_file,
         )
+        if added == 0:
+            _record_expansion_reason(
+                expansion_reasons_by_file,
+                expansion_reason_counts,
+                file_path,
+                "skipped",
+            )
         if added > 0:
             expansion_files_added += 1
             hop1_files_added.append(file_path)
@@ -1107,6 +1191,23 @@ def assemble_context(
             expansion_test_candidates_skipped += hop2_test_candidates_skipped
             expansion_files_added += len(hop2_files_added)
             expanded_file_paths.extend(hop2_files_added)
+            for file_path in hop2_files_added:
+                _record_expansion_reason(
+                    expansion_reasons_by_file,
+                    expansion_reason_counts,
+                    file_path,
+                    "import_target",
+                )
+            if hop2_test_candidates_skipped:
+                expansion_reason_counts["test_file"] = (
+                    expansion_reason_counts.get("test_file", 0) + hop2_test_candidates_skipped
+                )
+    expanded_file_reasons = {
+        file_path: sorted(expansion_reasons_by_file[file_path])
+        for file_path in expanded_file_paths
+        if file_path in expansion_reasons_by_file
+    }
+
     candidates_after_expansion = len(candidate_map)
 
     if trace is not None:
@@ -1126,6 +1227,11 @@ def assemble_context(
                     "expansion_hub_candidates": len(hub_candidates),
                     "expansion_test_candidates_skipped": expansion_test_candidates_skipped,
                     "expansion_zero_candidate_reason": expansion_zero_candidate_reason,
+                    "expansion_reason_counts": ",".join(
+                        f"{reason}:{count}"
+                        for reason, count in sorted(expansion_reason_counts.items())
+                    ),
+                    "expanded_file_reasons": len(expanded_file_reasons),
                 },
             )
         )
@@ -1372,6 +1478,8 @@ def assemble_context(
         expansion_same_module_candidates=len(same_module_candidates),
         expansion_hub_candidates=len(hub_candidates),
         expansion_test_candidates_skipped=expansion_test_candidates_skipped,
+        expansion_reason_counts=dict(expansion_reason_counts),
+        expanded_file_reasons=expanded_file_reasons,
         bm25_cv=bm25_cv_val,
         splade_results=len(splade_results or []),
         splade_used=bool(effective_splade),

@@ -275,13 +275,20 @@ def format_readiness_markdown(report: ReadinessReport) -> str:
     if not report.blocking_tasks:
         lines.append("No blocking tasks matched the triage thresholds.")
     else:
-        lines.append("| Rank | Task | Category | Bucket | Recall | Precision | F1 |")
-        lines.append("|---:|---|---|---|---:|---:|---:|")
+        lines.append(
+            "| Rank | Task | Category | Bucket | Recall | Precision | F1 | Expansion Reasons |"
+        )
+        lines.append("|---:|---|---|---|---:|---:|---:|---|")
         for index, finding in enumerate(report.blocking_tasks, start=1):
+            reason_summary = ", ".join(
+                f"{reason}:{count}"
+                for reason, count in sorted(finding.expansion_reason_counts.items())
+            )
             lines.append(
                 f"| {index} | `{finding.task_id}` | {finding.category} "
                 f"| {finding.failure_bucket} | {finding.recall:.3f} "
-                f"| {finding.precision:.3f} | {finding.f1_score:.3f} |"
+                f"| {finding.precision:.3f} | {finding.f1_score:.3f} "
+                f"| {reason_summary or 'none'} |"
             )
     return "\n".join(lines)
 

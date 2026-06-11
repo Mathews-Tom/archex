@@ -389,6 +389,8 @@ class _ArchexFields:
         "expansion_hub_candidates",
         "expansion_test_candidates_skipped",
         "expansion_zero_candidate_reason",
+        "expansion_reason_counts",
+        "expanded_file_reasons",
     )
 
     def __init__(
@@ -412,6 +414,8 @@ class _ArchexFields:
         expansion_hub_candidates: int,
         expansion_test_candidates_skipped: int,
         expansion_zero_candidate_reason: str,
+        expansion_reason_counts: dict[str, int],
+        expanded_file_reasons: dict[str, list[str]],
     ) -> None:
         self.tokens_input = tokens_input
         self.tokens_output = tokens_output
@@ -431,6 +435,8 @@ class _ArchexFields:
         self.expansion_hub_candidates = expansion_hub_candidates
         self.expansion_test_candidates_skipped = expansion_test_candidates_skipped
         self.expansion_zero_candidate_reason = expansion_zero_candidate_reason
+        self.expansion_reason_counts = expansion_reason_counts
+        self.expanded_file_reasons = expanded_file_reasons
 
 
 def _archex_fields(
@@ -480,6 +486,10 @@ def _archex_fields(
             expansion_hub_candidates=meta.expansion_hub_candidates,
             expansion_test_candidates_skipped=meta.expansion_test_candidates_skipped,
             expansion_zero_candidate_reason=meta.expansion_zero_candidate_reason,
+            expansion_reason_counts=dict(meta.expansion_reason_counts),
+            expanded_file_reasons={
+                path: list(reasons) for path, reasons in meta.expanded_file_reasons.items()
+            },
         )
 
     seed_file_count = meta.seed_files_found
@@ -528,6 +538,10 @@ def _archex_fields(
         expansion_hub_candidates=meta.expansion_hub_candidates,
         expansion_test_candidates_skipped=meta.expansion_test_candidates_skipped,
         expansion_zero_candidate_reason=meta.expansion_zero_candidate_reason,
+        expansion_reason_counts=dict(meta.expansion_reason_counts),
+        expanded_file_reasons={
+            path: list(reasons) for path, reasons in meta.expanded_file_reasons.items()
+        },
     )
 
 
@@ -694,6 +708,8 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         expansion_hub_candidates=af.expansion_hub_candidates,
         expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
+        expansion_reason_counts=af.expansion_reason_counts,
+        expanded_file_reasons=af.expanded_file_reasons,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -774,6 +790,8 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         expansion_hub_candidates=af.expansion_hub_candidates,
         expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
+        expansion_reason_counts=af.expansion_reason_counts,
+        expanded_file_reasons=af.expanded_file_reasons,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -855,6 +873,8 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
         expansion_hub_candidates=af.expansion_hub_candidates,
         expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
+        expansion_reason_counts=af.expansion_reason_counts,
+        expanded_file_reasons=af.expanded_file_reasons,
         category=task.category,
         vector_mode=index_config.vector_mode,
         surrogate_version=index_config.surrogate_version,
@@ -936,6 +956,8 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         expansion_hub_candidates=af.expansion_hub_candidates,
         expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
+        expansion_reason_counts=af.expansion_reason_counts,
+        expanded_file_reasons=af.expanded_file_reasons,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -1009,6 +1031,8 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
         expansion_hub_candidates=af.expansion_hub_candidates,
         expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
+        expansion_reason_counts=af.expansion_reason_counts,
+        expanded_file_reasons=af.expanded_file_reasons,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -1089,6 +1113,8 @@ def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         expansion_hub_candidates=af.expansion_hub_candidates,
         expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
+        expansion_reason_counts=af.expansion_reason_counts,
+        expanded_file_reasons=af.expanded_file_reasons,
         category=task.category,
         vector_mode=index_config.vector_mode,
         surrogate_version=index_config.surrogate_version,

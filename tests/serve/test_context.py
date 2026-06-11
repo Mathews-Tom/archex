@@ -561,6 +561,46 @@ def test_expansion_metadata_records_seed_and_expanded_file_paths() -> None:
     assert meta.expansion_zero_candidate_reason == ""
 
 
+def test_expansion_metadata_records_file_reasons_without_changing_output() -> None:
+    graph = DependencyGraph()
+    for file_path in (
+        "src/app/main.py",
+        "src/app/dep.py",
+        "src/lib/helper.py",
+        "tests/test_dep.py",
+    ):
+        graph.add_file_node(file_path)
+    graph.add_file_edge("src/app/main.py", "src/app/dep.py", kind="imports")
+    graph.add_file_edge("src/app/main.py", "src/lib/helper.py", kind="imports")
+    graph.add_file_edge("src/app/main.py", "tests/test_dep.py", kind="imports")
+    seed_chunk = make_chunk("seed", "src/app/main.py", token_count=10)
+    same_module_chunk = make_chunk("dep", "src/app/dep.py", token_count=10)
+    cross_module_chunk = make_chunk("helper", "src/lib/helper.py", token_count=10)
+    test_chunk = make_chunk("test", "tests/test_dep.py", token_count=10)
+
+    bundle = assemble_context(
+        [(seed_chunk, 5.0)],
+        graph,
+        [seed_chunk, same_module_chunk, cross_module_chunk, test_chunk],
+        "graph expansion",
+        token_budget=1000,
+        modules=[
+            Module(name="app", root_path="src/app", files=["src/app/main.py", "src/app/dep.py"]),
+            Module(name="lib", root_path="src/lib", files=["src/lib/helper.py"]),
+        ],
+    )
+
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert included_files == {"src/app/main.py", "src/app/dep.py", "src/lib/helper.py"}
+    meta = bundle.retrieval_metadata
+    assert meta.expanded_file_reasons["src/app/dep.py"] == ["import_target", "same_module"]
+    assert meta.expanded_file_reasons["src/lib/helper.py"] == ["cross_module", "import_target"]
+    assert meta.expansion_reason_counts["import_target"] == 3
+    assert meta.expansion_reason_counts["same_module"] == 1
+    assert meta.expansion_reason_counts["cross_module"] == 1
+    assert meta.expansion_reason_counts["test_file"] == 1
+
+
 def test_expansion_metadata_records_zero_candidate_reason() -> None:
     graph = DependencyGraph()
     graph.add_file_node("seed.py")
