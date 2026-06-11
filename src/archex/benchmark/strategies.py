@@ -1176,6 +1176,12 @@ class StrategyRegistry:
         self._entry_points_strict = strict
 
 
+def _run_external_mcp_strategy(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    from archex.benchmark.external_mcp import run_external_mcp
+
+    return run_external_mcp(task, repo_path)
+
+
 default_strategy_registry = StrategyRegistry()
 default_strategy_registry.register(Strategy.RAW_FILES.value, run_raw_files)
 default_strategy_registry.register(Strategy.RAW_GREPPED.value, run_raw_grepped)
@@ -1188,3 +1194,4 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(Strategy.CROSS_LAYER_FUSION.value, run_cross_layer_fusion)
 default_strategy_registry.register(Strategy.ARCHEX_SYMBOL_LOOKUP.value, run_archex_symbol_lookup)
+default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)

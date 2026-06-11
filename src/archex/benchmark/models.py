@@ -24,6 +24,7 @@ class Strategy(StrEnum):
     CROSS_LAYER_FUSION = "cross_layer_fusion"
     ARCHEX_QUERY_FUSION_RERANK = "archex_query_fusion_rerank"
     ARCHEX_SYMBOL_LOOKUP = "archex_symbol_lookup"
+    EXTERNAL_MCP = "external_mcp"
 
 
 class TaskCategory(StrEnum):
@@ -141,9 +142,35 @@ class BenchmarkRetrievalOptions(BaseModel):
     rerank_model: str | None = None
 
 
+class ExternalToolCommandConfig(BenchmarkSpecModel):
+    command: str
+    args: list[str] = []
+    timeout_seconds: float = 600.0
+
+
+class ExternalToolBenchmarkConfig(BenchmarkSpecModel):
+    name: str
+    version: str
+    command: str
+    args: list[str] = []
+    embedder: str
+    cwd: str | None = None
+    env: dict[str, str] = {}
+    search_tool: str = "search"
+    query_argument: str = "query"
+    path_argument: str | None = "paths"
+    language_argument: str | None = "languages"
+    limit_argument: str | None = "limit"
+    limit: int = 10
+    extra_arguments: dict[str, object] = {}
+    timeout_seconds: float = 120.0
+    bootstrap_commands: list[ExternalToolCommandConfig] = []
+
+
 class BenchmarkResult(BaseModel):
     task_id: str
     strategy: Strategy
+    strategy_label: str | None = None
     tokens_total: int
     tool_calls: int
     files_accessed: int
@@ -183,6 +210,10 @@ class BenchmarkResult(BaseModel):
     cache_state: str = "cold"
     expansion_reason_counts: dict[str, int] = {}
     expanded_file_reasons: dict[str, list[str]] = {}
+    result_files: list[str] = []
+    cold_start_ms: float = 0.0
+    warm_latency_ms: float = 0.0
+    provenance: dict[str, str] = {}
 
 
 class BenchmarkReport(BaseModel):
