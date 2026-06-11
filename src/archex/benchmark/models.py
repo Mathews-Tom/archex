@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from archex.models import (  # noqa: TCH001 — Pydantic needs at runtime
     DeltaMeta,
@@ -165,6 +165,22 @@ class ExternalToolBenchmarkConfig(BenchmarkSpecModel):
     extra_arguments: dict[str, object] = {}
     timeout_seconds: float = 120.0
     bootstrap_commands: list[ExternalToolCommandConfig] = []
+
+
+class HeadToHeadArchexConfig(BenchmarkSpecModel):
+    strategy: Strategy = Strategy.ARCHEX_QUERY
+    embedder: str = "jina-v2"
+    local_models_only: bool = True
+
+
+class HeadToHeadManifest(BenchmarkSpecModel):
+    manifest_version: int = 1
+    name: str
+    hardware_notes: str
+    task_subset: list[str]
+    archex: HeadToHeadArchexConfig = Field(default_factory=HeadToHeadArchexConfig)
+    external_tools: list[ExternalToolBenchmarkConfig]
+    raw_read_strategy: Strategy = Strategy.RAW_GREPPED
 
 
 class BenchmarkResult(BaseModel):
