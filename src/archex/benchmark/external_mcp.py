@@ -20,6 +20,7 @@ from archex.benchmark.models import (
     Strategy,
 )
 from archex.benchmark.strategies import (
+    compute_bundle_completion_penalty,
     compute_f1,
     compute_map,
     compute_mrr,
@@ -284,6 +285,9 @@ def run_external_mcp(
     result_files = set(unique_files)
     tokens_input = count_file_tokens(repo_path, unique_files)
     tokens_output, token_mode = _external_output_tokens(repo_path, hits)
+    completion_tokens, completion_files = compute_bundle_completion_penalty(
+        repo_path, result_files, task.expected_files
+    )
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
     wall_ms = (time.perf_counter() - total_started) * 1000
@@ -296,6 +300,11 @@ def run_external_mcp(
         tokens_input=tokens_input,
         tokens_output=tokens_output,
         token_efficiency=compute_token_efficiency(tokens_output, tokens_input),
+        bundle_completion_tokens=completion_tokens,
+        bundle_completion_files=completion_files,
+        token_efficiency_with_completion=compute_token_efficiency(
+            tokens_output + completion_tokens, tokens_input + completion_tokens
+        ),
         tokens_raw_baseline=count_file_tokens(repo_path, task.expected_files),
         tool_calls=1 + len(config.bootstrap_commands),
         files_accessed=len(result_files),

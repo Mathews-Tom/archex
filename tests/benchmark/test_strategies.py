@@ -12,6 +12,7 @@ from archex.benchmark.strategies import (
     _archex_fields,  # pyright: ignore[reportPrivateUsage]
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
     benchmark_repo_source,
+    compute_bundle_completion_penalty,
     compute_map,
     compute_mrr,
     compute_ndcg,
@@ -202,6 +203,19 @@ class TestRankingMetricsDedup:
         clean = compute_map(["a.py", "b.py"], ["a.py", "b.py"])
         with_dup = compute_map(["a.py", "a.py", "b.py"], ["a.py", "b.py"])
         assert with_dup == clean
+
+
+class TestBundleCompletionPenalty:
+    def test_missing_expected_files_count_as_completion_tokens(self, tmp_path: Path) -> None:
+        (tmp_path / "found.py").write_text("print('found')\n", encoding="utf-8")
+        (tmp_path / "missing.py").write_text("print('missing')\n", encoding="utf-8")
+
+        tokens, files = compute_bundle_completion_penalty(
+            tmp_path, {"found.py"}, ["found.py", "missing.py"]
+        )
+
+        assert tokens == count_file_tokens(tmp_path, ["missing.py"])
+        assert files == ["missing.py"]
 
 
 class TestExtractKeywords:
