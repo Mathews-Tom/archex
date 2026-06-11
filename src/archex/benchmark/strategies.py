@@ -267,6 +267,16 @@ def compute_token_efficiency(tokens_output: int, tokens_input: int) -> float:
     return max(0.0, min(1.0, ratio))
 
 
+def compute_bundle_completion_penalty(
+    repo_path: Path,
+    result_files: set[str],
+    expected_files: list[str],
+) -> tuple[int, list[str]]:
+    """Return extra oracle-file tokens needed after an incomplete result bundle."""
+    missing_files = [path for path in expected_files if path not in result_files]
+    return count_file_tokens(repo_path, missing_files), missing_files
+
+
 def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Baseline strategy: read all expected files, count tokens."""
     t0 = time.perf_counter()
@@ -280,6 +290,8 @@ def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         tokens_input=tokens,
         tokens_output=tokens,
         token_efficiency=compute_token_efficiency(tokens, tokens),
+        result_files=list(task.expected_files),
+        token_efficiency_with_completion=compute_token_efficiency(tokens, tokens),
         tokens_raw_baseline=tokens,
         tool_calls=len(task.expected_files),
         files_accessed=len(task.expected_files),
@@ -343,6 +355,10 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     mrr_val = compute_mrr(matched_files_ordered, task.expected_files)
     ndcg_val = compute_ndcg(matched_files_ordered, task.expected_files)
     map_val = compute_map(matched_files_ordered, task.expected_files)
+    completion_tokens, completion_files = compute_bundle_completion_penalty(
+        repo_path, matched_files_seen, task.expected_files
+    )
+    tokens_with_completion = tokens + completion_tokens
 
     return BenchmarkResult(
         task_id=task.task_id,
@@ -351,6 +367,12 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         tokens_input=tokens,
         tokens_output=tokens,
         token_efficiency=compute_token_efficiency(tokens, tokens),
+        result_files=_deduplicate_ranked(matched_files_ordered),
+        bundle_completion_tokens=completion_tokens,
+        bundle_completion_files=completion_files,
+        token_efficiency_with_completion=compute_token_efficiency(
+            tokens_with_completion, tokens + completion_tokens
+        ),
         tokens_raw_baseline=tokens_raw_baseline,
         tool_calls=len(keywords),
         files_accessed=len(matched_files_seen),
@@ -663,7 +685,8 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
     ranked_files = [c.chunk.file_path for c in bundle.chunks]
-    result_files = set(_deduplicate_ranked(ranked_files))
+    unique_ranked = _deduplicate_ranked(ranked_files)
+    result_files = set(unique_ranked)
     wall_ms = (time.perf_counter() - t0) * 1000
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
@@ -672,6 +695,9 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     ndcg_val = compute_ndcg(ranked_files, task.expected_files)
     map_val = compute_map(ranked_files, task.expected_files)
     af = _archex_fields(bundle, task, repo_path)
+    completion_tokens, completion_files = compute_bundle_completion_penalty(
+        repo_path, result_files, task.expected_files
+    )
 
     return BenchmarkResult(
         task_id=task.task_id,
@@ -680,6 +706,12 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         tokens_input=af.tokens_input,
         tokens_output=af.tokens_output,
         token_efficiency=af.token_efficiency,
+        result_files=unique_ranked,
+        bundle_completion_tokens=completion_tokens,
+        bundle_completion_files=completion_files,
+        token_efficiency_with_completion=compute_token_efficiency(
+            af.tokens_output + completion_tokens, af.tokens_input + completion_tokens
+        ),
         tokens_raw_baseline=af.tokens_raw_baseline,
         symbol_recall=af.symbol_recall,
         tool_calls=1,

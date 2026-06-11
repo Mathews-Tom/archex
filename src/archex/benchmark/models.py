@@ -227,6 +227,9 @@ class BenchmarkResult(BaseModel):
     expansion_reason_counts: dict[str, int] = {}
     expanded_file_reasons: dict[str, list[str]] = {}
     result_files: list[str] = []
+    bundle_completion_tokens: int = 0
+    bundle_completion_files: list[str] = []
+    token_efficiency_with_completion: float = 0.0
     cold_start_ms: float = 0.0
     warm_latency_ms: float = 0.0
     provenance: dict[str, str] = {}
