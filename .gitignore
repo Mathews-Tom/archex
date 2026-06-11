@@ -217,5 +217,3 @@ __marimo__/
 .docs/
 .archex/
 
-# Benchmark results (keep .gitkeep)
-benchmarks/results/*.json

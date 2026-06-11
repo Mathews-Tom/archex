@@ -10,4 +10,4 @@ uv run archex benchmark headtohead run --manifest benchmarks/headtohead/manifest
 uv run archex benchmark headtohead report --input .archex/headtohead --format markdown
 ```
 
-Publication rule: paste the report back unchanged and record it in `.docs/handoff.md` regardless of which tool wins each cell.
+Publication rule: paste the report back unchanged and copy the result artifacts into `benchmarks/headtohead/results/` regardless of which tool wins each cell. Keep `.archex/` and `.docs/` out of git.
