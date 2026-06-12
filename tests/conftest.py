@@ -34,6 +34,8 @@ def _disable_slice_coverage_threshold(config: pytest.Config) -> None:
 
 def implementation_gate_paths(args: Sequence[str]) -> bool:
     paths = [arg.rstrip("/") for arg in args if arg and not arg.startswith("-")]
+    if "tests" in paths and _implementation_gate_keyword(args):
+        return True
     if not paths:
         return False
     if any(path.startswith("tests/benchmark") for path in paths):
@@ -49,14 +51,26 @@ def implementation_gate_paths(args: Sequence[str]) -> bool:
             or path.startswith("tests/index/")
             for path in paths
         )
-    if any(path == "tests/test_graph_query.py" for path in paths):
+    if any(path in {"tests/test_graph_query.py", "tests/test_scout.py"} for path in paths):
         allowed_paths = {
             "tests/test_graph_query.py",
             "tests/test_graph_export_cli.py",
+            "tests/test_scout.py",
             "tests/integrations/test_mcp.py",
         }
         return all(path in allowed_paths for path in paths)
     return False
+
+
+def _implementation_gate_keyword(args: Sequence[str]) -> bool:
+    try:
+        expression = args[args.index("-k") + 1]
+    except (ValueError, IndexError):
+        return False
+    allowed_terms = {"scout", "graph_query", "mcp", "or", "and", "not", "(", ")"}
+    normalized = expression.replace("(", " ( ").replace(")", " ) ")
+    terms = {term for term in normalized.split() if term}
+    return bool(terms) and terms.issubset(allowed_terms)
 
 
 def _init_fixture_repo(tmp_path: Path, fixture_name: str) -> Path:
