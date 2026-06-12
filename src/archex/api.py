@@ -351,9 +351,18 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
         store = IndexStore(db_path)
         index_config = attempt.index_config or IndexConfig()
         old_chunks = store.get_chunks() if index_config.vector else []
-        old_vector_path = store.vector_index_path_for(
+        cache_vector_path = attempt.cache.vector_path(
+            attempt.cache_key,
             vector_mode=index_config.vector_mode,
             surrogate_version=index_config.surrogate_version,
+        )
+        old_vector_path = (
+            cache_vector_path
+            if cache_vector_path.exists()
+            else store.vector_index_path_for(
+                vector_mode=index_config.vector_mode,
+                surrogate_version=index_config.surrogate_version,
+            )
         )
         graph = DependencyGraph.from_edges(store.get_edges())
         delta_meta = apply_delta(
