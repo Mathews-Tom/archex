@@ -326,12 +326,6 @@ class IndexStore:
         )
         self._conn.commit()
 
-    def rename_file_state(self, old_path: str, new_path: str) -> None:
-        self._conn.execute(
-            "UPDATE file_states SET file_path = ? WHERE file_path = ?",
-            (new_path, old_path),
-        )
-        self._conn.commit()
 
     def get_file_states(self) -> dict[str, dict[str, int | str]]:
         rows = self._conn.execute(
