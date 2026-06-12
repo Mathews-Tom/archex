@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from click.testing import CliRunner
 
@@ -72,3 +73,91 @@ def test_graph_export_markdown_can_write_explicit_output(
     assert rendered.startswith("# Architecture Graph:")
     assert "| Files |" in rendered
     assert "`file:main.py`" in rendered
+
+
+def _export_graph_artifact(repo: Path, output: Path) -> None:
+    result = CliRunner().invoke(
+        cli,
+        ["graph", "export", str(repo), "--output", str(output)],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_graph_neighbors_reads_artifact_without_reindexing(
+    python_simple_repo: Path, tmp_path: Path
+) -> None:
+    artifact = tmp_path / "archgraph.json"
+    _export_graph_artifact(python_simple_repo, artifact)
+    runner = CliRunner()
+
+    with patch("archex.cli.graph_cmd.index_repository", side_effect=AssertionError("reindexed")):
+        result = runner.invoke(
+            cli,
+            [
+                "graph",
+                "neighbors",
+                "main.py",
+                "--graph",
+                str(artifact),
+                "--format",
+                "markdown",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "# Graph Neighbors:" in result.output
+    assert "`main.py`" in result.output
+    assert "imports" in result.output
+    assert "extracted (1.00)" in result.output
+    assert "parser chunk span main.py:8-15" in result.output
+
+
+def test_graph_path_outputs_edge_confidence_json(python_simple_repo: Path, tmp_path: Path) -> None:
+    artifact = tmp_path / "archgraph.json"
+    _export_graph_artifact(python_simple_repo, artifact)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "graph",
+            "path",
+            "main.py",
+            "models.py",
+            "--graph",
+            str(artifact),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["found"] is True
+    assert data["edges"][0]["type"] == "imports"
+    assert data["edges"][0]["confidence"] == "extracted"
+    assert data["edges"][0]["source"]["path"] == "main.py"
+    assert data["edges"][0]["target"]["path"] == "models.py"
+    assert data["edges"][0]["evidence"]
+
+
+def test_graph_stats_and_hubs_render_markdown(python_simple_repo: Path, tmp_path: Path) -> None:
+    artifact = tmp_path / "archgraph.json"
+    _export_graph_artifact(python_simple_repo, artifact)
+    runner = CliRunner()
+
+    stats = runner.invoke(
+        cli,
+        ["graph", "stats", "--graph", str(artifact), "--format", "markdown", "--hub-degree", "1"],
+    )
+    hubs = runner.invoke(
+        cli,
+        ["graph", "hubs", "--graph", str(artifact), "--format", "markdown", "--threshold", "1"],
+    )
+
+    assert stats.exit_code == 0, stats.output
+    assert "# Graph Stats:" in stats.output
+    assert "## Edge Types" in stats.output
+    assert hubs.exit_code == 0, hubs.output
+    assert "# Graph Hubs" in hubs.output
+    assert "| Path | ID | Type | Degree |" in hubs.output
