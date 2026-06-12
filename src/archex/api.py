@@ -184,9 +184,7 @@ def _full_index(
             if embedder is not None:
                 from archex.index.vector import VectorIndex
 
-                surrogate_lookup = {
-                    surrogate.chunk_id: surrogate for surrogate in chunk_surrogates
-                }
+                surrogate_lookup = {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
                 vec_idx = VectorIndex()
                 cache_hits, cache_misses = vec_idx.build(
                     all_chunks,
