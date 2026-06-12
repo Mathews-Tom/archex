@@ -497,6 +497,7 @@ class TestRunArchexQuery:
         assert result.provenance["scout_token_budget"] == "1000"
         assert result.provenance["fetch_mode"] == "chunk_first"
         assert result.provenance["missing_from_scout_map"] == "none"
+        assert result.provenance["projected_coverage"] == "0.000"
 
     def test_archex_scout_fetch_guardrail_uses_direct_query(self, python_simple_repo: Path) -> None:
         from archex.scout import ScoutBudget, ScoutFetchPlan, ScoutResult
@@ -534,6 +535,7 @@ class TestRunArchexQuery:
         assert result.tokens_total == 12
         assert result.provenance["fetch_mode"] == "direct_query"
         assert result.provenance["guardrail_reason"] == "estimated_total_not_better_than_query"
+        assert result.provenance["missing_from_fetch_reasons"] == "none"
 
     def test_archex_scout_fetch_reports_extra_file_reasons(
         self,
@@ -588,6 +590,7 @@ class TestRunArchexQuery:
             result = run_archex_scout_fetch(task, python_simple_repo)
 
         assert result.provenance["missing_from_fetch"] == "expected.py"
+        assert result.provenance["missing_from_fetch_reasons"] == "expected.py=>not_in_scout_map"
         assert result.provenance["extra_fetch_file_reasons"].startswith(
             "extra.py=>selected_handle rank=1"
         )

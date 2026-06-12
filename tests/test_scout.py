@@ -162,6 +162,81 @@ def test_scout_guardrail_prefers_direct_query_when_query_is_already_narrow(
     assert result.fetch_plan.guardrail_reason == "direct_query_already_narrow"
 
 
+def test_scout_adapts_handle_count_when_score_mass_is_spread(tmp_path: Path) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        extras = [
+            CodeChunk(
+                id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                content=f"def extra_{idx}():\\n    return {idx}",
+                file_path=f"pkg/extra_{idx}.py",
+                start_line=1,
+                end_line=2,
+                symbol_name=f"extra_{idx}",
+                symbol_kind=SymbolKind.FUNCTION,
+                language="python",
+                token_count=8,
+                symbol_id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                qualified_name=f"extra_{idx}",
+                signature=f"def extra_{idx}()",
+            )
+            for idx in range(4)
+        ]
+        store.insert_chunks(extras)
+        ranked_chunks = [
+            RankedChunk(chunk=chunk, final_score=score)
+            for chunk, score in zip(
+                [store.get_chunk("pkg/app.py::run#function"), *extras],
+                [1.0, 0.95, 0.9, 0.85, 0.8],
+                strict=True,
+            )
+            if chunk is not None
+        ]
+        result = assemble_scout_from_store(
+            store,
+            "how do the modules coordinate across the codebase",
+            ranked_chunks=ranked_chunks,
+            token_budget=700,
+            direct_query_tokens=5000,
+        )
+
+    assert len(result.fetch_plan.handles) >= 3
+    assert result.fetch_plan.coverage_score_mass >= 0.7
+
+
+def test_scout_guardrail_prefers_direct_query_when_coverage_is_weak(tmp_path: Path) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        extras = [
+            CodeChunk(
+                id=f"pkg/wide_{idx}.py::wide_{idx}#function",
+                content=f"def wide_{idx}():\\n    return {idx}",
+                file_path=f"pkg/wide_{idx}.py",
+                start_line=1,
+                end_line=2,
+                symbol_name=f"wide_{idx}",
+                symbol_kind=SymbolKind.FUNCTION,
+                language="python",
+                token_count=8,
+                symbol_id=f"pkg/wide_{idx}.py::wide_{idx}#function",
+                qualified_name=f"wide_{idx}",
+                signature=f"def wide_{idx}()",
+            )
+            for idx in range(8)
+        ]
+        store.insert_chunks(extras)
+        ranked_chunks = [RankedChunk(chunk=chunk, final_score=1.0) for chunk in extras]
+        result = assemble_scout_from_store(
+            store,
+            "how do the modules coordinate across the codebase",
+            ranked_chunks=ranked_chunks,
+            token_budget=700,
+            direct_query_tokens=900,
+            direct_query_file_paths=[chunk.file_path for chunk in extras[:6]],
+        )
+
+    assert result.fetch_plan.recommended_strategy == "direct_query"
+    assert result.fetch_plan.guardrail_reason == "projected_coverage_weak"
+
+
 def test_scout_handles_fetch_exact_symbols_and_query_chunks(tmp_path: Path) -> None:
     from archex.api import get_symbol, get_symbols_batch, query
     from archex.models import RepoSource

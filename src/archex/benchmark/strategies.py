@@ -891,8 +891,15 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
             path: scout_result.fetch_plan.file_reasons.get(path, "selected_handle reason=unknown")
             for path in extra_fetch_files
         }
+        missing_from_fetch_reasons = {
+            path: scout_result.fetch_plan.file_reasons.get(path, "not_in_scout_map")
+            for path in missing_from_fetch
+        }
     else:
         extra_fetch_file_reasons = {path: "direct_query_fallback" for path in extra_fetch_files}
+        missing_from_fetch_reasons = {
+            path: "direct_query_bundle_omission" for path in missing_from_fetch
+        }
     return BenchmarkResult(
         task_id=task.task_id,
         strategy=Strategy.ARCHEX_SCOUT_FETCH,
@@ -937,8 +944,14 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
             "guardrail_reason": scout_result.fetch_plan.guardrail_reason or "none",
             "missing_from_scout_map": ",".join(missing_from_scout_map) or "none",
             "missing_from_fetch": ",".join(missing_from_fetch) or "none",
+            "missing_from_fetch_reasons": "; ".join(
+                f"{path}=>{reason}" for path, reason in missing_from_fetch_reasons.items()
+            )
+            or "none",
             "estimated_fetch_tokens": str(scout_result.fetch_plan.estimated_fetch_tokens),
             "estimated_fetch_files": str(scout_result.fetch_plan.estimated_fetch_files),
+            "projected_coverage": f"{scout_result.fetch_plan.coverage_score_mass:.3f}",
+            "target_coverage": f"{scout_result.fetch_plan.target_score_mass:.3f}",
             "projected_chunk_precision": f"{scout_result.fetch_plan.projected_precision:.3f}",
             "projected_direct_precision": f"{scout_result.fetch_plan.direct_query_precision:.3f}",
             "direct_query_tokens": str(scout_result.fetch_plan.direct_query_tokens),
