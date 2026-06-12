@@ -92,9 +92,9 @@ class TestConstants:
     def test_default_top_k_is_30(self) -> None:
         assert DEFAULT_TOP_K == 30
 
-    def test_max_content_chars_bounds_listwise_latency(self) -> None:
-        assert MAX_CONTENT_CHARS == 4096
-        assert RERANK_CANDIDATE_LIMIT == 12
+    def test_listwise_caps_target_warm_benchmark_latency(self) -> None:
+        assert MAX_CONTENT_CHARS == 1024
+        assert RERANK_CANDIDATE_LIMIT == 4
 
     def test_default_model_is_jina_reranker(self) -> None:
         assert DEFAULT_MODEL == JINA_RERANKER_MODEL

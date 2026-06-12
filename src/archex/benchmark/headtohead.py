@@ -194,7 +194,10 @@ def run_headtohead(
                 Strategy.EXTERNAL_MCP,
             ],
             tasks=tasks,
-            retrieval_options=BenchmarkRetrievalOptions(embedder=manifest.archex.embedder),
+            retrieval_options=BenchmarkRetrievalOptions(
+                embedder=manifest.archex.embedder,
+                freshness=True,
+            ),
         )
     finally:
         reset_external_tool_config(token)
@@ -238,6 +241,18 @@ def _metric_cell(value: float, provenance: str, field: str, *, digits: int = 2) 
     return f"{value:.{digits}f}<br><sub>prov: {provenance}; field={field}</sub>"
 
 
+def _optional_metric_cell(
+    value: float | None,
+    provenance: str,
+    field: str,
+    *,
+    digits: int = 2,
+) -> str:
+    if value is None:
+        return f"n/a<br><sub>prov: {provenance}; field={field}</sub>"
+    return _metric_cell(value, provenance, field, digits=digits)
+
+
 def _integer_metric_cell(value: float, provenance: str, field: str) -> str:
     return f"{value:.0f}<br><sub>prov: {provenance}; field={field}</sub>"
 
@@ -278,8 +293,9 @@ def format_headtohead_markdown(
         "Every metric cell includes its provenance. No winner filtering is applied.",
         "",
         "| Lane | Recall | Precision | F1 | Token efficiency | Completion penalty tokens "
-        "| Efficiency after completion | Warm latency ms | Cold-start ms |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Efficiency after completion | Warm latency ms | Cold-start ms | Edit-to-correct ms "
+        "| Freshness correct |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
 
     for lane in sorted(lanes):
@@ -317,6 +333,27 @@ def format_headtohead_markdown(
                         _mean([r.cold_start_ms for r in results]),
                         provenance,
                         "cold_start_ms",
+                    ),
+                    _optional_metric_cell(
+                        _mean([r.freshness_latency_ms for r in results if r.freshness_measured])
+                        if any(r.freshness_measured for r in results)
+                        else None,
+                        provenance,
+                        "freshness_latency_ms",
+                        digits=0,
+                    ),
+                    _optional_metric_cell(
+                        _mean(
+                            [
+                                1.0 if r.freshness_correct else 0.0
+                                for r in results
+                                if r.freshness_measured
+                            ]
+                        )
+                        if any(r.freshness_measured for r in results)
+                        else None,
+                        provenance,
+                        "freshness_correct",
                     ),
                 ]
             )

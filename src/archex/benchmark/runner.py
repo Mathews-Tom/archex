@@ -75,6 +75,8 @@ def _warm_repo_index(
     task: BenchmarkTask,
     repo_path: Path,
     retrieval_options: BenchmarkRetrievalOptions | None = None,
+    *,
+    warm_rerank: bool = False,
 ) -> None:
     """Pre-build the shared vector index so every vector strategy runs warm.
 
@@ -97,6 +99,8 @@ def _warm_repo_index(
         embedder=retrieval_options.embedder,
         splade=retrieval_options.splade,
         module_prefilter=retrieval_options.module_prefilter,
+        rerank=warm_rerank,
+        rerank_model=retrieval_options.rerank_model,
     )
     query(
         source,
@@ -178,11 +182,17 @@ def run_benchmark(
     token = set_benchmark_retrieval_options(retrieval_options)
     try:
         should_warm = _check_vector_available() and any(s in _VECTOR_STRATEGIES for s in strategies)
+        should_warm_rerank = Strategy.ARCHEX_QUERY_FUSION_RERANK in strategies
         if should_warm:
             _log_progress(progress, f"  warming vector index for {task.task_id}...")
             if progress is not None:
                 progress.start_warmup()
-            _warm_repo_index(task, repo_path, retrieval_options)
+            _warm_repo_index(
+                task,
+                repo_path,
+                retrieval_options,
+                warm_rerank=should_warm_rerank,
+            )
         if progress is not None:
             progress.finish_warmup(strategies)
 

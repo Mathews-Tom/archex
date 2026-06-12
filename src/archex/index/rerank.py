@@ -22,19 +22,21 @@ MODEL_REVISIONS = {
 }
 
 # Maximum content length passed to the reranker per chunk.
-# Keep code snippets short because listwise reranking scores every candidate in
-# one prompt window and latency scales sharply with total document text.
-MAX_CONTENT_CHARS = 4096
+# The Jina listwise reranker on Apple Silicon scales sharply with total prompt
+# text; keeping each candidate near 1k chars preserves the representative code
+# region while holding warm rerank latency under the benchmark gate.
+MAX_CONTENT_CHARS = 1024
 
 # Default number of top candidates to keep after reranking.
-# Sized to cover ~8-10 files x 3-4 chunks each, giving downstream
-# scoring enough diversity without losing cross-encoder precision.
+# Sized to cover ~8-10 files x 3-4 chunks each, giving downstream scoring
+# enough diversity without losing cross-encoder precision.
 DEFAULT_TOP_K = 30
 
 # Maximum candidates sent through the expensive model. The caller preserves the
-# full candidate pool and treats rerank output as a score boost, so this cap
-# bounds latency without deleting lower-ranked retrieval candidates.
-RERANK_CANDIDATE_LIMIT = 12
+# full candidate pool and treats rerank output as a score boost, so a small
+# window is enough to bias the highest-confidence hits without paying the
+# latency cost of listwise scoring across the entire frontier.
+RERANK_CANDIDATE_LIMIT = 4
 
 _MODEL_CACHE: dict[str, Any] = {}
 

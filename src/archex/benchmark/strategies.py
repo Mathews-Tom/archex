@@ -6,7 +6,9 @@ import importlib.metadata
 import logging
 import math
 import re
+import shutil
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from contextvars import ContextVar, Token
@@ -20,7 +22,7 @@ from archex.benchmark.models import (
     Strategy,
 )
 from archex.cache import CacheManager
-from archex.exceptions import ConfigError
+from archex.exceptions import ArchexError, ConfigError
 from archex.models import IndexConfig, PipelineTiming, RepoSource
 from archex.reporting import count_tokens
 
@@ -660,6 +662,68 @@ def benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
     )
 
 
+_FRESHNESS_MARKER = "archex_freshness_probe"
+
+
+def _freshness_edit_text(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".py":
+        return f"\n\ndef {_FRESHNESS_MARKER}():\n    return 'freshness-probe'\n"
+    if suffix in {".js", ".jsx", ".ts", ".tsx"}:
+        return f"\n\nexport const {_FRESHNESS_MARKER} = 'freshness-probe';\n"
+    if suffix == ".go":
+        return f'\n\nfunc {_FRESHNESS_MARKER}() string {{ return "freshness-probe" }}\n'
+    if suffix == ".rs":
+        return f'\n\nfn {_FRESHNESS_MARKER}() -> &\'static str {{ "freshness-probe" }}\n'
+    return f"\n\n{_FRESHNESS_MARKER} freshness-probe\n"
+
+
+def _freshness_target(task: BenchmarkTask, repo_path: Path) -> Path | None:
+    for expected in task.expected_files:
+        candidate = repo_path / expected
+        if candidate.is_file():
+            return candidate
+    for candidate in repo_path.rglob("*"):
+        if candidate.is_file() and candidate.suffix.lower() in {".py", ".js", ".ts", ".go", ".rs"}:
+            return candidate
+    return None
+
+
+def measure_archex_freshness(task: BenchmarkTask, repo_path: Path) -> tuple[float, bool]:
+    """Measure edit-to-correct-result latency on an isolated repo copy."""
+    from archex.api import query
+    from archex.models import Config
+
+    workdir = Path(tempfile.mkdtemp(prefix="archex-freshness-"))
+    try:
+        target = workdir / repo_path.name
+        shutil.copytree(repo_path, target)
+        edit_target = _freshness_target(task, target)
+        if edit_target is None:
+            return (0.0, False)
+
+        source = benchmark_repo_source(task, target)
+        index_config = benchmark_index_config(IndexConfig(vector=False))
+        config = Config(cache=True, languages=task.languages, cache_dir=str(workdir / "cache"))
+        query(source, _FRESHNESS_MARKER, config=config, index_config=index_config)
+        with edit_target.open("a", encoding="utf-8") as handle:
+            handle.write(_freshness_edit_text(edit_target))
+        started = time.perf_counter()
+        bundle = query(
+            source,
+            _FRESHNESS_MARKER,
+            config=config,
+            index_config=index_config,
+        )
+        latency_ms = (time.perf_counter() - started) * 1000
+        found = any(_FRESHNESS_MARKER in chunk.chunk.content for chunk in bundle.chunks)
+        return (latency_ms, found)
+    except (ArchexError, OSError, ValueError):
+        return (0.0, False)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """archex query strategy: use BM25-based retrieval."""
     from archex.api import query
@@ -698,6 +762,10 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     completion_tokens, completion_files = compute_bundle_completion_penalty(
         repo_path, result_files, task.expected_files
     )
+    if current_benchmark_retrieval_options().freshness:
+        freshness_latency_ms, freshness_correct = measure_archex_freshness(task, repo_path)
+    else:
+        freshness_latency_ms, freshness_correct = (0.0, False)
 
     return BenchmarkResult(
         task_id=task.task_id,
@@ -745,6 +813,9 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
+        freshness_latency_ms=freshness_latency_ms,
+        freshness_measured=current_benchmark_retrieval_options().freshness,
+        freshness_correct=freshness_correct,
     )
 
 
