@@ -97,6 +97,8 @@ from archex.serve.profile import build_profile
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    import numpy as np
+
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
     from archex.models import ComparisonResult
@@ -347,6 +349,21 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
         if attempt.timing is not None:
             attempt.timing.delta_attempted = True
         store = IndexStore(db_path)
+        index_config = attempt.index_config or IndexConfig()
+        old_chunks = store.get_chunks() if index_config.vector else []
+        cache_vector_path = attempt.cache.vector_path(
+            attempt.cache_key,
+            vector_mode=index_config.vector_mode,
+            surrogate_version=index_config.surrogate_version,
+        )
+        old_vector_path = (
+            cache_vector_path
+            if cache_vector_path.exists()
+            else store.vector_index_path_for(
+                vector_mode=index_config.vector_mode,
+                surrogate_version=index_config.surrogate_version,
+            )
+        )
         graph = DependencyGraph.from_edges(store.get_edges())
         delta_meta = apply_delta(
             store,
@@ -354,8 +371,46 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
             manifest,
             repo_path,
             config,
-            index_config=attempt.index_config,
+            index_config=index_config,
         )
+        if index_config.vector:
+            embedder = _get_embedder(index_config)
+            if embedder is not None:
+                from archex.index.vector import VectorIndex
+
+                new_chunks = store.get_chunks()
+                new_surrogates = _surrogate_lookup(store, new_chunks, index_config)
+                cached_vectors = _cached_vectors_by_content_hash(
+                    old_vector_path,
+                    old_chunks,
+                    index_config,
+                    embedder,
+                )
+                vec_idx = VectorIndex()
+                cache_hits, cache_misses = vec_idx.build(
+                    new_chunks,
+                    embedder,
+                    surrogates_by_chunk_id=new_surrogates,
+                    vector_mode=index_config.vector_mode,
+                    cached_vectors_by_content_hash=cached_vectors,
+                )
+                vector_path = attempt.cache.vector_path(
+                    attempt.cache_key,
+                    vector_mode=index_config.vector_mode,
+                    surrogate_version=index_config.surrogate_version,
+                )
+                if new_chunks:
+                    vec_idx.save(
+                        vector_path,
+                        embedder_name=index_config.embedder or "",
+                        vector_dim=embedder.dimension,
+                        vector_mode=index_config.vector_mode,
+                        surrogate_version=index_config.surrogate_version,
+                    )
+                elif vector_path.exists():
+                    vector_path.unlink()
+                store.set_metadata("embedding_cache_hits", str(cache_hits))
+                store.set_metadata("embedding_cache_misses", str(cache_misses))
         identity = source.url or source.local_path or ""
         store.set_metadata("commit_hash", current_commit)
         store.set_metadata("source_identity", identity)
@@ -955,6 +1010,31 @@ def _bm25_search_with_boosts(
     return results, path_boost, symbol_seeds, module_boost
 
 
+def _cached_vectors_by_content_hash(
+    npz_path: Path,
+    chunks: list[CodeChunk],
+    index_config: IndexConfig,
+    embedder: Embedder,
+) -> dict[str, np.ndarray]:
+    if not npz_path.exists():
+        return {}
+    from archex.index.vector import VectorIndex
+
+    vec_idx = VectorIndex()
+    try:
+        vec_idx.load(
+            npz_path,
+            chunks,
+            embedder_name=index_config.embedder or "",
+            vector_dim=embedder.dimension,
+            vector_mode=index_config.vector_mode,
+            surrogate_version=index_config.surrogate_version,
+        )
+    except ArchexIndexError:
+        return {}
+    return vec_idx.vectors_by_content_hash()
+
+
 def _vector_search_precomputed(
     npz_path: Path,
     all_chunks: list[CodeChunk],
@@ -1507,12 +1587,14 @@ def query(
 
                     t_vec_build = time.perf_counter()
                     vec_idx = VectorIndex()
-                    vec_idx.build(
+                    cache_hits, cache_misses = vec_idx.build(
                         all_chunks,
                         embedder,
                         surrogates_by_chunk_id=surrogate_lookup,
                         vector_mode=index_config.vector_mode,
                     )
+                    store.set_metadata("embedding_cache_hits", str(cache_hits))
+                    store.set_metadata("embedding_cache_misses", str(cache_misses))
                     npz_path = (
                         cache.vector_path(
                             cache_key,

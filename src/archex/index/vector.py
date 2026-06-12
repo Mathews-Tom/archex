@@ -29,6 +29,27 @@ def _chunk_embedding_text(chunk: CodeChunk) -> str:
     return chunk.content
 
 
+def _embedding_text_for(
+    chunk: CodeChunk,
+    *,
+    surrogates_by_chunk_id: dict[str, ChunkSurrogate] | None = None,
+    vector_mode: VectorMode = VectorMode.RAW,
+) -> str:
+    if (
+        vector_mode == VectorMode.SURROGATE
+        and surrogates_by_chunk_id
+        and chunk.id in surrogates_by_chunk_id
+    ):
+        return surrogates_by_chunk_id[chunk.id].surrogate_text
+    return _chunk_embedding_text(chunk)
+
+
+def _embedding_content_hash(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 def _encode_query(embedder: Embedder, query: str) -> list[float]:
     encode_queries = getattr(embedder, "encode_queries", None)
     if encode_queries is not None:
@@ -58,6 +79,7 @@ class VectorIndex:
         self._quantized_norms: np.ndarray | None = None
         self._quantized_scale: np.ndarray | None = None
         self._quantized_dim: int = 0
+        self._content_hashes: list[str] = []
 
     def build(
         self,
@@ -66,30 +88,50 @@ class VectorIndex:
         *,
         surrogates_by_chunk_id: dict[str, ChunkSurrogate] | None = None,
         vector_mode: VectorMode = VectorMode.RAW,
-    ) -> None:
-        """Encode all chunks and store normalized vectors."""
+        cached_vectors_by_content_hash: dict[str, np.ndarray] | None = None,
+    ) -> tuple[int, int]:
+        """Encode chunks and reuse cached vectors for unchanged embedding text."""
         if not chunks:
             self._vectors = None
             self._chunk_ids = []
             self._chunks_by_id = {}
+            self._content_hashes = []
             self._quantized_codes = None
             self._quantized_norms = None
             self._quantized_scale = None
             self._quantized_dim = 0
-            return
+            return (0, 0)
 
         texts = [
-            surrogates_by_chunk_id[c.id].surrogate_text
-            if (
-                vector_mode == VectorMode.SURROGATE
-                and surrogates_by_chunk_id
-                and c.id in surrogates_by_chunk_id
+            _embedding_text_for(
+                c,
+                surrogates_by_chunk_id=surrogates_by_chunk_id,
+                vector_mode=vector_mode,
             )
-            else _chunk_embedding_text(c)
             for c in chunks
         ]
-        raw_embeddings = embedder.encode(texts)
-        vectors = np.array(raw_embeddings, dtype=np.float32)
+        content_hashes = [_embedding_content_hash(text) for text in texts]
+        cached_vectors_by_content_hash = cached_vectors_by_content_hash or {}
+        raw_by_position: list[np.ndarray | None] = []
+        misses: list[str] = []
+        miss_positions: list[int] = []
+        hits = 0
+        for position, (content_hash, text) in enumerate(zip(content_hashes, texts, strict=True)):
+            cached_vector = cached_vectors_by_content_hash.get(content_hash)
+            if cached_vector is None:
+                raw_by_position.append(None)
+                misses.append(text)
+                miss_positions.append(position)
+                continue
+            raw_by_position.append(cached_vector)
+            hits += 1
+
+        if misses:
+            encoded = embedder.encode(misses)
+            for position, embedding in zip(miss_positions, encoded, strict=True):
+                raw_by_position[position] = np.array(embedding, dtype=np.float32)
+
+        vectors = np.vstack([v for v in raw_by_position if v is not None]).astype(np.float32)
 
         # L2 normalize for cosine similarity via dot product
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
@@ -97,6 +139,7 @@ class VectorIndex:
         vectors = vectors / norms
 
         self._chunk_ids = [c.id for c in chunks]
+        self._content_hashes = content_hashes
         self._chunks_by_id = {c.id: c for c in chunks}
 
         if self._quantize:
@@ -112,6 +155,7 @@ class VectorIndex:
             self._quantized_norms = None
             self._quantized_scale = None
             self._quantized_dim = 0
+        return (hits, len(misses))
 
     @property
     def is_quantized(self) -> bool:
@@ -192,6 +236,7 @@ class VectorIndex:
 
         common = {
             "chunk_ids": np.array(self._chunk_ids, dtype="U512"),
+            "content_hashes": np.array(self._content_hashes, dtype="U64"),
             "embedder_meta": np.array([embedder_name, str(vector_dim)], dtype="U256"),
             "vector_meta": np.array([str(vector_mode), surrogate_version], dtype="U256"),
         }
@@ -239,6 +284,11 @@ class VectorIndex:
 
         data = np.load(str(path), allow_pickle=False)
         chunk_ids = list(data["chunk_ids"])
+        content_hashes = (
+            [str(value) for value in data["content_hashes"]]
+            if "content_hashes" in data
+            else ["" for _ in chunk_ids]
+        )
 
         # Validate embedder/vector metadata (shared by both formats)
         if "embedder_meta" in data:
@@ -297,6 +347,7 @@ class VectorIndex:
             self._quantized_dim = 0
 
         self._chunk_ids = chunk_ids
+        self._content_hashes = content_hashes
         self._chunks_by_id = {c.id: c for c in chunks}
 
     def rerank(
@@ -356,3 +407,13 @@ class VectorIndex:
     def size(self) -> int:
         """Number of indexed chunks."""
         return len(self._chunk_ids)
+
+    def vectors_by_content_hash(self) -> dict[str, np.ndarray]:
+        """Return raw normalized vectors keyed by embedding content hash."""
+        if self._vectors is None:
+            return {}
+        return {
+            content_hash: self._vectors[idx].copy()
+            for idx, content_hash in enumerate(self._content_hashes)
+            if content_hash
+        }

@@ -45,6 +45,16 @@ class FakeEmbedder:
         return self._dim
 
 
+class CountingEmbedder(FakeEmbedder):
+    def __init__(self, dim: int = 64) -> None:
+        super().__init__(dim=dim)
+        self.encoded_batches: list[list[str]] = []
+
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        self.encoded_batches.append(texts)
+        return super().encode(texts)
+
+
 class QueryPrefixEmbedder:
     dimension = 2
 
@@ -173,6 +183,31 @@ class TestVectorIndexBuild:
         idx = VectorIndex()
         idx.build([SAMPLE_CHUNKS[0]], embedder)
         assert idx.size == 1
+
+    def test_build_reuses_cached_vectors_by_content_hash(self) -> None:
+        embedder = CountingEmbedder(dim=64)
+        first = VectorIndex()
+        hits, misses = first.build(SAMPLE_CHUNKS[:2], embedder)
+        assert (hits, misses) == (0, 2)
+        assert embedder.encoded_batches == [[SAMPLE_CHUNKS[0].content, SAMPLE_CHUNKS[1].content]]
+
+        second = VectorIndex()
+        changed = SAMPLE_CHUNKS[1].model_copy(
+            update={
+                "id": "auth.py:authenticate:12",
+                "content": (
+                    "def authenticate(username: str, password: str) -> bool:\n    return True"
+                ),
+            }
+        )
+        hits, misses = second.build(
+            [SAMPLE_CHUNKS[0], changed],
+            embedder,
+            cached_vectors_by_content_hash=first.vectors_by_content_hash(),
+        )
+
+        assert (hits, misses) == (1, 1)
+        assert embedder.encoded_batches[-1] == [changed.content]
 
 
 class TestVectorIndexSearch:
