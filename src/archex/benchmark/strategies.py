@@ -819,6 +819,108 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
 
+def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Two-call scout map plus exact handle fetch strategy."""
+    from archex.api import query, scout
+    from archex.models import Config
+    from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, render_scout
+
+    t0 = time.perf_counter()
+    timing = PipelineTiming()
+    source = benchmark_repo_source(task, repo_path)
+    config = Config(
+        cache=benchmark_cache_enabled(default=False),
+        languages=task.languages,
+    )
+    index_config = benchmark_index_config(IndexConfig(vector=False))
+
+    scout_result = scout(
+        source,
+        task.question,
+        token_budget=DEFAULT_SCOUT_TOKEN_BUDGET,
+        output_format="markdown",
+        config=config,
+        index_config=index_config,
+        timing=timing,
+    )
+    scout_tokens = count_tokens(render_scout(scout_result, output_format="markdown"))
+    handles = [item.handle for item in scout_result.ranked_files]
+    bundle = query(
+        source,
+        task.question,
+        token_budget=task.token_budget,
+        explicit_token_budget=True,
+        config=config,
+        index_config=index_config,
+        handles=handles,
+    )
+
+    ranked_files = [chunk.chunk.file_path for chunk in bundle.chunks]
+    unique_ranked = _deduplicate_ranked(ranked_files)
+    result_files = set(unique_ranked)
+    wall_ms = (time.perf_counter() - t0) * 1000
+    recall = compute_recall(result_files, task.expected_files)
+    precision = compute_precision(result_files, task.expected_files)
+    f1 = compute_f1(recall, precision)
+    mrr_val = compute_mrr(ranked_files, task.expected_files)
+    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
+    map_val = compute_map(ranked_files, task.expected_files)
+    fetch_fields = _archex_fields(bundle, task, repo_path)
+    completion_tokens, completion_files = compute_bundle_completion_penalty(
+        repo_path, result_files, task.expected_files
+    )
+    tokens_total = scout_tokens + bundle.token_count
+    tokens_input = scout_tokens + fetch_fields.tokens_input
+    tokens_with_completion = tokens_total + completion_tokens
+    return BenchmarkResult(
+        task_id=task.task_id,
+        strategy=Strategy.ARCHEX_SCOUT_FETCH,
+        tokens_total=tokens_total,
+        tokens_input=tokens_input,
+        tokens_output=tokens_total,
+        token_efficiency=compute_token_efficiency(tokens_total, tokens_input),
+        result_files=unique_ranked,
+        bundle_completion_tokens=completion_tokens,
+        bundle_completion_files=completion_files,
+        token_efficiency_with_completion=compute_token_efficiency(
+            tokens_with_completion, tokens_input + completion_tokens
+        ),
+        tokens_raw_baseline=fetch_fields.tokens_raw_baseline,
+        symbol_recall=fetch_fields.symbol_recall,
+        tool_calls=2,
+        files_accessed=len(result_files),
+        recall=recall,
+        precision=precision,
+        f1_score=f1,
+        mrr=mrr_val,
+        ndcg=ndcg_val,
+        map_score=map_val,
+        savings_vs_raw=0.0,
+        wall_time_ms=wall_ms,
+        cached=timing.cached,
+        timing=timing,
+        timestamp=now_iso(),
+        unique_ranked_files=len(unique_ranked),
+        seed_files=[item.path for item in scout_result.ranked_files],
+        expanded_files=[],
+        expansion_ratio=0.0,
+        seed_recall=compute_recall(
+            {item.path for item in scout_result.ranked_files}, task.expected_files
+        ),
+        seed_precision=compute_precision(
+            {item.path for item in scout_result.ranked_files}, task.expected_files
+        ),
+        category=task.category,
+        cache_state=_cache_state(timing),
+        provenance={
+            "scout_token_budget": str(DEFAULT_SCOUT_TOKEN_BUDGET),
+            "scout_tokens": str(scout_tokens),
+            "fetch_handles": str(len(handles)),
+            "intent_class": task.category.value if task.category is not None else "uncategorized",
+        },
+    )
+
+
 def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Pure vector retrieval strategy: vector search without BM25."""
     from archex.api import query
@@ -1289,6 +1391,7 @@ default_strategy_registry = StrategyRegistry()
 default_strategy_registry.register(Strategy.RAW_FILES.value, run_raw_files)
 default_strategy_registry.register(Strategy.RAW_GREPPED.value, run_raw_grepped)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY.value, run_archex_query)
+default_strategy_registry.register(Strategy.ARCHEX_SCOUT_FETCH.value, run_archex_scout_fetch)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_VECTOR.value, run_archex_query_vector)
 default_strategy_registry.register(Strategy.SURROGATE_VECTOR.value, run_surrogate_vector)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_FUSION.value, run_archex_query_fusion)

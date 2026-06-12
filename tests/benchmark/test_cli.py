@@ -339,6 +339,7 @@ class TestRunCommand:
         assert "--output" in result.output
         assert "--task" in result.output
         assert "--strategy" in result.output
+        assert "--scout" in result.output
         assert "--query-fusion" in result.output
         assert "--cross_layer_fusion" in result.output
         assert "--rerank" in result.output
@@ -383,6 +384,38 @@ class TestRunCommand:
             Strategy.ARCHEX_QUERY,
         ]
         assert captured["retrieval_options"] == BenchmarkRetrievalOptions()
+
+    def test_run_scout_flag_adds_scout_strategy(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, task_filter, self_only, progress, tasks, retrieval_options
+            captured["strategies"] = strategies
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(benchmark_cmd, ["run", "--scout"])
+        assert result.exit_code == 0
+        assert captured["strategies"] == [
+            Strategy.RAW_FILES,
+            Strategy.RAW_GREPPED,
+            Strategy.ARCHEX_QUERY,
+            Strategy.ARCHEX_SCOUT_FETCH,
+        ]
 
     def test_run_adds_experimental_flags(
         self,

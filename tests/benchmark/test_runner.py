@@ -36,6 +36,7 @@ class TestAvailableStrategies:
         ]
         assert Strategy.ARCHEX_QUERY_FUSION not in DEFAULT_STRATEGIES
         assert Strategy.CROSS_LAYER_FUSION not in DEFAULT_STRATEGIES
+        assert Strategy.ARCHEX_SCOUT_FETCH in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY_FUSION in AVAILABLE_STRATEGIES
         assert Strategy.CROSS_LAYER_FUSION in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_SYMBOL_LOOKUP not in AVAILABLE_STRATEGIES

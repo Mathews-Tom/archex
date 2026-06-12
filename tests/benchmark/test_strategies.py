@@ -28,6 +28,7 @@ from archex.benchmark.strategies import (
     run_archex_query_fusion,
     run_archex_query_fusion_rerank,
     run_archex_query_vector,
+    run_archex_scout_fetch,
     run_archex_symbol_lookup,
     run_cross_layer_fusion,
     run_raw_files,
@@ -444,6 +445,47 @@ class TestRunArchexQuery:
         assert result.tokens_input >= 0
         assert result.tokens_output >= 0
         assert result.tokens_raw_baseline >= 0
+
+    def test_archex_scout_fetch_strategy(self, python_simple_repo: Path) -> None:
+        from archex.scout import ScoutBudget, ScoutFile, ScoutResult, file_handle
+
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=4096,
+        )
+        scout_result = ScoutResult(
+            query=task.question,
+            ranked_files=[
+                ScoutFile(
+                    path="main.py",
+                    language="python",
+                    lines=10,
+                    symbol_count=1,
+                    handle=file_handle("main.py"),
+                )
+            ],
+            budget=ScoutBudget(token_budget=1000),
+        )
+        bundle = ContextBundle(
+            query=task.question,
+            chunks=[_ranked_chunk("main#1", "main.py", score=1.0)],
+            token_count=12,
+            token_budget=task.token_budget,
+        )
+        with (
+            patch("archex.api.scout", return_value=scout_result),
+            patch("archex.api.query", return_value=bundle),
+        ):
+            result = run_archex_scout_fetch(task, python_simple_repo)
+
+        assert result.strategy == Strategy.ARCHEX_SCOUT_FETCH
+        assert result.tool_calls == 2
+        assert result.result_files == ["main.py"]
+        assert result.provenance["scout_token_budget"] == "1000"
 
     def test_expanded_files_split_uses_file_count_boundary(self, tmp_path: Path) -> None:
         for file_path in ("seed_a.py", "seed_b.py", "expanded_a.py", "expanded_b.py"):
