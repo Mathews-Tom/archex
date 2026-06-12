@@ -19,7 +19,7 @@ def test_graph_export_writes_default_json_artifact(python_simple_repo: Path) -> 
     data = json.loads(output_path.read_text(encoding="utf-8"))
     node_ids = [node["id"] for node in data["nodes"]]
     edge_types = [edge["type"] for edge in data["edges"]]
-    assert data["schema_version"]["value"] == "1.0.0"
+    assert data["schema_version"]["value"] == "1.1.0"
     assert data["project"]["total_files"] >= 4
     assert node_ids == sorted(node_ids, key=lambda node_id: (node_id.split(":", 1)[0], node_id))
     assert "file:main.py" in node_ids
