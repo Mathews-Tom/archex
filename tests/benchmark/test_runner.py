@@ -175,14 +175,16 @@ class TestRunBenchmark:
         from archex.benchmark.strategies import default_strategy_registry
         from archex.exceptions import ArchexIndexError
 
-        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None]] = []
+        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None, bool]] = []
 
         def _record(
             _task: BenchmarkTask,
             path: Path,
             options: BenchmarkRetrievalOptions | None = None,
+            *,
+            warm_rerank: bool = False,
         ) -> None:
-            warmed.append((path, options))
+            warmed.append((path, options, warm_rerank))
 
         def _raise(_task: BenchmarkTask, _path: Path) -> None:
             raise ArchexIndexError("no vector backend in test")
@@ -199,7 +201,46 @@ class TestRunBenchmark:
             repo_path=repo_path,
             retrieval_options=BenchmarkRetrievalOptions(embedder="coderank"),
         )
-        assert warmed == [(repo_path, BenchmarkRetrievalOptions(embedder="coderank"))]
+        assert warmed == [(repo_path, BenchmarkRetrievalOptions(embedder="coderank"), False)]
+
+    def test_warms_reranker_when_rerank_strategy_present(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from archex.benchmark import runner as runner_mod
+        from archex.benchmark.strategies import default_strategy_registry
+        from archex.exceptions import ArchexIndexError
+
+        task, repo_path = fixture_task
+        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None, bool]] = []
+
+        def _record(
+            _task: BenchmarkTask,
+            path: Path,
+            options: BenchmarkRetrievalOptions | None = None,
+            *,
+            warm_rerank: bool = False,
+        ) -> None:
+            warmed.append((path, options, warm_rerank))
+
+        def _raise(_task: BenchmarkTask, _path: Path) -> None:
+            raise ArchexIndexError("no vector backend in test")
+
+        monkeypatch.setattr(runner_mod, "_check_vector_available", lambda: True)
+        monkeypatch.setattr(runner_mod, "_warm_repo_index", _record)
+
+        key = Strategy.ARCHEX_QUERY_FUSION_RERANK.value
+        monkeypatch.setitem(default_strategy_registry._runners, key, _raise)  # pyright: ignore[reportPrivateUsage]
+
+        options = BenchmarkRetrievalOptions(rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2")
+        run_benchmark(
+            task,
+            strategies=[Strategy.ARCHEX_QUERY_FUSION_RERANK],
+            repo_path=repo_path,
+            retrieval_options=options,
+        )
+        assert warmed == [(repo_path, options, True)]
 
     def test_warm_repo_index_uses_configured_embedder(
         self,
@@ -209,7 +250,7 @@ class TestRunBenchmark:
         from archex.models import ContextBundle, IndexConfig
 
         task, repo_path = fixture_task
-        captured: list[str | None] = []
+        captured: list[tuple[str | None, bool, str | None]] = []
 
         def fake_query(
             _source: object,
@@ -222,7 +263,7 @@ class TestRunBenchmark:
         ) -> ContextBundle:
             del config
             del explicit_token_budget
-            captured.append(index_config.embedder)
+            captured.append((index_config.embedder, index_config.rerank, index_config.rerank_model))
             return ContextBundle(
                 query=question,
                 chunks=[],
@@ -236,8 +277,20 @@ class TestRunBenchmark:
                 repo_path,
                 BenchmarkRetrievalOptions(embedder="coderank"),
             )
+            runner_mod._warm_repo_index(  # pyright: ignore[reportPrivateUsage]
+                task,
+                repo_path,
+                BenchmarkRetrievalOptions(
+                    embedder="coderank",
+                    rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+                ),
+                warm_rerank=True,
+            )
 
-        assert captured == ["coderank"]
+        assert captured == [
+            ("coderank", False, None),
+            ("coderank", True, "cross-encoder/ms-marco-MiniLM-L-6-v2"),
+        ]
 
     def test_skips_warmup_for_raw_only_strategies(
         self,
