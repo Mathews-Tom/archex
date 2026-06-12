@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from archex.index.store import IndexStore
 
 ScoutFormat = Literal["json", "markdown"]
+ScoutHandleKind = Literal["file", "symbol", "chunk"]
 
 DEFAULT_SCOUT_TOKEN_BUDGET = 1000
 MIN_SCOUT_TOKEN_BUDGET = 64
@@ -22,6 +23,14 @@ DEFAULT_SCOUT_FILE_LIMIT = 12
 DEFAULT_SCOUT_SYMBOLS_PER_FILE = 3
 DEFAULT_SCOUT_MODULE_LIMIT = 6
 DEFAULT_SCOUT_GRAPH_EDGE_LIMIT = 12
+FILE_HANDLE_PREFIX = "file:"
+SYMBOL_HANDLE_PREFIX = "symbol:"
+CHUNK_HANDLE_PREFIX = "chunk:"
+
+
+class ScoutHandle(BaseModel):
+    kind: ScoutHandleKind
+    value: str
 
 
 class ScoutBudget(BaseModel):
@@ -39,6 +48,7 @@ class ScoutFile(BaseModel):
     language: str
     lines: int
     symbol_count: int
+    handle: str
     score: float = 0.0
     reason: str = "ranked"
 
@@ -49,8 +59,13 @@ class ScoutSymbol(BaseModel):
     file_path: str
     start_line: int
     end_line: int
+    chunk_id: str
+    file_handle: str
+    chunk_handle: str
     signature: str | None = None
     visibility: str | None = None
+    symbol_id: str | None = None
+    symbol_handle: str | None = None
     score: float = 0.0
 
 
@@ -61,6 +76,7 @@ class ScoutModule(BaseModel):
     cohesion_score: float = 0.0
     file_count: int = 0
     relevant_files: list[str] = []
+    file_handles: list[str] = []
     exports: list[str] = []
     score: float = 0.0
 
@@ -71,6 +87,8 @@ class ScoutGraphEdge(BaseModel):
     kind: str
     source_path: str | None = None
     target_path: str | None = None
+    source_handle: str | None = None
+    target_handle: str | None = None
     confidence: str
     confidence_score: float
     evidence: list[str] = []
@@ -83,6 +101,37 @@ class ScoutResult(BaseModel):
     symbols: list[ScoutSymbol] = []
     graph: list[ScoutGraphEdge] = []
     budget: ScoutBudget
+
+
+def file_handle(file_path: str) -> str:
+    return f"{FILE_HANDLE_PREFIX}{file_path}"
+
+
+def symbol_handle(symbol_id: str) -> str:
+    return f"{SYMBOL_HANDLE_PREFIX}{symbol_id}"
+
+
+def chunk_handle(chunk_id: str) -> str:
+    return f"{CHUNK_HANDLE_PREFIX}{chunk_id}"
+
+
+def parse_scout_handle(value: str) -> ScoutHandle | None:
+    if value.startswith(FILE_HANDLE_PREFIX):
+        return ScoutHandle(kind="file", value=value.removeprefix(FILE_HANDLE_PREFIX))
+    if value.startswith(SYMBOL_HANDLE_PREFIX):
+        return ScoutHandle(kind="symbol", value=value.removeprefix(SYMBOL_HANDLE_PREFIX))
+    if value.startswith(CHUNK_HANDLE_PREFIX):
+        return ScoutHandle(kind="chunk", value=value.removeprefix(CHUNK_HANDLE_PREFIX))
+    return None
+
+
+def normalize_symbol_lookup_handle(value: str) -> str:
+    handle = parse_scout_handle(value)
+    if handle is None:
+        return value
+    if handle.kind == "symbol":
+        return handle.value
+    return value
 
 
 def assemble_scout_from_store(
@@ -193,6 +242,7 @@ def _rank_files(
             language=str(metadata.get(path, {}).get("language", "unknown")),
             lines=int(metadata.get(path, {}).get("lines", 0)),
             symbol_count=int(metadata.get(path, {}).get("symbol_count", 0)),
+            handle=file_handle(path),
             score=round(file_scores[path], 6),
             reason="query_rank" if ranked_chunks else "file_tree",
         )
@@ -236,6 +286,7 @@ def _top_symbols(
             ),
         )
         for chunk in chunks[:symbols_per_file]:
+            symbol_id = str(chunk.symbol_id) if chunk.symbol_id else None
             symbols.append(
                 ScoutSymbol(
                     name=chunk.qualified_name or chunk.symbol_name or chunk.id,
@@ -243,8 +294,13 @@ def _top_symbols(
                     file_path=chunk.file_path,
                     start_line=chunk.start_line,
                     end_line=chunk.end_line,
+                    chunk_id=chunk.id,
+                    file_handle=file_handle(chunk.file_path),
+                    chunk_handle=chunk_handle(chunk.id),
                     signature=chunk.signature,
                     visibility=chunk.visibility,
+                    symbol_id=symbol_id,
+                    symbol_handle=symbol_handle(symbol_id) if symbol_id else None,
                     score=round(score_by_chunk.get(chunk.id, 0.0), 6),
                 )
             )
@@ -263,6 +319,7 @@ def _rank_modules(
     for module in modules:
         relevant = sorted(path for path in module.files if path in file_scores)
         score = sum(file_scores[path] for path in relevant) + len(relevant) if relevant else 0.0
+        relevant_files = relevant[:5]
         ranked.append(
             ScoutModule(
                 name=module.name,
@@ -270,7 +327,8 @@ def _rank_modules(
                 responsibility=module.responsibility,
                 cohesion_score=module.cohesion_score,
                 file_count=module.file_count or len(module.files),
-                relevant_files=relevant[:5],
+                relevant_files=relevant_files,
+                file_handles=[file_handle(path) for path in relevant_files],
                 exports=sorted(ref.qualified_name or ref.name for ref in module.exports)[:5],
                 score=round(score, 6),
             )
@@ -315,6 +373,8 @@ def _graph_sketch(
                     kind=edge.type,
                     source_path=edge.source.path,
                     target_path=edge.target.path,
+                    source_handle=file_handle(edge.source.path) if edge.source.path else None,
+                    target_handle=file_handle(edge.target.path) if edge.target.path else None,
                     confidence=edge.confidence,
                     confidence_score=edge.confidence_score,
                     evidence=edge.evidence[:2],
@@ -345,7 +405,7 @@ def _render_markdown(result: ScoutResult) -> str:
     if result.ranked_files:
         for item in result.ranked_files:
             lines.append(
-                f"- {item.path} ({item.language}, {item.lines} lines, "
+                f"- {item.path} (`{item.handle}`, {item.language}, {item.lines} lines, "
                 f"{item.symbol_count} symbols, score={item.score:.3f})"
             )
     else:
@@ -353,11 +413,11 @@ def _render_markdown(result: ScoutResult) -> str:
     lines.extend(["", "## Module boundaries"])
     if result.modules:
         for item in result.modules:
-            relevant = ", ".join(item.relevant_files) if item.relevant_files else "no ranked files"
+            handles = ", ".join(item.file_handles) if item.file_handles else "no handles"
             responsibility = f" — {item.responsibility}" if item.responsibility else ""
             lines.append(
                 f"- {item.name} ({item.root_path}, files={item.file_count}, "
-                f"cohesion={item.cohesion_score:.3f}){responsibility}; relevant: {relevant}"
+                f"cohesion={item.cohesion_score:.3f}){responsibility}; handles: {handles}"
             )
     else:
         lines.append("- none")
@@ -365,9 +425,13 @@ def _render_markdown(result: ScoutResult) -> str:
     if result.symbols:
         for item in result.symbols:
             signature = f" — {item.signature}" if item.signature else ""
+            handles = [item.file_handle, item.chunk_handle]
+            if item.symbol_handle:
+                handles.append(item.symbol_handle)
             lines.append(
                 f"- {item.name} [{item.kind.value}] "
-                f"{item.file_path}:{item.start_line}-{item.end_line}"
+                f"{item.file_path}:{item.start_line}-{item.end_line} "
+                f"handles: {', '.join(handles)}"
                 f"{signature}"
             )
     else:
@@ -377,10 +441,12 @@ def _render_markdown(result: ScoutResult) -> str:
         for item in result.graph:
             source = item.source_path or item.source
             target = item.target_path or item.target
+            source_handle = f" `{item.source_handle}`" if item.source_handle else ""
+            target_handle = f" `{item.target_handle}`" if item.target_handle else ""
             evidence = f"; evidence: {'; '.join(item.evidence)}" if item.evidence else ""
             lines.append(
-                f"- {source} --{item.kind}/{item.confidence}:{item.confidence_score:.2f}--> "
-                f"{target}{evidence}"
+                f"- {source}{source_handle} --{item.kind}/{item.confidence}:"
+                f"{item.confidence_score:.2f}--> {target}{target_handle}{evidence}"
             )
     else:
         lines.append("- none")
