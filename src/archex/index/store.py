@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS chunk_surrogates (
     surrogate_version TEXT NOT NULL
 );
 """
+_CREATE_FILE_STATES = """
+CREATE TABLE IF NOT EXISTS file_states (
+    file_path TEXT PRIMARY KEY,
+    size_bytes INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    sha256 TEXT NOT NULL
+);
+"""
+
 
 _CREATE_MODULES = """
 CREATE TABLE IF NOT EXISTS modules (
@@ -86,6 +95,10 @@ _CREATE_IDX_EDGES_TARGET = "CREATE INDEX IF NOT EXISTS idx_edges_target ON edges
 _CREATE_IDX_CHUNK_SURROGATES_FILE = (
     "CREATE INDEX IF NOT EXISTS idx_chunk_surrogates_file ON chunk_surrogates(file_path);"
 )
+_CREATE_IDX_FILE_STATES_PATH = (
+    "CREATE INDEX IF NOT EXISTS idx_file_states_path ON file_states(file_path);"
+)
+
 _CREATE_IDX_MODULES_NAME = "CREATE INDEX IF NOT EXISTS idx_modules_name ON modules(name);"
 
 _CREATE_SYMBOLS_FTS = """
@@ -157,11 +170,13 @@ class IndexStore:
             + _CREATE_EDGES
             + _CREATE_METADATA
             + _CREATE_CHUNK_SURROGATES
+            + _CREATE_FILE_STATES
             + _CREATE_MODULES
             + _CREATE_IDX_CHUNKS_FILE
             + _CREATE_IDX_EDGES_SOURCE
             + _CREATE_IDX_EDGES_TARGET
             + _CREATE_IDX_CHUNK_SURROGATES_FILE
+            + _CREATE_IDX_FILE_STATES_PATH
             + _CREATE_IDX_MODULES_NAME
         )
         # Create BM25 FTS table so delete operations are safe without prior BM25Index init
@@ -273,6 +288,57 @@ class IndexStore:
             )
         self._conn.commit()
 
+    def replace_file_states(self, states: dict[str, dict[str, int | str]]) -> None:
+        """Replace persisted file content state used by working-tree delta detection."""
+        self._conn.execute("DELETE FROM file_states")
+        self._insert_file_states_no_commit(states)
+        self._conn.commit()
+
+    def _insert_file_states_no_commit(self, states: dict[str, dict[str, int | str]]) -> None:
+        if not states:
+            return
+        self._conn.executemany(
+            "INSERT OR REPLACE INTO file_states "
+            "(file_path, size_bytes, mtime_ns, sha256) VALUES (?, ?, ?, ?)",
+            [
+                (
+                    path,
+                    int(state["size_bytes"]),
+                    int(state["mtime_ns"]),
+                    str(state["sha256"]),
+                )
+                for path, state in states.items()
+            ],
+        )
+
+    def upsert_file_states(self, states: dict[str, dict[str, int | str]]) -> None:
+        """Insert or update content state rows for changed files."""
+        self._insert_file_states_no_commit(states)
+        self._conn.commit()
+
+    def delete_file_states(self, file_paths: list[str]) -> None:
+        if not file_paths:
+            return
+        placeholders = ",".join("?" for _ in file_paths)
+        self._conn.execute(
+            f"DELETE FROM file_states WHERE file_path IN ({placeholders})",
+            file_paths,
+        )
+        self._conn.commit()
+
+    def get_file_states(self) -> dict[str, dict[str, int | str]]:
+        rows = self._conn.execute(
+            "SELECT file_path, size_bytes, mtime_ns, sha256 FROM file_states"
+        ).fetchall()
+        return {
+            str(row[0]): {
+                "size_bytes": int(row[1]),
+                "mtime_ns": int(row[2]),
+                "sha256": str(row[3]),
+            }
+            for row in rows
+        }
+
     def delete_chunks_for_files(self, file_paths: list[str]) -> int:
         """Delete all chunks and FTS entries for the given file paths."""
         if not file_paths:
@@ -318,6 +384,10 @@ class IndexStore:
         )
         self._conn.execute(
             "UPDATE chunk_surrogates SET file_path = ? WHERE file_path = ?",
+            (new_path, old_path),
+        )
+        self._conn.execute(
+            "UPDATE file_states SET file_path = ? WHERE file_path = ?",
             (new_path, old_path),
         )
         self._conn.execute(
@@ -628,6 +698,8 @@ class IndexStore:
             + _CREATE_IDX_CHUNKS_VISIBILITY
             + _CREATE_CHUNK_SURROGATES
             + _CREATE_IDX_CHUNK_SURROGATES_FILE
+            + _CREATE_FILE_STATES
+            + _CREATE_IDX_FILE_STATES_PATH
             + _CREATE_MODULES
             + _CREATE_IDX_MODULES_NAME
             + _CREATE_SYMBOLS_FTS

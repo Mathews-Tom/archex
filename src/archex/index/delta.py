@@ -138,6 +138,126 @@ def _changed_sources(changed_files: list[DiscoveredFile]) -> dict[str, bytes]:
     return sources
 
 
+def compute_file_states(
+    repo_path: Path,
+    files: list[DiscoveredFile],
+    *,
+    previous: dict[str, dict[str, int | str]] | None = None,
+) -> dict[str, dict[str, int | str]]:
+    """Return file size/mtime/hash state, hashing only paths whose stat changed."""
+    previous = previous or {}
+    states: dict[str, dict[str, int | str]] = {}
+    for discovered_file in files:
+        path = Path(discovered_file.absolute_path)
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+
+        prior = previous.get(discovered_file.path)
+        size_bytes = stat.st_size
+        mtime_ns = stat.st_mtime_ns
+        if (
+            prior is not None
+            and int(prior["size_bytes"]) == size_bytes
+            and int(prior["mtime_ns"]) == mtime_ns
+        ):
+            states[discovered_file.path] = prior
+            continue
+
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        states[discovered_file.path] = {
+            "size_bytes": size_bytes,
+            "mtime_ns": mtime_ns,
+            "sha256": digest,
+        }
+    return states
+
+
+def _working_tree_renames(repo_path: Path, languages: list[str] | None) -> list[tuple[str, str]]:
+    if not (repo_path / ".git").exists():
+        return []
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--renames", "--untracked-files=all"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DeltaIndexError("git status timed out after 30s") from exc
+    except OSError as exc:
+        raise DeltaIndexError(f"git status failed: {exc}") from exc
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        raise DeltaIndexError(f"git status failed: {stderr}")
+
+    renames: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        if len(line) < 4 or "R" not in line[:2] or " -> " not in line:
+            continue
+        old_path, new_path = line[3:].split(" -> ", maxsplit=1)
+        if _is_source_path(old_path, languages) or _is_source_path(new_path, languages):
+            renames.append((old_path, new_path))
+    return renames
+
+
+def compute_working_tree_delta(
+    repo_path: Path,
+    store: IndexStore,
+    config: Config,
+) -> DeltaManifest:
+    """Compute a hash-confirmed delta between the persisted index and working tree."""
+    from archex.acquire import discover_files
+
+    previous_states = store.get_file_states()
+    if not previous_states:
+        indexed_at = 0.0
+        try:
+            indexed_at = float(store.get_metadata("indexed_at") or "0")
+        except ValueError:
+            indexed_at = 0.0
+        return compute_mtime_delta(repo_path, store, indexed_at)
+
+    current_files = discover_files(
+        repo_path,
+        languages=config.languages,
+        max_file_size=config.max_file_size,
+    )
+    current_states = compute_file_states(repo_path, current_files, previous=previous_states)
+    previous_paths = set(previous_states)
+    current_paths = set(current_states)
+
+    deleted_paths = previous_paths - current_paths
+    added_paths = current_paths - previous_paths
+    changes: list[FileChange] = []
+
+    for old_path, new_path in _working_tree_renames(repo_path, config.languages):
+        if old_path not in deleted_paths or new_path not in added_paths:
+            continue
+        changes.append(FileChange(path=new_path, old_path=old_path, status=ChangeStatus.RENAMED))
+        deleted_paths.remove(old_path)
+        added_paths.remove(new_path)
+        previous_hash = str(previous_states[old_path]["sha256"])
+        current_hash = str(current_states[new_path]["sha256"])
+        if previous_hash != current_hash:
+            changes.append(FileChange(path=new_path, status=ChangeStatus.MODIFIED))
+
+    for path in sorted(current_paths & previous_paths):
+        if str(current_states[path]["sha256"]) != str(previous_states[path]["sha256"]):
+            changes.append(FileChange(path=path, status=ChangeStatus.MODIFIED))
+
+    changes.extend(FileChange(path=path, status=ChangeStatus.ADDED) for path in sorted(added_paths))
+    changes.extend(
+        FileChange(path=path, status=ChangeStatus.DELETED) for path in sorted(deleted_paths)
+    )
+    return DeltaManifest(base_commit="worktree", current_commit="worktree", changes=changes)
+
+
 def _is_commit_reachable(repo_path: Path, commit: str) -> bool:
     """Check if a commit exists in the local git history."""
     try:
@@ -260,9 +380,11 @@ def apply_delta(
         store.delete_chunks_for_files(deleted)
         store.delete_edges_for_files(deleted)
         logger.info("Deleted %d files from index", len(deleted))
+        store.delete_file_states(deleted)
 
-    # 3. Re-parse modified + added files
-    reprocess = manifest.modified_files + manifest.added_files
+    # 3. Re-parse modified, added, and renamed files so chunk IDs stay path-correct.
+    renamed_new_paths = [new_path for _, new_path in manifest.renamed_files]
+    reprocess = manifest.modified_files + manifest.added_files + renamed_new_paths
     reprocess_set = set(reprocess)
 
     new_chunks: list[CodeChunk] = []
@@ -289,13 +411,15 @@ def apply_delta(
             resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
 
             chunker = ASTChunker(config=effective_index_config)
-            new_chunks = chunker.chunk_files(parsed_files, _changed_sources(changed_files))
+            sources = _changed_sources(changed_files)
+            new_chunks = chunker.chunk_files(parsed_files, sources)
             new_surrogates = build_chunk_surrogates(
                 new_chunks,
                 version=effective_index_config.surrogate_version,
             )
 
             new_edges = _build_import_edges(resolved_map)
+            store.upsert_file_states(compute_file_states(repo_path, changed_files))
 
             logger.info(
                 "Re-parsed %d files: %d chunks, %d edges",
@@ -304,7 +428,7 @@ def apply_delta(
                 len(new_edges),
             )
 
-        remove_paths = list(set(manifest.modified_files))
+        remove_paths = list(set(manifest.modified_files + renamed_new_paths))
         if remove_paths or new_chunks:
             store.delete_and_insert_for_files(
                 remove_paths,
@@ -325,6 +449,8 @@ def apply_delta(
     bm25.build(all_chunks)
 
     # 6. Update metadata
+    store.set_metadata("repo_total_tokens", str(sum(chunk.token_count for chunk in all_chunks)))
+    store.set_metadata("chunk_count", str(len(all_chunks)))
     store.set_metadata("commit_hash", manifest.current_commit)
     store.set_metadata("delta_applied", "true")
     file_meta = store.get_file_metadata()
