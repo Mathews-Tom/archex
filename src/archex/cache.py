@@ -177,7 +177,13 @@ class CacheManager:
 
         dest = self.db_path(key)
         if source_db.resolve() != dest.resolve():
-            shutil.copy2(str(source_db), str(dest))
+            tmp_dest = dest.with_name(f".{dest.name}.{time.time_ns()}.tmp")
+            try:
+                shutil.copy2(str(source_db), str(tmp_dest))
+                tmp_dest.replace(dest)
+            finally:
+                if tmp_dest.exists():
+                    tmp_dest.unlink()
         meta = self.meta_path(key)
         meta_data = {
             "cache_key": key,

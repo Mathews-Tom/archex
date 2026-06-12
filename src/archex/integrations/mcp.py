@@ -584,6 +584,7 @@ def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
         def __init__(self) -> None:
             self._timer: threading.Timer | None = None
             self._lock = threading.Lock()
+            self._refreshing = False
 
         def on_any_event(self, event: FileSystemEvent) -> None:
             src_path = str(event.src_path)
@@ -600,13 +601,21 @@ def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
                 self._timer.start()
 
         def _refresh(self) -> None:
-            source = RepoSource(local_path=str(repo_path))
-            timing = PipelineTiming()
-            store = index_repository(source, timing=timing)
+            with self._lock:
+                if self._refreshing:
+                    return
+                self._refreshing = True
             try:
-                logger.info("MCP watch refreshed %s via %s", repo_path, timing.strategy)
+                source = RepoSource(local_path=str(repo_path))
+                timing = PipelineTiming()
+                store = index_repository(source, timing=timing)
+                try:
+                    logger.info("MCP watch refreshed %s via %s", repo_path, timing.strategy)
+                finally:
+                    store.close()
             finally:
-                store.close()
+                with self._lock:
+                    self._refreshing = False
 
     observer = Observer()
     observer.schedule(DebouncedIndexHandler(), str(repo_path), recursive=True)
