@@ -22,6 +22,7 @@ from archex.benchmark.strategies import (
     compute_token_efficiency,
     count_file_tokens,
     extract_keywords,
+    measure_archex_freshness,
     reset_benchmark_retrieval_options,
     run_archex_query,
     run_archex_query_fusion,
@@ -62,6 +63,16 @@ def sample_task() -> BenchmarkTask:
         expected_files=["main.py", "services/auth.py"],
         keywords=["auth", "login"],
     )
+
+
+def test_measure_archex_freshness_returns_correct_probe(
+    sample_task: BenchmarkTask,
+    python_simple_repo: Path,
+) -> None:
+    latency_ms, correct = measure_archex_freshness(sample_task, python_simple_repo)
+
+    assert latency_ms > 0
+    assert correct is True
 
 
 def _ranked_chunk(chunk_id: str, file_path: str, *, score: float) -> RankedChunk:

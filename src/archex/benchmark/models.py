@@ -233,6 +233,8 @@ class BenchmarkResult(BaseModel):
     cold_start_ms: float = 0.0
     warm_latency_ms: float = 0.0
     provenance: dict[str, str] = {}
+    freshness_latency_ms: float = 0.0
+    freshness_correct: bool = False
 
 
 class BenchmarkReport(BaseModel):

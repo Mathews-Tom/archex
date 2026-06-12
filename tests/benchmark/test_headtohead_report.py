@@ -36,6 +36,8 @@ def _result(strategy: Strategy, *, label: str | None = None) -> BenchmarkResult:
         f1_score=0.67,
         savings_vs_raw=0.0,
         wall_time_ms=12.0,
+        freshness_latency_ms=42.0,
+        freshness_correct=True,
         warm_latency_ms=10.0,
         cold_start_ms=2.0,
         cached=True,
@@ -81,6 +83,8 @@ def test_format_headtohead_markdown_keeps_all_lanes_and_provenance() -> None:
     assert "| ccc |" in output
     assert "| raw-grep/read |" in output
     assert "prov: manifest=comparison" in output
+    assert "field=freshness_latency_ms" in output
+    assert "field=freshness_correct" in output
     assert "field=bundle_completion_tokens" in output
     assert "No winner filtering" in output
 

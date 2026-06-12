@@ -278,8 +278,9 @@ def format_headtohead_markdown(
         "Every metric cell includes its provenance. No winner filtering is applied.",
         "",
         "| Lane | Recall | Precision | F1 | Token efficiency | Completion penalty tokens "
-        "| Efficiency after completion | Warm latency ms | Cold-start ms |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Efficiency after completion | Warm latency ms | Cold-start ms | Edit-to-correct ms "
+        "| Freshness correct |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
 
     for lane in sorted(lanes):
@@ -317,6 +318,16 @@ def format_headtohead_markdown(
                         _mean([r.cold_start_ms for r in results]),
                         provenance,
                         "cold_start_ms",
+                    ),
+                    _integer_metric_cell(
+                        _mean([r.freshness_latency_ms for r in results]),
+                        provenance,
+                        "freshness_latency_ms",
+                    ),
+                    _metric_cell(
+                        _mean([1.0 if r.freshness_correct else 0.0 for r in results]),
+                        provenance,
+                        "freshness_correct",
                     ),
                 ]
             )
