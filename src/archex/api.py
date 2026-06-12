@@ -399,13 +399,16 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                     vector_mode=index_config.vector_mode,
                     surrogate_version=index_config.surrogate_version,
                 )
-                vec_idx.save(
-                    vector_path,
-                    embedder_name=index_config.embedder or "",
-                    vector_dim=embedder.dimension,
-                    vector_mode=index_config.vector_mode,
-                    surrogate_version=index_config.surrogate_version,
-                )
+                if new_chunks:
+                    vec_idx.save(
+                        vector_path,
+                        embedder_name=index_config.embedder or "",
+                        vector_dim=embedder.dimension,
+                        vector_mode=index_config.vector_mode,
+                        surrogate_version=index_config.surrogate_version,
+                    )
+                elif vector_path.exists():
+                    vector_path.unlink()
                 store.set_metadata("embedding_cache_hits", str(cache_hits))
                 store.set_metadata("embedding_cache_misses", str(cache_misses))
         identity = source.url or source.local_path or ""
