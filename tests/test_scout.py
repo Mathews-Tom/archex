@@ -155,3 +155,33 @@ def test_scout_handles_fetch_exact_symbols_and_query_chunks(tmp_path: Path) -> N
         "pkg/models.py::Model#class",
     ]
     assert bundle.retrieval_metadata.strategy == "scout_handle"
+
+
+def test_scout_cli_emits_handles_and_budget() -> None:
+    from click.testing import CliRunner
+
+    from archex.cli.main import cli
+    from archex.scout import ScoutBudget, ScoutFile, ScoutResult
+
+    result_model = ScoutResult(
+        query="delta indexing",
+        ranked_files=[
+            ScoutFile(
+                path="src/archex/index/delta.py",
+                language="python",
+                lines=100,
+                symbol_count=4,
+                handle=file_handle("src/archex/index/delta.py"),
+            )
+        ],
+        budget=ScoutBudget(token_budget=120),
+    )
+    with patch("archex.cli.scout_cmd.scout", return_value=result_model) as scout_mock:
+        result = CliRunner().invoke(
+            cli,
+            ["scout", ".", "how does delta indexing work", "--budget", "120"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert file_handle("src/archex/index/delta.py") in result.output
+    assert scout_mock.call_args.kwargs["token_budget"] == 120

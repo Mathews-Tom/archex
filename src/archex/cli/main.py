@@ -20,6 +20,7 @@ from archex.cli.onboard_cmd import onboard_cmd
 from archex.cli.outline_cmd import outline_cmd
 from archex.cli.query_cmd import query_cmd
 from archex.cli.reset_cmd import reset_cmd
+from archex.cli.scout_cmd import scout_cmd
 from archex.cli.status_cmd import status_cmd
 from archex.cli.symbol_cmd import symbol_cmd
 from archex.cli.symbols_cmd import symbols_cmd
@@ -45,6 +46,7 @@ cli.add_command(dogfood_cmd)
 cli.add_command(mcp_cmd)
 cli.add_command(tree_cmd)
 cli.add_command(outline_cmd)
+cli.add_command(scout_cmd)
 cli.add_command(symbols_cmd)
 cli.add_command(symbol_cmd)
 cli.add_command(graph_cmd)

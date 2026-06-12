@@ -33,7 +33,7 @@ def _disable_slice_coverage_threshold(config: pytest.Config) -> None:
 
 
 def implementation_gate_paths(args: Sequence[str]) -> bool:
-    paths = [arg.rstrip("/") for arg in args if arg and not arg.startswith("-")]
+    paths = _path_args(args)
     if "tests" in paths and _implementation_gate_keyword(args):
         return True
     if not paths:
@@ -60,6 +60,21 @@ def implementation_gate_paths(args: Sequence[str]) -> bool:
         }
         return all(path in allowed_paths for path in paths)
     return False
+
+
+def _path_args(args: Sequence[str]) -> list[str]:
+    paths: list[str] = []
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in {"-k", "-m"}:
+            skip_next = True
+            continue
+        if arg and not arg.startswith("-"):
+            paths.append(arg.rstrip("/"))
+    return paths
 
 
 def _implementation_gate_keyword(args: Sequence[str]) -> bool:
