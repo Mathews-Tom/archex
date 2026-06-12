@@ -592,6 +592,10 @@ class RetrievalMetadata(BaseModel):
     surrogate_version: str | None = None
     expansion_reason_counts: dict[str, int] = {}
     expanded_file_reasons: dict[str, list[str]] = {}
+    index_stale: bool = False
+    refresh_time_ms: float = 0.0
+    refresh_files_changed: int = 0
+    refresh_skipped_reason: str = ""
 
 
 class ContextBundle(BaseModel):

@@ -115,6 +115,7 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         cached=pt.cached,
         index_time_ms=pt.index_ms,
         query_time_ms=pt.total_ms,
+        delta=pt.delta_meta,
     )
     return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
 

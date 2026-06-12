@@ -165,6 +165,43 @@ class TestQueryEndToEnd:
         bundle2 = query(source, "authentication", config=config)
         assert bundle2.retrieval_metadata is not None
 
+    def test_query_auto_refresh_matches_full_reindex_after_worktree_edit(
+        self,
+        python_simple_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        source = RepoSource(local_path=str(python_simple_repo))
+        cache_config = Config(
+            languages=["python"],
+            cache=True,
+            cache_dir=str(tmp_path / "cache"),
+            delta_threshold=1.0,
+        )
+
+        query(source, "fresh marker", config=cache_config)
+        (python_simple_repo / "utils.py").write_text(
+            "def fresh_marker_delta():\n    return 'fresh-marker'\n",
+            encoding="utf-8",
+        )
+
+        stale = query(source, "fresh_marker_delta", config=cache_config, refresh=False)
+        refreshed = query(source, "fresh_marker_delta", config=cache_config)
+        full = query(
+            source,
+            "fresh_marker_delta",
+            config=Config(languages=["python"], cache=False),
+        )
+
+        stale_text = "\n".join(chunk.chunk.content for chunk in stale.chunks)
+        refreshed_text = "\n".join(chunk.chunk.content for chunk in refreshed.chunks)
+        full_text = "\n".join(chunk.chunk.content for chunk in full.chunks)
+
+        assert "fresh_marker_delta" not in stale_text
+        assert "fresh_marker_delta" in refreshed_text
+        assert refreshed_text == full_text
+        assert refreshed.retrieval_metadata.index_stale is True
+        assert refreshed.retrieval_metadata.refresh_files_changed == 1
+
     def test_query_with_index_config(self, python_simple_repo: Path) -> None:
         source = RepoSource(local_path=str(python_simple_repo))
         index_cfg = IndexConfig(chunk_max_tokens=256, chunk_min_tokens=32)

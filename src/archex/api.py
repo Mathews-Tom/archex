@@ -169,17 +169,59 @@ def _full_index(
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
         store.insert_chunks(all_chunks)
-        store.insert_chunk_surrogates(
-            build_chunk_surrogates(
-                all_chunks,
-                version=effective_index_config.surrogate_version,
-            )
+        chunk_surrogates = build_chunk_surrogates(
+            all_chunks,
+            version=effective_index_config.surrogate_version,
         )
+        store.insert_chunk_surrogates(chunk_surrogates)
         edges = graph.file_edges()
         store.replace_file_states(compute_file_states(repo_path, files))
         store.insert_edges(edges)
         _build_splade_index(store, all_chunks, effective_index_config)
         _build_module_summaries(store, graph, parsed_files, effective_index_config)
+        if effective_index_config.vector:
+            embedder = _get_embedder(effective_index_config)
+            if embedder is not None:
+                from archex.index.vector import VectorIndex
+
+                surrogate_lookup = {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
+                vec_idx = VectorIndex()
+                cache_hits, cache_misses = vec_idx.build(
+                    all_chunks,
+                    embedder,
+                    surrogates_by_chunk_id=surrogate_lookup,
+                    vector_mode=effective_index_config.vector_mode,
+                )
+                store.set_metadata("embedding_cache_hits", str(cache_hits))
+                store.set_metadata("embedding_cache_misses", str(cache_misses))
+                npz_path = (
+                    cache.vector_path(
+                        cache_key,
+                        vector_mode=effective_index_config.vector_mode,
+                        surrogate_version=effective_index_config.surrogate_version,
+                    )
+                    if config.cache
+                    else store.vector_index_path_for(
+                        vector_mode=effective_index_config.vector_mode,
+                        surrogate_version=effective_index_config.surrogate_version,
+                    )
+                )
+                if all_chunks:
+                    vec_idx.save(
+                        npz_path,
+                        embedder_name=effective_index_config.embedder or "",
+                        vector_dim=embedder.dimension,
+                        vector_mode=effective_index_config.vector_mode,
+                        surrogate_version=effective_index_config.surrogate_version,
+                    )
+                elif npz_path.exists():
+                    npz_path.unlink()
+
+        total_repo_tokens = sum(chunk.token_count for chunk in all_chunks)
+        store.set_metadata("repo_total_tokens", str(total_repo_tokens))
+        store.set_metadata("chunk_count", str(len(all_chunks)))
+        file_count = len({chunk.file_path for chunk in all_chunks})
+        store.set_metadata("file_count", str(file_count))
 
         if config.cache:
             commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
@@ -1232,6 +1274,20 @@ def analyze(
         cleanup()
 
 
+def _attach_refresh_metadata(bundle: ContextBundle, timing: PipelineTiming | None) -> None:
+    if timing is None:
+        return
+    bundle.retrieval_metadata.index_stale = timing.delta_attempted
+    bundle.retrieval_metadata.refresh_time_ms = timing.delta_ms
+    if timing.delta_meta is not None:
+        bundle.retrieval_metadata.refresh_files_changed = (
+            timing.delta_meta.files_modified
+            + timing.delta_meta.files_added
+            + timing.delta_meta.files_deleted
+            + timing.delta_meta.files_renamed
+        )
+
+
 def query(
     source: RepoSource,
     question: str,
@@ -1243,6 +1299,7 @@ def query(
     timing: PipelineTiming | None = None,
     trace: PipelineTrace | None = None,
     explicit_token_budget: bool = False,
+    refresh: bool = True,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -1266,13 +1323,25 @@ def query(
         trace.operation = "query"
         trace.start_ns = time.perf_counter_ns()
     cache = _cache_manager_for_source(source, config)
+    metadata_timing = timing
     cache_key = cache.cache_key(source)
 
-    # Check cache BEFORE parsing — if cached, skip the expensive parse pipeline
-    cached_db = cache.get(cache_key) if config.cache else None
+    # Check cache BEFORE parsing — if cached, skip the expensive parse pipeline.
+    preopened_store: IndexStore | None = None
+    if refresh and config.cache:
+        metadata_timing = timing or PipelineTiming()
+        preopened_store = _ensure_index(
+            source,
+            config,
+            timing=metadata_timing,
+            index_config=index_config,
+        )
+        cached_db = preopened_store.db_path
+    else:
+        cached_db = cache.get(cache_key) if config.cache else None
     if cached_db is not None:
         logger.info("Cache hit for %s", cache_key[:12])
-        store = IndexStore(cached_db)
+        store = preopened_store or IndexStore(cached_db)
         if store.needs_reindex():
             logger.info("Stale cache (missing symbol_ids) — forcing full re-index")
             store.close()
@@ -1315,6 +1384,7 @@ def query(
                     if trace is not None:
                         trace.end_ns = time.perf_counter_ns()
                         trace.log_summary()
+                    _attach_refresh_metadata(pt, metadata_timing)
                     return pt
 
                 bm25 = BM25Index(store)
@@ -1476,6 +1546,7 @@ def query(
                 if trace is not None:
                     trace.end_ns = time.perf_counter_ns()
                     trace.log_summary()
+                _attach_refresh_metadata(bundle, metadata_timing)
                 return bundle
             finally:
                 store.close()
@@ -1682,6 +1753,7 @@ def query(
                     trace.log_summary()
                 pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
                 logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
+                _attach_refresh_metadata(pt, metadata_timing)
                 return pt
 
             t6 = time.perf_counter()
@@ -1820,6 +1892,7 @@ def query(
         if trace is not None:
             trace.end_ns = time.perf_counter_ns()
             trace.log_summary()
+        _attach_refresh_metadata(bundle, metadata_timing)
         return bundle
     finally:
         cleanup()

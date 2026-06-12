@@ -43,6 +43,18 @@ from archex.utils import resolve_source
     default=False,
     help="Use opt-in module responsibility prefiltering.",
 )
+@click.option(
+    "--no-refresh",
+    is_flag=True,
+    default=False,
+    help="Skip working-tree freshness checks and query the existing index as-is.",
+)
+@click.option(
+    "--refresh-threshold",
+    type=float,
+    default=None,
+    help="Maximum changed-file ratio eligible for inline refresh.",
+)
 def query_cmd(
     args: tuple[str, ...],
     budget: int | None,
@@ -53,6 +65,8 @@ def query_cmd(
     metrics: bool,
     splade: bool,
     module_prefilter: bool,
+    no_refresh: bool,
+    refresh_threshold: float | None,
 ) -> None:
     """Query a repository and return a context bundle."""
     from archex.config import load_config, load_index_config
@@ -61,6 +75,8 @@ def query_cmd(
     source, question = _source_and_question(args)
     repo_source = resolve_source(source)
     config = load_config(repo_source)
+    if refresh_threshold is not None:
+        config = config.model_copy(update={"delta_threshold": refresh_threshold})
     if language:
         config = config.model_copy(update={"languages": list(language)})
     index_config = load_index_config(repo_source)
@@ -82,6 +98,7 @@ def query_cmd(
             config=config,
             index_config=index_config,
             timing=pt,
+            refresh=not no_refresh,
         )
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
