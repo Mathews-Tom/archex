@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from archex import __version__
-from archex.models import CodeChunk, Edge, EdgeKind
+from archex.models import CodeChunk, Edge, EdgeConfidence, EdgeKind
 
 if TYPE_CHECKING:
     from archex.index.store import IndexStore
 
-GRAPH_SCHEMA_VERSION = "1.0.0"
+GRAPH_SCHEMA_VERSION = "1.1.0"
 SUPPORTED_GRAPH_SCHEMA_MAJOR = 1
 _KNOWN_CONFIG_NAMES = {
     "pyproject.toml",
@@ -53,6 +53,7 @@ class GraphEdgeType(StrEnum):
     EXPOSES = "exposes"
     TESTS = "tests"
     CONFIGURES = "configures"
+    CO_DIRECTORY = "co_directory"
 
 
 class GraphSchemaVersion(BaseModel):
@@ -123,6 +124,15 @@ class GraphEdge(BaseModel):
     type: GraphEdgeType
     label: str = ""
     location: str | None = None
+    confidence: EdgeConfidence = EdgeConfidence.EXTRACTED
+    confidence_score: float = 1.0
+    evidence: list[str] = []
+
+    @model_validator(mode="after")
+    def _validate_confidence_score(self) -> GraphEdge:
+        if not 0.0 <= self.confidence_score <= 1.0:
+            raise ValueError("confidence_score must be between 0.0 and 1.0")
+        return self
 
 
 class GraphLayer(BaseModel):
@@ -464,17 +474,39 @@ def _build_config_nodes(
     return nodes
 
 
+def _graph_edge_type_for(edge_kind: EdgeKind) -> GraphEdgeType | None:
+    if edge_kind == EdgeKind.IMPORTS:
+        return GraphEdgeType.IMPORTS
+    if edge_kind == EdgeKind.CO_DIRECTORY:
+        return GraphEdgeType.CO_DIRECTORY
+    return None
+
+
+def _chunk_contains_evidence(chunk: CodeChunk) -> list[str]:
+    return [f"parser chunk span {chunk.file_path}:{chunk.start_line}-{chunk.end_line}"]
+
+
+def _public_interface_evidence(chunk: CodeChunk) -> list[str]:
+    return [f"public {chunk.symbol_kind} {chunk.qualified_name or chunk.symbol_name}"]
+
+
 def _build_graph_edges(chunks: list[CodeChunk], edges: list[Edge]) -> list[GraphEdge]:
-    graph_edges = [
-        GraphEdge(
-            source=node_id_for_path(edge.source),
-            target=node_id_for_path(edge.target),
-            type=GraphEdgeType.IMPORTS,
-            location=edge.location,
+    graph_edges: list[GraphEdge] = []
+    for edge in edges:
+        edge_type = _graph_edge_type_for(edge.kind)
+        if edge_type is None:
+            continue
+        graph_edges.append(
+            GraphEdge(
+                source=node_id_for_path(edge.source),
+                target=node_id_for_path(edge.target),
+                type=edge_type,
+                location=edge.location,
+                confidence=edge.confidence,
+                confidence_score=edge.confidence_score,
+                evidence=edge.evidence,
+            )
         )
-        for edge in edges
-        if edge.kind == EdgeKind.IMPORTS
-    ]
     for chunk in chunks:
         if chunk.symbol_name is None or chunk.symbol_kind is None:
             continue
@@ -486,6 +518,9 @@ def _build_graph_edges(chunks: list[CodeChunk], edges: list[Edge]) -> list[Graph
                 source=node_id_for_path(chunk.file_path),
                 target=symbol_id,
                 type=GraphEdgeType.CONTAINS,
+                confidence=EdgeConfidence.EXTRACTED,
+                confidence_score=1.0,
+                evidence=_chunk_contains_evidence(chunk),
             )
         )
         if _is_public_interface_chunk(chunk):
@@ -494,6 +529,9 @@ def _build_graph_edges(chunks: list[CodeChunk], edges: list[Edge]) -> list[Graph
                     source=node_id_for_path(chunk.file_path),
                     target=interface_node_id(chunk.file_path, qualified_name),
                     type=GraphEdgeType.EXPOSES,
+                    confidence=EdgeConfidence.HEURISTIC,
+                    confidence_score=0.85,
+                    evidence=_public_interface_evidence(chunk),
                 )
             )
     return graph_edges

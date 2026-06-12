@@ -25,7 +25,7 @@ def test_graph_inspect_reads_exported_artifact(python_simple_repo: Path, tmp_pat
 
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
-    assert data["schema_version"] == "1.0.0"
+    assert data["schema_version"] == "1.1.0"
     assert data["nodes"] > 0
     assert data["edges"] > 0
 

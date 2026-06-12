@@ -3,7 +3,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from archex.index.graph import DependencyGraph
-from archex.models import ImportStatement, ParsedFile, Symbol, SymbolKind, Visibility
+from archex.models import (
+    Edge,
+    EdgeConfidence,
+    EdgeKind,
+    ImportStatement,
+    ParsedFile,
+    Symbol,
+    SymbolKind,
+    Visibility,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -100,6 +109,16 @@ def test_file_edges_returns_edge_objects() -> None:
     assert edge.kind == EdgeKind.IMPORTS
 
 
+def test_resolved_import_edges_are_extracted_with_evidence() -> None:
+    graph = DependencyGraph.from_parsed_files(_make_parsed_files(), _make_import_map())
+
+    [edge] = graph.file_edges()
+
+    assert edge.confidence == EdgeConfidence.EXTRACTED
+    assert edge.confidence_score == 1.0
+    assert edge.evidence == ["resolved import 'models' at main.py:1"]
+
+
 def test_neighborhood_bfs() -> None:
     parsed = _make_parsed_files()
     import_map = _make_import_map()
@@ -138,6 +157,50 @@ def test_sqlite_round_trip(tmp_path: Path) -> None:
     restored = DependencyGraph.from_sqlite(db_path)
     assert restored.file_count == graph.file_count
     assert restored.file_edge_count == graph.file_edge_count
+
+
+def test_sqlite_round_trip_preserves_edge_confidence(tmp_path: Path) -> None:
+    edge = Edge(
+        source="a.py",
+        target="b.py",
+        kind=EdgeKind.IMPORTS,
+        confidence=EdgeConfidence.INFERRED,
+        confidence_score=0.4,
+        evidence=["external analyzer matched symbol"],
+    )
+    graph = DependencyGraph.from_edges([edge])
+
+    db_path = tmp_path / "graph-confidence.db"
+    graph.to_sqlite(db_path)
+    restored = DependencyGraph.from_sqlite(db_path)
+
+    [restored_edge] = restored.file_edges()
+    assert restored_edge.confidence == EdgeConfidence.INFERRED
+    assert restored_edge.confidence_score == 0.4
+    assert restored_edge.evidence == ["external analyzer matched symbol"]
+
+
+def test_old_sqlite_graph_migrates_edge_confidence(tmp_path: Path) -> None:
+    import sqlite3
+
+    db_path = tmp_path / "old-graph.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE files (path TEXT PRIMARY KEY);
+        CREATE TABLE edges (source TEXT, target TEXT, kind TEXT, location TEXT);
+        INSERT INTO files (path) VALUES ('a.py'), ('b.py');
+        INSERT INTO edges (source, target, kind, location)
+        VALUES ('a.py', 'b.py', 'imports', 'a.py:1');
+    """)
+    conn.commit()
+    conn.close()
+
+    graph = DependencyGraph.from_sqlite(db_path)
+    [edge] = graph.file_edges()
+
+    assert edge.confidence == EdgeConfidence.EXTRACTED
+    assert edge.confidence_score == 1.0
+    assert edge.evidence == []
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +246,24 @@ class TestUpdateFiles:
         new_edges = [Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS)]
         graph.update_files(set(), new_edges)
         assert graph.file_edge_count == 1
+
+    def test_ambiguous_edges_do_not_drive_traversal(self) -> None:
+        graph = DependencyGraph.from_edges(
+            [
+                Edge(
+                    source="a.py",
+                    target="b.py",
+                    kind=EdgeKind.IMPORTS,
+                    confidence=EdgeConfidence.AMBIGUOUS,
+                    confidence_score=0.2,
+                    evidence=["multiple possible import targets"],
+                )
+            ]
+        )
+
+        assert graph.imports_of("a.py") == set()
+        assert graph.imported_by("b.py") == set()
+        assert graph.neighborhood("a.py") == set()
 
     def test_invalidates_centrality(self) -> None:
         parsed = [
@@ -329,3 +410,15 @@ class TestCoDirectoryEdges:
 
         edges = graph.file_edges()
         assert all(e.kind == EdgeKind.CO_DIRECTORY for e in edges)
+
+    def test_co_directory_edges_are_heuristic_with_evidence(self) -> None:
+        graph = DependencyGraph()
+        graph.add_file_node("pkg/a.go")
+        graph.add_file_node("pkg/b.go")
+
+        graph.add_co_directory_edges()
+        edges = graph.file_edges()
+
+        assert {edge.confidence for edge in edges} == {EdgeConfidence.HEURISTIC}
+        assert {edge.confidence_score for edge in edges} == {0.6}
+        assert all(edge.evidence for edge in edges)
