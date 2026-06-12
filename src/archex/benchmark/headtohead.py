@@ -194,7 +194,10 @@ def run_headtohead(
                 Strategy.EXTERNAL_MCP,
             ],
             tasks=tasks,
-            retrieval_options=BenchmarkRetrievalOptions(embedder=manifest.archex.embedder),
+            retrieval_options=BenchmarkRetrievalOptions(
+                embedder=manifest.archex.embedder,
+                freshness=True,
+            ),
         )
     finally:
         reset_external_tool_config(token)
@@ -236,6 +239,18 @@ def _mean(values: list[float]) -> float:
 
 def _metric_cell(value: float, provenance: str, field: str, *, digits: int = 2) -> str:
     return f"{value:.{digits}f}<br><sub>prov: {provenance}; field={field}</sub>"
+
+
+def _optional_metric_cell(
+    value: float | None,
+    provenance: str,
+    field: str,
+    *,
+    digits: int = 2,
+) -> str:
+    if value is None:
+        return f"n/a<br><sub>prov: {provenance}; field={field}</sub>"
+    return _metric_cell(value, provenance, field, digits=digits)
 
 
 def _integer_metric_cell(value: float, provenance: str, field: str) -> str:
@@ -319,13 +334,24 @@ def format_headtohead_markdown(
                         provenance,
                         "cold_start_ms",
                     ),
-                    _integer_metric_cell(
-                        _mean([r.freshness_latency_ms for r in results]),
+                    _optional_metric_cell(
+                        _mean([r.freshness_latency_ms for r in results if r.freshness_measured])
+                        if any(r.freshness_measured for r in results)
+                        else None,
                         provenance,
                         "freshness_latency_ms",
+                        digits=0,
                     ),
-                    _metric_cell(
-                        _mean([1.0 if r.freshness_correct else 0.0 for r in results]),
+                    _optional_metric_cell(
+                        _mean(
+                            [
+                                1.0 if r.freshness_correct else 0.0
+                                for r in results
+                                if r.freshness_measured
+                            ]
+                        )
+                        if any(r.freshness_measured for r in results)
+                        else None,
                         provenance,
                         "freshness_correct",
                     ),

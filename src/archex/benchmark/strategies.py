@@ -22,7 +22,7 @@ from archex.benchmark.models import (
     Strategy,
 )
 from archex.cache import CacheManager
-from archex.exceptions import ConfigError
+from archex.exceptions import ArchexError, ConfigError
 from archex.models import IndexConfig, PipelineTiming, RepoSource
 from archex.reporting import count_tokens
 
@@ -718,6 +718,8 @@ def measure_archex_freshness(task: BenchmarkTask, repo_path: Path) -> tuple[floa
         latency_ms = (time.perf_counter() - started) * 1000
         found = any(_FRESHNESS_MARKER in chunk.chunk.content for chunk in bundle.chunks)
         return (latency_ms, found)
+    except (ArchexError, OSError, ValueError):
+        return (0.0, False)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -760,7 +762,10 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     completion_tokens, completion_files = compute_bundle_completion_penalty(
         repo_path, result_files, task.expected_files
     )
-    freshness_latency_ms, freshness_correct = measure_archex_freshness(task, repo_path)
+    if current_benchmark_retrieval_options().freshness:
+        freshness_latency_ms, freshness_correct = measure_archex_freshness(task, repo_path)
+    else:
+        freshness_latency_ms, freshness_correct = (0.0, False)
 
     return BenchmarkResult(
         task_id=task.task_id,
@@ -809,6 +814,7 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
         freshness_latency_ms=freshness_latency_ms,
+        freshness_measured=current_benchmark_retrieval_options().freshness,
         freshness_correct=freshness_correct,
     )
 

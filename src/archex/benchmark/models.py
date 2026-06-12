@@ -140,6 +140,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     module_prefilter: bool = False
     embedder: str = "jina-v2"
     rerank_model: str | None = None
+    freshness: bool = False
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):
@@ -234,6 +235,7 @@ class BenchmarkResult(BaseModel):
     warm_latency_ms: float = 0.0
     provenance: dict[str, str] = {}
     freshness_latency_ms: float = 0.0
+    freshness_measured: bool = False
     freshness_correct: bool = False
 
 
