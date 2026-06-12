@@ -143,6 +143,25 @@ def test_scout_guardrail_prefers_direct_query_when_fetch_is_not_cheaper(tmp_path
     ]
 
 
+def test_scout_guardrail_prefers_direct_query_when_query_is_already_narrow(
+    tmp_path: Path,
+) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        app_chunk = store.get_chunk("pkg/app.py::run#function")
+        assert app_chunk is not None
+        result = assemble_scout_from_store(
+            store,
+            "how does app loading work",
+            ranked_chunks=[RankedChunk(chunk=app_chunk, final_score=0.9)],
+            token_budget=400,
+            direct_query_tokens=400,
+            direct_query_file_paths=["pkg/app.py"],
+        )
+
+    assert result.fetch_plan.recommended_strategy == "direct_query"
+    assert result.fetch_plan.guardrail_reason == "direct_query_already_narrow"
+
+
 def test_scout_handles_fetch_exact_symbols_and_query_chunks(tmp_path: Path) -> None:
     from archex.api import get_symbol, get_symbols_batch, query
     from archex.models import RepoSource

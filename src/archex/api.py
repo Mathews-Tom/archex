@@ -1435,6 +1435,7 @@ def scout_with_bundle(
             seed_file_paths=bundle.retrieval_metadata.seed_file_paths,
             expanded_file_paths=bundle.retrieval_metadata.expanded_file_paths,
             direct_query_tokens=bundle.token_count,
+            direct_query_file_paths=bundle_file_paths,
         )
     finally:
         store.close()

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from archex.graph_query import GraphQuery, GraphQueryError
 from archex.models import CodeChunk, Module, RankedChunk, SymbolKind
 from archex.reporting import count_tokens
+from archex.serve.intent import QueryIntent, classify_intent
 
 if TYPE_CHECKING:
     from archex.index.store import IndexStore
@@ -28,6 +29,24 @@ DEFAULT_SCOUT_GRAPH_EDGE_LIMIT = 12
 FILE_HANDLE_PREFIX = "file:"
 SYMBOL_HANDLE_PREFIX = "symbol:"
 CHUNK_HANDLE_PREFIX = "chunk:"
+
+INTENT_FETCH_HANDLE_LIMITS: dict[QueryIntent, int] = {
+    QueryIntent.DEFINITION_LOOKUP: 1,
+    QueryIntent.ARCHITECTURE_BROAD: 3,
+    QueryIntent.USAGE_SEARCH: 2,
+    QueryIntent.DEBUGGING: 2,
+    QueryIntent.CLI: 2,
+    QueryIntent.GENERAL: 2,
+}
+
+INTENT_DIRECT_QUERY_FILE_LIMITS: dict[QueryIntent, int] = {
+    QueryIntent.DEFINITION_LOOKUP: 2,
+    QueryIntent.ARCHITECTURE_BROAD: 3,
+    QueryIntent.USAGE_SEARCH: 3,
+    QueryIntent.DEBUGGING: 3,
+    QueryIntent.CLI: 3,
+    QueryIntent.GENERAL: 3,
+}
 
 
 class ScoutHandle(BaseModel):
@@ -100,9 +119,14 @@ class ScoutGraphEdge(BaseModel):
 
 class ScoutFetchPlan(BaseModel):
     handles: list[str] = []
+    file_reasons: dict[str, str] = {}
     estimated_fetch_tokens: int = 0
+    estimated_fetch_files: int = 0
     direct_query_tokens: int = 0
+    direct_query_files: int = 0
     estimated_total_tokens: int = 0
+    projected_precision: float = 0.0
+    direct_query_precision: float = 0.0
     recommended_strategy: ScoutFetchStrategy = "chunk_first"
     guardrail_reason: str = ""
 
@@ -164,6 +188,7 @@ def assemble_scout_from_store(
     seed_file_paths: list[str] | None = None,
     expanded_file_paths: list[str] | None = None,
     direct_query_tokens: int = 0,
+    direct_query_file_paths: list[str] | None = None,
 ) -> ScoutResult:
     """Build a deterministic no-body structural map from an indexed repository."""
     _validate_token_budget(token_budget)
@@ -204,7 +229,9 @@ def assemble_scout_from_store(
         output_format=output_format,
         chunks_by_file=chunks_by_file,
         score_by_chunk=score_by_chunk,
+        question=question,
         direct_query_tokens=direct_query_tokens,
+        direct_query_file_paths=direct_query_file_paths or [],
     )
     return result
 
@@ -234,6 +261,9 @@ def enforce_scout_token_budget(result: ScoutResult, *, output_format: ScoutForma
             result.ranked_files.pop()
             result.budget.omitted_files += 1
             continue
+        if result.fetch_plan != ScoutFetchPlan():
+            result.fetch_plan = ScoutFetchPlan()
+            continue
         msg = f"Scout metadata exceeds token budget {budget}; minimum practical budget is higher"
         raise ValueError(msg)
 
@@ -252,7 +282,9 @@ def _finalize_scout_result(
     output_format: ScoutFormat,
     chunks_by_file: dict[str, list[CodeChunk]],
     score_by_chunk: dict[str, float],
+    question: str,
     direct_query_tokens: int,
+    direct_query_file_paths: list[str],
 ) -> None:
     while True:
         previous = _scout_shape(result)
@@ -260,7 +292,9 @@ def _finalize_scout_result(
             result.ranked_files,
             chunks_by_file,
             score_by_chunk,
+            question=question,
             direct_query_tokens=direct_query_tokens,
+            direct_query_file_paths=direct_query_file_paths,
             scout_tokens=result.budget.token_count,
         )
         enforce_scout_token_budget(result, output_format=output_format)
@@ -268,20 +302,24 @@ def _finalize_scout_result(
             result.ranked_files,
             chunks_by_file,
             score_by_chunk,
+            question=question,
             direct_query_tokens=direct_query_tokens,
+            direct_query_file_paths=direct_query_file_paths,
             scout_tokens=result.budget.token_count,
         )
         if previous == _scout_shape(result):
             return
 
 
-def _scout_shape(result: ScoutResult) -> tuple[int, int, int, int, tuple[str, ...]]:
+def _scout_shape(
+    result: ScoutResult,
+) -> tuple[int, int, int, int, tuple[tuple[str, str], ...]]:
     return (
         len(result.ranked_files),
         len(result.modules),
         len(result.symbols),
         len(result.graph),
-        tuple(result.fetch_plan.handles),
+        tuple(sorted(result.fetch_plan.file_reasons.items())),
     )
 
 
@@ -544,35 +582,64 @@ def _build_fetch_plan(
     chunks_by_file: dict[str, list[CodeChunk]],
     score_by_chunk: dict[str, float],
     *,
+    question: str,
     direct_query_tokens: int,
+    direct_query_file_paths: list[str],
     scout_tokens: int,
 ) -> ScoutFetchPlan:
-    handles: list[str] = []
+    intent = classify_intent(question)
+    handle_limit = INTENT_FETCH_HANDLE_LIMITS[intent]
+    selected: list[tuple[ScoutFile, str]] = []
+    file_reasons: dict[str, str] = {}
     estimated_fetch_tokens = 0
+    selected_scores: list[float] = []
     seen: set[str] = set()
     for item in files:
+        if len(selected) >= handle_limit:
+            break
         handle = item.primary_symbol_handle or item.primary_chunk_handle
         if handle is None or handle in seen:
             continue
         seen.add(handle)
-        handles.append(handle)
+        selected.append((item, handle))
+        selected_scores.append(max(item.score, 0.0))
         representative = _representative_chunk(item.path, chunks_by_file, score_by_chunk)
         if representative is not None:
             estimated_fetch_tokens += _chunk_token_count(representative)
+        file_reasons[item.path] = (
+            f"selected_handle rank={len(selected)} score={item.score:.3f} "
+            f"reason={item.reason} handle={handle}"
+        )
+    handles = [handle for _, handle in selected]
+    estimated_fetch_files = len(selected)
+    direct_query_files = len(set(direct_query_file_paths))
     estimated_total_tokens = scout_tokens + estimated_fetch_tokens
+    projected_precision = _projected_chunk_precision(files, selected_scores)
+    direct_query_precision = 1.0 / direct_query_files if direct_query_files > 0 else 0.0
     recommended_strategy: ScoutFetchStrategy = "chunk_first"
     guardrail_reason = ""
     if not handles:
         recommended_strategy = "direct_query"
         guardrail_reason = "no_precise_fetch_handles"
+    elif direct_query_files > 0 and direct_query_files <= INTENT_DIRECT_QUERY_FILE_LIMITS[intent]:
+        recommended_strategy = "direct_query"
+        guardrail_reason = "direct_query_already_narrow"
     elif direct_query_tokens > 0 and estimated_total_tokens >= direct_query_tokens:
         recommended_strategy = "direct_query"
         guardrail_reason = "estimated_total_not_better_than_query"
+    elif direct_query_precision >= projected_precision:
+        recommended_strategy = "direct_query"
+        guardrail_reason = "direct_query_precision_proxy"
     return ScoutFetchPlan(
         handles=handles,
+        file_reasons=file_reasons,
         estimated_fetch_tokens=estimated_fetch_tokens,
+        estimated_fetch_files=estimated_fetch_files,
         direct_query_tokens=direct_query_tokens,
+        direct_query_files=direct_query_files,
         estimated_total_tokens=estimated_total_tokens,
+        projected_precision=projected_precision,
+        direct_query_precision=direct_query_precision,
         recommended_strategy=recommended_strategy,
         guardrail_reason=guardrail_reason,
     )
@@ -585,6 +652,15 @@ def _representative_chunk(
 ) -> CodeChunk | None:
     chunks = _sorted_chunks_for_scout(chunks_by_file.get(file_path, []), score_by_chunk)
     return chunks[0] if chunks else None
+
+
+def _projected_chunk_precision(files: list[ScoutFile], selected_scores: list[float]) -> float:
+    if not files or not selected_scores:
+        return 0.0
+    total_score = sum(max(item.score, 0.0) for item in files)
+    if total_score <= 0.0:
+        return 0.0
+    return (sum(selected_scores) / total_score) / len(selected_scores)
 
 
 def _chunk_token_count(chunk: CodeChunk) -> int:
@@ -660,8 +736,14 @@ def _render_markdown(result: ScoutResult) -> str:
     lines.append(
         "- estimated_tokens: "
         f"fetch={result.fetch_plan.estimated_fetch_tokens}, "
+        f"files={result.fetch_plan.estimated_fetch_files}, "
         f"total={result.fetch_plan.estimated_total_tokens}, "
-        f"direct_query={result.fetch_plan.direct_query_tokens}"
+        f"direct_query={result.fetch_plan.direct_query_tokens}/{result.fetch_plan.direct_query_files}"
+    )
+    lines.append(
+        "- projected_precision: "
+        f"chunk_first={result.fetch_plan.projected_precision:.3f}, "
+        f"direct_query={result.fetch_plan.direct_query_precision:.3f}"
     )
     if result.fetch_plan.guardrail_reason:
         lines.append(f"- guardrail: {result.fetch_plan.guardrail_reason}")

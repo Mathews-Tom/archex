@@ -885,6 +885,14 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
     )
     tokens_with_completion = tokens_total + completion_tokens
     missing_from_fetch = sorted(set(task.expected_files) - result_files)
+    extra_fetch_files = sorted(result_files - set(task.expected_files))
+    if fetch_mode == "chunk_first":
+        extra_fetch_file_reasons = {
+            path: scout_result.fetch_plan.file_reasons.get(path, "selected_handle reason=unknown")
+            for path in extra_fetch_files
+        }
+    else:
+        extra_fetch_file_reasons = {path: "direct_query_fallback" for path in extra_fetch_files}
     return BenchmarkResult(
         task_id=task.task_id,
         strategy=Strategy.ARCHEX_SCOUT_FETCH,
@@ -930,7 +938,15 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
             "missing_from_scout_map": ",".join(missing_from_scout_map) or "none",
             "missing_from_fetch": ",".join(missing_from_fetch) or "none",
             "estimated_fetch_tokens": str(scout_result.fetch_plan.estimated_fetch_tokens),
+            "estimated_fetch_files": str(scout_result.fetch_plan.estimated_fetch_files),
+            "projected_chunk_precision": f"{scout_result.fetch_plan.projected_precision:.3f}",
+            "projected_direct_precision": f"{scout_result.fetch_plan.direct_query_precision:.3f}",
             "direct_query_tokens": str(scout_result.fetch_plan.direct_query_tokens),
+            "direct_query_files": str(scout_result.fetch_plan.direct_query_files),
+            "extra_fetch_file_reasons": "; ".join(
+                f"{path}=>{reason}" for path, reason in extra_fetch_file_reasons.items()
+            )
+            or "none",
             "intent_class": task.category.value if task.category is not None else "uncategorized",
         },
     )
