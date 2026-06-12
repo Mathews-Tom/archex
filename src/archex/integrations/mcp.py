@@ -584,6 +584,7 @@ def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
         def __init__(self) -> None:
             self._timer: threading.Timer | None = None
             self._lock = threading.Lock()
+            self._pending_refresh = False
             self._refreshing = False
 
         def on_any_event(self, event: FileSystemEvent) -> None:
@@ -594,11 +595,17 @@ def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
 
         def _schedule(self) -> None:
             with self._lock:
-                if self._timer is not None:
-                    self._timer.cancel()
-                self._timer = threading.Timer(debounce_ms / 1000.0, self._refresh)
-                self._timer.daemon = True
-                self._timer.start()
+                if self._refreshing:
+                    self._pending_refresh = True
+                    return
+                self._arm_timer_locked()
+
+        def _arm_timer_locked(self) -> None:
+            if self._timer is not None:
+                self._timer.cancel()
+            self._timer = threading.Timer(debounce_ms / 1000.0, self._refresh)
+            self._timer.daemon = True
+            self._timer.start()
 
         def _refresh(self) -> None:
             with self._lock:
@@ -616,6 +623,9 @@ def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
             finally:
                 with self._lock:
                     self._refreshing = False
+                    if self._pending_refresh:
+                        self._pending_refresh = False
+                        self._arm_timer_locked()
 
     observer = Observer()
     observer.schedule(DebouncedIndexHandler(), str(repo_path), recursive=True)
