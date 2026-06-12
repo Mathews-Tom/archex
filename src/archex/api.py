@@ -1232,6 +1232,20 @@ def analyze(
         cleanup()
 
 
+def _attach_refresh_metadata(bundle: ContextBundle, timing: PipelineTiming | None) -> None:
+    if timing is None:
+        return
+    bundle.retrieval_metadata.index_stale = timing.delta_attempted
+    bundle.retrieval_metadata.refresh_time_ms = timing.delta_ms
+    if timing.delta_meta is not None:
+        bundle.retrieval_metadata.refresh_files_changed = (
+            timing.delta_meta.files_modified
+            + timing.delta_meta.files_added
+            + timing.delta_meta.files_deleted
+            + timing.delta_meta.files_renamed
+        )
+
+
 def query(
     source: RepoSource,
     question: str,
@@ -1243,6 +1257,7 @@ def query(
     timing: PipelineTiming | None = None,
     trace: PipelineTrace | None = None,
     explicit_token_budget: bool = False,
+    refresh: bool = True,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -1266,13 +1281,25 @@ def query(
         trace.operation = "query"
         trace.start_ns = time.perf_counter_ns()
     cache = _cache_manager_for_source(source, config)
+    metadata_timing = timing
     cache_key = cache.cache_key(source)
 
-    # Check cache BEFORE parsing — if cached, skip the expensive parse pipeline
-    cached_db = cache.get(cache_key) if config.cache else None
+    # Check cache BEFORE parsing — if cached, skip the expensive parse pipeline.
+    preopened_store: IndexStore | None = None
+    if refresh and config.cache:
+        metadata_timing = timing or PipelineTiming()
+        preopened_store = _ensure_index(
+            source,
+            config,
+            timing=metadata_timing,
+            index_config=index_config,
+        )
+        cached_db = preopened_store.db_path
+    else:
+        cached_db = cache.get(cache_key) if config.cache else None
     if cached_db is not None:
         logger.info("Cache hit for %s", cache_key[:12])
-        store = IndexStore(cached_db)
+        store = preopened_store or IndexStore(cached_db)
         if store.needs_reindex():
             logger.info("Stale cache (missing symbol_ids) — forcing full re-index")
             store.close()
@@ -1315,6 +1342,7 @@ def query(
                     if trace is not None:
                         trace.end_ns = time.perf_counter_ns()
                         trace.log_summary()
+                    _attach_refresh_metadata(pt, metadata_timing)
                     return pt
 
                 bm25 = BM25Index(store)
@@ -1476,6 +1504,7 @@ def query(
                 if trace is not None:
                     trace.end_ns = time.perf_counter_ns()
                     trace.log_summary()
+                _attach_refresh_metadata(bundle, metadata_timing)
                 return bundle
             finally:
                 store.close()
@@ -1682,6 +1711,7 @@ def query(
                     trace.log_summary()
                 pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
                 logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
+                _attach_refresh_metadata(pt, metadata_timing)
                 return pt
 
             t6 = time.perf_counter()
@@ -1820,6 +1850,7 @@ def query(
         if trace is not None:
             trace.end_ns = time.perf_counter_ns()
             trace.log_summary()
+        _attach_refresh_metadata(bundle, metadata_timing)
         return bundle
     finally:
         cleanup()

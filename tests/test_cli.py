@@ -330,11 +330,33 @@ def test_query_command_defaults_source_to_cwd(
 
     with patch("archex.cli.query_cmd.query", return_value=FakeBundle()) as query_mock:
         result = runner.invoke(cli, ["query", "How does the query pipeline work?"])
-
     assert result.exit_code == 0, result.output
     assert result.output.strip() == "format=xml"
     assert query_mock.call_args.args[0].local_path == "."
     assert query_mock.call_args.args[1] == "How does the query pipeline work?"
+    assert query_mock.call_args.kwargs["refresh"] is True
+
+
+def test_query_command_no_refresh_disables_inline_refresh(
+    python_simple_repo: Path,
+) -> None:
+    class FakeBundle:
+        chunks: list[object] = []
+        token_count = 0
+
+        def to_prompt(self, *, format: str) -> str:
+            return f"format={format}"
+
+    runner = CliRunner()
+
+    with patch("archex.cli.query_cmd.query", return_value=FakeBundle()) as query_mock:
+        result = runner.invoke(
+            cli,
+            ["query", str(python_simple_repo), "How does search work?", "--no-refresh"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert query_mock.call_args.kwargs["refresh"] is False
 
 
 def test_analyze_tree_and_symbols_default_source_to_cwd(
