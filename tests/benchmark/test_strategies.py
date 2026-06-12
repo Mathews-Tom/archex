@@ -447,7 +447,7 @@ class TestRunArchexQuery:
         assert result.tokens_raw_baseline >= 0
 
     def test_archex_scout_fetch_strategy(self, python_simple_repo: Path) -> None:
-        from archex.scout import ScoutBudget, ScoutFile, ScoutResult, file_handle
+        from archex.scout import ScoutBudget, ScoutFetchPlan, ScoutFile, ScoutResult, symbol_handle
 
         task = BenchmarkTask(
             task_id="test",
@@ -465,10 +465,19 @@ class TestRunArchexQuery:
                     language="python",
                     lines=10,
                     symbol_count=1,
-                    handle=file_handle("main.py"),
+                    handle="file:main.py",
+                    primary_chunk_handle="chunk:main#1",
+                    primary_symbol_handle=symbol_handle("main#1"),
                 )
             ],
             budget=ScoutBudget(token_budget=1000),
+            fetch_plan=ScoutFetchPlan(
+                handles=[symbol_handle("main#1")],
+                estimated_fetch_tokens=12,
+                estimated_total_tokens=50,
+                direct_query_tokens=120,
+                recommended_strategy="chunk_first",
+            ),
         )
         bundle = ContextBundle(
             query=task.question,
@@ -477,7 +486,7 @@ class TestRunArchexQuery:
             token_budget=task.token_budget,
         )
         with (
-            patch("archex.api.scout", return_value=scout_result),
+            patch("archex.api.scout_with_bundle", return_value=(scout_result, bundle)),
             patch("archex.api.query", return_value=bundle),
         ):
             result = run_archex_scout_fetch(task, python_simple_repo)
@@ -486,6 +495,45 @@ class TestRunArchexQuery:
         assert result.tool_calls == 2
         assert result.result_files == ["main.py"]
         assert result.provenance["scout_token_budget"] == "1000"
+        assert result.provenance["fetch_mode"] == "chunk_first"
+        assert result.provenance["missing_from_scout_map"] == "none"
+
+    def test_archex_scout_fetch_guardrail_uses_direct_query(self, python_simple_repo: Path) -> None:
+        from archex.scout import ScoutBudget, ScoutFetchPlan, ScoutResult
+
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=4096,
+        )
+        scout_result = ScoutResult(
+            query=task.question,
+            budget=ScoutBudget(token_budget=1000),
+            fetch_plan=ScoutFetchPlan(
+                handles=[],
+                estimated_fetch_tokens=0,
+                estimated_total_tokens=0,
+                direct_query_tokens=12,
+                recommended_strategy="direct_query",
+                guardrail_reason="estimated_total_not_better_than_query",
+            ),
+        )
+        bundle = ContextBundle(
+            query=task.question,
+            chunks=[_ranked_chunk("main#1", "main.py", score=1.0)],
+            token_count=12,
+            token_budget=task.token_budget,
+        )
+        with patch("archex.api.scout_with_bundle", return_value=(scout_result, bundle)):
+            result = run_archex_scout_fetch(task, python_simple_repo)
+
+        assert result.tool_calls == 1
+        assert result.tokens_total == 12
+        assert result.provenance["fetch_mode"] == "direct_query"
+        assert result.provenance["guardrail_reason"] == "estimated_total_not_better_than_query"
 
     def test_expanded_files_split_uses_file_count_boundary(self, tmp_path: Path) -> None:
         for file_path in ("seed_a.py", "seed_b.py", "expanded_a.py", "expanded_b.py"):

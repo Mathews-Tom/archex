@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 ScoutFormat = Literal["json", "markdown"]
 ScoutHandleKind = Literal["file", "symbol", "chunk"]
+ScoutFetchStrategy = Literal["chunk_first", "direct_query"]
 
 DEFAULT_SCOUT_TOKEN_BUDGET = 1000
 MIN_SCOUT_TOKEN_BUDGET = 64
@@ -51,6 +53,8 @@ class ScoutFile(BaseModel):
     handle: str
     score: float = 0.0
     reason: str = "ranked"
+    primary_chunk_handle: str | None = None
+    primary_symbol_handle: str | None = None
 
 
 class ScoutSymbol(BaseModel):
@@ -94,6 +98,15 @@ class ScoutGraphEdge(BaseModel):
     evidence: list[str] = []
 
 
+class ScoutFetchPlan(BaseModel):
+    handles: list[str] = []
+    estimated_fetch_tokens: int = 0
+    direct_query_tokens: int = 0
+    estimated_total_tokens: int = 0
+    recommended_strategy: ScoutFetchStrategy = "chunk_first"
+    guardrail_reason: str = ""
+
+
 class ScoutResult(BaseModel):
     query: str
     ranked_files: list[ScoutFile] = []
@@ -101,6 +114,7 @@ class ScoutResult(BaseModel):
     symbols: list[ScoutSymbol] = []
     graph: list[ScoutGraphEdge] = []
     budget: ScoutBudget
+    fetch_plan: ScoutFetchPlan = ScoutFetchPlan()
 
 
 def file_handle(file_path: str) -> str:
@@ -146,14 +160,27 @@ def assemble_scout_from_store(
     module_limit: int = DEFAULT_SCOUT_MODULE_LIMIT,
     modules_override: list[Module] | None = None,
     graph_edge_limit: int = DEFAULT_SCOUT_GRAPH_EDGE_LIMIT,
+    bundle_file_paths: list[str] | None = None,
+    seed_file_paths: list[str] | None = None,
+    expanded_file_paths: list[str] | None = None,
+    direct_query_tokens: int = 0,
 ) -> ScoutResult:
     """Build a deterministic no-body structural map from an indexed repository."""
     _validate_token_budget(token_budget)
     ranked = ranked_chunks or []
-    files, omitted_files = _rank_files(store, ranked, file_limit=file_limit)
+    score_by_chunk = _score_by_chunk(ranked)
+    files, omitted_files = _rank_files(
+        store,
+        ranked,
+        file_limit=file_limit,
+        bundle_file_paths=bundle_file_paths or [],
+        seed_file_paths=seed_file_paths or [],
+        expanded_file_paths=expanded_file_paths or [],
+    )
     chunks_by_file = _chunks_by_file(store, [item.path for item in files])
+    _attach_primary_handles(files, chunks_by_file, score_by_chunk)
     symbols, omitted_symbols = _top_symbols(
-        chunks_by_file, ranked, symbols_per_file=symbols_per_file
+        chunks_by_file, score_by_chunk, symbols_per_file=symbols_per_file
     )
     modules_source = modules_override if modules_override is not None else store.get_modules()
     modules, omitted_modules = _rank_modules(modules_source, files, module_limit=module_limit)
@@ -172,7 +199,14 @@ def assemble_scout_from_store(
             omitted_graph_edges=omitted_graph_edges,
         ),
     )
-    return enforce_scout_token_budget(result, output_format=output_format)
+    _finalize_scout_result(
+        result,
+        output_format=output_format,
+        chunks_by_file=chunks_by_file,
+        score_by_chunk=score_by_chunk,
+        direct_query_tokens=direct_query_tokens,
+    )
+    return result
 
 
 def enforce_scout_token_budget(result: ScoutResult, *, output_format: ScoutFormat) -> ScoutResult:
@@ -204,6 +238,53 @@ def enforce_scout_token_budget(result: ScoutResult, *, output_format: ScoutForma
         raise ValueError(msg)
 
 
+def render_scout(result: ScoutResult, *, output_format: ScoutFormat = "markdown") -> str:
+    if output_format == "json":
+        return json.dumps(result.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+    if output_format == "markdown":
+        return _render_markdown(result)
+    raise ValueError(f"Unsupported scout format {output_format!r}")
+
+
+def _finalize_scout_result(
+    result: ScoutResult,
+    *,
+    output_format: ScoutFormat,
+    chunks_by_file: dict[str, list[CodeChunk]],
+    score_by_chunk: dict[str, float],
+    direct_query_tokens: int,
+) -> None:
+    while True:
+        previous = _scout_shape(result)
+        result.fetch_plan = _build_fetch_plan(
+            result.ranked_files,
+            chunks_by_file,
+            score_by_chunk,
+            direct_query_tokens=direct_query_tokens,
+            scout_tokens=result.budget.token_count,
+        )
+        enforce_scout_token_budget(result, output_format=output_format)
+        result.fetch_plan = _build_fetch_plan(
+            result.ranked_files,
+            chunks_by_file,
+            score_by_chunk,
+            direct_query_tokens=direct_query_tokens,
+            scout_tokens=result.budget.token_count,
+        )
+        if previous == _scout_shape(result):
+            return
+
+
+def _scout_shape(result: ScoutResult) -> tuple[int, int, int, int, tuple[str, ...]]:
+    return (
+        len(result.ranked_files),
+        len(result.modules),
+        len(result.symbols),
+        len(result.graph),
+        tuple(result.fetch_plan.handles),
+    )
+
+
 def _stable_rendered_token_count(result: ScoutResult, *, output_format: ScoutFormat) -> int:
     for _ in range(4):
         token_count = count_tokens(render_scout(result, output_format=output_format))
@@ -213,30 +294,48 @@ def _stable_rendered_token_count(result: ScoutResult, *, output_format: ScoutFor
     return count_tokens(render_scout(result, output_format=output_format))
 
 
-def render_scout(result: ScoutResult, *, output_format: ScoutFormat = "markdown") -> str:
-    if output_format == "json":
-        return json.dumps(result.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
-    if output_format == "markdown":
-        return _render_markdown(result)
-    raise ValueError(f"Unsupported scout format {output_format!r}")
-
-
 def _rank_files(
     store: IndexStore,
     ranked_chunks: list[RankedChunk],
     *,
     file_limit: int,
+    bundle_file_paths: list[str],
+    seed_file_paths: list[str],
+    expanded_file_paths: list[str],
 ) -> tuple[list[ScoutFile], int]:
     metadata = {str(row["file_path"]): row for row in store.get_file_metadata()}
-    file_scores: dict[str, float] = {}
-    for ranked in ranked_chunks:
+    aggregate_scores: dict[str, float] = defaultdict(float)
+    max_scores: dict[str, float] = {}
+    first_rank: dict[str, int] = {}
+    for idx, ranked in enumerate(ranked_chunks):
+        path = ranked.chunk.file_path
         score = ranked.final_score or ranked.relevance_score or ranked.structural_score
-        current = file_scores.get(ranked.chunk.file_path, 0.0)
-        if score > current:
-            file_scores[ranked.chunk.file_path] = score
-    if not file_scores:
-        file_scores = {path: 0.0 for path in metadata}
-    ordered_paths = sorted(file_scores, key=lambda path: (-file_scores[path], path))
+        aggregate_scores[path] += score
+        max_scores[path] = max(score, max_scores.get(path, 0.0))
+        first_rank.setdefault(path, idx)
+    candidate_paths: list[str] = []
+    seen: set[str] = set()
+    for path in [
+        *bundle_file_paths,
+        *seed_file_paths,
+        *expanded_file_paths,
+        *aggregate_scores.keys(),
+    ]:
+        if path in metadata and path not in seen:
+            candidate_paths.append(path)
+            seen.add(path)
+    if not candidate_paths:
+        candidate_paths = sorted(metadata)
+    bundle_rank = {path: idx for idx, path in enumerate(candidate_paths)}
+    ordered_paths = sorted(
+        candidate_paths,
+        key=lambda path: (
+            -_file_rank_score(path, aggregate_scores, max_scores, bundle_rank),
+            bundle_rank.get(path, len(bundle_rank)),
+            first_rank.get(path, len(first_rank)),
+            path,
+        ),
+    )
     selected_paths = ordered_paths[:file_limit]
     files = [
         ScoutFile(
@@ -245,12 +344,39 @@ def _rank_files(
             lines=int(metadata.get(path, {}).get("lines", 0)),
             symbol_count=int(metadata.get(path, {}).get("symbol_count", 0)),
             handle=file_handle(path),
-            score=round(file_scores[path], 6),
-            reason="query_rank" if ranked_chunks else "file_tree",
+            score=round(_file_rank_score(path, aggregate_scores, max_scores, bundle_rank), 6),
+            reason=_file_reason(path, bundle_file_paths, seed_file_paths, expanded_file_paths),
         )
         for path in selected_paths
     ]
     return files, max(0, len(ordered_paths) - len(selected_paths))
+
+
+def _file_rank_score(
+    path: str,
+    aggregate_scores: dict[str, float],
+    max_scores: dict[str, float],
+    bundle_rank: dict[str, int],
+) -> float:
+    aggregate = aggregate_scores.get(path, 0.0)
+    maximum = max_scores.get(path, 0.0)
+    rank_bonus = 1.0 / (bundle_rank[path] + 1) if path in bundle_rank else 0.0
+    return aggregate + (maximum * 0.25) + rank_bonus
+
+
+def _file_reason(
+    path: str,
+    bundle_file_paths: list[str],
+    seed_file_paths: list[str],
+    expanded_file_paths: list[str],
+) -> str:
+    if path in bundle_file_paths:
+        return "query_bundle"
+    if path in seed_file_paths:
+        return "retrieval_seed"
+    if path in expanded_file_paths:
+        return "graph_expansion"
+    return "file_tree"
 
 
 def _chunks_by_file(store: IndexStore, file_paths: list[str]) -> dict[str, list[CodeChunk]]:
@@ -261,32 +387,58 @@ def _chunks_by_file(store: IndexStore, file_paths: list[str]) -> dict[str, list[
     return result
 
 
-def _top_symbols(
-    chunks_by_file: dict[str, list[CodeChunk]],
-    ranked_chunks: list[RankedChunk],
-    *,
-    symbols_per_file: int,
-) -> tuple[list[ScoutSymbol], int]:
-    score_by_chunk = {
+def _score_by_chunk(ranked_chunks: list[RankedChunk]) -> dict[str, float]:
+    return {
         ranked.chunk.id: ranked.final_score or ranked.relevance_score or ranked.structural_score
         for ranked in ranked_chunks
     }
+
+
+def _sorted_chunks_for_scout(
+    chunks: list[CodeChunk],
+    score_by_chunk: dict[str, float],
+) -> list[CodeChunk]:
+    return sorted(
+        chunks,
+        key=lambda chunk: (
+            -(score_by_chunk.get(chunk.id, 0.0)),
+            0 if chunk.symbol_name and chunk.symbol_kind else 1,
+            _visibility_rank(chunk.visibility),
+            chunk.start_line,
+            chunk.id,
+        ),
+    )
+
+
+def _attach_primary_handles(
+    files: list[ScoutFile],
+    chunks_by_file: dict[str, list[CodeChunk]],
+    score_by_chunk: dict[str, float],
+) -> None:
+    for item in files:
+        chunks = _sorted_chunks_for_scout(chunks_by_file.get(item.path, []), score_by_chunk)
+        if not chunks:
+            continue
+        chunk = chunks[0]
+        item.primary_chunk_handle = chunk_handle(chunk.id)
+        if chunk.symbol_id is not None:
+            item.primary_symbol_handle = symbol_handle(str(chunk.symbol_id))
+
+
+def _top_symbols(
+    chunks_by_file: dict[str, list[CodeChunk]],
+    score_by_chunk: dict[str, float],
+    *,
+    symbols_per_file: int,
+) -> tuple[list[ScoutSymbol], int]:
     symbols: list[ScoutSymbol] = []
     omitted = 0
     for file_path in sorted(chunks_by_file):
         chunks = [
-            chunk for chunk in chunks_by_file[file_path] if chunk.symbol_name and chunk.symbol_kind
+            chunk
+            for chunk in _sorted_chunks_for_scout(chunks_by_file[file_path], score_by_chunk)
+            if chunk.symbol_name and chunk.symbol_kind
         ]
-        chunks = sorted(
-            chunks,
-            key=lambda chunk: (
-                -(score_by_chunk.get(chunk.id, 0.0)),
-                _visibility_rank(chunk.visibility),
-                chunk.start_line,
-                chunk.symbol_name or "",
-                chunk.id,
-            ),
-        )
         for chunk in chunks[:symbols_per_file]:
             symbol_id = str(chunk.symbol_id) if chunk.symbol_id else None
             symbols.append(
@@ -387,6 +539,60 @@ def _graph_sketch(
     return edges[:edge_limit], omitted + max(0, len(edges) - edge_limit)
 
 
+def _build_fetch_plan(
+    files: list[ScoutFile],
+    chunks_by_file: dict[str, list[CodeChunk]],
+    score_by_chunk: dict[str, float],
+    *,
+    direct_query_tokens: int,
+    scout_tokens: int,
+) -> ScoutFetchPlan:
+    handles: list[str] = []
+    estimated_fetch_tokens = 0
+    seen: set[str] = set()
+    for item in files:
+        handle = item.primary_symbol_handle or item.primary_chunk_handle
+        if handle is None or handle in seen:
+            continue
+        seen.add(handle)
+        handles.append(handle)
+        representative = _representative_chunk(item.path, chunks_by_file, score_by_chunk)
+        if representative is not None:
+            estimated_fetch_tokens += _chunk_token_count(representative)
+    estimated_total_tokens = scout_tokens + estimated_fetch_tokens
+    recommended_strategy: ScoutFetchStrategy = "chunk_first"
+    guardrail_reason = ""
+    if not handles:
+        recommended_strategy = "direct_query"
+        guardrail_reason = "no_precise_fetch_handles"
+    elif direct_query_tokens > 0 and estimated_total_tokens >= direct_query_tokens:
+        recommended_strategy = "direct_query"
+        guardrail_reason = "estimated_total_not_better_than_query"
+    return ScoutFetchPlan(
+        handles=handles,
+        estimated_fetch_tokens=estimated_fetch_tokens,
+        direct_query_tokens=direct_query_tokens,
+        estimated_total_tokens=estimated_total_tokens,
+        recommended_strategy=recommended_strategy,
+        guardrail_reason=guardrail_reason,
+    )
+
+
+def _representative_chunk(
+    file_path: str,
+    chunks_by_file: dict[str, list[CodeChunk]],
+    score_by_chunk: dict[str, float],
+) -> CodeChunk | None:
+    chunks = _sorted_chunks_for_scout(chunks_by_file.get(file_path, []), score_by_chunk)
+    return chunks[0] if chunks else None
+
+
+def _chunk_token_count(chunk: CodeChunk) -> int:
+    if chunk.token_count > 0:
+        return chunk.token_count
+    return int(len(chunk.content.split()) * 1.3)
+
+
 def _visibility_rank(visibility: str | None) -> int:
     if visibility == "public":
         return 0
@@ -408,7 +614,7 @@ def _render_markdown(result: ScoutResult) -> str:
         for item in result.ranked_files:
             lines.append(
                 f"- {item.path} (`{item.handle}`, {item.language}, {item.lines} lines, "
-                f"{item.symbol_count} symbols, score={item.score:.3f})"
+                f"{item.symbol_count} symbols, score={item.score:.3f}, reason={item.reason})"
             )
     else:
         lines.append("- none")
@@ -449,6 +655,20 @@ def _render_markdown(result: ScoutResult) -> str:
             )
     else:
         lines.append("- none")
+    lines.extend(["", "## Recommended fetch"])
+    lines.append(f"- strategy: {result.fetch_plan.recommended_strategy}")
+    lines.append(
+        "- estimated_tokens: "
+        f"fetch={result.fetch_plan.estimated_fetch_tokens}, "
+        f"total={result.fetch_plan.estimated_total_tokens}, "
+        f"direct_query={result.fetch_plan.direct_query_tokens}"
+    )
+    if result.fetch_plan.guardrail_reason:
+        lines.append(f"- guardrail: {result.fetch_plan.guardrail_reason}")
+    if result.fetch_plan.handles:
+        lines.append(f"- handles: {', '.join(result.fetch_plan.handles)}")
+    else:
+        lines.append("- handles: none")
     if result.budget.truncated:
         lines.extend(
             [

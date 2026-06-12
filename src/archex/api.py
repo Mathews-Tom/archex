@@ -1394,18 +1394,17 @@ def _chunk_token_count(chunk: CodeChunk) -> int:
     return int(len(chunk.content.split()) * 1.3)
 
 
-def scout(
+def scout_with_bundle(
     source: RepoSource,
     question: str,
     *,
-    token_budget: int = DEFAULT_SCOUT_TOKEN_BUDGET,
-    output_format: ScoutFormat = "markdown",
-    config: Config | None = None,
-    index_config: IndexConfig | None = None,
-    timing: PipelineTiming | None = None,
-    refresh: bool = True,
-) -> ScoutResult:
-    """Return a token-capped no-body structural scout map for a repository question."""
+    token_budget: int,
+    output_format: ScoutFormat,
+    config: Config | None,
+    index_config: IndexConfig | None,
+    timing: PipelineTiming | None,
+    refresh: bool,
+) -> tuple[ScoutResult, ContextBundle]:
     if config is None:
         config = load_config(source)
     if index_config is None:
@@ -1419,21 +1418,52 @@ def scout(
         timing=ranking_timing,
         refresh=refresh,
     )
+    bundle_file_paths = list(dict.fromkeys(chunk.chunk.file_path for chunk in bundle.chunks))
     store = _ensure_index(source, config, timing=ranking_timing, index_config=index_config)
     try:
         modules = store.get_modules()
         if not modules:
             modules = analyze(source, config=config).module_map
-        return assemble_scout_from_store(
+        scout_result = assemble_scout_from_store(
             store,
             question,
             ranked_chunks=bundle.chunks,
             token_budget=token_budget,
             output_format=output_format,
             modules_override=modules,
+            bundle_file_paths=bundle_file_paths,
+            seed_file_paths=bundle.retrieval_metadata.seed_file_paths,
+            expanded_file_paths=bundle.retrieval_metadata.expanded_file_paths,
+            direct_query_tokens=bundle.token_count,
         )
     finally:
         store.close()
+    return scout_result, bundle
+
+
+def scout(
+    source: RepoSource,
+    question: str,
+    *,
+    token_budget: int = DEFAULT_SCOUT_TOKEN_BUDGET,
+    output_format: ScoutFormat = "markdown",
+    config: Config | None = None,
+    index_config: IndexConfig | None = None,
+    timing: PipelineTiming | None = None,
+    refresh: bool = True,
+) -> ScoutResult:
+    """Return a token-capped no-body structural scout map for a repository question."""
+    scout_result, _bundle = scout_with_bundle(
+        source,
+        question,
+        token_budget=token_budget,
+        output_format=output_format,
+        config=config,
+        index_config=index_config,
+        timing=timing,
+        refresh=refresh,
+    )
+    return scout_result
 
 
 def query(

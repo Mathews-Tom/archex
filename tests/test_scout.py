@@ -98,9 +98,10 @@ def test_scout_assembles_no_body_structural_map(tmp_path: Path) -> None:
     assert result.symbols[0].chunk_handle == chunk_handle("pkg/app.py::run#function")
     assert result.symbols[0].symbol_handle == symbol_handle("pkg/app.py::run#function")
     assert result.ranked_files[0].handle == file_handle("pkg/app.py")
-    assert chunk_handle("pkg/app.py::run#function") in rendered
-    assert symbol_handle("pkg/app.py::run#function") in rendered
-    assert file_handle("pkg/app.py") in rendered
+    assert result.ranked_files[0].primary_chunk_handle == chunk_handle("pkg/app.py::run#function")
+    assert result.ranked_files[0].primary_symbol_handle == symbol_handle("pkg/app.py::run#function")
+    assert result.fetch_plan.handles == [symbol_handle("pkg/app.py::run#function")]
+    assert result.fetch_plan.recommended_strategy == "chunk_first"
     import_edge = next(edge for edge in result.graph if edge.kind == "imports")
     assert import_edge.confidence == "heuristic"
     assert "SECRET BODY" not in rendered
@@ -117,16 +118,54 @@ def test_scout_truncates_deterministically_under_cap(tmp_path: Path) -> None:
     assert first.budget.token_count == count_tokens(render_scout(first))
 
 
+def test_scout_guardrail_prefers_direct_query_when_fetch_is_not_cheaper(tmp_path: Path) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        app_chunk = store.get_chunk("pkg/app.py::run#function")
+        model_chunk = store.get_chunk("pkg/models.py::Model#class")
+        assert app_chunk is not None
+        assert model_chunk is not None
+        result = assemble_scout_from_store(
+            store,
+            "how does app loading work",
+            ranked_chunks=[
+                RankedChunk(chunk=app_chunk, final_score=0.9),
+                RankedChunk(chunk=model_chunk, final_score=0.8),
+            ],
+            token_budget=400,
+            direct_query_tokens=10,
+        )
+
+    assert result.fetch_plan.recommended_strategy == "direct_query"
+    assert result.fetch_plan.guardrail_reason == "estimated_total_not_better_than_query"
+    assert result.fetch_plan.handles == [
+        symbol_handle("pkg/app.py::run#function"),
+        symbol_handle("pkg/models.py::Model#class"),
+    ]
+
+
 def test_scout_handles_fetch_exact_symbols_and_query_chunks(tmp_path: Path) -> None:
     from archex.api import get_symbol, get_symbols_batch, query
     from archex.models import RepoSource
 
     store = _populate_store(tmp_path / "index.db")
     source = RepoSource(local_path="/fake")
+    app_chunk = store.get_chunk("pkg/app.py::run#function")
+    model_chunk = store.get_chunk("pkg/models.py::Model#class")
+    assert app_chunk is not None
+    assert model_chunk is not None
     with (
         patch("archex.api._ensure_index", return_value=store),
         patch.object(store, "close", return_value=None),
     ):
+        result = assemble_scout_from_store(
+            store,
+            "fetch exact scout handles",
+            ranked_chunks=[
+                RankedChunk(chunk=app_chunk, final_score=1.0),
+                RankedChunk(chunk=model_chunk, final_score=0.9),
+            ],
+            token_budget=400,
+        )
         symbol = get_symbol(source, symbol_id=symbol_handle("pkg/app.py::run#function"))
         chunk_symbol = get_symbol(source, symbol_id=chunk_handle("pkg/models.py::Model#class"))
         batch = get_symbols_batch(
@@ -139,7 +178,7 @@ def test_scout_handles_fetch_exact_symbols_and_query_chunks(tmp_path: Path) -> N
         bundle = query(
             source,
             "fetch exact scout handles",
-            handles=[file_handle("pkg/app.py"), chunk_handle("pkg/models.py::Model#class")],
+            handles=result.fetch_plan.handles,
         )
 
     assert symbol is not None
