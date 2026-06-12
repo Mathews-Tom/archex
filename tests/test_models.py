@@ -9,6 +9,8 @@ from archex.models import (
     Config,
     ContextBundle,
     DetectedPattern,
+    Edge,
+    EdgeConfidence,
     EdgeKind,
     IndexConfig,
     Interface,
@@ -47,6 +49,31 @@ def test_edge_kind_members() -> None:
     assert EdgeKind.CALLS == "calls"
     assert EdgeKind.INHERITS == "inherits"
     assert EdgeKind.IMPLEMENTS == "implements"
+
+
+def test_edge_confidence_members() -> None:
+    assert EdgeConfidence.EXTRACTED == "extracted"
+    assert EdgeConfidence.HEURISTIC == "heuristic"
+    assert EdgeConfidence.INFERRED == "inferred"
+    assert EdgeConfidence.AMBIGUOUS == "ambiguous"
+
+
+def test_edge_confidence_defaults() -> None:
+    edge = Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS)
+
+    assert edge.confidence == EdgeConfidence.EXTRACTED
+    assert edge.confidence_score == 1.0
+    assert edge.evidence == []
+
+
+def test_edge_confidence_score_bounds() -> None:
+    with pytest.raises(ValueError, match="confidence_score must be between"):
+        Edge(
+            source="a.py",
+            target="b.py",
+            kind=EdgeKind.IMPORTS,
+            confidence_score=1.1,
+        )
 
 
 def test_vector_mode_members() -> None:

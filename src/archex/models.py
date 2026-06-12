@@ -43,6 +43,13 @@ class EdgeKind(StrEnum):
     CO_DIRECTORY = "co_directory"
 
 
+class EdgeConfidence(StrEnum):
+    EXTRACTED = "extracted"
+    HEURISTIC = "heuristic"
+    INFERRED = "inferred"
+    AMBIGUOUS = "ambiguous"
+
+
 class PatternCategory(StrEnum):
     STRUCTURAL = "structural"
     BEHAVIORAL = "behavioral"
@@ -346,6 +353,15 @@ class Edge(BaseModel):
     target: str
     kind: EdgeKind
     location: str | None = None
+    confidence: EdgeConfidence = EdgeConfidence.EXTRACTED
+    confidence_score: float = 1.0
+    evidence: list[str] = []
+
+    @model_validator(mode="after")
+    def _validate_confidence_score(self) -> Edge:
+        if not 0.0 <= self.confidence_score <= 1.0:
+            raise ValueError("confidence_score must be between 0.0 and 1.0")
+        return self
 
 
 # ---------------------------------------------------------------------------
