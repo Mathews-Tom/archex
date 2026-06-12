@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from archex.api import (
@@ -18,10 +20,11 @@ from archex.api import (
     get_repo_total_tokens,
     get_symbol,
     get_symbols_batch,
+    index_repository,
     query,
     search_symbols,
 )
-from archex.models import PipelineTiming
+from archex.models import PipelineTiming, RepoSource
 from archex.reporting import compute_meta, count_tokens
 from archex.serve.compare import validate_dimensions
 from archex.serve.intent import DEFAULT_TOKEN_BUDGET
@@ -565,7 +568,59 @@ def build_server() -> Any:
     return server
 
 
-async def run_stdio_server() -> None:
+def _ignored_watch_path(path: str) -> bool:
+    parts = Path(path).parts
+    return any(part in {".git", ".archex", "__pycache__", ".pytest_cache"} for part in parts)
+
+
+def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
+    try:
+        from watchdog.events import FileSystemEvent, FileSystemEventHandler
+        from watchdog.observers import Observer
+    except ImportError as exc:
+        raise ImportError("watch mode requires the 'watchdog' package") from exc
+
+    class DebouncedIndexHandler(FileSystemEventHandler):
+        def __init__(self) -> None:
+            self._timer: threading.Timer | None = None
+            self._lock = threading.Lock()
+
+        def on_any_event(self, event: FileSystemEvent) -> None:
+            src_path = str(event.src_path)
+            if event.is_directory or _ignored_watch_path(src_path):
+                return
+            self._schedule()
+
+        def _schedule(self) -> None:
+            with self._lock:
+                if self._timer is not None:
+                    self._timer.cancel()
+                self._timer = threading.Timer(debounce_ms / 1000.0, self._refresh)
+                self._timer.daemon = True
+                self._timer.start()
+
+        def _refresh(self) -> None:
+            source = RepoSource(local_path=str(repo_path))
+            timing = PipelineTiming()
+            store = index_repository(source, timing=timing)
+            try:
+                logger.info("MCP watch refreshed %s via %s", repo_path, timing.strategy)
+            finally:
+                store.close()
+
+    observer = Observer()
+    observer.schedule(DebouncedIndexHandler(), str(repo_path), recursive=True)
+    observer.start()
+    logger.info("MCP watch enabled for %s", repo_path)
+    return observer
+
+
+async def run_stdio_server(
+    *,
+    watch: bool = False,
+    watch_path: str = ".",
+    watch_debounce_ms: int = 300,
+) -> None:
     """Run the archex MCP server over stdio."""
     try:
         from mcp.server.stdio import stdio_server
@@ -574,7 +629,16 @@ async def run_stdio_server() -> None:
             "The 'mcp' package is required for MCP integration. Install it with: uv add mcp"
         ) from exc
 
+    observer: Any | None = None
+    if watch:
+        observer = _start_index_watch(Path(watch_path).expanduser().resolve(), watch_debounce_ms)
+
     server = build_server()
-    async with stdio_server() as (read_stream, write_stream):
-        init_opts = server.create_initialization_options()
-        await server.run(read_stream, write_stream, init_opts, raise_exceptions=True)
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            init_opts = server.create_initialization_options()
+            await server.run(read_stream, write_stream, init_opts, raise_exceptions=True)
+    finally:
+        if observer is not None:
+            observer.stop()
+            observer.join(timeout=5)
