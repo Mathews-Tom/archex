@@ -5,16 +5,33 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 pytest.importorskip("mcp", reason="mcp not installed")
 
+from archex.graph_artifact import (
+    ArchGraph,
+    GraphEdge,
+    GraphEdgeType,
+    GraphExportMetadata,
+    GraphNode,
+    GraphNodeType,
+    GraphProject,
+    file_node_id,
+)
+from archex.integrations import mcp as mcp_integration
 from archex.integrations.mcp import (
     build_server,
+    clear_graph_query_cache,
     handle_analyze_repo,
     handle_compare_repos,
+    handle_graph_hubs,
+    handle_graph_neighbors,
+    handle_graph_path,
+    handle_graph_stats,
     handle_query_repo,
 )
 from archex.models import (
@@ -22,6 +39,7 @@ from archex.models import (
     CodeChunk,
     ComparisonResult,
     ContextBundle,
+    EdgeConfidence,
     RankedChunk,
     RepoMetadata,
     RetrievalMetadata,
@@ -538,7 +556,7 @@ class TestBuildServer:
         assert result.isError or isinstance(result, mcp_types.CallToolResult)
 
     @pytest.mark.asyncio
-    async def test_list_tools_returns_eight_tools(self) -> None:
+    async def test_list_tools_returns_graph_tools(self) -> None:
         server = build_server()
         from mcp import types as mcp_types
 
@@ -547,11 +565,14 @@ class TestBuildServer:
         server_result = await handler(req)
         result = server_result.root
         assert isinstance(result, mcp_types.ListToolsResult)
-        assert len(result.tools) == 8
+        assert len(result.tools) == 13
         tool_names = {t.name for t in result.tools}
         assert "get_file_tree" in tool_names
         assert "get_symbol" in tool_names
         assert "search_symbols" in tool_names
+        assert "graph_neighbors" in tool_names
+        assert "graph_path" in tool_names
+        assert "graph_stats" in tool_names
 
 
 # ---------------------------------------------------------------------------
@@ -713,3 +734,114 @@ class TestHandleGetSymbolsBatch:
     def test_rejects_too_many_ids(self) -> None:
         with pytest.raises(ValueError, match="at most 50"):
             handle_get_symbols_batch("/fake", ["id"] * 51)
+
+
+def _write_mcp_graph_artifact(tmp_path: Path) -> Path:
+    app = file_node_id("pkg/app.py")
+    models = file_node_id("pkg/models.py")
+    db = file_node_id("pkg/db.py")
+    hub = file_node_id("pkg/hub.py")
+    graph = ArchGraph(
+        project=GraphProject(name="mcp-graph", languages={"python": 4}, total_files=4),
+        metadata=GraphExportMetadata(archex_version="0.8.0"),
+        nodes=[
+            GraphNode(id=app, type=GraphNodeType.FILE, label="app.py", path="pkg/app.py"),
+            GraphNode(id=models, type=GraphNodeType.FILE, label="models.py", path="pkg/models.py"),
+            GraphNode(id=db, type=GraphNodeType.FILE, label="db.py", path="pkg/db.py"),
+            GraphNode(id=hub, type=GraphNodeType.FILE, label="hub.py", path="pkg/hub.py"),
+        ],
+        edges=[
+            GraphEdge(
+                source=app,
+                target=models,
+                type=GraphEdgeType.IMPORTS,
+                location="pkg/app.py:1",
+                confidence=EdgeConfidence.HEURISTIC,
+                confidence_score=0.75,
+                evidence=["fallback resolution"],
+            ),
+            GraphEdge(source=models, target=db, type=GraphEdgeType.IMPORTS),
+            GraphEdge(source=hub, target=app, type=GraphEdgeType.IMPORTS),
+            GraphEdge(source=hub, target=models, type=GraphEdgeType.IMPORTS),
+            GraphEdge(source=hub, target=db, type=GraphEdgeType.IMPORTS),
+        ],
+    )
+    artifact = tmp_path / "archgraph.json"
+    artifact.write_text(graph.to_json(), encoding="utf-8")
+    clear_graph_query_cache()
+    return artifact
+
+
+class TestGraphQueryHandlers:
+    def test_neighbors_returns_confidence_and_evidence_without_reindexing(
+        self, tmp_path: Path
+    ) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+
+        with patch("archex.integrations.mcp.index_repository", side_effect=AssertionError):
+            result = handle_graph_neighbors(str(artifact), "pkg/app.py")
+
+        parsed = json.loads(result)
+        edge = parsed["content"]["edges"][0]
+        assert edge["type"] == "imports"
+        assert edge["confidence"] == "heuristic"
+        assert edge["confidence_score"] == 0.75
+        assert edge["evidence"] == ["fallback resolution"]
+        assert edge["source"]["path"] == "pkg/app.py"
+        assert parsed["_meta"]["tool_name"] == "graph_neighbors"
+
+    def test_missing_node_returns_error(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+
+        result = handle_graph_neighbors(str(artifact), "missing.py")
+
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "No graph node matches" in parsed["error"]
+
+    def test_hubs_reports_high_degree_nodes(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+
+        result = handle_graph_hubs(str(artifact), threshold=3)
+
+        parsed = json.loads(result)
+        assert parsed["content"]["hubs"][0]["path"] == "pkg/hub.py"
+        assert parsed["content"]["hubs"][0]["degree"] == 3
+
+    def test_artifact_handle_is_reused_across_calls(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        original = mcp_integration.GraphQuery.from_artifact
+
+        with patch.object(mcp_integration.GraphQuery, "from_artifact", wraps=original) as loader:
+            handle_graph_stats(str(artifact))
+            handle_graph_stats(str(artifact))
+
+        assert loader.call_count == 1
+
+    def test_markdown_output_respects_token_budget(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+
+        result = handle_graph_neighbors(
+            str(artifact),
+            "pkg/hub.py",
+            output_format="markdown",
+            token_budget=20,
+        )
+
+        parsed = json.loads(result)
+        assert "[truncated: token budget reached]" in parsed["content"]
+        assert parsed["_meta"]["token_budget"] == 20
+        assert parsed["_meta"]["token_budget_truncated"] is True
+
+    def test_path_handler_returns_structural_path(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+
+        result = handle_graph_path(str(artifact), "pkg/app.py", "pkg/db.py")
+
+        parsed = json.loads(result)
+        assert parsed["content"]["found"] is True
+        assert [node["path"] for node in parsed["content"]["nodes"]] == [
+            "pkg/app.py",
+            "pkg/models.py",
+            "pkg/db.py",
+        ]
