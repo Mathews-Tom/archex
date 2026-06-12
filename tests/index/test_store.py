@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from archex.index.store import IndexStore
-from archex.models import ChunkSurrogate, CodeChunk, Edge, EdgeKind, SymbolKind
+from archex.models import ChunkSurrogate, CodeChunk, Edge, EdgeConfidence, EdgeKind, SymbolKind
 
 SAMPLE_CHUNKS = [
     CodeChunk(
@@ -234,6 +234,25 @@ def test_edge_kind_preserved(store: IndexStore) -> None:
     assert kind_map["utils.py"] == EdgeKind.CALLS
 
 
+def test_edge_confidence_round_trip(store: IndexStore) -> None:
+    edge = Edge(
+        source="tests/test_auth.py",
+        target="src/auth.py",
+        kind=EdgeKind.CALLS,
+        location="tests/test_auth.py:7",
+        confidence=EdgeConfidence.HEURISTIC,
+        confidence_score=0.72,
+        evidence=["same symbol stem", "test path targets source path"],
+    )
+
+    store.insert_edges([edge])
+    [stored] = store.get_edges()
+
+    assert stored.confidence == EdgeConfidence.HEURISTIC
+    assert stored.confidence_score == 0.72
+    assert stored.evidence == ["same symbol stem", "test path targets source path"]
+
+
 def test_empty_store_returns_empty_lists(store: IndexStore) -> None:
     assert store.get_chunks() == []
     assert store.get_edges() == []
@@ -337,7 +356,13 @@ def test_fresh_store_does_not_need_reindex(store: IndexStore) -> None:
 
 
 def test_fresh_store_has_schema_version(store: IndexStore) -> None:
-    assert store.get_metadata("schema_version") == "3"
+    assert store.get_metadata("schema_version") == "4"
+
+
+def test_fresh_store_has_edge_confidence_columns(store: IndexStore) -> None:
+    columns = {row[1] for row in store.conn.execute("PRAGMA table_info(edges)")}
+
+    assert {"confidence", "confidence_score", "evidence"} <= columns
 
 
 def test_migrated_store_with_null_symbol_ids_needs_reindex(tmp_path: Path) -> None:
@@ -374,7 +399,53 @@ def test_migrated_store_with_null_symbol_ids_needs_reindex(tmp_path: Path) -> No
 
     with IndexStore(db) as s:
         assert s.needs_reindex() is True
-        assert s.get_metadata("schema_version") == "3"
+        assert s.get_metadata("schema_version") == "4"
+        columns = {row[1] for row in s.conn.execute("PRAGMA table_info(edges)")}
+        assert {"confidence", "confidence_score", "evidence"} <= columns
+
+
+def test_old_edges_migrate_with_confidence_defaults(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "old_edges.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript("""
+        CREATE TABLE chunks (
+            id TEXT PRIMARY KEY,
+            content TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            start_line INTEGER NOT NULL,
+            end_line INTEGER NOT NULL,
+            symbol_name TEXT,
+            symbol_kind TEXT,
+            language TEXT NOT NULL,
+            imports_context TEXT DEFAULT '',
+            token_count INTEGER DEFAULT 0,
+            symbol_id TEXT,
+            qualified_name TEXT,
+            visibility TEXT DEFAULT 'public',
+            signature TEXT,
+            docstring TEXT
+        );
+        CREATE TABLE edges (
+            source TEXT NOT NULL, target TEXT NOT NULL,
+            kind TEXT NOT NULL, location TEXT
+        );
+        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    """)
+    conn.execute(
+        "INSERT INTO edges (source, target, kind, location) VALUES (?, ?, ?, ?)",
+        ("a.py", "b.py", "imports", "a.py:1"),
+    )
+    conn.commit()
+    conn.close()
+
+    with IndexStore(db) as s:
+        [edge] = s.get_edges()
+
+    assert edge.confidence == EdgeConfidence.EXTRACTED
+    assert edge.confidence_score == 1.0
+    assert edge.evidence == []
 
 
 def test_clear_reindex_flag(tmp_path: Path) -> None:

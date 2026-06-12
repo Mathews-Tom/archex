@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-from archex.models import ChunkSurrogate, CodeChunk, Edge, EdgeKind, Module, SymbolKind
+from archex.models import (
+    ChunkSurrogate,
+    CodeChunk,
+    Edge,
+    EdgeConfidence,
+    EdgeKind,
+    Module,
+    SymbolKind,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -37,7 +46,10 @@ CREATE TABLE IF NOT EXISTS edges (
     source TEXT NOT NULL,
     target TEXT NOT NULL,
     kind TEXT NOT NULL,
-    location TEXT
+    location TEXT,
+    confidence TEXT NOT NULL DEFAULT 'extracted',
+    confidence_score REAL NOT NULL DEFAULT 1.0,
+    evidence TEXT NOT NULL DEFAULT '[]'
 );
 """
 
@@ -147,6 +159,16 @@ def _row_to_chunk(row: tuple[object, ...]) -> CodeChunk:
 
 def _batched_ids(ids: list[str], batch_size: int = _SQLITE_VARIABLE_BATCH) -> list[list[str]]:
     return [ids[i : i + batch_size] for i in range(0, len(ids), batch_size)]
+
+
+def _decode_edge_evidence(raw: object) -> list[str]:
+    decoded: object = json.loads(str(raw))
+    if not isinstance(decoded, list):
+        raise ValueError("edge evidence must be a JSON array of strings")
+    evidence = cast("list[object]", decoded)
+    if not all(isinstance(item, str) for item in evidence):
+        raise ValueError("edge evidence must be a JSON array of strings")
+    return cast("list[str]", evidence)
 
 
 class IndexStore:
@@ -260,8 +282,21 @@ class IndexStore:
 
     def _insert_edges_no_commit(self, edges: list[Edge]) -> None:
         self._conn.executemany(
-            "INSERT INTO edges (source, target, kind, location) VALUES (?, ?, ?, ?)",
-            [(e.source, e.target, str(e.kind), e.location) for e in edges],
+            "INSERT INTO edges "
+            "(source, target, kind, location, confidence, confidence_score, evidence) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    e.source,
+                    e.target,
+                    str(e.kind),
+                    e.location,
+                    str(e.confidence),
+                    e.confidence_score,
+                    json.dumps(e.evidence, sort_keys=True),
+                )
+                for e in edges
+            ],
         )
 
     def insert_edges(self, edges: list[Edge]) -> None:
@@ -657,9 +692,20 @@ class IndexStore:
         return int(row[0])
 
     def get_edges(self) -> list[Edge]:
-        cur = self._conn.execute("SELECT source, target, kind, location FROM edges")
+        cur = self._conn.execute(
+            "SELECT source, target, kind, location, confidence, confidence_score, evidence "
+            "FROM edges"
+        )
         return [
-            Edge(source=str(r[0]), target=str(r[1]), kind=EdgeKind(r[2]), location=r[3])
+            Edge(
+                source=str(r[0]),
+                target=str(r[1]),
+                kind=EdgeKind(r[2]),
+                location=r[3],
+                confidence=EdgeConfidence(r[4]),
+                confidence_score=float(r[5]),
+                evidence=_decode_edge_evidence(r[6]),
+            )
             for r in cur.fetchall()
         ]
 
@@ -704,8 +750,25 @@ class IndexStore:
             + _CREATE_IDX_MODULES_NAME
             + _CREATE_SYMBOLS_FTS
         )
+        edge_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(edges)")}
+        edge_migrations = {
+            "confidence": (
+                "ALTER TABLE edges ADD COLUMN confidence TEXT NOT NULL DEFAULT 'extracted'"
+            ),
+            "confidence_score": (
+                "ALTER TABLE edges ADD COLUMN confidence_score REAL NOT NULL DEFAULT 1.0"
+            ),
+            "evidence": "ALTER TABLE edges ADD COLUMN evidence TEXT NOT NULL DEFAULT '[]'",
+        }
+        for column, statement in edge_migrations.items():
+            if column not in edge_columns:
+                self._conn.execute(statement)
+        edge_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(edges)")}
+        if {"confidence", "confidence_score", "evidence"} - edge_columns:
+            raise RuntimeError("edges table missing confidence columns after migration")
+
         # Set schema version and detect stale data needing re-index
-        self.set_metadata("schema_version", "3")
+        self.set_metadata("schema_version", "4")
         cur = self._conn.execute("SELECT COUNT(*) FROM chunks WHERE symbol_id IS NULL")
         null_count = cur.fetchone()[0]
         if null_count > 0:
