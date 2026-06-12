@@ -611,7 +611,29 @@ class TestMcpCmd:
         ):
             result = runner.invoke(cli, ["mcp"])
         assert result.exit_code == 0, result.output
-        mock_asyncio_run.assert_called_once_with(mock_run_stdio())
+        mock_run_stdio.assert_called_once_with(watch=False, watch_path=".", watch_debounce_ms=300)
+        mock_asyncio_run.assert_called_once_with(mock_run_stdio.return_value)
+
+    def test_mcp_watch_options_pass_to_server(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        mock_run_stdio = MagicMock()
+        mock_mcp_module = MagicMock()
+        mock_mcp_module.run_stdio_server = mock_run_stdio
+
+        runner = CliRunner()
+        with (
+            patch.dict("sys.modules", {"archex.integrations.mcp": mock_mcp_module}),
+            patch("archex.cli.mcp_cmd.asyncio.run") as mock_asyncio_run,
+        ):
+            result = runner.invoke(
+                cli,
+                ["mcp", "--watch", "--watch-path", "src", "--watch-debounce-ms", "50"],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_run_stdio.assert_called_once_with(watch=True, watch_path="src", watch_debounce_ms=50)
+        mock_asyncio_run.assert_called_once_with(mock_run_stdio.return_value)
 
 
 class TestCacheList:

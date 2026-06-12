@@ -33,6 +33,7 @@ dependencies = [
     "pyyaml>=6.0",
     "einops>=0.8.2",
     "rich==14.3.3",
+    "watchdog>=6.0.0",
 ]
 
 [project.optional-dependencies]
