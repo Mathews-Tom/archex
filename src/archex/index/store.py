@@ -326,7 +326,6 @@ class IndexStore:
         )
         self._conn.commit()
 
-
     def get_file_states(self) -> dict[str, dict[str, int | str]]:
         rows = self._conn.execute(
             "SELECT file_path, size_bytes, mtime_ns, sha256 FROM file_states"
