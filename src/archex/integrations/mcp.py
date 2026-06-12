@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,19 @@ from archex.api import (
     query,
     search_symbols,
 )
+from archex.graph_artifact import GraphArtifactError
+from archex.graph_query import (
+    GraphDirection,
+    GraphEdgeSummary,
+    GraphHubsResult,
+    GraphNeighborsResult,
+    GraphNodeLookupResult,
+    GraphNodeSummary,
+    GraphPathResult,
+    GraphQuery,
+    GraphQueryError,
+    GraphStatsResult,
+)
 from archex.models import PipelineTiming, RepoSource
 from archex.reporting import compute_meta, count_tokens
 from archex.serve.compare import validate_dimensions
@@ -34,6 +48,7 @@ from archex.utils import resolve_source
 logger = logging.getLogger(__name__)
 
 _SUPPORTED_FORMATS = {"json", "markdown"}
+DEFAULT_GRAPH_TOKEN_BUDGET = 2000
 
 
 def handle_analyze_repo(repo_url: str, output_format: str = "json") -> str:
@@ -270,6 +285,337 @@ def handle_get_symbols_batch(repo_url: str, symbol_ids: list[str]) -> str:
     return json.dumps({"content": result_data, "_meta": meta.model_dump()}, indent=2)
 
 
+def handle_graph_lookup(
+    graph_path: str,
+    node: str,
+    output_format: str = "json",
+    limit: int = 25,
+    hub_degree: int = 50,
+    token_budget: int = DEFAULT_GRAPH_TOKEN_BUDGET,
+) -> str:
+    started = time.perf_counter()
+    try:
+        graph_query = _cached_graph_query(graph_path, hub_degree)
+        result = graph_query.lookup(node, limit=limit)
+    except (GraphArtifactError, GraphQueryError) as exc:
+        return json.dumps({"error": str(exc), "graph_path": graph_path})
+    return _graph_tool_response(
+        "graph_lookup",
+        graph_query,
+        result,
+        output_format,
+        token_budget,
+        started,
+        _render_lookup_markdown,
+    )
+
+
+def handle_graph_neighbors(
+    graph_path: str,
+    node: str,
+    output_format: str = "json",
+    direction: GraphDirection = "both",
+    depth: int = 1,
+    limit: int = 25,
+    hub_degree: int = 50,
+    token_budget: int = DEFAULT_GRAPH_TOKEN_BUDGET,
+) -> str:
+    started = time.perf_counter()
+    try:
+        graph_query = _cached_graph_query(graph_path, hub_degree)
+        result = graph_query.neighbors(node, direction=direction, depth=depth, limit=limit)
+    except (GraphArtifactError, GraphQueryError) as exc:
+        return json.dumps({"error": str(exc), "graph_path": graph_path, "node": node})
+    return _graph_tool_response(
+        "graph_neighbors",
+        graph_query,
+        result,
+        output_format,
+        token_budget,
+        started,
+        _render_neighbors_markdown,
+    )
+
+
+def handle_graph_path(
+    graph_path: str,
+    source: str,
+    target: str,
+    output_format: str = "json",
+    direction: GraphDirection = "both",
+    max_edges: int = 100,
+    hub_degree: int = 50,
+    token_budget: int = DEFAULT_GRAPH_TOKEN_BUDGET,
+) -> str:
+    started = time.perf_counter()
+    try:
+        graph_query = _cached_graph_query(graph_path, hub_degree)
+        result = graph_query.shortest_path(
+            source,
+            target,
+            direction=direction,
+            max_edges=max_edges,
+        )
+    except (GraphArtifactError, GraphQueryError) as exc:
+        return json.dumps({"error": str(exc), "graph_path": graph_path})
+    return _graph_tool_response(
+        "graph_path",
+        graph_query,
+        result,
+        output_format,
+        token_budget,
+        started,
+        _render_path_markdown,
+    )
+
+
+def handle_graph_stats(
+    graph_path: str,
+    output_format: str = "json",
+    hub_limit: int = 10,
+    hub_degree: int = 50,
+    token_budget: int = DEFAULT_GRAPH_TOKEN_BUDGET,
+) -> str:
+    started = time.perf_counter()
+    try:
+        graph_query = _cached_graph_query(graph_path, hub_degree)
+        result = graph_query.stats(hub_limit=hub_limit)
+    except (GraphArtifactError, GraphQueryError) as exc:
+        return json.dumps({"error": str(exc), "graph_path": graph_path})
+    return _graph_tool_response(
+        "graph_stats",
+        graph_query,
+        result,
+        output_format,
+        token_budget,
+        started,
+        _render_stats_markdown,
+    )
+
+
+def handle_graph_hubs(
+    graph_path: str,
+    output_format: str = "json",
+    limit: int = 25,
+    threshold: int | None = None,
+    hub_degree: int = 50,
+    token_budget: int = DEFAULT_GRAPH_TOKEN_BUDGET,
+) -> str:
+    started = time.perf_counter()
+    try:
+        graph_query = _cached_graph_query(graph_path, hub_degree)
+        result = graph_query.hubs(limit=limit, threshold=threshold)
+    except (GraphArtifactError, GraphQueryError) as exc:
+        return json.dumps({"error": str(exc), "graph_path": graph_path})
+    return _graph_tool_response(
+        "graph_hubs",
+        graph_query,
+        result,
+        output_format,
+        token_budget,
+        started,
+        _render_hubs_markdown,
+    )
+
+
+@lru_cache(maxsize=16)
+def _cached_graph_query(graph_path: str, hub_degree: int) -> GraphQuery:
+    return GraphQuery.from_artifact(Path(graph_path).expanduser().resolve(), hub_degree=hub_degree)
+
+
+def clear_graph_query_cache() -> None:
+    """Clear cached graph artifact handles used by MCP graph tools."""
+    _cached_graph_query.cache_clear()
+
+
+def _graph_tool_response(
+    tool_name: str,
+    graph_query: GraphQuery,
+    result: GraphNodeLookupResult
+    | GraphNeighborsResult
+    | GraphPathResult
+    | GraphStatsResult
+    | GraphHubsResult,
+    output_format: str,
+    token_budget: int,
+    started: float,
+    markdown_renderer: Any,
+) -> str:
+    _validate_output_format(output_format)
+    if token_budget < 1:
+        raise ValueError("token_budget must be at least 1")
+    if output_format == "markdown":
+        rendered_content, budget_truncated = _apply_token_budget(
+            markdown_renderer(result),
+            token_budget,
+        )
+        response_text = rendered_content
+        content: str | dict[str, Any] = rendered_content
+    else:
+        content = result.model_dump(mode="json")
+        response_text = json.dumps(content, indent=2, sort_keys=True)
+        budget_truncated = False
+    raw_tokens = max(count_tokens(graph_query.graph.to_json()), 1)
+    query_time_ms = (time.perf_counter() - started) * 1000
+    meta = compute_meta(
+        tool_name=tool_name,
+        response_text=response_text,
+        raw_file_tokens=raw_tokens,
+        strategy="graph_query",
+        query_time_ms=query_time_ms,
+    ).model_dump()
+    meta["format"] = output_format
+    meta["token_budget"] = token_budget
+    meta["token_budget_truncated"] = budget_truncated
+    return json.dumps({"content": content, "_meta": meta}, indent=2, sort_keys=True)
+
+
+def _validate_output_format(output_format: str) -> None:
+    if output_format not in _SUPPORTED_FORMATS:
+        raise ValueError(f"Unsupported format {output_format!r}; expected json or markdown")
+
+
+def _apply_token_budget(text: str, token_budget: int) -> tuple[str, bool]:
+    if count_tokens(text) <= token_budget:
+        return text, False
+    marker = "\n\n[truncated: token budget reached]\n"
+    lines: list[str] = []
+    for line in text.splitlines():
+        candidate = "\n".join([*lines, line]) + marker
+        if count_tokens(candidate) > token_budget:
+            break
+        lines.append(line)
+    if not lines:
+        return marker.lstrip(), True
+    return "\n".join(lines).rstrip() + marker, True
+
+
+def _render_lookup_markdown(result: GraphNodeLookupResult) -> str:
+    lines = [
+        f"# Graph Lookup: {result.query}",
+        "",
+        f"- Match kind: `{result.match_kind or 'none'}`",
+        f"- Truncated: {_yes_no(result.truncated)}",
+        "",
+    ]
+    lines.extend(_render_node_list(result.matches))
+    return _finish_markdown(lines)
+
+
+def _render_neighbors_markdown(result: GraphNeighborsResult) -> str:
+    lines = [
+        f"# Graph Neighbors: {result.seed.id}",
+        "",
+        f"- Path: `{result.seed.path or result.seed.id}`",
+        f"- Direction: `{result.direction}`",
+        f"- Depth: {result.depth}",
+        f"- Truncated: {_yes_no(result.truncated)}",
+        "",
+        "## Edges",
+        "",
+    ]
+    lines.extend(_render_edge_list(result.edges))
+    if result.hubs:
+        lines.extend(["", "## Terminal Hubs", ""])
+        lines.extend(_render_node_list(result.hubs))
+    return _finish_markdown(lines)
+
+
+def _render_path_markdown(result: GraphPathResult) -> str:
+    source = result.source.path if result.source is not None else result.source_query
+    target = result.target.path if result.target is not None else result.target_query
+    lines = [
+        f"# Graph Path: {source} -> {target}",
+        "",
+        f"- Found: {_yes_no(result.found)}",
+        f"- Direction: `{result.direction}`",
+        f"- Truncated: {_yes_no(result.truncated)}",
+        "",
+    ]
+    if result.nodes:
+        lines.extend(["## Nodes", ""])
+        lines.extend(_render_node_list(result.nodes))
+        lines.extend(["", "## Edges", ""])
+        lines.extend(_render_edge_list(result.edges))
+    if result.avoided_hubs:
+        lines.extend(["", "## Avoided Hubs", ""])
+        lines.extend(_render_node_list(result.avoided_hubs))
+    return _finish_markdown(lines)
+
+
+def _render_stats_markdown(result: GraphStatsResult) -> str:
+    lines = [
+        f"# Graph Stats: {result.project}",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| Nodes | {result.nodes} |",
+        f"| Edges | {result.edges} |",
+        f"| Files | {result.files} |",
+        f"| Max degree | {result.max_degree} |",
+        "",
+    ]
+    if result.edge_types:
+        lines.extend(["## Edge Types", "", "| Type | Count |", "| --- | ---: |"])
+        for edge_type, count in sorted(result.edge_types.items()):
+            lines.append(f"| {edge_type} | {count} |")
+        lines.append("")
+    if result.hubs:
+        lines.extend(["## Hubs", ""])
+        lines.extend(_render_node_list(result.hubs))
+    return _finish_markdown(lines)
+
+
+def _render_hubs_markdown(result: GraphHubsResult) -> str:
+    lines = [
+        "# Graph Hubs",
+        "",
+        f"- Threshold: {result.threshold}",
+        f"- Limit: {result.limit}",
+        f"- Truncated: {_yes_no(result.truncated)}",
+        "",
+    ]
+    lines.extend(_render_node_list(result.hubs))
+    return _finish_markdown(lines)
+
+
+def _render_edge_list(edges: list[GraphEdgeSummary]) -> list[str]:
+    if not edges:
+        return ["No edges."]
+    lines = [
+        "| Source path | Kind | Target path | Confidence | Evidence |",
+        "| --- | --- | --- | ---: | --- |",
+    ]
+    for edge in edges:
+        evidence = "; ".join(edge.evidence) if edge.evidence else ""
+        lines.append(
+            "| "
+            f"`{edge.source.path or edge.source.id}` | "
+            f"{edge.type} | "
+            f"`{edge.target.path or edge.target.id}` | "
+            f"{edge.confidence} ({edge.confidence_score:.2f}) | "
+            f"{evidence} |"
+        )
+    return lines
+
+
+def _render_node_list(nodes: list[GraphNodeSummary]) -> list[str]:
+    if not nodes:
+        return ["No nodes."]
+    lines = ["| Path | ID | Type | Degree |", "| --- | --- | --- | ---: |"]
+    for node in nodes:
+        lines.append(f"| `{node.path or ''}` | `{node.id}` | {node.type} | {node.degree} |")
+    return lines
+
+
+def _finish_markdown(lines: list[str]) -> str:
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"
+
+
 def build_server() -> Any:
     """Build and return a configured MCP Server instance.
 
@@ -500,6 +846,158 @@ def build_server() -> Any:
                     "required": ["repo_url", "symbol_ids"],
                 },
             ),
+            mcp_types.Tool(
+                name="graph_lookup",
+                description=(
+                    "Look up graph nodes in an exported architecture graph artifact without "
+                    "indexing source files. Exact node IDs and paths win over fuzzy matches."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                        "node": {
+                            "type": "string",
+                            "description": "Node ID, path, label, or query.",
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                        },
+                        "limit": {"type": "integer", "default": 25},
+                        "hub_degree": {"type": "integer", "default": 50},
+                        "token_budget": {
+                            "type": "integer",
+                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                            "description": "Maximum markdown content tokens to return.",
+                        },
+                    },
+                    "required": ["graph_path", "node"],
+                },
+            ),
+            mcp_types.Tool(
+                name="graph_neighbors",
+                description=(
+                    "Return graph neighbors for a node from an exported artifact without "
+                    "indexing source files. Edges include kind, confidence, and evidence."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                        "node": {
+                            "type": "string",
+                            "description": "Node ID, path, label, or query.",
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                        },
+                        "direction": {
+                            "type": "string",
+                            "enum": ["out", "in", "both"],
+                            "default": "both",
+                        },
+                        "depth": {"type": "integer", "default": 1},
+                        "limit": {"type": "integer", "default": 25},
+                        "hub_degree": {"type": "integer", "default": 50},
+                        "token_budget": {
+                            "type": "integer",
+                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                            "description": "Maximum markdown content tokens to return.",
+                        },
+                    },
+                    "required": ["graph_path", "node"],
+                },
+            ),
+            mcp_types.Tool(
+                name="graph_path",
+                description=(
+                    "Find a shortest structural path between two graph nodes from an exported "
+                    "artifact without indexing source files."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                        "source": {"type": "string", "description": "Source node ID or path."},
+                        "target": {"type": "string", "description": "Target node ID or path."},
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                        },
+                        "direction": {
+                            "type": "string",
+                            "enum": ["out", "in", "both"],
+                            "default": "both",
+                        },
+                        "max_edges": {"type": "integer", "default": 100},
+                        "hub_degree": {"type": "integer", "default": 50},
+                        "token_budget": {
+                            "type": "integer",
+                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                            "description": "Maximum markdown content tokens to return.",
+                        },
+                    },
+                    "required": ["graph_path", "source", "target"],
+                },
+            ),
+            mcp_types.Tool(
+                name="graph_stats",
+                description=(
+                    "Return deterministic graph stats and hub summaries from an exported "
+                    "artifact without indexing source files."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                        },
+                        "hub_limit": {"type": "integer", "default": 10},
+                        "hub_degree": {"type": "integer", "default": 50},
+                        "token_budget": {
+                            "type": "integer",
+                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                            "description": "Maximum markdown content tokens to return.",
+                        },
+                    },
+                    "required": ["graph_path"],
+                },
+            ),
+            mcp_types.Tool(
+                name="graph_hubs",
+                description=(
+                    "Return high-degree graph hubs from an exported artifact without indexing "
+                    "source files."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                        },
+                        "limit": {"type": "integer", "default": 25},
+                        "threshold": {"type": "integer"},
+                        "hub_degree": {"type": "integer", "default": 50},
+                        "token_budget": {
+                            "type": "integer",
+                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                            "description": "Maximum markdown content tokens to return.",
+                        },
+                    },
+                    "required": ["graph_path"],
+                },
+            ),
         ]
 
     @server.call_tool()  # pyright: ignore[reportUnusedFunction]
@@ -559,6 +1057,98 @@ def build_server() -> Any:
             symbol_ids: list[str] = arguments["symbol_ids"]
             result_text = await loop.run_in_executor(
                 None, handle_get_symbols_batch, repo_url, symbol_ids
+            )
+        elif name == "graph_lookup":
+            graph_path = arguments["graph_path"]
+            node: str = arguments["node"]
+            fmt = arguments.get("format", "json")
+            limit = int(arguments.get("limit", 25))
+            hub_degree = int(arguments.get("hub_degree", 50))
+            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+            result_text = await loop.run_in_executor(
+                None,
+                handle_graph_lookup,
+                graph_path,
+                node,
+                fmt,
+                limit,
+                hub_degree,
+                token_budget,
+            )
+        elif name == "graph_neighbors":
+            graph_path = arguments["graph_path"]
+            node = arguments["node"]
+            fmt = arguments.get("format", "json")
+            direction: GraphDirection = arguments.get("direction", "both")
+            depth = int(arguments.get("depth", 1))
+            limit = int(arguments.get("limit", 25))
+            hub_degree = int(arguments.get("hub_degree", 50))
+            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+            result_text = await loop.run_in_executor(
+                None,
+                handle_graph_neighbors,
+                graph_path,
+                node,
+                fmt,
+                direction,
+                depth,
+                limit,
+                hub_degree,
+                token_budget,
+            )
+        elif name == "graph_path":
+            graph_path = arguments["graph_path"]
+            source: str = arguments["source"]
+            target: str = arguments["target"]
+            fmt = arguments.get("format", "json")
+            direction = arguments.get("direction", "both")
+            max_edges = int(arguments.get("max_edges", 100))
+            hub_degree = int(arguments.get("hub_degree", 50))
+            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+            result_text = await loop.run_in_executor(
+                None,
+                handle_graph_path,
+                graph_path,
+                source,
+                target,
+                fmt,
+                direction,
+                max_edges,
+                hub_degree,
+                token_budget,
+            )
+        elif name == "graph_stats":
+            graph_path = arguments["graph_path"]
+            fmt = arguments.get("format", "json")
+            hub_limit = int(arguments.get("hub_limit", 10))
+            hub_degree = int(arguments.get("hub_degree", 50))
+            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+            result_text = await loop.run_in_executor(
+                None,
+                handle_graph_stats,
+                graph_path,
+                fmt,
+                hub_limit,
+                hub_degree,
+                token_budget,
+            )
+        elif name == "graph_hubs":
+            graph_path = arguments["graph_path"]
+            fmt = arguments.get("format", "json")
+            limit = int(arguments.get("limit", 25))
+            threshold_arg = arguments.get("threshold")
+            threshold = int(threshold_arg) if threshold_arg is not None else None
+            hub_degree = int(arguments.get("hub_degree", 50))
+            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+            result_text = await loop.run_in_executor(
+                None,
+                handle_graph_hubs,
+                graph_path,
+                fmt,
+                limit,
+                threshold,
+                hub_degree,
+                token_budget,
             )
         else:
             raise ValueError(f"Unknown tool: {name!r}")
