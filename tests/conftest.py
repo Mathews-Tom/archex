@@ -49,6 +49,13 @@ def implementation_gate_paths(args: Sequence[str]) -> bool:
             or path.startswith("tests/index/")
             for path in paths
         )
+    if any(path == "tests/test_graph_query.py" for path in paths):
+        allowed_paths = {
+            "tests/test_graph_query.py",
+            "tests/test_graph_export_cli.py",
+            "tests/integrations/test_mcp.py",
+        }
+        return all(path in allowed_paths for path in paths)
     return False
 
 
