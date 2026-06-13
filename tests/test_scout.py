@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from archex.index.store import IndexStore
 from archex.models import CodeChunk, Edge, EdgeConfidence, EdgeKind, Module, RankedChunk, SymbolKind
 from archex.reporting import count_tokens
-from archex.scout import assemble_scout_from_store, render_scout
+from archex.scout import (
+    assemble_scout_from_store,
+    chunk_handle,
+    file_handle,
+    render_scout,
+    symbol_handle,
+)
 
 
 def _populate_store(db_path: Path) -> IndexStore:
@@ -88,6 +95,12 @@ def test_scout_assembles_no_body_structural_map(tmp_path: Path) -> None:
     assert result.ranked_files[0].path == "pkg/app.py"
     assert result.modules[0].name == "pkg"
     assert result.symbols[0].name == "run"
+    assert result.symbols[0].chunk_handle == chunk_handle("pkg/app.py::run#function")
+    assert result.symbols[0].symbol_handle == symbol_handle("pkg/app.py::run#function")
+    assert result.ranked_files[0].handle == file_handle("pkg/app.py")
+    assert chunk_handle("pkg/app.py::run#function") in rendered
+    assert symbol_handle("pkg/app.py::run#function") in rendered
+    assert file_handle("pkg/app.py") in rendered
     import_edge = next(edge for edge in result.graph if edge.kind == "imports")
     assert import_edge.confidence == "heuristic"
     assert "SECRET BODY" not in rendered
@@ -102,3 +115,43 @@ def test_scout_truncates_deterministically_under_cap(tmp_path: Path) -> None:
     assert first.budget.truncated is True
     assert count_tokens(render_scout(first)) <= 140
     assert first.budget.token_count == count_tokens(render_scout(first))
+
+
+def test_scout_handles_fetch_exact_symbols_and_query_chunks(tmp_path: Path) -> None:
+    from archex.api import get_symbol, get_symbols_batch, query
+    from archex.models import RepoSource
+
+    store = _populate_store(tmp_path / "index.db")
+    source = RepoSource(local_path="/fake")
+    with (
+        patch("archex.api._ensure_index", return_value=store),
+        patch.object(store, "close", return_value=None),
+    ):
+        symbol = get_symbol(source, symbol_id=symbol_handle("pkg/app.py::run#function"))
+        chunk_symbol = get_symbol(source, symbol_id=chunk_handle("pkg/models.py::Model#class"))
+        batch = get_symbols_batch(
+            source,
+            symbol_ids=[
+                symbol_handle("pkg/app.py::run#function"),
+                chunk_handle("pkg/models.py::Model#class"),
+            ],
+        )
+        bundle = query(
+            source,
+            "fetch exact scout handles",
+            handles=[file_handle("pkg/app.py"), chunk_handle("pkg/models.py::Model#class")],
+        )
+
+    assert symbol is not None
+    assert symbol.symbol_id == "pkg/app.py::run#function"
+    assert chunk_symbol is not None
+    assert chunk_symbol.symbol_id == "pkg/models.py::Model#class"
+    assert [item.symbol_id if item is not None else None for item in batch] == [
+        "pkg/app.py::run#function",
+        "pkg/models.py::Model#class",
+    ]
+    assert [ranked.chunk.id for ranked in bundle.chunks] == [
+        "pkg/app.py::run#function",
+        "pkg/models.py::Model#class",
+    ]
+    assert bundle.retrieval_metadata.strategy == "scout_handle"

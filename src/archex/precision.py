@@ -20,6 +20,7 @@ from archex.models import (
     SymbolSource,
     Visibility,
 )
+from archex.scout import normalize_symbol_lookup_handle, parse_scout_handle
 
 if TYPE_CHECKING:
     from archex.index.store import IndexStore
@@ -210,12 +211,12 @@ def get_symbol(
     timing: PipelineTiming | None,
     ensure_index: EnsureIndex,
 ) -> SymbolSource | None:
-    """Retrieve the full source code of a single symbol by its stable ID."""
+    """Retrieve the full source code of a single symbol by its stable ID or scout handle."""
     t0 = time.perf_counter()
     store = ensure_index(source, config, timing)
     try:
         t_op = time.perf_counter()
-        chunk = store.get_chunk_by_symbol_id(symbol_id)
+        chunk = _chunk_for_symbol_lookup(store, symbol_id)
         if timing is not None:
             timing.search_ms = _elapsed_ms(t_op)
     finally:
@@ -235,7 +236,7 @@ def get_symbols_batch(
     timing: PipelineTiming | None,
     ensure_index: EnsureIndex,
 ) -> list[SymbolSource | None]:
-    """Batch retrieve N symbols by their stable IDs. Preserves input order."""
+    """Batch retrieve symbols by stable IDs or scout handles. Preserves input order."""
     if len(symbol_ids) > 50:
         raise ValueError(f"Maximum 50 symbol IDs per batch, got {len(symbol_ids)}")
 
@@ -243,16 +244,25 @@ def get_symbols_batch(
     store = ensure_index(source, config, timing)
     try:
         t_op = time.perf_counter()
-        chunks = store.get_chunks_by_symbol_ids(symbol_ids)
+        chunks = [_chunk_for_symbol_lookup(store, symbol_id) for symbol_id in symbol_ids]
         if timing is not None:
             timing.search_ms = _elapsed_ms(t_op)
     finally:
         store.close()
 
-    by_sid: dict[str, CodeChunk] = {c.symbol_id: c for c in chunks if c.symbol_id}
     if timing is not None:
         timing.total_ms = _elapsed_ms(t0)
-    return [_chunk_to_symbol_source(by_sid[sid]) if sid in by_sid else None for sid in symbol_ids]
+    return [_chunk_to_symbol_source(chunk) if chunk is not None else None for chunk in chunks]
+
+
+def _chunk_for_symbol_lookup(store: IndexStore, symbol_id: str) -> CodeChunk | None:
+    lookup_id = normalize_symbol_lookup_handle(symbol_id)
+    handle = parse_scout_handle(symbol_id)
+    if handle is not None and handle.kind == "chunk":
+        return store.get_chunk(handle.value)
+    if handle is not None and handle.kind == "file":
+        return None
+    return store.get_chunk_by_symbol_id(lookup_id)
 
 
 def get_repo_total_tokens(

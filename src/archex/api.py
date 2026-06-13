@@ -71,8 +71,10 @@ from archex.models import (
     Module,
     ParsedFile,
     PipelineTiming,
+    RankedChunk,
     RepoMetadata,
     RepoSource,
+    RetrievalMetadata,
     ScoringWeights,
     SymbolMatch,
     SymbolSource,
@@ -90,6 +92,7 @@ from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.chunker import ASTChunker, Chunker
 from archex.pipeline.service import build_chunk_surrogates
 from archex.project import uses_project_cache_layout
+from archex.scout import parse_scout_handle
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
 from archex.serve.profile import build_profile
@@ -1288,6 +1291,103 @@ def _attach_refresh_metadata(bundle: ContextBundle, timing: PipelineTiming | Non
         )
 
 
+def _query_by_scout_handles(
+    source: RepoSource,
+    question: str,
+    handles: list[str],
+    *,
+    token_budget: int,
+    config: Config,
+    index_config: IndexConfig,
+    timing: PipelineTiming | None,
+    trace: PipelineTrace | None,
+) -> ContextBundle:
+    t0 = time.perf_counter()
+    if trace is not None:
+        trace.operation = "query"
+        trace.start_ns = time.perf_counter_ns()
+        trace.metadata["scout_handles"] = len(handles)
+    store = _ensure_index(source, config, timing=timing, index_config=index_config)
+    try:
+        chunks = _chunks_for_scout_handles(store, handles)
+    finally:
+        store.close()
+    bundle = _context_bundle_for_handle_chunks(question, chunks, token_budget)
+    bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
+    if timing is not None:
+        timing.search_ms = bundle.retrieval_metadata.assembly_time_ms
+        timing.total_ms = _elapsed_ms(t0)
+    if trace is not None:
+        trace.end_ns = time.perf_counter_ns()
+    return bundle
+
+
+def _chunks_for_scout_handles(store: IndexStore, handles: list[str]) -> list[CodeChunk]:
+    chunks: list[CodeChunk] = []
+    seen: set[str] = set()
+    for raw_handle in handles:
+        handle = parse_scout_handle(raw_handle)
+        if handle is None:
+            chunk = store.get_chunk_by_symbol_id(raw_handle)
+            candidate_chunks = [chunk] if chunk is not None else []
+        elif handle.kind == "file":
+            candidate_chunks = sorted(
+                store.get_chunks_for_file(handle.value),
+                key=lambda item: (item.start_line, item.id),
+            )
+        elif handle.kind == "symbol":
+            chunk = store.get_chunk_by_symbol_id(handle.value)
+            candidate_chunks = [chunk] if chunk is not None else []
+        else:
+            chunk = store.get_chunk(handle.value)
+            candidate_chunks = [chunk] if chunk is not None else []
+        for chunk in candidate_chunks:
+            if chunk.id in seen:
+                continue
+            seen.add(chunk.id)
+            chunks.append(chunk)
+    return chunks
+
+
+def _context_bundle_for_handle_chunks(
+    question: str,
+    chunks: list[CodeChunk],
+    token_budget: int,
+) -> ContextBundle:
+    t0 = time.perf_counter()
+    included: list[RankedChunk] = []
+    total_tokens = 0
+    dropped = 0
+    for chunk in chunks:
+        tokens = _chunk_token_count(chunk)
+        if included and total_tokens + tokens > token_budget:
+            dropped += 1
+            continue
+        included.append(RankedChunk(chunk=chunk, relevance_score=1.0, final_score=1.0))
+        total_tokens += tokens
+    return ContextBundle(
+        query=question,
+        chunks=included,
+        token_count=total_tokens,
+        token_budget=token_budget,
+        truncated=dropped > 0 or total_tokens > token_budget,
+        retrieval_metadata=RetrievalMetadata(
+            candidates_found=len(chunks),
+            candidates_after_expansion=len(chunks),
+            chunks_included=len(included),
+            chunks_dropped=dropped,
+            strategy="scout_handle",
+            assembly_time_ms=_elapsed_ms(t0),
+        ),
+    )
+
+
+def _chunk_token_count(chunk: CodeChunk) -> int:
+    if chunk.token_count > 0:
+        return chunk.token_count
+    return int(len(chunk.content.split()) * 1.3)
+
+
 def query(
     source: RepoSource,
     question: str,
@@ -1300,6 +1400,7 @@ def query(
     trace: PipelineTrace | None = None,
     explicit_token_budget: bool = False,
     refresh: bool = True,
+    handles: list[str] | None = None,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -1322,6 +1423,17 @@ def query(
     if trace is not None:
         trace.operation = "query"
         trace.start_ns = time.perf_counter_ns()
+    if handles:
+        return _query_by_scout_handles(
+            source,
+            question,
+            handles,
+            token_budget=token_budget,
+            config=config,
+            index_config=index_config,
+            timing=timing,
+            trace=trace,
+        )
     cache = _cache_manager_for_source(source, config)
     metadata_timing = timing
     cache_key = cache.cache_key(source)
