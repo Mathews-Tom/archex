@@ -566,6 +566,57 @@ def test_cast_greedily_merges_sibling_functions_under_budget() -> None:
     assert "def b" in chunks[0].content
 
 
+def test_cast_stops_merging_once_a_sibling_reaches_merge_budget() -> None:
+    max_tokens = 120
+    merge_budget = int(max_tokens * 0.7)
+    encoder = tiktoken.get_encoding("cl100k_base")
+
+    body_lines: list[str] = []
+    function_text = ""
+    while True:
+        body_lines.append(f"    value_{len(body_lines)} = {len(body_lines)}")
+        function_text = "def alpha() -> int:\n" + "\n".join(body_lines) + "\n    return value_0"
+        token_count = len(encoder.encode(function_text))
+        if merge_budget < token_count < max_tokens:
+            break
+        if token_count >= max_tokens:
+            raise AssertionError("failed to build a function between merge and split budgets")
+
+    other_text = function_text.replace("alpha", "beta")
+    source = f"{function_text}\n\n{other_text}".encode()
+    parsed = ParsedFile(
+        path="oversized.py",
+        language="python",
+        symbols=[
+            Symbol(
+                name="alpha",
+                qualified_name="alpha",
+                kind=SymbolKind.FUNCTION,
+                file_path="oversized.py",
+                start_line=1,
+                end_line=len(function_text.splitlines()),
+            ),
+            Symbol(
+                name="beta",
+                qualified_name="beta",
+                kind=SymbolKind.FUNCTION,
+                file_path="oversized.py",
+                start_line=len(function_text.splitlines()) + 2,
+                end_line=len(function_text.splitlines()) * 2 + 1,
+            ),
+        ],
+        lines=len(source.split(b"\n")),
+    )
+
+    chunks = CastChunker(IndexConfig(chunker="cast", chunk_max_tokens=max_tokens)).chunk_file(
+        parsed,
+        source,
+    )
+
+    assert len(chunks) == 2
+    assert [chunk.symbol_name for chunk in chunks] == ["alpha", "beta"]
+
+
 def test_create_chunker_selects_cast_only_when_configured() -> None:
     assert isinstance(create_chunker(IndexConfig()), ASTChunker)
     assert isinstance(create_chunker(IndexConfig(chunker="cast")), CastChunker)
@@ -601,9 +652,43 @@ def test_index_metadata_prevents_cross_chunker_cache_reuse(
     )
     try:
         assert cast_store.get_metadata("chunker") == "cast"
+        assert cast_store.get_metadata("chunker_revision") == chunker_revision("cast")
         assert cast_timing.cached is False
     finally:
         cast_store.close()
+
+
+def test_index_metadata_prevents_stale_chunker_revision_cache_reuse(
+    python_simple_repo: Path,
+    tmp_path: Path,
+) -> None:
+    from archex.api import index_repository
+
+    source = RepoSource(local_path=str(python_simple_repo))
+    config = Config(cache=True, cache_dir=str(tmp_path / "cache"))
+
+    initial_store = index_repository(
+        source,
+        config=config,
+        timing=PipelineTiming(),
+        index_config=IndexConfig(chunker="cast"),
+    )
+    try:
+        initial_store.set_metadata("chunker_revision", "stale")
+    finally:
+        initial_store.close()
+
+    refreshed_timing = PipelineTiming()
+    refreshed_store = index_repository(
+        source,
+        config=config,
+        timing=refreshed_timing,
+        index_config=IndexConfig(chunker="cast"),
+    )
+    try:
+        assert refreshed_store.get_metadata("chunker_revision") == chunker_revision("cast")
+    finally:
+        refreshed_store.close()
 
 
 def test_cast_preserves_symbol_before_trailing_blank_line() -> None:

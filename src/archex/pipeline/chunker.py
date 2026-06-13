@@ -241,6 +241,10 @@ class _CastUnit:
     token_count: int
 
 
+def _cast_merge_budget(max_tokens: int) -> int:
+    return max(1, int(max_tokens * 0.7))
+
+
 def _append_candidates(
     candidates: list[_ChunkCandidate],
     *,
@@ -692,16 +696,24 @@ def _merge_cast_units(
     if not units:
         return []
 
+    merge_budget = _cast_merge_budget(max_tokens)
     result: list[_CastUnit] = []
     group_start = units[0].start_line
     group_end = units[0].end_line
     group_symbol = units[0].symbol
+    group_token_count = units[0].token_count
     group_size = 1
 
     for unit in units[1:]:
         merged_tokens = _count_range_tokens(group_start, unit.end_line, all_source_lines, encoder)
-        if merged_tokens <= max_tokens:
+        can_merge = (
+            group_token_count < merge_budget
+            and unit.token_count < merge_budget
+            and merged_tokens <= merge_budget
+        )
+        if can_merge:
             group_end = unit.end_line
+            group_token_count = merged_tokens
             group_size += 1
             continue
         result.append(
@@ -709,12 +721,13 @@ def _merge_cast_units(
                 group_start,
                 group_end,
                 group_symbol if group_size == 1 else None,
-                _count_range_tokens(group_start, group_end, all_source_lines, encoder),
+                group_token_count,
             )
         )
         group_start = unit.start_line
         group_end = unit.end_line
         group_symbol = unit.symbol
+        group_token_count = unit.token_count
         group_size = 1
 
     result.append(
@@ -722,7 +735,7 @@ def _merge_cast_units(
             group_start,
             group_end,
             group_symbol if group_size == 1 else None,
-            _count_range_tokens(group_start, group_end, all_source_lines, encoder),
+            group_token_count,
         )
     )
     return result
