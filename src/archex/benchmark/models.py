@@ -18,6 +18,7 @@ class Strategy(StrEnum):
     RAW_FILES = "raw_files"
     RAW_GREPPED = "raw_grepped"
     ARCHEX_QUERY = "archex_query"
+    ARCHEX_SCOUT_FETCH = "archex_scout_fetch"
     ARCHEX_QUERY_VECTOR = "archex_query_vector"
     SURROGATE_VECTOR = "surrogate_vector"
     ARCHEX_QUERY_FUSION = "archex_query_fusion"

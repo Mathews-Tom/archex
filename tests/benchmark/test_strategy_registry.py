@@ -45,6 +45,7 @@ class TestStrategyRegistry:
         assert Strategy.RAW_FILES.value in names
         assert Strategy.RAW_GREPPED.value in names
         assert Strategy.ARCHEX_QUERY.value in names
+        assert Strategy.ARCHEX_SCOUT_FETCH.value in names
         assert Strategy.ARCHEX_QUERY_VECTOR.value in names
         assert Strategy.SURROGATE_VECTOR.value in names
         assert Strategy.ARCHEX_QUERY_FUSION.value in names

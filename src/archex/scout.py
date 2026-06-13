@@ -144,6 +144,7 @@ def assemble_scout_from_store(
     file_limit: int = DEFAULT_SCOUT_FILE_LIMIT,
     symbols_per_file: int = DEFAULT_SCOUT_SYMBOLS_PER_FILE,
     module_limit: int = DEFAULT_SCOUT_MODULE_LIMIT,
+    modules_override: list[Module] | None = None,
     graph_edge_limit: int = DEFAULT_SCOUT_GRAPH_EDGE_LIMIT,
 ) -> ScoutResult:
     """Build a deterministic no-body structural map from an indexed repository."""
@@ -154,7 +155,8 @@ def assemble_scout_from_store(
     symbols, omitted_symbols = _top_symbols(
         chunks_by_file, ranked, symbols_per_file=symbols_per_file
     )
-    modules, omitted_modules = _rank_modules(store.get_modules(), files, module_limit=module_limit)
+    modules_source = modules_override if modules_override is not None else store.get_modules()
+    modules, omitted_modules = _rank_modules(modules_source, files, module_limit=module_limit)
     graph_edges, omitted_graph_edges = _graph_sketch(store, files, edge_limit=graph_edge_limit)
     result = ScoutResult(
         query=question,
@@ -414,17 +416,15 @@ def _render_markdown(result: ScoutResult) -> str:
     if result.modules:
         for item in result.modules:
             handles = ", ".join(item.file_handles) if item.file_handles else "no handles"
-            responsibility = f" — {item.responsibility}" if item.responsibility else ""
             lines.append(
                 f"- {item.name} ({item.root_path}, files={item.file_count}, "
-                f"cohesion={item.cohesion_score:.3f}){responsibility}; handles: {handles}"
+                f"cohesion={item.cohesion_score:.3f}); handles: {handles}"
             )
     else:
         lines.append("- none")
     lines.extend(["", "## Top symbols"])
     if result.symbols:
         for item in result.symbols:
-            signature = f" — {item.signature}" if item.signature else ""
             handles = [item.file_handle, item.chunk_handle]
             if item.symbol_handle:
                 handles.append(item.symbol_handle)
@@ -432,7 +432,6 @@ def _render_markdown(result: ScoutResult) -> str:
                 f"- {item.name} [{item.kind.value}] "
                 f"{item.file_path}:{item.start_line}-{item.end_line} "
                 f"handles: {', '.join(handles)}"
-                f"{signature}"
             )
     else:
         lines.append("- none")

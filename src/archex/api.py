@@ -1421,12 +1421,16 @@ def scout(
     )
     store = _ensure_index(source, config, timing=ranking_timing, index_config=index_config)
     try:
+        modules = store.get_modules()
+        if not modules:
+            modules = analyze(source, config=config).module_map
         return assemble_scout_from_store(
             store,
             question,
             ranked_chunks=bundle.chunks,
             token_budget=token_budget,
             output_format=output_format,
+            modules_override=modules,
         )
     finally:
         store.close()

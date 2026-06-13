@@ -23,6 +23,7 @@ class TestStrategy:
         assert Strategy.RAW_FILES == "raw_files"
         assert Strategy.RAW_GREPPED == "raw_grepped"
         assert Strategy.ARCHEX_QUERY == "archex_query"
+        assert Strategy.ARCHEX_SCOUT_FETCH == "archex_scout_fetch"
         assert Strategy.ARCHEX_QUERY_VECTOR == "archex_query_vector"
         assert Strategy.SURROGATE_VECTOR == "surrogate_vector"
         assert Strategy.ARCHEX_QUERY_FUSION == "archex_query_fusion"

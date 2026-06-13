@@ -97,6 +97,12 @@ def benchmark_cmd() -> None:
     help="Directory containing task YAML files.",
 )
 @click.option(
+    "--scout",
+    is_flag=True,
+    default=False,
+    help="Include the archex_scout_fetch two-call scout plus exact fetch strategy.",
+)
+@click.option(
     "--query-fusion",
     is_flag=True,
     default=False,
@@ -153,6 +159,7 @@ def run_cmd(
     output_dir: str,
     task_id: str | None,
     strategy_names: tuple[str, ...],
+    scout: bool,
     tasks_dir: str,
     query_fusion: bool,
     cross_layer_fusion: bool,
@@ -170,6 +177,8 @@ def run_cmd(
         strategy = Strategy(name)
         if strategy not in strategies:
             strategies.append(strategy)
+    if scout and Strategy.ARCHEX_SCOUT_FETCH not in strategies:
+        strategies.append(Strategy.ARCHEX_SCOUT_FETCH)
     if query_fusion and Strategy.ARCHEX_QUERY_FUSION not in strategies:
         strategies.append(Strategy.ARCHEX_QUERY_FUSION)
     if cross_layer_fusion and Strategy.CROSS_LAYER_FUSION not in strategies:
