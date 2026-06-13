@@ -1,6 +1,25 @@
 # Changelog
 
 
+## 0.9.0 (2026-06-13)
+
+### Added
+
+- Added working-tree delta indexing, query auto-refresh, and MCP watch mode so dirty local edits refresh indexes without full re-indexing.
+- Added graph-query core, CLI commands, and MCP tools for neighborhood, path, and symbol dependency exploration.
+- Added the scout protocol with token-capped map/fetch flows across Python API, CLI, MCP, and benchmark coverage.
+- Added head-to-head benchmark harnesses and reports for external MCP adapter comparisons.
+- Expanded tree-sitter language coverage through the language-pack runtime, chunk-only grammars, language-tier fixtures, and unknown-text fallback handling.
+
+### Changed
+
+- Improved graph expansion selectivity, benchmark diagnostics, architecture extraction hardening, and framework-semantic query normalization.
+- Persisted edge-confidence provenance and embedding content-cache reuse to reduce redundant work across refreshes.
+
+### Fixed
+
+- Fixed stale-index query paths, MCP watch refresh rearming, delta vector persistence, and implementation-slice coverage runs.
+
 ## 0.8.0 (2026-06-09)
 
 ### Added
