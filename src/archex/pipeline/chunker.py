@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import tiktoken
@@ -223,8 +224,17 @@ def _lines_to_text(lines: list[bytes]) -> str:
     return "\n".join(line.decode("utf-8", errors="replace") for line in lines)
 
 
+@dataclass
+class _ChunkCandidate:
+    lines: list[bytes]
+    start_line: int
+    symbol: Symbol | None
+    content: str
+    token_count: int
+
+
 def _append_candidates(
-    candidates: list[tuple[list[bytes], int, Symbol | None]],
+    candidates: list[_ChunkCandidate],
     *,
     lines: list[bytes],
     start_line: int,
@@ -234,15 +244,32 @@ def _append_candidates(
 ) -> None:
     if _is_blank_lines(lines):
         return
-
-    token_count = _count_tokens(encoder, _lines_to_text(lines))
+    content = _lines_to_text(lines)
+    token_count = _count_tokens(encoder, content)
     if token_count <= max_tokens:
-        candidates.append((lines, start_line, symbol))
+        candidates.append(
+            _ChunkCandidate(
+                lines=lines,
+                start_line=start_line,
+                symbol=symbol,
+                content=content,
+                token_count=token_count,
+            )
+        )
         return
 
     offset = start_line
     for group in _split_lines_at_boundary(lines, max_tokens, encoder):
-        candidates.append((group, offset, symbol))
+        group_content = _lines_to_text(group)
+        candidates.append(
+            _ChunkCandidate(
+                lines=group,
+                start_line=offset,
+                symbol=symbol,
+                content=group_content,
+                token_count=_count_tokens(encoder, group_content),
+            )
+        )
         offset += len(group)
 
 
@@ -250,41 +277,40 @@ def _build_chunk(
     *,
     file_path: str,
     language: str,
-    lines: list[bytes],
-    start_line: int,
-    symbol: Symbol | None,
+    candidate: _ChunkCandidate,
     imports: list[ImportStatement],
     encoder: tiktoken.Encoding,
     all_symbols: list[Symbol] | None = None,
 ) -> CodeChunk:
-    content = _lines_to_text(lines)
+    content = candidate.content
 
-    # Filter imports relevant to this chunk
     relevant_imports = [imp for imp in imports if _import_relevant(imp, content)]
     imports_context = "\n".join(_format_import(imp) for imp in relevant_imports)
-
     combined = (imports_context + "\n" + content) if imports_context else content
-    token_count = _count_tokens(encoder, combined)
-
-    breadcrumbs = build_breadcrumbs(file_path, symbol, all_symbols)
+    token_count = _count_tokens(encoder, combined) if imports_context else candidate.token_count
+    breadcrumbs = build_breadcrumbs(file_path, candidate.symbol, all_symbols)
 
     return CodeChunk(
-        id=_make_chunk_id(file_path, symbol.name if symbol else None, start_line),
+        id=_make_chunk_id(
+            file_path,
+            candidate.symbol.name if candidate.symbol else None,
+            candidate.start_line,
+        ),
         symbol_id=_make_symbol_id(
             file_path,
-            symbol.qualified_name if symbol else None,
-            symbol.kind if symbol else None,
+            candidate.symbol.qualified_name if candidate.symbol else None,
+            candidate.symbol.kind if candidate.symbol else None,
         ),
-        qualified_name=symbol.qualified_name if symbol else None,
-        visibility=str(symbol.visibility) if symbol else "public",
-        signature=symbol.signature if symbol else None,
-        docstring=symbol.docstring if symbol else None,
+        qualified_name=candidate.symbol.qualified_name if candidate.symbol else None,
+        visibility=str(candidate.symbol.visibility) if candidate.symbol else "public",
+        signature=candidate.symbol.signature if candidate.symbol else None,
+        docstring=candidate.symbol.docstring if candidate.symbol else None,
         content=content,
         file_path=file_path,
-        start_line=start_line,
-        end_line=start_line + len(lines) - 1,
-        symbol_name=symbol.name if symbol else None,
-        symbol_kind=symbol.kind if symbol else None,
+        start_line=candidate.start_line,
+        end_line=candidate.start_line + len(candidate.lines) - 1,
+        symbol_name=candidate.symbol.name if candidate.symbol else None,
+        symbol_kind=candidate.symbol.kind if candidate.symbol else None,
         language=language,
         imports_context=imports_context,
         token_count=token_count,
@@ -307,11 +333,8 @@ class ASTChunker:
         all_source_lines = source.split(b"\n")
         total_lines = len(all_source_lines)
 
-        # Sort symbols by start_line; methods nested under classes are already separate.
         symbols = sorted(parsed_file.symbols, key=lambda s: s.start_line)
-
-        # Collect raw chunk candidates: (lines_list, start_line, symbol_or_None).
-        candidates: list[tuple[list[bytes], int, Symbol | None]] = []
+        candidates: list[_ChunkCandidate] = []
         has_structural_ranges = False
 
         if symbols:
@@ -341,7 +364,6 @@ class ASTChunker:
                     encoder=encoder,
                 )
 
-        # File-level code: lines not covered by symbols or chunk-only AST ranges.
         uncovered_ranges = _find_uncovered_ranges(covered, total_lines)
         for range_start, range_end in uncovered_ranges:
             _append_candidates(
@@ -353,30 +375,25 @@ class ASTChunker:
                 encoder=encoder,
             )
 
-        # Merge small adjacent file-level chunks. Chunk-only AST ranges must remain
-        # line-stable; merging them can combine non-contiguous source ranges.
         if has_structural_ranges:
-            merged = sorted(candidates, key=lambda item: item[1])
+            merged = sorted(candidates, key=lambda item: item.start_line)
         else:
             merged = _merge_small_chunks(candidates, config.chunk_min_tokens, encoder)
 
-        # Build CodeChunk objects
         result: list[CodeChunk] = []
-        for lines_group, start_line, sym in merged:
-            if _is_blank_lines(lines_group):
+        for candidate in merged:
+            if _is_blank_lines(candidate.lines):
                 continue
-            chunk = _build_chunk(
-                file_path=file_path,
-                language=language,
-                lines=lines_group,
-                start_line=start_line,
-                symbol=sym,
-                imports=imports,
-                encoder=encoder,
-                all_symbols=symbols,
+            result.append(
+                _build_chunk(
+                    file_path=file_path,
+                    language=language,
+                    candidate=candidate,
+                    imports=imports,
+                    encoder=encoder,
+                    all_symbols=symbols,
+                )
             )
-            result.append(chunk)
-
         result.sort(key=lambda c: c.start_line)
         _disambiguate_symbol_ids(result)
         return result
@@ -415,41 +432,47 @@ def _find_uncovered_ranges(
     return uncovered
 
 
+def _merge_candidates(
+    left: _ChunkCandidate,
+    right: _ChunkCandidate,
+    encoder: tiktoken.Encoding,
+) -> _ChunkCandidate:
+    lines = left.lines + right.lines
+    content = left.content + "\n" + right.content
+    return _ChunkCandidate(
+        lines=lines,
+        start_line=left.start_line,
+        symbol=None,
+        content=content,
+        token_count=_count_tokens(encoder, content),
+    )
+
+
 def _merge_small_chunks(
-    candidates: list[tuple[list[bytes], int, Symbol | None]],
+    candidates: list[_ChunkCandidate],
     min_tokens: int,
     encoder: tiktoken.Encoding,
-) -> list[tuple[list[bytes], int, Symbol | None]]:
+) -> list[_ChunkCandidate]:
     """Merge adjacent small (below min_tokens) file-level chunks."""
     if not candidates:
         return []
 
-    result: list[tuple[list[bytes], int, Symbol | None]] = []
+    result: list[_ChunkCandidate] = []
     i = 0
     while i < len(candidates):
-        lines, start, sym = candidates[i]
-        tokens = _count_tokens(encoder, _lines_to_text(lines))
+        candidate = candidates[i]
 
-        # Only merge file-level (sym is None) small chunks with adjacent file-level chunks
-        if tokens < min_tokens and sym is None:
-            # Try to merge with next file-level chunk
-            if i + 1 < len(candidates) and candidates[i + 1][2] is None:
-                next_lines: list[bytes] = candidates[i + 1][0]
-                merged_fwd: list[bytes] = lines + next_lines
-                candidates[i + 1] = (merged_fwd, start, None)
+        if candidate.token_count < min_tokens and candidate.symbol is None:
+            if i + 1 < len(candidates) and candidates[i + 1].symbol is None:
+                candidates[i + 1] = _merge_candidates(candidate, candidates[i + 1], encoder)
                 i += 1
                 continue
-            # Try to merge into previous result if it's also file-level
-            if result and result[-1][2] is None:
-                prev_entry = result[-1]
-                prev_lines: list[bytes] = prev_entry[0]
-                prev_start: int = prev_entry[1]
-                merged_back: list[bytes] = prev_lines + lines
-                result[-1] = (merged_back, prev_start, None)
+            if result and result[-1].symbol is None:
+                result[-1] = _merge_candidates(result[-1], candidate, encoder)
                 i += 1
                 continue
 
-        result.append((lines, start, sym))
+        result.append(candidate)
         i += 1
 
     return result

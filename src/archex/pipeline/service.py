@@ -14,8 +14,7 @@ from archex.models import EdgeKind
 from archex.parse import (
     TreeSitterEngine,
     build_file_map,
-    extract_symbols,
-    parse_imports,
+    extract_symbols_and_imports,
     resolve_imports,
 )
 from archex.pipeline.chunker import ASTChunker
@@ -60,16 +59,11 @@ def parse_repository(
         max_file_size=config.max_file_size,
     )
     engine = TreeSitterEngine()
-    parsed_files = extract_symbols(
+    extraction = extract_symbols_and_imports(
         files, engine, adapters, parallel=config.parallel, strict=config.strict
     )
-    import_map = parse_imports(
-        files,
-        engine,
-        adapters,
-        parallel=config.parallel,
-        strict=config.strict,
-    )
+    parsed_files = extraction.parsed_files
+    import_map = extraction.imports_by_path
     file_map = build_file_map(files)
     file_languages = {f.path: f.language for f in files}
     resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)

@@ -544,7 +544,12 @@ def test_merge_small_chunks_backward_merge_direct() -> None:
       → forward merge blocked; result[-1] is file-level → backward merge triggers
     - symbol_chunk: always appended as-is
     """
-    from archex.index.chunker import _merge_small_chunks  # pyright: ignore[reportPrivateUsage]
+    from archex.pipeline.chunker import (
+        _ChunkCandidate,  # pyright: ignore[reportPrivateUsage]
+        _count_tokens,  # pyright: ignore[reportPrivateUsage]
+        _lines_to_text,  # pyright: ignore[reportPrivateUsage]
+        _merge_small_chunks,  # pyright: ignore[reportPrivateUsage]
+    )
 
     encoder = tiktoken.get_encoding("cl100k_base")
 
@@ -564,10 +569,28 @@ def test_merge_small_chunks_backward_merge_direct() -> None:
     # A symbol chunk
     sym_lines = [b"def foo(): pass\n"]
 
-    candidates: list[tuple[list[bytes], int, Symbol | None]] = [
-        (normal_lines, 1, None),
-        (small_lines, 31, None),
-        (sym_lines, 32, sym),
+    candidates = [
+        _ChunkCandidate(
+            normal_lines,
+            1,
+            None,
+            _lines_to_text(normal_lines),
+            _count_tokens(encoder, _lines_to_text(normal_lines)),
+        ),
+        _ChunkCandidate(
+            small_lines,
+            31,
+            None,
+            _lines_to_text(small_lines),
+            _count_tokens(encoder, _lines_to_text(small_lines)),
+        ),
+        _ChunkCandidate(
+            sym_lines,
+            32,
+            sym,
+            _lines_to_text(sym_lines),
+            _count_tokens(encoder, _lines_to_text(sym_lines)),
+        ),
     ]
 
     result = _merge_small_chunks(candidates, min_tokens=50, encoder=encoder)
@@ -577,18 +600,23 @@ def test_merge_small_chunks_backward_merge_direct() -> None:
     assert len(result) == 2
 
     merged_entry = result[0]
-    assert merged_entry[2] is None  # still file-level
-    merged_text = b"".join(merged_entry[0]).decode()
+    assert merged_entry.symbol is None  # still file-level
+    merged_text = b"".join(merged_entry.lines).decode()
     assert "y = 1" in merged_text  # small chunk content present
     assert "x = 0" in merged_text  # normal chunk content present
 
     sym_entry = result[1]
-    assert sym_entry[2] is sym
+    assert sym_entry.symbol is sym
 
 
 def test_merge_small_chunks_backward_merge_blocked_by_symbol_in_result() -> None:
     """Small file-level chunk does NOT merge when result[-1] is a symbol chunk."""
-    from archex.index.chunker import _merge_small_chunks  # pyright: ignore[reportPrivateUsage]
+    from archex.pipeline.chunker import (
+        _ChunkCandidate,  # pyright: ignore[reportPrivateUsage]
+        _count_tokens,  # pyright: ignore[reportPrivateUsage]
+        _lines_to_text,  # pyright: ignore[reportPrivateUsage]
+        _merge_small_chunks,  # pyright: ignore[reportPrivateUsage]
+    )
 
     encoder = tiktoken.get_encoding("cl100k_base")
 
@@ -606,17 +634,29 @@ def test_merge_small_chunks_backward_merge_blocked_by_symbol_in_result() -> None
 
     # [symbol_chunk, small_file_level] — small_file_level can't merge forward (end of list)
     # and can't merge backward (result[-1] is a symbol, not file-level)
-    candidates: list[tuple[list[bytes], int, Symbol | None]] = [
-        (sym_lines, 1, sym),
-        (small_lines, 3, None),
+    candidates = [
+        _ChunkCandidate(
+            sym_lines,
+            1,
+            sym,
+            _lines_to_text(sym_lines),
+            _count_tokens(encoder, _lines_to_text(sym_lines)),
+        ),
+        _ChunkCandidate(
+            small_lines,
+            3,
+            None,
+            _lines_to_text(small_lines),
+            _count_tokens(encoder, _lines_to_text(small_lines)),
+        ),
     ]
 
     result = _merge_small_chunks(candidates, min_tokens=50, encoder=encoder)
 
     # Both entries remain separate because backward merge is blocked by the symbol
     assert len(result) == 2
-    assert result[0][2] is sym
-    assert result[1][2] is None
+    assert result[0].symbol is sym
+    assert result[1].symbol is None
 
 
 def test_blank_lines_only_file_level_skipped() -> None:

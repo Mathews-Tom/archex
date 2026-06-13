@@ -363,8 +363,7 @@ def apply_delta(
     from archex.parse import (
         TreeSitterEngine,
         build_file_map,
-        extract_symbols,
-        parse_imports,
+        extract_symbols_and_imports,
         resolve_imports,
     )
     from archex.parse.adapters import default_adapter_registry
@@ -410,11 +409,13 @@ def apply_delta(
             engine = TreeSitterEngine()
             adapters = default_adapter_registry.build_all()
 
-            parsed_files = extract_symbols(changed_files, engine, adapters)
-            import_map = parse_imports(changed_files, engine, adapters)
+            extraction = extract_symbols_and_imports(changed_files, engine, adapters)
+            parsed_files = extraction.parsed_files
             file_map = build_file_map(all_files)
             file_languages = {f.path: f.language for f in all_files}
-            resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
+            resolved_map = resolve_imports(
+                extraction.imports_by_path, file_map, adapters, file_languages
+            )
 
             chunker = ASTChunker(config=effective_index_config)
             sources = _changed_sources(changed_files)

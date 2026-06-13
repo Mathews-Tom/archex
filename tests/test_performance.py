@@ -17,7 +17,7 @@ from archex.models import CodeChunk, Config, DiscoveredFile, Edge, EdgeKind, Rep
 from archex.parse.adapters import ADAPTERS
 from archex.parse.engine import TreeSitterEngine
 from archex.parse.imports import parse_imports
-from archex.parse.symbols import extract_symbols
+from archex.parse.symbols import extract_symbols, extract_symbols_and_imports
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -345,13 +345,13 @@ class TestQueryCacheSkipsParse:
 
         config = Config(cache=True, cache_dir=str(cache_dir))
         with (
-            patch("archex.api.extract_symbols") as mock_es,
+            patch("archex.api.extract_symbols_and_imports") as parse_spy,
             patch("archex.cache.CacheManager.git_head", return_value=None),
         ):
             from archex.api import query
 
             query(source, "what?", config=config)
-        mock_es.assert_not_called()
+        parse_spy.assert_not_called()
 
     def test_query_invalidates_stale_cache(self, tmp_path: Path, python_simple_repo: Path) -> None:
         """Cache with needs_reindex flag is invalidated and falls through to full pipeline."""
@@ -392,14 +392,17 @@ class TestQueryCacheSkipsParse:
 
         config = Config(cache=True, cache_dir=str(cache_dir))
         with (
-            patch("archex.api.extract_symbols", wraps=extract_symbols) as mock_es,
+            patch(
+                "archex.api.extract_symbols_and_imports",
+                wraps=extract_symbols_and_imports,
+            ) as parse_spy,
             patch("archex.cache.CacheManager.git_head", return_value=None),
         ):
             from archex.api import query
 
             query(source, "what?", config=config)
-        # extract_symbols must have been called because the stale cache was invalidated.
-        mock_es.assert_called()
+        # Parsing must have been called because the stale cache was invalidated.
+        parse_spy.assert_called()
 
 
 class TestGetEmbedder:

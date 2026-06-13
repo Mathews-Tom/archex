@@ -9,7 +9,8 @@ import pytest
 from archex.models import DiscoveredFile, SymbolKind
 from archex.parse.adapters import default_adapter_registry
 from archex.parse.engine import TreeSitterEngine
-from archex.parse.symbols import extract_symbols
+from archex.parse.imports import parse_imports
+from archex.parse.symbols import extract_symbols, extract_symbols_and_imports
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -60,6 +61,25 @@ def test_extract_symbols_returns_parsed_files(
 ) -> None:
     parsed = extract_symbols(python_simple_files, engine, adapters)
     assert len(parsed) == len(python_simple_files)
+
+
+def test_extract_symbols_and_imports_matches_separate_passes(
+    python_simple_files: list[DiscoveredFile],
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    combined = extract_symbols_and_imports(python_simple_files, engine, adapters)
+
+    separate_symbols = extract_symbols(python_simple_files, TreeSitterEngine(), adapters)
+    separate_imports = parse_imports(python_simple_files, TreeSitterEngine(), adapters)
+
+    assert [parsed.model_dump() for parsed in combined.parsed_files] == [
+        parsed.model_dump() for parsed in separate_symbols
+    ]
+    assert {
+        path: [imp.model_dump() for imp in imports]
+        for path, imports in combined.imports_by_path.items()
+    } == {path: [imp.model_dump() for imp in imports] for path, imports in separate_imports.items()}
 
 
 def test_all_files_have_correct_language(
