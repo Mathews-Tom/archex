@@ -301,10 +301,9 @@ archex follows a minimal-dependency strategy:
 | `archex[voyage]`        | `voyageai`                  | Voyage Code API embeddings                   |
 | `archex[openai]`        | `openai`                    | OpenAI API embeddings + LLM enrichment       |
 | `archex[anthropic]`     | `anthropic`                 | Anthropic API LLM enrichment                 |
-| `archex[language-pack]` | `tree-sitter-language-pack` | Additional grammars (Swift)                  |
 | `archex[all]`           | All optional deps           | Everything                                   |
 
-Core grammar dependencies include `tree-sitter-java`, `tree-sitter-kotlin`, and `tree-sitter-c-sharp` in addition to the original four. Swift uses `tree-sitter-language-pack` (optional extra).
+Core grammar dependencies include the standalone tree-sitter packages for tier-full languages plus `tree-sitter-language-pack` for the shared runtime grammar path.
 
 No SQLAlchemy, no FastAPI, no heavy frameworks. SQLite via stdlib `sqlite3`. Git operations via `git` CLI (assumed installed). HTTP via stdlib `urllib` where needed.
 

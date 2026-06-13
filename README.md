@@ -171,7 +171,7 @@ uv add "archex[vector-torch]"             # sentence-transformers / torch
 uv add "archex[splade]"                   # SPLADE sparse retrieval
 
 # Everything
-uv add "archex[all]"                      # vector + graph + mcp + langchain + llamaindex + language-pack
+uv add "archex[all]"                      # vector + graph + mcp + langchain + llamaindex
 ```
 
 ## Usage

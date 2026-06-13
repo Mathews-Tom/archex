@@ -9,8 +9,8 @@ from tree_sitter import Language, Parser
 
 from archex.exceptions import ParseError
 
-# Maps language_id → (module_name, function_name)
-_LANGUAGE_LOADERS: dict[str, tuple[str, str]] = {
+# Maps language_id → (preferred module_name, function_name).
+_PREFERRED_LANGUAGE_LOADERS: dict[str, tuple[str, str]] = {
     "python": ("tree_sitter_python", "language"),
     "javascript": ("tree_sitter_javascript", "language"),
     "typescript": ("tree_sitter_typescript", "language_typescript"),
@@ -21,6 +21,11 @@ _LANGUAGE_LOADERS: dict[str, tuple[str, str]] = {
     "kotlin": ("tree_sitter_kotlin", "language"),
     "csharp": ("tree_sitter_c_sharp", "language"),
     "swift": ("tree_sitter_swift", "language"),
+}
+
+# Maps language_id → tree-sitter-language-pack grammar name.
+_LANGUAGE_PACK_NAMES: dict[str, str] = {
+    language_id: language_id for language_id in _PREFERRED_LANGUAGE_LOADERS
 }
 
 
@@ -34,15 +39,20 @@ class TreeSitterEngine:
     def get_language(self, language_id: str) -> Language:
         """Return a cached Language for the given language_id.
 
-        Raises ParseError if the language is not supported or the module is missing.
+        Raises ParseError if the language is not supported or the grammar cannot be loaded.
         """
         if language_id in self._languages:
             return self._languages[language_id]
 
-        if language_id not in _LANGUAGE_LOADERS:
+        if language_id not in _PREFERRED_LANGUAGE_LOADERS:
             raise ParseError(f"Unsupported language: {language_id!r}")
 
-        module_name, func_name = _LANGUAGE_LOADERS[language_id]
+        lang = self._load_preferred_language(language_id)
+        self._languages[language_id] = lang
+        return lang
+
+    def _load_preferred_language(self, language_id: str) -> Language:
+        module_name, func_name = _PREFERRED_LANGUAGE_LOADERS[language_id]
         try:
             module = importlib.import_module(module_name)
         except ImportError:
@@ -50,23 +60,19 @@ class TreeSitterEngine:
 
         try:
             func = getattr(module, func_name)
-            lang = Language(func())  # pyright: ignore[reportDeprecated]
+            return Language(func())  # pyright: ignore[reportDeprecated]
         except Exception as exc:
             raise ParseError(f"Failed to load tree-sitter language {language_id!r}: {exc}") from exc
 
-        self._languages[language_id] = lang
-        return lang
-
     def _try_language_pack(self, language_id: str) -> Language:
-        """Fallback: load grammar from tree-sitter-language-pack if standalone unavailable."""
+        """Load grammar from tree-sitter-language-pack after standalone lookup misses."""
+        pack_name = _LANGUAGE_PACK_NAMES[language_id]
         try:
             from tree_sitter_language_pack import (
                 get_language as _pack_get_language,  # type: ignore[import-untyped]
             )
 
-            raw = _pack_get_language(language_id)  # pyright: ignore[reportUnknownVariableType,reportArgumentType]
-            # tree-sitter-language-pack >=0.7 returns Language directly; older returns capsule
-            lang = raw if isinstance(raw, Language) else Language(raw)  # pyright: ignore[reportDeprecated,reportUnknownArgumentType,reportUnnecessaryIsInstance]
+            return _pack_get_language(pack_name)  # pyright: ignore[reportUnknownVariableType,reportArgumentType]
         except ImportError as exc:
             raise ParseError(
                 f"tree-sitter grammar for {language_id!r} not installed "
@@ -76,8 +82,6 @@ class TreeSitterEngine:
             raise ParseError(
                 f"Failed to load tree-sitter language {language_id!r} from language-pack: {exc}"
             ) from exc
-        self._languages[language_id] = lang
-        return lang
 
     def get_parser(self, language_id: str) -> Parser:
         """Return a cached Parser for the given language_id."""
