@@ -89,7 +89,7 @@ from archex.parse import (
     resolve_imports,
 )
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
-from archex.pipeline.chunker import ASTChunker, Chunker
+from archex.pipeline.chunker import Chunker, create_chunker
 from archex.pipeline.service import build_chunk_surrogates
 from archex.project import uses_project_cache_layout
 from archex.scout import (
@@ -125,6 +125,14 @@ def _cache_manager_for_source(source: RepoSource, config: Config) -> CacheManage
         except ValueError:
             project_layout = False
     return CacheManager(cache_dir=config.cache_dir, project_layout=project_layout)
+
+
+def _index_config_metadata_matches(store: IndexStore, index_config: IndexConfig) -> bool:
+    return store.get_metadata("chunker") == index_config.chunker
+
+
+def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> None:
+    store.set_metadata("chunker", index_config.chunker)
 
 
 def _full_index(
@@ -163,7 +171,7 @@ def _full_index(
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
         effective_index_config = index_config or IndexConfig()
-        file_chunker: Chunker = ASTChunker(config=effective_index_config)
+        file_chunker: Chunker = create_chunker(effective_index_config)
         sources: dict[str, bytes] = {}
         for f in files:
             try:
@@ -239,6 +247,7 @@ def _full_index(
                     npz_path.unlink()
 
         total_repo_tokens = sum(chunk.token_count for chunk in all_chunks)
+        _set_index_config_metadata(store, effective_index_config)
         store.set_metadata("repo_total_tokens", str(total_repo_tokens))
         store.set_metadata("chunk_count", str(len(all_chunks)))
         file_count = len({chunk.file_path for chunk in all_chunks})
@@ -296,6 +305,7 @@ def _ensure_index(
         config = load_config(source)
 
     t_start = time.perf_counter()
+    effective_index_config = index_config or IndexConfig()
     cache = _cache_manager_for_source(source, config)
     cache_key = cache.cache_key(source)
     working_tree_signature = _working_tree_signature(source, config)
@@ -309,14 +319,15 @@ def _ensure_index(
             working_tree_signature is None or store_signature == working_tree_signature
         )
         needs_reindex = store.needs_reindex()
-        if not needs_reindex and signature_matches:
+        metadata_matches = _index_config_metadata_matches(store, effective_index_config)
+        if not needs_reindex and signature_matches and metadata_matches:
             if timing is not None:
                 timing.cached = True
                 timing.strategy = "cached"
                 timing.index_ms = _elapsed_ms(t_start)
             return store
         store.close()
-        if needs_reindex:
+        if needs_reindex or not metadata_matches:
             cache.invalidate(cache_key)
 
     # Path 2: Delta path — same repo, different commit (local repos only)
@@ -328,7 +339,7 @@ def _ensure_index(
             cache_key=cache_key,
             working_tree_signature=working_tree_signature,
             timing=timing,
-            index_config=index_config,
+            index_config=effective_index_config,
             t_start=t_start,
         )
     )
@@ -336,7 +347,14 @@ def _ensure_index(
         return delta_store
 
     # Path 3: Full re-index
-    return _full_index(source, config, cache, cache_key, timing, index_config=index_config)
+    return _full_index(
+        source,
+        config,
+        cache,
+        cache_key,
+        timing,
+        index_config=effective_index_config,
+    )
 
 
 def index_repository(
@@ -365,6 +383,13 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
         return None
 
     db_path, cached_commit = existing
+    effective_index_config = attempt.index_config or IndexConfig()
+    candidate_store = IndexStore(db_path)
+    try:
+        if not _index_config_metadata_matches(candidate_store, effective_index_config):
+            return None
+    finally:
+        candidate_store.close()
     current_commit = CacheManager.git_head(source.local_path)
     if not current_commit:
         return None
@@ -1836,7 +1861,7 @@ def query(
             )
 
         t4 = time.perf_counter()
-        file_chunker: Chunker = chunker if chunker is not None else ASTChunker(config=index_config)
+        file_chunker: Chunker = chunker if chunker is not None else create_chunker(index_config)
         sources: dict[str, bytes] = {}
         for f in files:
             try:

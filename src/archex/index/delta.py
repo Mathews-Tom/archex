@@ -359,7 +359,7 @@ def apply_delta(
     """
     from archex.acquire import discover_files
     from archex.index.bm25 import BM25Index
-    from archex.index.chunker import ASTChunker
+    from archex.index.chunker import create_chunker
     from archex.parse import (
         TreeSitterEngine,
         build_file_map,
@@ -417,7 +417,7 @@ def apply_delta(
                 extraction.imports_by_path, file_map, adapters, file_languages
             )
 
-            chunker = ASTChunker(config=effective_index_config)
+            chunker = create_chunker(effective_index_config)
             sources = _changed_sources(changed_files)
             new_chunks = chunker.chunk_files(parsed_files, sources)
             new_surrogates = build_chunk_surrogates(
@@ -456,6 +456,7 @@ def apply_delta(
     bm25.build(all_chunks)
 
     # 6. Update metadata
+    store.set_metadata("chunker", effective_index_config.chunker)
     store.set_metadata("repo_total_tokens", str(sum(chunk.token_count for chunk in all_chunks)))
     store.set_metadata("chunk_count", str(len(all_chunks)))
     store.set_metadata("commit_hash", manifest.current_commit)

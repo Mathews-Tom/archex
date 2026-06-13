@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 import tiktoken
 
 from archex.index.chunker import (
     ASTChunker,
+    CastChunker,
     _format_import,  # pyright: ignore[reportPrivateUsage]
     _import_relevant,  # pyright: ignore[reportPrivateUsage]
+    create_chunker,
 )
 from archex.models import (
     CodeChunk,
+    Config,
     ImportStatement,
     IndexConfig,
     ParsedFile,
+    PipelineTiming,
+    RepoSource,
     Symbol,
     SymbolKind,
     Visibility,
@@ -451,6 +459,192 @@ def test_symbol_kind_set_on_chunk() -> None:
 
     greeter_chunk = _find_chunk(chunks, "Greeter")
     assert greeter_chunk.symbol_kind == SymbolKind.CLASS
+
+
+@pytest.mark.parametrize(
+    ("language", "path", "source", "signature"),
+    [
+        (
+            "python",
+            "case.py",
+            b"def keep_together(value: int) -> int:\n    doubled = value * 2\n    return doubled",
+            "def keep_together(value: int) -> int",
+        ),
+        (
+            "typescript",
+            "case.ts",
+            (
+                b"function keepTogether(value: number): number {\n"
+                b"  const doubled = value * 2;\n"
+                b"  return doubled;\n"
+                b"}"
+            ),
+            "function keepTogether(value: number): number",
+        ),
+        (
+            "go",
+            "case.go",
+            b"func keepTogether(value int) int {\n\t doubled := value * 2\n\t return doubled\n}",
+            "func keepTogether(value int) int",
+        ),
+        (
+            "rust",
+            "case.rs",
+            b"fn keep_together(value: i32) -> i32 {\n    let doubled = value * 2;\n    doubled\n}",
+            "fn keep_together(value: i32) -> i32",
+        ),
+    ],
+)
+def test_cast_preserves_fitting_function_body(
+    language: str,
+    path: str,
+    source: bytes,
+    signature: str,
+) -> None:
+    parsed = ParsedFile(
+        path=path,
+        language=language,
+        symbols=[
+            Symbol(
+                name="keep_together",
+                qualified_name="keep_together",
+                kind=SymbolKind.FUNCTION,
+                file_path=path,
+                start_line=1,
+                end_line=len(source.split(b"\n")),
+                signature=signature,
+            )
+        ],
+        lines=len(source.split(b"\n")),
+    )
+
+    chunks = CastChunker(IndexConfig(chunker="cast", chunk_max_tokens=128)).chunk_file(
+        parsed,
+        source,
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].start_line == 1
+    assert chunks[0].end_line == parsed.symbols[0].end_line
+    assert chunks[0].content == source.decode()
+
+
+def test_cast_greedily_merges_sibling_functions_under_budget() -> None:
+    source = b"def a() -> int:\n    return 1\n\ndef b() -> int:\n    return 2"
+    parsed = ParsedFile(
+        path="siblings.py",
+        language="python",
+        symbols=[
+            Symbol(
+                name="a",
+                qualified_name="a",
+                kind=SymbolKind.FUNCTION,
+                file_path="siblings.py",
+                start_line=1,
+                end_line=2,
+            ),
+            Symbol(
+                name="b",
+                qualified_name="b",
+                kind=SymbolKind.FUNCTION,
+                file_path="siblings.py",
+                start_line=4,
+                end_line=5,
+            ),
+        ],
+        lines=5,
+    )
+
+    chunks = CastChunker(IndexConfig(chunker="cast", chunk_max_tokens=128)).chunk_file(
+        parsed,
+        source,
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].symbol_name is None
+    assert "def a" in chunks[0].content
+    assert "def b" in chunks[0].content
+
+
+def test_create_chunker_selects_cast_only_when_configured() -> None:
+    assert isinstance(create_chunker(IndexConfig()), ASTChunker)
+    assert isinstance(create_chunker(IndexConfig(chunker="cast")), CastChunker)
+
+
+def test_index_metadata_prevents_cross_chunker_cache_reuse(
+    python_simple_repo: Path,
+    tmp_path: Path,
+) -> None:
+    from archex.api import index_repository
+
+    source = RepoSource(local_path=str(python_simple_repo))
+    config = Config(cache=True, cache_dir=str(tmp_path / "cache"))
+
+    default_timing = PipelineTiming()
+    default_store = index_repository(
+        source,
+        config=config,
+        timing=default_timing,
+        index_config=IndexConfig(),
+    )
+    try:
+        assert default_store.get_metadata("chunker") == "default"
+    finally:
+        default_store.close()
+
+    cast_timing = PipelineTiming()
+    cast_store = index_repository(
+        source,
+        config=config,
+        timing=cast_timing,
+        index_config=IndexConfig(chunker="cast"),
+    )
+    try:
+        assert cast_store.get_metadata("chunker") == "cast"
+        assert cast_timing.cached is False
+    finally:
+        cast_store.close()
+
+
+def test_cast_preserves_symbol_before_trailing_blank_line() -> None:
+    source = b"def trailing() -> int:\n    return 1\n"
+    parsed = ParsedFile(
+        path="trailing.py",
+        language="python",
+        symbols=[
+            Symbol(
+                name="trailing",
+                qualified_name="trailing",
+                kind=SymbolKind.FUNCTION,
+                file_path="trailing.py",
+                start_line=1,
+                end_line=2,
+            )
+        ],
+        lines=2,
+    )
+
+    chunks = CastChunker(IndexConfig(chunker="cast", chunk_max_tokens=128)).chunk_file(
+        parsed,
+        source,
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].symbol_name == "trailing"
+    assert chunks[0].end_line == 2
+
+
+def test_cast_keeps_methods_when_parent_range_does_not_enclose_them() -> None:
+    chunks = CastChunker(
+        IndexConfig(chunker="cast", chunk_max_tokens=30, chunk_min_tokens=0)
+    ).chunk_file(
+        PARSED_SIMPLE,
+        SOURCE_SIMPLE,
+    )
+
+    symbol_names = {chunk.symbol_name for chunk in chunks}
+    assert "Greeter.__init__" in symbol_names
+    assert "Greeter.greet" in symbol_names
 
 
 # ---------------------------------------------------------------------------

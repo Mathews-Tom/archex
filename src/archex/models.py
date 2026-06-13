@@ -148,6 +148,9 @@ class Config(BaseModel):
         return self
 
 
+ChunkerName = Literal["default", "cast"]
+
+
 class IndexConfig(BaseModel):
     bm25: bool = True
     vector: bool = False
@@ -159,6 +162,7 @@ class IndexConfig(BaseModel):
     retrieval_policy: RetrievalPolicy = RetrievalPolicy.AUTO
     rerank: bool = False
     rerank_model: str | None = None
+    chunker: ChunkerName = "default"
     chunk_max_tokens: int = 500
     chunk_min_tokens: int = 50
     token_encoding: str = "cl100k_base"

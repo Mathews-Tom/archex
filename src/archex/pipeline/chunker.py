@@ -233,6 +233,14 @@ class _ChunkCandidate:
     token_count: int
 
 
+@dataclass(frozen=True)
+class _CastUnit:
+    start_line: int
+    end_line: int
+    symbol: Symbol | None
+    token_count: int
+
+
 def _append_candidates(
     candidates: list[_ChunkCandidate],
     *,
@@ -407,6 +415,327 @@ class ASTChunker:
             all_chunks.extend(self.chunk_file(pf, src))
         all_chunks.sort(key=lambda c: (c.file_path, c.start_line))
         return all_chunks
+
+
+class CastChunker(ASTChunker):
+    """Recursive AST split-merge chunker selected by IndexConfig(chunker="cast")."""
+
+    def chunk_file(self, parsed_file: ParsedFile, source: bytes) -> list[CodeChunk]:
+        config = self._config
+        encoder = self._encoder
+        file_path = parsed_file.path
+        language = parsed_file.language
+        imports = parsed_file.imports
+        all_source_lines = source.split(b"\n")
+        total_lines = len(all_source_lines)
+        symbols = sorted(parsed_file.symbols, key=lambda s: (s.start_line, s.end_line))
+
+        if symbols:
+            units = _cast_units_for_scope(
+                start_line=1,
+                end_line=total_lines,
+                children=_top_level_symbols(symbols),
+                all_symbols=symbols,
+                all_source_lines=all_source_lines,
+                max_tokens=config.chunk_max_tokens,
+                encoder=encoder,
+            )
+        else:
+            units = _cast_units_for_ranges(
+                parsed_file,
+                all_source_lines,
+                config.chunk_max_tokens,
+                encoder,
+            )
+
+        result: list[CodeChunk] = []
+        for unit in units:
+            lines = _extract_source_lines(all_source_lines, unit.start_line, unit.end_line)
+            if _is_blank_lines(lines):
+                continue
+            content = _lines_to_text(lines)
+            result.append(
+                _build_chunk(
+                    file_path=file_path,
+                    language=language,
+                    candidate=_ChunkCandidate(
+                        lines=lines,
+                        start_line=unit.start_line,
+                        symbol=unit.symbol,
+                        content=content,
+                        token_count=_count_tokens(encoder, content),
+                    ),
+                    imports=imports,
+                    encoder=encoder,
+                    all_symbols=symbols,
+                )
+            )
+        result.sort(key=lambda c: c.start_line)
+        _disambiguate_symbol_ids(result)
+        return result
+
+
+def create_chunker(config: IndexConfig | None = None) -> Chunker:
+    effective = config or IndexConfig()
+    if effective.chunker == "cast":
+        return CastChunker(effective)
+    return ASTChunker(effective)
+
+
+def _top_level_symbols(symbols: list[Symbol]) -> list[Symbol]:
+    top_level: list[Symbol] = []
+    for symbol in symbols:
+        if _direct_parent_symbol(symbol, symbols) is None:
+            top_level.append(symbol)
+    return _non_overlapping_symbols(top_level)
+
+
+def _direct_child_symbols(parent: Symbol, symbols: list[Symbol]) -> list[Symbol]:
+    children = [symbol for symbol in symbols if _direct_parent_symbol(symbol, symbols) is parent]
+    return _non_overlapping_symbols(children)
+
+
+def _direct_parent_symbol(symbol: Symbol, symbols: list[Symbol]) -> Symbol | None:
+    by_name = {candidate.qualified_name: candidate for candidate in symbols}
+    if symbol.parent and symbol.parent in by_name:
+        parent = by_name[symbol.parent]
+        if (
+            parent is not symbol
+            and parent.start_line <= symbol.start_line
+            and symbol.end_line <= parent.end_line
+        ):
+            return parent
+
+    containers = [
+        candidate
+        for candidate in symbols
+        if candidate is not symbol
+        and candidate.start_line <= symbol.start_line
+        and symbol.end_line <= candidate.end_line
+        and (candidate.start_line, candidate.end_line) != (symbol.start_line, symbol.end_line)
+    ]
+    if not containers:
+        return None
+    return min(containers, key=lambda item: (item.end_line - item.start_line, item.start_line))
+
+
+def _non_overlapping_symbols(symbols: list[Symbol]) -> list[Symbol]:
+    result: list[Symbol] = []
+    last_end = 0
+    for symbol in sorted(symbols, key=lambda item: (item.start_line, item.end_line)):
+        if symbol.start_line <= last_end:
+            continue
+        result.append(symbol)
+        last_end = symbol.end_line
+    return result
+
+
+def _cast_units_for_ranges(
+    parsed_file: ParsedFile,
+    all_source_lines: list[bytes],
+    max_tokens: int,
+    encoder: tiktoken.Encoding,
+) -> list[_CastUnit]:
+    ranges = sorted(parsed_file.chunk_ranges, key=lambda item: item.start_line)
+    if not ranges:
+        return _split_cast_range(
+            1,
+            len(all_source_lines),
+            None,
+            all_source_lines,
+            max_tokens,
+            encoder,
+        )
+
+    units: list[_CastUnit] = []
+    for chunk_range in ranges:
+        units.extend(
+            _split_cast_range(
+                chunk_range.start_line,
+                chunk_range.end_line,
+                None,
+                all_source_lines,
+                max_tokens,
+                encoder,
+            )
+        )
+    return _merge_cast_units(units, all_source_lines, max_tokens, encoder)
+
+
+def _cast_units_for_scope(
+    *,
+    start_line: int,
+    end_line: int,
+    children: list[Symbol],
+    all_symbols: list[Symbol],
+    all_source_lines: list[bytes],
+    max_tokens: int,
+    encoder: tiktoken.Encoding,
+) -> list[_CastUnit]:
+    units: list[_CastUnit] = []
+    current = start_line
+    for child in children:
+        child_start = max(child.start_line, start_line)
+        child_end = min(child.end_line, end_line)
+        if current < child_start:
+            units.extend(
+                _split_cast_range(
+                    current,
+                    child_start - 1,
+                    None,
+                    all_source_lines,
+                    max_tokens,
+                    encoder,
+                )
+            )
+        units.extend(
+            _cast_units_for_symbol(
+                child,
+                all_symbols,
+                all_source_lines,
+                max_tokens,
+                encoder,
+            )
+        )
+        current = max(current, child_end + 1)
+    if current <= end_line:
+        units.extend(
+            _split_cast_range(current, end_line, None, all_source_lines, max_tokens, encoder)
+        )
+    return _merge_cast_units(units, all_source_lines, max_tokens, encoder)
+
+
+def _cast_units_for_symbol(
+    symbol: Symbol,
+    all_symbols: list[Symbol],
+    all_source_lines: list[bytes],
+    max_tokens: int,
+    encoder: tiktoken.Encoding,
+) -> list[_CastUnit]:
+    token_count = _count_range_tokens(
+        symbol.start_line,
+        symbol.end_line,
+        all_source_lines,
+        encoder,
+    )
+    if token_count <= max_tokens:
+        return [_CastUnit(symbol.start_line, symbol.end_line, symbol, token_count)]
+
+    children = [
+        child
+        for child in _direct_child_symbols(symbol, all_symbols)
+        if symbol.start_line <= child.start_line and child.end_line <= symbol.end_line
+    ]
+    if not children:
+        return _split_cast_range(
+            symbol.start_line,
+            symbol.end_line,
+            None,
+            all_source_lines,
+            max_tokens,
+            encoder,
+        )
+    return _cast_units_for_scope(
+        start_line=symbol.start_line,
+        end_line=symbol.end_line,
+        children=children,
+        all_symbols=all_symbols,
+        all_source_lines=all_source_lines,
+        max_tokens=max_tokens,
+        encoder=encoder,
+    )
+
+
+def _split_cast_range(
+    start_line: int,
+    end_line: int,
+    symbol: Symbol | None,
+    all_source_lines: list[bytes],
+    max_tokens: int,
+    encoder: tiktoken.Encoding,
+) -> list[_CastUnit]:
+    if end_line < start_line:
+        return []
+    lines = _extract_source_lines(all_source_lines, start_line, end_line)
+    if _is_blank_lines(lines):
+        return []
+    content = _lines_to_text(lines)
+    token_count = _count_tokens(encoder, content)
+    if token_count <= max_tokens:
+        return [_CastUnit(start_line, end_line, symbol, token_count)]
+
+    units: list[_CastUnit] = []
+    offset = start_line
+    for group in _split_lines_at_boundary(lines, max_tokens, encoder):
+        if _is_blank_lines(group):
+            offset += len(group)
+            continue
+        group_content = _lines_to_text(group)
+        units.append(
+            _CastUnit(
+                start_line=offset,
+                end_line=offset + len(group) - 1,
+                symbol=None,
+                token_count=_count_tokens(encoder, group_content),
+            )
+        )
+        offset += len(group)
+    return units
+
+
+def _merge_cast_units(
+    units: list[_CastUnit],
+    all_source_lines: list[bytes],
+    max_tokens: int,
+    encoder: tiktoken.Encoding,
+) -> list[_CastUnit]:
+    if not units:
+        return []
+
+    result: list[_CastUnit] = []
+    group_start = units[0].start_line
+    group_end = units[0].end_line
+    group_symbol = units[0].symbol
+    group_size = 1
+
+    for unit in units[1:]:
+        merged_tokens = _count_range_tokens(group_start, unit.end_line, all_source_lines, encoder)
+        if merged_tokens <= max_tokens:
+            group_end = unit.end_line
+            group_size += 1
+            continue
+        result.append(
+            _CastUnit(
+                group_start,
+                group_end,
+                group_symbol if group_size == 1 else None,
+                _count_range_tokens(group_start, group_end, all_source_lines, encoder),
+            )
+        )
+        group_start = unit.start_line
+        group_end = unit.end_line
+        group_symbol = unit.symbol
+        group_size = 1
+
+    result.append(
+        _CastUnit(
+            group_start,
+            group_end,
+            group_symbol if group_size == 1 else None,
+            _count_range_tokens(group_start, group_end, all_source_lines, encoder),
+        )
+    )
+    return result
+
+
+def _count_range_tokens(
+    start_line: int,
+    end_line: int,
+    all_source_lines: list[bytes],
+    encoder: tiktoken.Encoding,
+) -> int:
+    lines = _extract_source_lines(all_source_lines, start_line, end_line)
+    return _count_tokens(encoder, _lines_to_text(lines))
 
 
 def _find_uncovered_ranges(
