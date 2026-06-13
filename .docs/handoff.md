@@ -1,24 +1,26 @@
 # Handoff — archex
 
-**Last touched:** 2026-06-13T05:05Z · **branch:** `feat/scout-followups` · **HEAD:** `f6fdadd` · **session:** openai-codex/gpt-5.4
+**Last touched:** 2026-06-13T06:15Z · **branch:** `feat/scout-followups` · **HEAD:** `d84217a` · **session:** openai-codex/gpt-5.4
 
 > Authority: this file owns transient session state. Persistent facts live in project memory. Committed history lives in `git log`.
 
 ## Status
 - Working tree was clean before this handoff refresh on `feat/scout-followups`.
-- Published C5 scout stack remains open:
+- Published C5 scout stack is now five PRs, all open and merge-clean after CI:
   - #201 `feat/scout-core` → `main`
   - #202 `feat/scout-handles` → `feat/scout-core`
   - #203 `feat/scout-cli-mcp` → `feat/scout-handles`
   - #204 `feat/scout-benchmark` → `feat/scout-cli-mcp`
-- Follow-up branch `feat/scout-followups` is local-only in this session and now contains:
+  - #205 `feat/scout-followups` → `feat/scout-benchmark`
+- `feat/scout-followups` adds:
   - chunk/symbol-first fetch planning
   - adaptive handle caps by intent + score-mass coverage
   - direct-query cost guardrail
   - direct-query precision proxy guardrail
   - weak-coverage fallback
+  - hybrid fetch mode
   - per-extra-file and per-missing-file benchmark provenance
-- Local follow-up gates passed on `f6fdadd`:
+- Local follow-up gates passed on `d84217a`:
   - `uv run ruff check`
   - `uv run ruff format --check .`
   - `uv run pyright`
@@ -26,19 +28,25 @@
   - `uv run pytest tests/benchmark/test_models.py tests/benchmark/test_runner.py tests/benchmark/test_strategy_registry.py tests/benchmark/test_cli.py tests/benchmark/test_strategies.py -q`
 - Behavioral smoke on current follow-up branch passed:
   - `uv run archex scout . "how does delta indexing work" --format markdown`
-  - Observed result stayed within cap: `Budget: 956/1000 tokens`.
+  - Observed result stayed within cap: `Budget: 973/1000 tokens`.
   - Observed recommended fetch plan:
     - `strategy: chunk_first`
-    - `estimated_tokens: fetch=717, files=2, total=1673, direct_query=5632/5`
-    - `projected_precision: chunk_first=0.449, direct_query=0.200`
-    - `projected_coverage: chunk_first=0.898, target=0.700`
+    - `estimated_tokens: fetch=780, files=3, total=1753, direct_query=5632/5`
+    - `projected_precision: chunk_first=0.321, direct_query=0.200`
+    - `projected_coverage: chunk_first=0.962, target=0.820`
     - symbol-level handles emitted for second phase
 - Latest operator benchmark run completed from a separate terminal and logged to `.docs/operator-run.log`.
-- Latest operator result: scout cap still holds, token cost remains strongly better than `archex_query`, F1 now clears the readiness bar, but recall still misses the bar so C5 is still incomplete:
-  - Mean recall `0.710` vs target `>= 0.800` — fail
-  - Mean precision `0.736` vs target `>= 0.600` — pass
+- Latest operator result: C5 now meets both readiness and the original broad/architecture pass criterion:
+  - Mean recall `0.814` vs target `>= 0.800` — pass
+  - Mean precision `0.651` vs target `>= 0.600` — pass
   - Mean F1 `0.707` vs target `>= 0.700` — pass
   - Zero-recall tasks `0` vs target `<= 1` — pass
+- PR merge state snapshot:
+  - #201 `CLEAN`
+  - #202 `CLEAN`
+  - #203 `CLEAN`
+  - #204 `CLEAN`
+  - #205 `CLEAN` after CI completed on 2026-06-13
 ## What changed this session
 - #201 adds `src/archex/scout.py` and `tests/test_scout.py`.
   - Scout assembly now emits a deterministic structural map: ranked files, module boundaries, top symbols, graph sketch, and omission counts.
@@ -59,29 +67,33 @@
 
 
 ## Operator findings
-- Readiness output still says `Ready: no` for `archex_scout_fetch`.
-- Fourth operator run vs third operator run:
-  - recall: `0.589 → 0.710`
-  - precision: `0.781 → 0.736`
-  - F1: `0.652 → 0.707`
-  - tokens total: `52,820 → 59,888`
+- Readiness output says `Ready: yes` for `archex_scout_fetch`.
+- Fifth operator run vs fourth operator run:
+  - recall: `0.710 → 0.814`
+  - precision: `0.736 → 0.651`
+  - F1: `0.707 → 0.707`
+  - tokens total: `59,888 → 89,013`
   - zero-recall tasks: `0 → 0`
 - Current comparison vs `archex_query`:
-  - `archex_query`: recall `0.907`, precision `0.575`, F1 `0.687`, tokens `191,051`, median latency `712 ms`
-  - `archex_scout_fetch`: recall `0.710`, precision `0.736`, F1 `0.707`, tokens `59,888`, median latency `2197 ms`
-  - Scout wins on tokens in `31/35` tasks and ties in `4/35`; no token losses observed.
-  - Scout loses recall in `19/35` tasks and ties in `16/35`; no recall wins observed.
-  - Scout wins F1 in `15/35`, ties in `6/35`, loses in `14/35`.
-  - Scout wins precision in `23/35`, ties in `7/35`, loses in `5/35`.
-- Architecture-broad is improved from the last run but still fails the original C5 criterion:
-  - mean delta vs `archex_query`: `-2784` tokens, `-0.222` recall, `-0.063` F1
-- Guardrails fired in `4/35` tasks (`direct_query`); chunk-first still stayed active in `31/35`.
+  - `archex_query`: recall `0.907`, precision `0.575`, F1 `0.687`, tokens `191,051`, median latency `717 ms`
+  - `archex_scout_fetch`: recall `0.814`, precision `0.651`, F1 `0.707`, tokens `89,013`, median latency `2069 ms`
+  - Scout wins on tokens in `23/35` tasks and ties in `12/35`; no token losses observed.
+  - Scout loses recall in `10/35` tasks and ties in `25/35`; no recall wins observed.
+  - Scout wins F1 in `13/35`, ties in `12/35`, loses in `10/35`.
+  - Scout wins precision in `17/35`, ties in `15/35`, loses in `3/35`.
+- Architecture-broad now satisfies the original C5 criterion:
+  - mean delta vs `archex_query`: `-1047` tokens, `0.000` recall delta, `+0.036` F1 delta
+- Guardrails fired in `12/35` tasks (`direct_query`); `chunk_first` remained active in `23/35`.
 - Diagnostics in latest run:
   - `missing_from_scout_map != none` in `8` tasks
-  - `missing_from_fetch != none` in `26` tasks
-  - `missing_from_fetch_reasons == none` in `9` tasks
-  - `extra_fetch_file_reasons == none` in `12` tasks
-- Top failure pattern in the new run: adaptive caps repaired the worst recall collapse, but chunk-first is still active too often on broad/external tasks. Required files are still being pruned by cap with score-mass around `0.70–0.78`, especially large framework repos.
+  - `missing_from_fetch != none` in `20` tasks
+  - `missing_from_fetch_reasons == none` in `15` tasks
+  - `extra_fetch_file_reasons == none` in `4` tasks
+- Remaining weak spots are concentrated in large framework repos:
+  - `django_orm_queries`
+  - `sqlalchemy_sessions`
+  - `celery_task_dispatch`
+  - `fastapi_dependency_injection`
 ## Decisions
 1. **Scout cap is fixed at 1000 tokens by default** (2026-06-12) — not intent-routed. Reason: the map phase must be predictable, easy to benchmark across repos, and easy for agents/operators to budget mentally.
 2. **Handle contract is explicit and exact** (2026-06-12) — scout emits three prefixes:
@@ -97,26 +109,17 @@
 - Attempting the `code-reviewer` task agent failed in this environment with a strict-tools incompatibility on the configured model; no automated reviewer output was available. Local review still completed before publishing.
 
 ## Blockers / open questions
-- [ ] Provider CI / merge state for #201–#204 still has not been re-audited from this branch.
-- [ ] C5 is still not complete. Latest operator data passes precision/F1 but still misses the readiness recall bar and still fails the original broad/architecture “beat query on token cost without recall loss” criterion.
-- [ ] Main remaining failure mode: fetch-plan coverage heuristics are still too conservative for broad/framework tasks; required files are pruned before final bundle assembly.
-- [ ] Provenance improved, but `missing_from_fetch_reasons` and `extra_fetch_file_reasons` are still absent in a non-trivial subset of runs, so diagnostics remain incomplete.
+- [ ] `missing_from_fetch_reasons` is still absent in part of the run output, so diagnostics are improved but not complete.
 - [ ] Scout module names/responsibility quality still depends on current `analyze.modules` heuristics. Functional, but some repo-wide module labels remain coarse.
-
 ## Resume checklist
 1. Run `git status --porcelain`; only `.docs/handoff.md` should be dirty if this refresh is not committed yet.
-2. Decide whether to publish `feat/scout-followups` as a new PR on top of #204 or fold it into `feat/scout-benchmark`.
-3. Do not promote scout in docs/README yet; readiness is still `no`.
-4. Next enhancement work should push recall upward without losing the new precision/F1 gains:
-   - make chunk-first fallback trigger earlier for architecture-broad and external-large tasks
-   - relax score-mass coverage targets or max caps for broad/framework intents only
-   - add missing-file exclusion reasons for all pruned expected files, not only files present in the ranked set
-   - consider hybrid fetch plans: chunk-first for top files plus direct-query fallback when expected coverage looks thin
-
+2. Merge the stack root-to-leaf: #201 → #202 → #203 → #204 → #205.
+3. Do not change default `archex query` behavior; C5 shipped as an additional protocol and surfaces.
+4. If docs are updated to recommend scout, scope that change to broad/architecture exploration use cases because that is the measured win.
 ## Refs
 - Plan: `.docs/2026-06-12-competitive-enhancement-plan.md` sections `2.3 Research synthesis` and `C5`
-- Related PRs: #201, #202, #203, #204
-- Follow-up branch: `feat/scout-followups` @ `f6fdadd`
-- Latest smoke command output: observed in-session on `2026-06-13T05:05Z`
-- Latest local validation output: `artifact://172`
+- Related PRs: #201, #202, #203, #204, #205
+- Follow-up branch / PR: `feat/scout-followups` @ `d84217a` / #205
+- Latest smoke command output: observed in-session on `2026-06-13T06:15Z`
+- Latest local validation output: `artifact://191`
 - Operator log: `.docs/operator-run.log`
