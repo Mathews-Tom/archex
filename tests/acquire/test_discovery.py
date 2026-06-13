@@ -21,13 +21,15 @@ from archex.exceptions import AcquireError
 
 def test_discover_file_count(python_simple_repo: Path) -> None:
     files = discover_files(python_simple_repo)
-    # python_simple has: main.py, models.py, utils.py, services/__init__.py, services/auth.py
-    assert len(files) == 5
+    # python_simple has 5 Python files plus pyproject.toml.
+    assert len(files) == 6
 
 
-def test_discover_all_python(python_simple_repo: Path) -> None:
+def test_discover_python_fixture_languages(python_simple_repo: Path) -> None:
     files = discover_files(python_simple_repo)
-    assert all(f.language == "python" for f in files)
+    languages = {f.path: f.language for f in files}
+    assert languages["pyproject.toml"] == "toml"
+    assert all(language == "python" for path, language in languages.items() if path.endswith(".py"))
 
 
 def test_discover_language_filter(python_simple_repo: Path) -> None:
@@ -115,8 +117,8 @@ def test_detect_language_rust() -> None:
     assert _detect_language(Path("lib.rs")) == "rust"
 
 
-def test_detect_language_unknown() -> None:
-    assert _detect_language(Path("README.md")) is None
+def test_detect_language_markdown_and_unknown() -> None:
+    assert _detect_language(Path("README.md")) == "markdown"
     assert _detect_language(Path("Makefile")) is None
 
 
@@ -174,7 +176,7 @@ def test_discover_files_includes_file_at_size_limit(tmp_path: Path) -> None:
 def test_discover_files_default_max_size_allows_normal_files(python_simple_repo: Path) -> None:
     """Default max_file_size (10MB) allows all fixture files through."""
     files = discover_files(python_simple_repo)
-    assert len(files) == 5
+    assert len(files) == 6
 
 
 def test_git_ls_files_called_process_error(tmp_path: Path) -> None:

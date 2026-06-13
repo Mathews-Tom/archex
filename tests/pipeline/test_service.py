@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archex.models import Config, EdgeKind, IndexConfig
+from archex.models import ChunkRange, Config, EdgeKind, IndexConfig, ParsedFile
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
+from archex.pipeline.chunker import ASTChunker
 from archex.pipeline.models import ArtifactBundle
 from archex.pipeline.service import (
     ParseArtifacts,
@@ -143,6 +144,43 @@ class TestMultiLanguage:
         config = Config(languages=["typescript"])
         bundle = produce_artifacts(ts_fixture, config, _adapters())
         assert len(bundle.chunks) > 0
+
+    def test_chunk_only_ranges_keep_line_stable_chunks(self) -> None:
+        source = b"SELECT * FROM users;\n-- keep the separator\nCREATE TABLE users(id INT);\n"
+        parsed = ParsedFile(
+            path="schema.sql",
+            language="sql",
+            chunk_ranges=[
+                ChunkRange(start_line=1, end_line=1),
+                ChunkRange(start_line=3, end_line=3),
+            ],
+            lines=3,
+        )
+
+        chunks = ASTChunker(IndexConfig()).chunk_file(parsed, source)
+
+        assert [(chunk.start_line, chunk.end_line) for chunk in chunks] == [(1, 1), (2, 2), (3, 3)]
+        assert [chunk.content for chunk in chunks] == [
+            "SELECT * FROM users;",
+            "-- keep the separator",
+            "CREATE TABLE users(id INT);",
+        ]
+
+    def test_chunk_only_toml_tables_keep_headers(self, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[a]\nname = "a"\n\n[b]\nname = "b"\n\n[c]\nname = "c"\n',
+        )
+
+        bundle = produce_artifacts(tmp_path, Config(languages=["toml"]), _adapters())
+
+        assert [(chunk.start_line, chunk.end_line) for chunk in bundle.chunks] == [
+            (1, 3),
+            (4, 6),
+            (7, 8),
+        ]
+        assert [chunk.content.splitlines()[0] for chunk in bundle.chunks] == ["[a]", "[b]", "[c]"]
+        assert all(chunk.symbol_name is None for chunk in bundle.chunks)
 
 
 class TestSurrogateSummaryInclusion:

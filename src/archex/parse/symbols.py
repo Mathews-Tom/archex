@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from archex.exceptions import ParseError
-from archex.models import ParsedFile
+from archex.models import ChunkRange, ParsedFile
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +36,16 @@ def _parse_with_adapter(
     tree = engine.parse_file(absolute_path, language)
     source = Path(absolute_path).read_bytes()
     symbols = adapter.extract_symbols(tree, source, relative_path)
+    extract_chunk_ranges = getattr(adapter, "extract_chunk_ranges", None)
+    chunk_ranges: list[ChunkRange] = []
+    if callable(extract_chunk_ranges):
+        extractor = cast("Callable[[object, bytes, str], list[ChunkRange]]", extract_chunk_ranges)
+        chunk_ranges = extractor(tree, source, relative_path)
     return ParsedFile(
         path=relative_path,
         language=language,
         symbols=symbols,
+        chunk_ranges=chunk_ranges,
         lines=_count_lines(source),
     )
 

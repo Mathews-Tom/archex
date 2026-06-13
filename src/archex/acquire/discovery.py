@@ -6,22 +6,10 @@ import subprocess
 from pathlib import Path
 
 from archex.exceptions import AcquireError
+from archex.languages import EXTENSION_LANGUAGE_MAP
 from archex.models import DiscoveredFile
 
-EXTENSION_MAP: dict[str, str] = {
-    ".py": "python",
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".go": "go",
-    ".rs": "rust",
-    ".java": "java",
-    ".kt": "kotlin",
-    ".kts": "kotlin",
-    ".cs": "csharp",
-    ".swift": "swift",
-}
+EXTENSION_MAP: dict[str, str] = dict(EXTENSION_LANGUAGE_MAP)
 
 DEFAULT_IGNORES: list[str] = [
     "node_modules/",

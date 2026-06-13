@@ -6,7 +6,9 @@ import importlib.metadata
 import logging
 
 from archex.exceptions import ConfigError
+from archex.languages import CHUNK_ONLY_LANGUAGE_IDS
 from archex.parse.adapters.base import LanguageAdapter
+from archex.parse.adapters.chunk_only import make_chunk_only_adapter
 from archex.parse.adapters.csharp import CSharpAdapter
 from archex.parse.adapters.go import GoAdapter
 from archex.parse.adapters.java import JavaAdapter
@@ -88,6 +90,8 @@ default_adapter_registry.register("java", JavaAdapter)  # type: ignore[type-abst
 default_adapter_registry.register("csharp", CSharpAdapter)  # type: ignore[type-abstract]
 default_adapter_registry.register("kotlin", KotlinAdapter)  # type: ignore[type-abstract]
 default_adapter_registry.register("swift", SwiftAdapter)  # type: ignore[type-abstract]
+for _language_id in sorted(CHUNK_ONLY_LANGUAGE_IDS):
+    default_adapter_registry.register(_language_id, make_chunk_only_adapter(_language_id))
 
 # Legacy compat
 ADAPTERS: dict[str, type[LanguageAdapter]] = default_adapter_registry.adapter_classes

@@ -76,6 +76,12 @@ class RetrievalPolicy(StrEnum):
     CROSS_LAYER = "cross_layer"
 
 
+class LanguageTier(StrEnum):
+    FULL = "full"
+    CHUNK_ONLY = "chunk-only"
+    UNKNOWN = "unknown"
+
+
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
@@ -250,11 +256,17 @@ class ImportStatement(BaseModel):
     resolved_path: str | None = None
 
 
+class ChunkRange(BaseModel):
+    start_line: int
+    end_line: int
+
+
 class ParsedFile(BaseModel):
     path: str
     language: str
     symbols: list[Symbol] = []
     imports: list[ImportStatement] = []
+    chunk_ranges: list[ChunkRange] = []
     lines: int = 0
     tokens: int = 0
 
@@ -374,6 +386,7 @@ class LanguageStats(BaseModel):
     lines: int = 0
     symbols: int = 0
     percentage: float = 0.0
+    tier: LanguageTier = LanguageTier.UNKNOWN
 
 
 class CodebaseStats(BaseModel):
