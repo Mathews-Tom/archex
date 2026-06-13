@@ -59,6 +59,7 @@ from archex.exceptions import ArchexIndexError, DeltaIndexError
 from archex.index.bm25 import BM25Index
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
+from archex.languages import UNKNOWN_LANGUAGE_ID
 from archex.models import (
     ArchProfile,
     ChunkSurrogate,
@@ -84,8 +85,7 @@ from archex.observe import PipelineTrace, StepTiming
 from archex.parse import (
     TreeSitterEngine,
     build_file_map,
-    extract_symbols,
-    parse_imports,
+    extract_symbols_and_imports,
     resolve_imports,
 )
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
@@ -152,11 +152,13 @@ def _full_index(
         )
         engine = TreeSitterEngine()
         adapters = _build_adapters()
-        parsed_files = extract_symbols(files, engine, adapters, parallel=config.parallel)
-        import_map = parse_imports(files, engine, adapters, parallel=config.parallel)
+        extraction = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel)
+        parsed_files = extraction.parsed_files
         file_map = build_file_map(files)
         file_languages = {f.path: f.language for f in files}
-        resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
+        resolved_map = resolve_imports(
+            extraction.imports_by_path, file_map, adapters, file_languages
+        )
 
         graph = DependencyGraph.from_parsed_files(parsed_files, resolved_map)
 
@@ -178,11 +180,16 @@ def _full_index(
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
         store.insert_chunks(all_chunks)
-        chunk_surrogates = build_chunk_surrogates(
-            all_chunks,
-            version=effective_index_config.surrogate_version,
+        chunk_surrogates = (
+            build_chunk_surrogates(
+                all_chunks,
+                version=effective_index_config.surrogate_version,
+            )
+            if _surrogates_required(effective_index_config)
+            else []
         )
-        store.insert_chunk_surrogates(chunk_surrogates)
+        if chunk_surrogates:
+            store.insert_chunk_surrogates(chunk_surrogates)
         edges = graph.file_edges()
         store.replace_file_states(compute_file_states(repo_path, files))
         store.insert_edges(edges)
@@ -193,10 +200,15 @@ def _full_index(
             if embedder is not None:
                 from archex.index.vector import VectorIndex
 
-                surrogate_lookup = {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
+                surrogate_lookup = (
+                    {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
+                    if chunk_surrogates
+                    else None
+                )
+                vector_chunks = embedding_eligible_chunks(all_chunks)
                 vec_idx = VectorIndex()
                 cache_hits, cache_misses = vec_idx.build(
-                    all_chunks,
+                    vector_chunks,
                     embedder,
                     surrogates_by_chunk_id=surrogate_lookup,
                     vector_mode=effective_index_config.vector_mode,
@@ -215,7 +227,7 @@ def _full_index(
                         surrogate_version=effective_index_config.surrogate_version,
                     )
                 )
-                if all_chunks:
+                if vector_chunks:
                     vec_idx.save(
                         npz_path,
                         embedder_name=effective_index_config.embedder or "",
@@ -430,7 +442,8 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                 from archex.index.vector import VectorIndex
 
                 new_chunks = store.get_chunks()
-                new_surrogates = _surrogate_lookup(store, new_chunks, index_config)
+                vector_chunks = embedding_eligible_chunks(new_chunks)
+                new_surrogates = _surrogate_lookup(store, vector_chunks, index_config)
                 cached_vectors = _cached_vectors_by_content_hash(
                     old_vector_path,
                     old_chunks,
@@ -439,7 +452,7 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                 )
                 vec_idx = VectorIndex()
                 cache_hits, cache_misses = vec_idx.build(
-                    new_chunks,
+                    vector_chunks,
                     embedder,
                     surrogates_by_chunk_id=new_surrogates,
                     vector_mode=index_config.vector_mode,
@@ -450,7 +463,7 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                     vector_mode=index_config.vector_mode,
                     surrogate_version=index_config.surrogate_version,
                 )
-                if new_chunks:
+                if vector_chunks:
                     vec_idx.save(
                         vector_path,
                         embedder_name=index_config.embedder or "",
@@ -609,6 +622,14 @@ def _compute_splade_top_k(*, bm25_top_k: int, total_chunks: int) -> int:
     return min(total_chunks, bm25_top_k * 2)
 
 
+def embedding_eligible_chunks(chunks: list[CodeChunk]) -> list[CodeChunk]:
+    return [chunk for chunk in chunks if chunk.language != UNKNOWN_LANGUAGE_ID]
+
+
+def _surrogates_required(index_config: IndexConfig) -> bool:
+    return index_config.vector and index_config.vector_mode == VectorMode.SURROGATE
+
+
 def _build_splade_index(
     store: IndexStore,
     chunks: list[CodeChunk],
@@ -616,10 +637,13 @@ def _build_splade_index(
 ) -> None:
     if not index_config.splade:
         return
+    eligible_chunks = embedding_eligible_chunks(chunks)
+    if not eligible_chunks:
+        return
     from archex.index.splade import SPLADEIndex
 
     splade = SPLADEIndex(store)
-    splade.build(chunks)
+    splade.build(eligible_chunks)
 
 
 def _build_module_summaries(
@@ -647,6 +671,8 @@ def _splade_search_or_raise(
 
     splade = SPLADEIndex(store)
     if not splade.has_data:
+        if not embedding_eligible_chunks(store.get_chunks()):
+            return None
         raise ArchexIndexError(
             "SPLADE requested but the cached index has no SPLADE rows; "
             "refresh it with `archex index --splade`."
@@ -1223,11 +1249,13 @@ def analyze(
         adapters = _build_adapters()
 
         t2 = time.perf_counter()
-        parsed_files = extract_symbols(files, engine, adapters, parallel=config.parallel)
-        import_map = parse_imports(files, engine, adapters, parallel=config.parallel)
+        extraction = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel)
+        parsed_files = extraction.parsed_files
         file_map = build_file_map(files)
         file_languages = {f.path: f.language for f in files}
-        resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
+        resolved_map = resolve_imports(
+            extraction.imports_by_path, file_map, adapters, file_languages
+        )
         parse_ms = _elapsed_ms(t1)  # discover + parse combined
         logger.info("Parsed %d files in %.0fms", len(parsed_files), _elapsed_ms(t2))
         if timing is not None:
@@ -1772,11 +1800,13 @@ def query(
         adapters = _build_adapters()
 
         t3 = time.perf_counter()
-        parsed_files = extract_symbols(files, engine, adapters, parallel=config.parallel)
-        import_map = parse_imports(files, engine, adapters, parallel=config.parallel)
+        extraction = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel)
+        parsed_files = extraction.parsed_files
         file_map = build_file_map(files)
         file_languages = {f.path: f.language for f in files}
-        resolved_map = resolve_imports(import_map, file_map, adapters, file_languages)
+        resolved_map = resolve_imports(
+            extraction.imports_by_path, file_map, adapters, file_languages
+        )
         parse_ms = _elapsed_ms(t3)
         logger.info("Parsed %d files in %.0fms", len(parsed_files), parse_ms)
         if timing is not None:
@@ -1821,16 +1851,25 @@ def query(
 
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path)
-        chunk_surrogates = build_chunk_surrogates(
-            all_chunks,
-            version=index_config.surrogate_version,
+        chunk_surrogates = (
+            build_chunk_surrogates(
+                all_chunks,
+                version=index_config.surrogate_version,
+            )
+            if _surrogates_required(index_config)
+            else []
         )
-        surrogate_lookup = {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
+        surrogate_lookup = (
+            {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
+            if chunk_surrogates
+            else None
+        )
 
         try:
             bm25 = BM25Index(store)
             store.insert_chunks(all_chunks)
-            store.insert_chunk_surrogates(chunk_surrogates)
+            if chunk_surrogates:
+                store.insert_chunk_surrogates(chunk_surrogates)
             edges = graph.file_edges()
             from archex.index.delta import compute_file_states
 
@@ -1848,9 +1887,10 @@ def query(
                     from archex.index.vector import VectorIndex
 
                     t_vec_build = time.perf_counter()
+                    vector_chunks = embedding_eligible_chunks(all_chunks)
                     vec_idx = VectorIndex()
                     cache_hits, cache_misses = vec_idx.build(
-                        all_chunks,
+                        vector_chunks,
                         embedder,
                         surrogates_by_chunk_id=surrogate_lookup,
                         vector_mode=index_config.vector_mode,
@@ -1869,14 +1909,17 @@ def query(
                             surrogate_version=index_config.surrogate_version,
                         )
                     )
-                    vec_idx.save(
-                        npz_path,
-                        embedder_name=index_config.embedder or "",
-                        vector_dim=embedder.dimension,
-                        vector_mode=index_config.vector_mode,
-                        surrogate_version=index_config.surrogate_version,
-                    )
-                    _precomputed_vector_path = npz_path
+                    if vector_chunks:
+                        vec_idx.save(
+                            npz_path,
+                            embedder_name=index_config.embedder or "",
+                            vector_dim=embedder.dimension,
+                            vector_mode=index_config.vector_mode,
+                            surrogate_version=index_config.surrogate_version,
+                        )
+                        _precomputed_vector_path = npz_path
+                    elif npz_path.exists():
+                        npz_path.unlink()
                     vec_build_ms = _elapsed_ms(t_vec_build)
                     if timing is not None:
                         timing.vector_index_ms = vec_build_ms
@@ -2105,13 +2148,17 @@ def _two_stage_rerank(
     Embeds only the top BM25 candidate chunks + query instead of the full corpus.
     Caps at _RERANK_MAX_CANDIDATES to bound embedding latency.
     """
+    candidates = embedding_eligible_chunks(
+        [chunk for chunk, _ in bm25_results[:_RERANK_MAX_CANDIDATES]]
+    )
+    if not candidates:
+        return None
     embedder = _get_embedder(index_config)
     if embedder is None:
         return None
 
     from archex.index.vector import VectorIndex
 
-    candidates = [chunk for chunk, _ in bm25_results[:_RERANK_MAX_CANDIDATES]]
     t_vec = time.perf_counter()
     vec_idx = VectorIndex()
     vector_results = vec_idx.rerank(
@@ -2139,6 +2186,9 @@ def _vector_search_in_memory(
     surrogates_by_chunk_id: dict[str, ChunkSurrogate] | None = None,
 ) -> list[tuple[CodeChunk, float]] | None:
     """Build an in-memory vector index when no persisted artifact is available."""
+    eligible_chunks = embedding_eligible_chunks(all_chunks)
+    if not eligible_chunks:
+        return None
     embedder = _get_embedder(index_config)
     if embedder is None:
         return None
@@ -2148,7 +2198,7 @@ def _vector_search_in_memory(
     t_vec = time.perf_counter()
     vec_idx = VectorIndex()
     vec_idx.build(
-        all_chunks,
+        eligible_chunks,
         embedder,  # type: ignore[arg-type]
         surrogates_by_chunk_id=surrogates_by_chunk_id,
         vector_mode=index_config.vector_mode,
@@ -2158,7 +2208,7 @@ def _vector_search_in_memory(
     if timing is not None:
         timing.vector_used = True
         timing.vector_build_ms = build_ms
-    logger.info("In-memory vector search (%d chunks) in %.0fms", len(all_chunks), build_ms)
+    logger.info("In-memory vector search (%d chunks) in %.0fms", len(eligible_chunks), build_ms)
     return vector_results  # type: ignore[return-value]
 
 

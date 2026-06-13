@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archex.models import ChunkRange, Config, EdgeKind, IndexConfig, ParsedFile
+import pytest
+
+from archex.api import embedding_eligible_chunks
+from archex.exceptions import ArchexIndexError
+from archex.index.store import IndexStore
+from archex.models import ChunkRange, CodeChunk, Config, EdgeKind, IndexConfig, ParsedFile
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.chunker import ASTChunker
 from archex.pipeline.models import ArtifactBundle
@@ -181,6 +186,80 @@ class TestMultiLanguage:
         ]
         assert [chunk.content.splitlines()[0] for chunk in bundle.chunks] == ["[a]", "[b]", "[c]"]
         assert all(chunk.symbol_name is None for chunk in bundle.chunks)
+
+    def test_unknown_text_files_get_line_window_chunks(self, tmp_path: Path) -> None:
+        lines = [f"line {index}" for index in range(1, 86)]
+        (tmp_path / "notes.custom").write_text("\n".join(lines) + "\n")
+        (tmp_path / "image.bin").write_bytes(b"ok\x00not text")
+        (tmp_path / "main.py").write_text("def run():\n    return 1\n")
+
+        bundle = produce_artifacts(tmp_path, Config(cache=False), _adapters())
+
+        assert {parsed.language for parsed in bundle.parsed_files} == {"python", "unknown"}
+        unknown_chunks = [chunk for chunk in bundle.chunks if chunk.language == "unknown"]
+        assert [(chunk.start_line, chunk.end_line) for chunk in unknown_chunks] == [
+            (1, 80),
+            (81, 85),
+        ]
+        assert all(chunk.file_path == "notes.custom" for chunk in unknown_chunks)
+        assert not any(chunk.file_path == "image.bin" for chunk in bundle.chunks)
+
+    def test_unknown_chunks_are_not_embedding_eligible(self) -> None:
+        python_chunk = CodeChunk(
+            id="main.py:_module:1",
+            content="def run():\n    return 1",
+            file_path="main.py",
+            start_line=1,
+            end_line=2,
+            language="python",
+            token_count=8,
+        )
+        unknown_chunk = CodeChunk(
+            id="notes.custom:_module:1",
+            content="notes",
+            file_path="notes.custom",
+            start_line=1,
+            end_line=1,
+            language="unknown",
+            token_count=1,
+        )
+
+        assert embedding_eligible_chunks([unknown_chunk, python_chunk]) == [python_chunk]
+
+    def test_splade_skips_all_unknown_corpus_without_sparse_rows(self, tmp_path: Path) -> None:
+        from archex.api import _splade_search_or_raise  # pyright: ignore[reportPrivateUsage]
+
+        unknown_chunk = CodeChunk(
+            id="notes.custom:_module:1",
+            content="notes",
+            file_path="notes.custom",
+            start_line=1,
+            end_line=1,
+            language="unknown",
+            token_count=1,
+        )
+        with IndexStore(tmp_path / "unknown.db") as store:
+            store.insert_chunks([unknown_chunk])
+
+            assert _splade_search_or_raise(store, "notes", IndexConfig(splade=True), 10) is None
+
+    def test_splade_still_requires_sparse_rows_for_supported_corpus(self, tmp_path: Path) -> None:
+        from archex.api import _splade_search_or_raise  # pyright: ignore[reportPrivateUsage]
+
+        python_chunk = CodeChunk(
+            id="main.py:_module:1",
+            content="def run():\n    return 1",
+            file_path="main.py",
+            start_line=1,
+            end_line=2,
+            language="python",
+            token_count=8,
+        )
+        with IndexStore(tmp_path / "supported.db") as store:
+            store.insert_chunks([python_chunk])
+
+            with pytest.raises(ArchexIndexError, match="no SPLADE rows"):
+                _splade_search_or_raise(store, "run", IndexConfig(splade=True), 10)
 
 
 class TestSurrogateSummaryInclusion:

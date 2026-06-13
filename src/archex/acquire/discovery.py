@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import codecs
 import subprocess
 from pathlib import Path
 
 from archex.exceptions import AcquireError
-from archex.languages import EXTENSION_LANGUAGE_MAP
+from archex.languages import EXTENSION_LANGUAGE_MAP, UNKNOWN_LANGUAGE_ID
 from archex.models import DiscoveredFile
 
 EXTENSION_MAP: dict[str, str] = dict(EXTENSION_LANGUAGE_MAP)
@@ -48,6 +49,21 @@ def _matches_ignore(rel_path: str, ignores: list[str]) -> bool:
             if rel_path == pattern or Path(rel_path).name == pattern:
                 return True
     return False
+
+
+def _is_text_file(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            sample = handle.read(8192)
+    except OSError:
+        return False
+    if b"\x00" in sample:
+        return False
+    try:
+        codecs.getincrementaldecoder("utf-8")().decode(sample)
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 def discover_files(
@@ -99,7 +115,11 @@ def discover_files(
 
         lang = _detect_language(file_path)
         if lang is None:
-            continue
+            if languages is not None and UNKNOWN_LANGUAGE_ID not in languages:
+                continue
+            if not _is_text_file(file_path):
+                continue
+            lang = UNKNOWN_LANGUAGE_ID
 
         if languages is not None and lang not in languages:
             continue

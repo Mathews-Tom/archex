@@ -14,6 +14,9 @@ from archex.acquire.discovery import (
     _detect_language as _detect_language,  # pyright: ignore[reportPrivateUsage]
 )
 from archex.acquire.discovery import (
+    _is_text_file as _is_text_file,  # pyright: ignore[reportPrivateUsage]
+)
+from archex.acquire.discovery import (
     _matches_ignore as _matches_ignore,  # pyright: ignore[reportPrivateUsage]
 )
 from archex.exceptions import AcquireError
@@ -120,6 +123,20 @@ def test_detect_language_rust() -> None:
 def test_detect_language_markdown_and_unknown() -> None:
     assert _detect_language(Path("README.md")) == "markdown"
     assert _detect_language(Path("Makefile")) is None
+
+
+def test_is_text_file_accepts_multibyte_boundary(tmp_path: Path) -> None:
+    path = tmp_path / "notes.custom"
+    path.write_bytes((b"a" * 8191) + "é".encode() + b"\n")
+
+    assert _is_text_file(path)
+
+
+def test_is_text_file_rejects_nul_binary(tmp_path: Path) -> None:
+    path = tmp_path / "image.bin"
+    path.write_bytes(b"text\x00binary")
+
+    assert not _is_text_file(path)
 
 
 def test_matches_ignore_directory() -> None:

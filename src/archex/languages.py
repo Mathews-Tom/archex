@@ -21,6 +21,8 @@ class LanguageSupport:
 
 _FULL = LanguageTier.FULL
 _CHUNK = LanguageTier.CHUNK_ONLY
+UNKNOWN_LANGUAGE_ID = "unknown"
+UNKNOWN_LINE_WINDOW = 80
 
 LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
     "python": LanguageSupport("python", "Python", (".py",), _FULL, "python"),
