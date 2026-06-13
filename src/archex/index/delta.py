@@ -215,6 +215,12 @@ def compute_working_tree_delta(
     from archex.acquire import discover_files
 
     previous_states = store.get_file_states()
+    if config.languages is not None:
+        previous_states = {
+            path: state
+            for path, state in previous_states.items()
+            if _is_source_path(path, config.languages)
+        }
     if not previous_states:
         indexed_at = 0.0
         try:

@@ -8,6 +8,7 @@ from pathlib import Path
 from tree_sitter import Language, Parser
 
 from archex.exceptions import ParseError
+from archex.languages import LANGUAGE_PACK_NAMES
 
 # Maps language_id → (preferred module_name, function_name).
 _PREFERRED_LANGUAGE_LOADERS: dict[str, tuple[str, str]] = {
@@ -21,11 +22,6 @@ _PREFERRED_LANGUAGE_LOADERS: dict[str, tuple[str, str]] = {
     "kotlin": ("tree_sitter_kotlin", "language"),
     "csharp": ("tree_sitter_c_sharp", "language"),
     "swift": ("tree_sitter_swift", "language"),
-}
-
-# Maps language_id → tree-sitter-language-pack grammar name.
-_LANGUAGE_PACK_NAMES: dict[str, str] = {
-    language_id: language_id for language_id in _PREFERRED_LANGUAGE_LOADERS
 }
 
 
@@ -44,10 +40,13 @@ class TreeSitterEngine:
         if language_id in self._languages:
             return self._languages[language_id]
 
-        if language_id not in _PREFERRED_LANGUAGE_LOADERS:
+        if language_id not in LANGUAGE_PACK_NAMES:
             raise ParseError(f"Unsupported language: {language_id!r}")
 
-        lang = self._load_preferred_language(language_id)
+        if language_id in _PREFERRED_LANGUAGE_LOADERS:
+            lang = self._load_preferred_language(language_id)
+        else:
+            lang = self._try_language_pack(language_id)
         self._languages[language_id] = lang
         return lang
 
@@ -66,7 +65,7 @@ class TreeSitterEngine:
 
     def _try_language_pack(self, language_id: str) -> Language:
         """Load grammar from tree-sitter-language-pack after standalone lookup misses."""
-        pack_name = _LANGUAGE_PACK_NAMES[language_id]
+        pack_name = LANGUAGE_PACK_NAMES[language_id]
         try:
             from tree_sitter_language_pack import (
                 get_language as _pack_get_language,  # type: ignore[import-untyped]

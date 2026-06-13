@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from archex.languages import get_language_tier
 from archex.models import (
     ArchDecision,
     ArchProfile,
@@ -48,6 +49,7 @@ def _compute_stats(parsed_files: list[ParsedFile]) -> CodebaseStats:
             lines=lang_lines.get(lang, 0),
             symbols=lang_symbols.get(lang, 0),
             percentage=round(percentage, 2),
+            tier=get_language_tier(lang),
         )
 
     return CodebaseStats(

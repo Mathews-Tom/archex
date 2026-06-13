@@ -307,26 +307,41 @@ class ASTChunker:
         all_source_lines = source.split(b"\n")
         total_lines = len(all_source_lines)
 
-        # Sort symbols by start_line; methods nested under classes are already separate
+        # Sort symbols by start_line; methods nested under classes are already separate.
         symbols = sorted(parsed_file.symbols, key=lambda s: s.start_line)
 
-        # Track which lines are covered by symbols so we can emit file-level chunks
-        covered: list[tuple[int, int]] = [(s.start_line, s.end_line) for s in symbols]
-
-        # Collect raw chunk candidates: (lines_list, start_line, symbol_or_None)
+        # Collect raw chunk candidates: (lines_list, start_line, symbol_or_None).
         candidates: list[tuple[list[bytes], int, Symbol | None]] = []
+        has_structural_ranges = False
 
-        for sym in symbols:
-            _append_candidates(
-                candidates,
-                lines=_extract_source_lines(all_source_lines, sym.start_line, sym.end_line),
-                start_line=sym.start_line,
-                symbol=sym,
-                max_tokens=config.chunk_max_tokens,
-                encoder=encoder,
-            )
+        if symbols:
+            covered: list[tuple[int, int]] = [(s.start_line, s.end_line) for s in symbols]
+            for sym in symbols:
+                _append_candidates(
+                    candidates,
+                    lines=_extract_source_lines(all_source_lines, sym.start_line, sym.end_line),
+                    start_line=sym.start_line,
+                    symbol=sym,
+                    max_tokens=config.chunk_max_tokens,
+                    encoder=encoder,
+                )
+        else:
+            ranges = sorted(parsed_file.chunk_ranges, key=lambda r: r.start_line)
+            has_structural_ranges = bool(ranges)
+            covered = [(r.start_line, r.end_line) for r in ranges]
+            for chunk_range in ranges:
+                _append_candidates(
+                    candidates,
+                    lines=_extract_source_lines(
+                        all_source_lines, chunk_range.start_line, chunk_range.end_line
+                    ),
+                    start_line=chunk_range.start_line,
+                    symbol=None,
+                    max_tokens=config.chunk_max_tokens,
+                    encoder=encoder,
+                )
 
-        # File-level code: lines not covered by any symbol
+        # File-level code: lines not covered by symbols or chunk-only AST ranges.
         uncovered_ranges = _find_uncovered_ranges(covered, total_lines)
         for range_start, range_end in uncovered_ranges:
             _append_candidates(
@@ -338,8 +353,12 @@ class ASTChunker:
                 encoder=encoder,
             )
 
-        # Merge small adjacent file-level chunks
-        merged = _merge_small_chunks(candidates, config.chunk_min_tokens, encoder)
+        # Merge small adjacent file-level chunks. Chunk-only AST ranges must remain
+        # line-stable; merging them can combine non-contiguous source ranges.
+        if has_structural_ranges:
+            merged = sorted(candidates, key=lambda item: item[1])
+        else:
+            merged = _merge_small_chunks(candidates, config.chunk_min_tokens, encoder)
 
         # Build CodeChunk objects
         result: list[CodeChunk] = []

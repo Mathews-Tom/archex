@@ -72,7 +72,7 @@ class TestBuildChunks:
         for chunk in chunks:
             assert chunk.file_path
             assert chunk.content
-            assert chunk.language == "python"
+            assert chunk.language in {"python", "toml"}
 
     def test_strict_mode_raises_on_missing_file(self, python_simple_repo: Path) -> None:
         config = Config(cache=False)
