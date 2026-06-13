@@ -322,16 +322,35 @@ The script resolves the repo root from its own location, writes a fresh `logs/be
 
 ## Language support
 
-| Language | Extensions | Symbols |
-| --- | --- | --- |
-| **Python** | `.py` | Functions, classes, methods, types, constants, decorators |
-| **TypeScript / JavaScript** | `.ts`, `.tsx`, `.js`, `.jsx` | Functions, classes, methods, types, interfaces, enums, constants |
-| **Go** | `.go` | Functions, methods, structs, interfaces, constants |
-| **Rust** | `.rs` | Functions, structs, enums, traits, impl blocks, macros |
-| **Java** | `.java` | Classes, interfaces, enums, methods, fields, annotations |
-| **Kotlin** | `.kt`, `.kts` | Classes, objects, functions, properties, extensions |
-| **C#** | `.cs` | Classes, structs, interfaces, enums, methods, properties |
-| **Swift** | `.swift` | Classes, structs, enums, protocols, actors, extensions |
+| Language | Extensions | Tier | Extraction |
+| --- | --- | --- | --- |
+| Python | `.py` | full | Symbols, imports, graph edges |
+| JavaScript | `.js`, `.jsx` | full | Symbols, imports, graph edges |
+| TypeScript | `.ts` | full | Symbols, imports, graph edges |
+| TSX | `.tsx` | full | TypeScript adapter path; symbols, imports, graph edges |
+| Go | `.go` | full | Symbols, imports, graph edges |
+| Rust | `.rs` | full | Symbols, imports, graph edges |
+| Java | `.java` | full | Symbols, imports, graph edges |
+| Kotlin | `.kt`, `.kts` | full | Symbols, imports, graph edges |
+| C# | `.cs` | full | Symbols, imports, graph edges |
+| Swift | `.swift` | full | Symbols, imports, graph edges |
+| C | `.c`, `.h` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| PHP | `.php` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| Ruby | `.rb` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| Scala | `.scala`, `.sc` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| Lua | `.lua` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| Bash / Shell | `.sh`, `.bash`, `.zsh` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| SQL | `.sql` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| HTML | `.html`, `.htm` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| CSS | `.css` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| YAML | `.yaml`, `.yml` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| TOML | `.toml` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| JSON | `.json` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| Markdown | `.md`, `.markdown` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| Solidity | `.sol` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+
+Tier `full` means symbol extraction, import extraction, and graph edges are implemented and tested. Tier `chunk-only` means tree-sitter chunking and retrieval only; archex does not claim symbols or dependency edges for those languages.
 
 Need another language? Register an adapter via Python entry points — no core changes required.
 
