@@ -92,7 +92,13 @@ from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.chunker import ASTChunker, Chunker
 from archex.pipeline.service import build_chunk_surrogates
 from archex.project import uses_project_cache_layout
-from archex.scout import parse_scout_handle
+from archex.scout import (
+    DEFAULT_SCOUT_TOKEN_BUDGET,
+    ScoutFormat,
+    ScoutResult,
+    assemble_scout_from_store,
+    parse_scout_handle,
+)
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
 from archex.serve.profile import build_profile
@@ -1386,6 +1392,44 @@ def _chunk_token_count(chunk: CodeChunk) -> int:
     if chunk.token_count > 0:
         return chunk.token_count
     return int(len(chunk.content.split()) * 1.3)
+
+
+def scout(
+    source: RepoSource,
+    question: str,
+    *,
+    token_budget: int = DEFAULT_SCOUT_TOKEN_BUDGET,
+    output_format: ScoutFormat = "markdown",
+    config: Config | None = None,
+    index_config: IndexConfig | None = None,
+    timing: PipelineTiming | None = None,
+    refresh: bool = True,
+) -> ScoutResult:
+    """Return a token-capped no-body structural scout map for a repository question."""
+    if config is None:
+        config = load_config(source)
+    if index_config is None:
+        index_config = load_index_config(source)
+    ranking_timing = timing or PipelineTiming()
+    bundle = query(
+        source,
+        question,
+        config=config,
+        index_config=index_config,
+        timing=ranking_timing,
+        refresh=refresh,
+    )
+    store = _ensure_index(source, config, timing=ranking_timing, index_config=index_config)
+    try:
+        return assemble_scout_from_store(
+            store,
+            question,
+            ranked_chunks=bundle.chunks,
+            token_budget=token_budget,
+            output_format=output_format,
+        )
+    finally:
+        store.close()
 
 
 def query(

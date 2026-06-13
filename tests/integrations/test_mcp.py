@@ -33,6 +33,7 @@ from archex.integrations.mcp import (
     handle_graph_path,
     handle_graph_stats,
     handle_query_repo,
+    handle_scout_repo,
 )
 from archex.models import (
     ArchProfile,
@@ -278,6 +279,42 @@ class TestHandleQueryRepo:
             handle_query_repo("https://github.com/example/repo", "question?")
         source = mock_query.call_args[0][0]
         assert source.url == "https://github.com/example/repo"
+
+
+class TestHandleScoutRepo:
+    def test_returns_scout_markdown_with_meta(self) -> None:
+        from archex.scout import ScoutBudget, ScoutFile, ScoutResult, file_handle
+
+        result_model = ScoutResult(
+            query="delta indexing",
+            ranked_files=[
+                ScoutFile(
+                    path="src/archex/index/delta.py",
+                    language="python",
+                    lines=100,
+                    symbol_count=4,
+                    handle=file_handle("src/archex/index/delta.py"),
+                )
+            ],
+            budget=ScoutBudget(token_budget=120),
+        )
+        with (
+            patch("archex.integrations.mcp.scout", return_value=result_model) as scout_mock,
+            patch("archex.integrations.mcp.get_repo_total_tokens", return_value=1000),
+        ):
+            output = handle_scout_repo(
+                "/fake/repo",
+                "delta indexing",
+                budget=120,
+                output_format="markdown",
+            )
+
+        parsed = json.loads(output)
+        assert parsed["content"].startswith("# archex scout")
+        assert file_handle("src/archex/index/delta.py") in parsed["content"]
+        assert parsed["_meta"]["tool_name"] == "scout_repo"
+        assert parsed["_meta"]["strategy"] == "scout"
+        assert scout_mock.call_args.kwargs["token_budget"] == 120
 
 
 class TestHandleCompareRepos:
@@ -565,8 +602,9 @@ class TestBuildServer:
         server_result = await handler(req)
         result = server_result.root
         assert isinstance(result, mcp_types.ListToolsResult)
-        assert len(result.tools) == 13
+        assert len(result.tools) == 14
         tool_names = {t.name for t in result.tools}
+        assert "scout_repo" in tool_names
         assert "get_file_tree" in tool_names
         assert "get_symbol" in tool_names
         assert "search_symbols" in tool_names

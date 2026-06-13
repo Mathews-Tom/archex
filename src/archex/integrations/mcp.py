@@ -23,6 +23,7 @@ from archex.api import (
     get_symbols_batch,
     index_repository,
     query,
+    scout,
     search_symbols,
 )
 from archex.graph_artifact import GraphArtifactError
@@ -40,6 +41,7 @@ from archex.graph_query import (
 )
 from archex.models import PipelineTiming, RepoSource
 from archex.reporting import compute_meta, count_tokens
+from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, render_scout
 from archex.serve.compare import validate_dimensions
 from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 from archex.serve.renderers.xml import render_xml, render_xml_envelope
@@ -130,6 +132,40 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         raw_file_tokens=max(raw_tokens, 1),
         envelope_overhead_tokens=envelope_overhead,
         strategy="bm25+graph",
+        cached=pt.cached,
+        index_time_ms=pt.index_ms,
+        query_time_ms=pt.total_ms,
+        delta=pt.delta_meta,
+    )
+    return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
+
+
+def handle_scout_repo(
+    repo_url: str,
+    question: str,
+    budget: int | None = None,
+    output_format: ScoutFormat = "json",
+) -> str:
+    """Return a token-capped structural map with stable second-call handles."""
+    _validate_output_format(output_format)
+    source = resolve_source(repo_url)
+    token_budget = DEFAULT_SCOUT_TOKEN_BUDGET if budget is None else budget
+    pt = PipelineTiming()
+    result = scout(
+        source,
+        question,
+        token_budget=token_budget,
+        output_format=output_format,
+        timing=pt,
+    )
+    rendered = render_scout(result, output_format=output_format)
+    content = json.loads(rendered) if output_format == "json" else rendered
+    raw = get_repo_total_tokens(source)
+    meta = compute_meta(
+        tool_name="scout_repo",
+        response_text=rendered,
+        raw_file_tokens=raw,
+        strategy="scout",
         cached=pt.cached,
         index_time_ms=pt.index_ms,
         query_time_ms=pt.total_ms,
@@ -662,6 +698,40 @@ def build_server() -> Any:
                 },
             ),
             mcp_types.Tool(
+                name="scout_repo",
+                description=(
+                    "Return a compact structural scout map for a repository question. "
+                    "The map contains ranked files, module boundaries, top symbols, graph "
+                    "sketches, and stable file/symbol/chunk handles, but no code bodies."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "repo_url": {
+                            "type": "string",
+                            "description": (
+                                "Local filesystem path or HTTP(S) Git URL of the repository."
+                            ),
+                        },
+                        "question": {
+                            "type": "string",
+                            "description": "Natural-language scout question.",
+                        },
+                        "budget": {
+                            "type": "integer",
+                            "default": DEFAULT_SCOUT_TOKEN_BUDGET,
+                            "description": "Hard token cap for the scout map.",
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                        },
+                    },
+                    "required": ["repo_url", "question"],
+                },
+            ),
+            mcp_types.Tool(
                 name="query_repo",
                 description=(
                     "Retrieve relevant code context from a repository to answer a "
@@ -1011,6 +1081,16 @@ def build_server() -> Any:
             repo_url: str = arguments["repo_url"]
             fmt: str = arguments.get("format", "json")
             result_text = await loop.run_in_executor(None, handle_analyze_repo, repo_url, fmt)
+        elif name == "scout_repo":
+            repo_url = arguments["repo_url"]
+            question = arguments["question"]
+            budget_arg = arguments.get("budget")
+            budget = int(budget_arg) if budget_arg is not None else None
+            fmt_arg = arguments.get("format", "json")
+            scout_fmt: ScoutFormat = "markdown" if fmt_arg == "markdown" else "json"
+            result_text = await loop.run_in_executor(
+                None, handle_scout_repo, repo_url, question, budget, scout_fmt
+            )
         elif name == "query_repo":
             repo_url = arguments["repo_url"]
             question: str = arguments["question"]
