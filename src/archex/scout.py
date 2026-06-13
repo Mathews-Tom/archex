@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 ScoutFormat = Literal["json", "markdown"]
 ScoutHandleKind = Literal["file", "symbol", "chunk"]
-ScoutFetchStrategy = Literal["chunk_first", "direct_query"]
+ScoutFetchStrategy = Literal["chunk_first", "hybrid_fetch", "direct_query"]
 
 DEFAULT_SCOUT_TOKEN_BUDGET = 1000
 MIN_SCOUT_TOKEN_BUDGET = 64
@@ -32,47 +32,65 @@ CHUNK_HANDLE_PREFIX = "chunk:"
 
 INTENT_FETCH_HANDLE_LIMITS: dict[QueryIntent, int] = {
     QueryIntent.DEFINITION_LOOKUP: 1,
-    QueryIntent.ARCHITECTURE_BROAD: 3,
-    QueryIntent.USAGE_SEARCH: 2,
+    QueryIntent.ARCHITECTURE_BROAD: 4,
+    QueryIntent.USAGE_SEARCH: 3,
     QueryIntent.DEBUGGING: 2,
     QueryIntent.CLI: 2,
-    QueryIntent.GENERAL: 2,
+    QueryIntent.GENERAL: 3,
 }
 
 INTENT_DIRECT_QUERY_FILE_LIMITS: dict[QueryIntent, int] = {
     QueryIntent.DEFINITION_LOOKUP: 2,
-    QueryIntent.ARCHITECTURE_BROAD: 3,
-    QueryIntent.USAGE_SEARCH: 3,
+    QueryIntent.ARCHITECTURE_BROAD: 4,
+    QueryIntent.USAGE_SEARCH: 4,
     QueryIntent.DEBUGGING: 3,
     QueryIntent.CLI: 3,
-    QueryIntent.GENERAL: 3,
+    QueryIntent.GENERAL: 4,
 }
 
 INTENT_FETCH_MAX_HANDLE_LIMITS: dict[QueryIntent, int] = {
     QueryIntent.DEFINITION_LOOKUP: 2,
-    QueryIntent.ARCHITECTURE_BROAD: 6,
-    QueryIntent.USAGE_SEARCH: 5,
+    QueryIntent.ARCHITECTURE_BROAD: 9,
+    QueryIntent.USAGE_SEARCH: 7,
     QueryIntent.DEBUGGING: 4,
     QueryIntent.CLI: 4,
-    QueryIntent.GENERAL: 4,
+    QueryIntent.GENERAL: 7,
 }
 
 INTENT_FETCH_SCORE_MASS_TARGETS: dict[QueryIntent, float] = {
     QueryIntent.DEFINITION_LOOKUP: 0.55,
-    QueryIntent.ARCHITECTURE_BROAD: 0.85,
-    QueryIntent.USAGE_SEARCH: 0.75,
+    QueryIntent.ARCHITECTURE_BROAD: 0.92,
+    QueryIntent.USAGE_SEARCH: 0.84,
     QueryIntent.DEBUGGING: 0.75,
     QueryIntent.CLI: 0.75,
-    QueryIntent.GENERAL: 0.70,
+    QueryIntent.GENERAL: 0.82,
 }
 
 INTENT_DIRECT_QUERY_FALLBACK_FILE_LIMITS: dict[QueryIntent, int] = {
-    QueryIntent.DEFINITION_LOOKUP: 3,
-    QueryIntent.ARCHITECTURE_BROAD: 8,
-    QueryIntent.USAGE_SEARCH: 6,
+    QueryIntent.DEFINITION_LOOKUP: 4,
+    QueryIntent.ARCHITECTURE_BROAD: 12,
+    QueryIntent.USAGE_SEARCH: 10,
     QueryIntent.DEBUGGING: 6,
     QueryIntent.CLI: 6,
-    QueryIntent.GENERAL: 6,
+    QueryIntent.GENERAL: 10,
+}
+
+INTENT_HYBRID_FILE_LIMITS: dict[QueryIntent, int] = {
+    QueryIntent.DEFINITION_LOOKUP: 0,
+    QueryIntent.ARCHITECTURE_BROAD: 2,
+    QueryIntent.USAGE_SEARCH: 2,
+    QueryIntent.DEBUGGING: 1,
+    QueryIntent.CLI: 1,
+    QueryIntent.GENERAL: 2,
+}
+
+INTENT_WEAK_COVERAGE_MULTIPLIERS: dict[QueryIntent, float] = {
+    QueryIntent.DEFINITION_LOOKUP: 0.85,
+    QueryIntent.ARCHITECTURE_BROAD: 0.95,
+    QueryIntent.USAGE_SEARCH: 0.92,
+    QueryIntent.DEBUGGING: 0.90,
+    QueryIntent.CLI: 0.90,
+    QueryIntent.GENERAL: 0.92,
 }
 
 
@@ -625,21 +643,26 @@ def _build_fetch_plan(
     max_limit = INTENT_FETCH_MAX_HANDLE_LIMITS[intent]
     target_score_mass = INTENT_FETCH_SCORE_MASS_TARGETS[intent]
     direct_query_fallback_limit = INTENT_DIRECT_QUERY_FALLBACK_FILE_LIMITS[intent]
+    hybrid_file_limit = INTENT_HYBRID_FILE_LIMITS[intent]
+    weak_coverage_multiplier = INTENT_WEAK_COVERAGE_MULTIPLIERS[intent]
     eligible = [item for item in files if item.primary_symbol_handle or item.primary_chunk_handle]
     total_score = sum(max(item.score, 0.0) for item in eligible)
     selected: list[tuple[ScoutFile, str]] = []
+    hybrid_handles: list[str] = []
     file_reasons: dict[str, str] = {}
     estimated_fetch_tokens = 0
     selected_scores: list[float] = []
     selected_score_mass = 0.0
-    seen: set[str] = set()
+    seen_handles: set[str] = set()
+    selected_paths: set[str] = set()
+    direct_query_rank = {path: idx for idx, path in enumerate(direct_query_file_paths)}
 
     for rank, item in enumerate(eligible, start=1):
         handle = item.primary_symbol_handle or item.primary_chunk_handle
         if handle is None:
             file_reasons[item.path] = f"no_precise_handle rank={rank} score={item.score:.3f}"
             continue
-        if handle in seen:
+        if handle in seen_handles:
             file_reasons[item.path] = f"duplicate_handle rank={rank} handle={handle}"
             continue
         coverage_ratio = _coverage_ratio(selected_score_mass, total_score)
@@ -653,7 +676,8 @@ def _build_fetch_plan(
                 f"max_limit={max_limit} target={target_score_mass:.3f}"
             )
             continue
-        seen.add(handle)
+        seen_handles.add(handle)
+        selected_paths.add(item.path)
         selected.append((item, handle))
         score = max(item.score, 0.0)
         selected_scores.append(score)
@@ -667,29 +691,55 @@ def _build_fetch_plan(
             f"reason={item.reason} handle={handle}"
         )
 
+    coverage_score_mass = _coverage_ratio(selected_score_mass, total_score)
+    if coverage_score_mass < target_score_mass and hybrid_file_limit > 0:
+        supplemental_candidates = sorted(
+            (
+                item
+                for item in files
+                if item.path not in selected_paths and item.path in direct_query_rank
+            ),
+            key=lambda item: (direct_query_rank[item.path], -item.score, item.path),
+        )
+        for item in supplemental_candidates[:hybrid_file_limit]:
+            handle = file_handle(item.path)
+            if handle in seen_handles:
+                continue
+            seen_handles.add(handle)
+            selected_paths.add(item.path)
+            hybrid_handles.append(handle)
+            score = max(item.score, 0.0)
+            selected_scores.append(score)
+            selected_score_mass += score
+            estimated_fetch_tokens += _file_token_count(item.path, chunks_by_file)
+            file_reasons[item.path] = (
+                f"selected_hybrid_file rank={len(selected) + len(hybrid_handles)} "
+                f"score={item.score:.3f} coverage="
+                f"{_coverage_ratio(selected_score_mass, total_score):.3f} "
+                f"reason={item.reason} handle={handle}"
+            )
+        coverage_score_mass = _coverage_ratio(selected_score_mass, total_score)
+
     for item in files:
         if item.path not in file_reasons:
             file_reasons[item.path] = "missing_precise_handle"
 
-    handles = [handle for _, handle in selected]
-    estimated_fetch_files = len(selected)
+    handles = [handle for _, handle in selected] + hybrid_handles
+    estimated_fetch_files = len(selected_paths)
     direct_query_files = len(set(direct_query_file_paths))
     estimated_total_tokens = scout_tokens + estimated_fetch_tokens
-    coverage_score_mass = _coverage_ratio(selected_score_mass, total_score)
     projected_precision = _projected_chunk_precision(files, selected_scores)
     direct_query_precision = 1.0 / direct_query_files if direct_query_files > 0 else 0.0
     recommended_strategy: ScoutFetchStrategy = "chunk_first"
     guardrail_reason = ""
+    weak_coverage = coverage_score_mass < (target_score_mass * weak_coverage_multiplier)
     if not handles:
         recommended_strategy = "direct_query"
         guardrail_reason = "no_precise_fetch_handles"
     elif direct_query_files > 0 and direct_query_files <= INTENT_DIRECT_QUERY_FILE_LIMITS[intent]:
         recommended_strategy = "direct_query"
         guardrail_reason = "direct_query_already_narrow"
-    elif (
-        coverage_score_mass < (target_score_mass * 0.85)
-        and direct_query_files <= direct_query_fallback_limit
-    ):
+    elif weak_coverage and direct_query_files <= direct_query_fallback_limit:
         recommended_strategy = "direct_query"
         guardrail_reason = "projected_coverage_weak"
     elif direct_query_tokens > 0 and estimated_total_tokens >= direct_query_tokens:
@@ -701,6 +751,9 @@ def _build_fetch_plan(
     ):
         recommended_strategy = "direct_query"
         guardrail_reason = "direct_query_precision_proxy"
+    elif hybrid_handles:
+        recommended_strategy = "hybrid_fetch"
+        guardrail_reason = "projected_coverage_thin"
     return ScoutFetchPlan(
         handles=handles,
         file_reasons=file_reasons,
@@ -725,6 +778,13 @@ def _representative_chunk(
 ) -> CodeChunk | None:
     chunks = _sorted_chunks_for_scout(chunks_by_file.get(file_path, []), score_by_chunk)
     return chunks[0] if chunks else None
+
+
+def _file_token_count(file_path: str, chunks_by_file: dict[str, list[CodeChunk]]) -> int:
+    chunks = chunks_by_file.get(file_path, [])
+    if not chunks:
+        return 0
+    return sum(_chunk_token_count(chunk) for chunk in chunks)
 
 
 def _projected_chunk_precision(files: list[ScoutFile], selected_scores: list[float]) -> float:

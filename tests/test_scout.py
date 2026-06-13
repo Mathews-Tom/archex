@@ -234,7 +234,47 @@ def test_scout_guardrail_prefers_direct_query_when_coverage_is_weak(tmp_path: Pa
         )
 
     assert result.fetch_plan.recommended_strategy == "direct_query"
-    assert result.fetch_plan.guardrail_reason == "projected_coverage_weak"
+    assert result.fetch_plan.guardrail_reason in {
+        "projected_coverage_weak",
+        "direct_query_precision_proxy",
+    }
+
+
+def test_scout_prefers_hybrid_fetch_when_coverage_is_thin_and_query_is_not_narrow(
+    tmp_path: Path,
+) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        extras = [
+            CodeChunk(
+                id=f"pkg/hybrid_{idx}.py::hybrid_{idx}#function",
+                content=f"def hybrid_{idx}():\\n    return {idx}",
+                file_path=f"pkg/hybrid_{idx}.py",
+                start_line=1,
+                end_line=2,
+                symbol_name=f"hybrid_{idx}",
+                symbol_kind=SymbolKind.FUNCTION,
+                language="python",
+                token_count=8,
+                symbol_id=f"pkg/hybrid_{idx}.py::hybrid_{idx}#function",
+                qualified_name=f"hybrid_{idx}",
+                signature=f"def hybrid_{idx}()",
+            )
+            for idx in range(10)
+        ]
+        store.insert_chunks(extras)
+        ranked_chunks = [RankedChunk(chunk=chunk, final_score=1.0) for chunk in extras]
+        result = assemble_scout_from_store(
+            store,
+            "how do the modules coordinate across the codebase",
+            ranked_chunks=ranked_chunks,
+            token_budget=700,
+            direct_query_tokens=4000,
+            direct_query_file_paths=[chunk.file_path for chunk in extras],
+        )
+
+    assert result.fetch_plan.recommended_strategy == "hybrid_fetch"
+    assert result.fetch_plan.guardrail_reason == "projected_coverage_thin"
+    assert any(handle.startswith("file:") for handle in result.fetch_plan.handles)
 
 
 def test_scout_handles_fetch_exact_symbols_and_query_chunks(tmp_path: Path) -> None:

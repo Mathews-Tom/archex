@@ -864,7 +864,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
             index_config=index_config,
             handles=scout_result.fetch_plan.handles,
         )
-        fetch_mode = "chunk_first"
+        fetch_mode = scout_result.fetch_plan.recommended_strategy
         tool_calls = 2
         tokens_total = scout_tokens + bundle.token_count
         tokens_input = scout_tokens + bundle.token_count
@@ -886,15 +886,20 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
     tokens_with_completion = tokens_total + completion_tokens
     missing_from_fetch = sorted(set(task.expected_files) - result_files)
     extra_fetch_files = sorted(result_files - set(task.expected_files))
-    if fetch_mode == "chunk_first":
+    scout_ranked_set = set(scout_ranked_files)
+    if fetch_mode in {"chunk_first", "hybrid_fetch"}:
         extra_fetch_file_reasons = {
             path: scout_result.fetch_plan.file_reasons.get(path, "selected_handle reason=unknown")
             for path in extra_fetch_files
         }
-        missing_from_fetch_reasons = {
-            path: scout_result.fetch_plan.file_reasons.get(path, "not_in_scout_map")
-            for path in missing_from_fetch
-        }
+        missing_from_fetch_reasons = {}
+        for path in missing_from_fetch:
+            if path in scout_result.fetch_plan.file_reasons:
+                missing_from_fetch_reasons[path] = scout_result.fetch_plan.file_reasons[path]
+            elif path not in scout_ranked_set:
+                missing_from_fetch_reasons[path] = "not_in_scout_map"
+            else:
+                missing_from_fetch_reasons[path] = "ranked_without_reason"
     else:
         extra_fetch_file_reasons = {path: "direct_query_fallback" for path in extra_fetch_files}
         missing_from_fetch_reasons = {

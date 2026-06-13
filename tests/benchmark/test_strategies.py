@@ -595,6 +595,83 @@ class TestRunArchexQuery:
             "extra.py=>selected_handle rank=1"
         )
 
+    def test_archex_scout_fetch_uses_hybrid_fetch_mode(
+        self,
+        python_simple_repo: Path,
+    ) -> None:
+        from archex.scout import ScoutBudget, ScoutFetchPlan, ScoutFile, ScoutResult, symbol_handle
+
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py", "extra.py"],
+            token_budget=4096,
+        )
+        scout_result = ScoutResult(
+            query=task.question,
+            ranked_files=[
+                ScoutFile(
+                    path="main.py",
+                    language="python",
+                    lines=10,
+                    symbol_count=1,
+                    handle="file:main.py",
+                    primary_symbol_handle=symbol_handle("main#1"),
+                ),
+                ScoutFile(
+                    path="extra.py",
+                    language="python",
+                    lines=10,
+                    symbol_count=1,
+                    handle="file:extra.py",
+                    primary_symbol_handle=symbol_handle("extra#1"),
+                ),
+            ],
+            budget=ScoutBudget(token_budget=1000),
+            fetch_plan=ScoutFetchPlan(
+                handles=[symbol_handle("main#1"), "file:extra.py"],
+                file_reasons={
+                    "main.py": (
+                        "selected_handle rank=1 score=2.000 coverage=0.500 "
+                        "reason=query_bundle handle=symbol:main#1"
+                    ),
+                    "extra.py": (
+                        "selected_hybrid_file rank=2 score=1.000 coverage=0.800 "
+                        "reason=query_bundle handle=file:extra.py"
+                    ),
+                },
+                estimated_fetch_tokens=20,
+                estimated_fetch_files=2,
+                estimated_total_tokens=80,
+                direct_query_tokens=200,
+                direct_query_files=10,
+                coverage_score_mass=0.8,
+                target_score_mass=0.9,
+                recommended_strategy="hybrid_fetch",
+                guardrail_reason="projected_coverage_thin",
+            ),
+        )
+        bundle = ContextBundle(
+            query=task.question,
+            chunks=[
+                _ranked_chunk("main#1", "main.py", score=1.0),
+                _ranked_chunk("extra#1", "extra.py", score=0.8),
+            ],
+            token_count=20,
+            token_budget=task.token_budget,
+        )
+        with (
+            patch("archex.api.scout_with_bundle", return_value=(scout_result, bundle)),
+            patch("archex.api.query", return_value=bundle),
+        ):
+            result = run_archex_scout_fetch(task, python_simple_repo)
+
+        assert result.tool_calls == 2
+        assert result.provenance["fetch_mode"] == "hybrid_fetch"
+        assert result.provenance["guardrail_reason"] == "projected_coverage_thin"
+
     def test_expanded_files_split_uses_file_count_boundary(self, tmp_path: Path) -> None:
         for file_path in ("seed_a.py", "seed_b.py", "expanded_a.py", "expanded_b.py"):
             (tmp_path / file_path).write_text("print('x')\n", encoding="utf-8")
