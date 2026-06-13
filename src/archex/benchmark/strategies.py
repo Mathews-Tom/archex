@@ -820,8 +820,8 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
 
 
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
-    """Two-call scout map plus exact handle fetch strategy."""
-    from archex.api import query, scout
+    """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
+    from archex.api import query, scout_with_bundle
     from archex.models import Config
     from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, render_scout
 
@@ -834,7 +834,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
     )
     index_config = benchmark_index_config(IndexConfig(vector=False))
 
-    scout_result = scout(
+    scout_result, direct_bundle = scout_with_bundle(
         source,
         task.question,
         token_budget=DEFAULT_SCOUT_TOKEN_BUDGET,
@@ -842,18 +842,32 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         config=config,
         index_config=index_config,
         timing=timing,
+        refresh=True,
     )
     scout_tokens = count_tokens(render_scout(scout_result, output_format="markdown"))
-    handles = [item.handle for item in scout_result.ranked_files]
-    bundle = query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        explicit_token_budget=True,
-        config=config,
-        index_config=index_config,
-        handles=handles,
-    )
+    scout_ranked_files = [item.path for item in scout_result.ranked_files]
+    missing_from_scout_map = sorted(set(task.expected_files) - set(scout_ranked_files))
+
+    if scout_result.fetch_plan.recommended_strategy == "direct_query":
+        bundle = direct_bundle
+        fetch_mode = "direct_query"
+        tool_calls = 1
+        tokens_total = direct_bundle.token_count
+        tokens_input = direct_bundle.token_count
+    else:
+        bundle = query(
+            source,
+            task.question,
+            token_budget=task.token_budget,
+            explicit_token_budget=True,
+            config=config,
+            index_config=index_config,
+            handles=scout_result.fetch_plan.handles,
+        )
+        fetch_mode = scout_result.fetch_plan.recommended_strategy
+        tool_calls = 2
+        tokens_total = scout_tokens + bundle.token_count
+        tokens_input = scout_tokens + bundle.token_count
 
     ranked_files = [chunk.chunk.file_path for chunk in bundle.chunks]
     unique_ranked = _deduplicate_ranked(ranked_files)
@@ -869,9 +883,28 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
     completion_tokens, completion_files = compute_bundle_completion_penalty(
         repo_path, result_files, task.expected_files
     )
-    tokens_total = scout_tokens + bundle.token_count
-    tokens_input = scout_tokens + fetch_fields.tokens_input
     tokens_with_completion = tokens_total + completion_tokens
+    missing_from_fetch = sorted(set(task.expected_files) - result_files)
+    extra_fetch_files = sorted(result_files - set(task.expected_files))
+    scout_ranked_set = set(scout_ranked_files)
+    if fetch_mode in {"chunk_first", "hybrid_fetch"}:
+        extra_fetch_file_reasons = {
+            path: scout_result.fetch_plan.file_reasons.get(path, "selected_handle reason=unknown")
+            for path in extra_fetch_files
+        }
+        missing_from_fetch_reasons = {}
+        for path in missing_from_fetch:
+            if path in scout_result.fetch_plan.file_reasons:
+                missing_from_fetch_reasons[path] = scout_result.fetch_plan.file_reasons[path]
+            elif path not in scout_ranked_set:
+                missing_from_fetch_reasons[path] = "not_in_scout_map"
+            else:
+                missing_from_fetch_reasons[path] = "ranked_without_reason"
+    else:
+        extra_fetch_file_reasons = {path: "direct_query_fallback" for path in extra_fetch_files}
+        missing_from_fetch_reasons = {
+            path: "direct_query_bundle_omission" for path in missing_from_fetch
+        }
     return BenchmarkResult(
         task_id=task.task_id,
         strategy=Strategy.ARCHEX_SCOUT_FETCH,
@@ -887,7 +920,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         ),
         tokens_raw_baseline=fetch_fields.tokens_raw_baseline,
         symbol_recall=fetch_fields.symbol_recall,
-        tool_calls=2,
+        tool_calls=tool_calls,
         files_accessed=len(result_files),
         recall=recall,
         precision=precision,
@@ -901,21 +934,37 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         timing=timing,
         timestamp=now_iso(),
         unique_ranked_files=len(unique_ranked),
-        seed_files=[item.path for item in scout_result.ranked_files],
+        seed_files=scout_ranked_files,
         expanded_files=[],
         expansion_ratio=0.0,
-        seed_recall=compute_recall(
-            {item.path for item in scout_result.ranked_files}, task.expected_files
-        ),
-        seed_precision=compute_precision(
-            {item.path for item in scout_result.ranked_files}, task.expected_files
-        ),
+        seed_recall=compute_recall(set(scout_ranked_files), task.expected_files),
+        seed_precision=compute_precision(set(scout_ranked_files), task.expected_files),
         category=task.category,
         cache_state=_cache_state(timing),
         provenance={
             "scout_token_budget": str(DEFAULT_SCOUT_TOKEN_BUDGET),
             "scout_tokens": str(scout_tokens),
-            "fetch_handles": str(len(handles)),
+            "fetch_handles": str(len(scout_result.fetch_plan.handles)),
+            "fetch_mode": fetch_mode,
+            "guardrail_reason": scout_result.fetch_plan.guardrail_reason or "none",
+            "missing_from_scout_map": ",".join(missing_from_scout_map) or "none",
+            "missing_from_fetch": ",".join(missing_from_fetch) or "none",
+            "missing_from_fetch_reasons": "; ".join(
+                f"{path}=>{reason}" for path, reason in missing_from_fetch_reasons.items()
+            )
+            or "none",
+            "estimated_fetch_tokens": str(scout_result.fetch_plan.estimated_fetch_tokens),
+            "estimated_fetch_files": str(scout_result.fetch_plan.estimated_fetch_files),
+            "projected_coverage": f"{scout_result.fetch_plan.coverage_score_mass:.3f}",
+            "target_coverage": f"{scout_result.fetch_plan.target_score_mass:.3f}",
+            "projected_chunk_precision": f"{scout_result.fetch_plan.projected_precision:.3f}",
+            "projected_direct_precision": f"{scout_result.fetch_plan.direct_query_precision:.3f}",
+            "direct_query_tokens": str(scout_result.fetch_plan.direct_query_tokens),
+            "direct_query_files": str(scout_result.fetch_plan.direct_query_files),
+            "extra_fetch_file_reasons": "; ".join(
+                f"{path}=>{reason}" for path, reason in extra_fetch_file_reasons.items()
+            )
+            or "none",
             "intent_class": task.category.value if task.category is not None else "uncategorized",
         },
     )
