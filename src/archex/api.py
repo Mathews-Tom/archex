@@ -1257,6 +1257,87 @@ def _project_results_to_corpus(
     return [(projected_chunks[chunk_id], projected_scores[chunk_id]) for chunk_id in order], misses
 
 
+def _is_dual_leg_support_artifact(file_path: str) -> bool:
+    lower_path = file_path.lower()
+    if lower_path.startswith(("tests/", "benchmarks/", "docs/", ".github/")):
+        return True
+    suffix = Path(lower_path).suffix
+    return suffix in {".json", ".md", ".rst", ".toml", ".txt", ".yaml", ".yml"}
+
+
+def _aggregate_dual_leg_file_scores(
+    results: list[tuple[CodeChunk, float]],
+) -> list[tuple[str, float]]:
+    if not results:
+        return []
+    max_score = max(score for _chunk, score in results)
+    if max_score <= 0:
+        return []
+    per_file: dict[str, list[float]] = {}
+    for chunk, score in results:
+        per_file.setdefault(chunk.file_path, []).append(score / max_score)
+    aggregated: list[tuple[str, float]] = []
+    for file_path, scores in per_file.items():
+        total = 0.0
+        weight = 1.0
+        for normalized in sorted(scores, reverse=True):
+            total += normalized * weight
+            weight *= 0.5
+        aggregated.append((file_path, total))
+    aggregated.sort(key=lambda item: item[1], reverse=True)
+    return aggregated
+
+
+def _dual_leg_file_cap(file_scores: list[tuple[str, float]], *, default: int) -> int:
+    if len(file_scores) <= default:
+        return len(file_scores)
+    if len(file_scores) < 3:
+        return default
+    top = file_scores[0][1]
+    median = file_scores[len(file_scores) // 2][1]
+    if median <= 0:
+        return default
+    ratio = top / median
+    if ratio > 4.0:
+        return max(3, default - 2)
+    if ratio > 2.5:
+        return max(4, default - 1)
+    return default
+
+
+def _select_dual_leg_file_stage(
+    lexical_results: list[tuple[CodeChunk, float]],
+    semantic_results: list[tuple[CodeChunk, float]],
+) -> set[str]:
+    lexical_files = _aggregate_dual_leg_file_scores(lexical_results)
+    semantic_files = _aggregate_dual_leg_file_scores(semantic_results)
+    if not lexical_files:
+        return {file_path for file_path, _score in semantic_files[:6]}
+    lexical_cap = _dual_leg_file_cap(lexical_files, default=5)
+    semantic_cap = _dual_leg_file_cap(semantic_files, default=6)
+    allowed: list[str] = []
+    seen: set[str] = set()
+
+    def add_file(file_path: str) -> None:
+        if file_path in seen:
+            return
+        seen.add(file_path)
+        allowed.append(file_path)
+
+    top_lexical = {file_path for file_path, _score in lexical_files[:lexical_cap]}
+    top_semantic = {file_path for file_path, _score in semantic_files[:semantic_cap]}
+    for file_path in top_lexical & top_semantic:
+        add_file(file_path)
+    for file_path, _score in lexical_files[:lexical_cap]:
+        add_file(file_path)
+    semantic_primary = [
+        item for item in semantic_files if not _is_dual_leg_support_artifact(item[0])
+    ]
+    for file_path, _score in semantic_primary[:semantic_cap]:
+        add_file(file_path)
+    return set(allowed)
+
+
 def _stored_corpus_stats(store: IndexStore) -> tuple[int, int]:
     stored_tokens = store.get_metadata("repo_total_tokens")
     total_repo_tokens = (
@@ -1452,6 +1533,7 @@ def query_dual_leg_benchmark(
     scoring_weights: ScoringWeights | None = None,
     timing: PipelineTiming | None = None,
     trace: PipelineTrace | None = None,
+    file_stage_orchestration: bool = False,
 ) -> ContextBundle:
     """Benchmark-only query path using separate BM25 and vector chunk inventories."""
     if bm25_index_config.splade or vector_index_config.splade:
@@ -1572,9 +1654,27 @@ def query_dual_leg_benchmark(
             vector_results or [],
             bm25_chunks,
         )
+        selected_files: set[str] | None = None
+        filtered_search_results = search_results
+        filtered_vector_results = projected_vector_results
+        if file_stage_orchestration and projected_vector_results:
+            selected_files = _select_dual_leg_file_stage(search_results, vector_results or [])
+            if selected_files:
+                filtered_search_results = [
+                    (chunk, score)
+                    for chunk, score in search_results
+                    if chunk.file_path in selected_files
+                ]
+                filtered_vector_results = [
+                    (chunk, score)
+                    for chunk, score in projected_vector_results
+                    if chunk.file_path in selected_files
+                ]
+            else:
+                selected_files = None
         if timing is not None:
             timing.search_ms = _elapsed_ms(search_start)
-            timing.vector_used = bool(projected_vector_results)
+            timing.vector_used = bool(filtered_vector_results)
             timing.vector_build_ms = _elapsed_ms(search_start)
         if trace is not None:
             trace.add_step(
@@ -1590,25 +1690,28 @@ def query_dual_leg_benchmark(
                         "vector_results_raw": len(vector_results or []),
                         "vector_results_projected": len(projected_vector_results),
                         "vector_projection_misses": projection_misses,
+                        "file_stage_orchestration": file_stage_orchestration,
+                        "file_stage_selected_files": len(selected_files or ()),
                         "top_k": top_k,
                         "vector_top_k": vector_top_k,
                     },
                 )
             )
         bundle = assemble_context(
-            search_results=search_results,
+            search_results=filtered_search_results,
             graph=graph,
             all_chunks=bm25_chunks,
             question=question,
             token_budget=effective_budget,
-            vector_results=projected_vector_results,
+            vector_results=filtered_vector_results,
             scoring_weights=scoring_weights,
             trace=trace,
-            avg_idf=bm25.avg_idf(question) if projected_vector_results else None,
+            avg_idf=bm25.avg_idf(question) if filtered_vector_results else None,
             reranker=_maybe_reranker(vector_index_config),
             rerank_candidate_limit=vector_index_config.rerank_candidate_limit,
             apply_intent_budget=False,
         )
+        bundle.retrieval_metadata.file_stage_orchestration = file_stage_orchestration
         bundle.retrieval_metadata.vector_mode = vector_index_config.vector_mode
         bundle.retrieval_metadata.surrogate_version = (
             vector_index_config.surrogate_version

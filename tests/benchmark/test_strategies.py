@@ -1032,7 +1032,7 @@ class TestRunArchexQueryFusion:
             expected_files=["main.py"],
             token_budget=4096,
         )
-        calls: list[tuple[str, str, str, str]] = []
+        calls: list[tuple[str, str, str, str, bool]] = []
 
         def fake_dual_leg_query(
             *,
@@ -1046,6 +1046,7 @@ class TestRunArchexQueryFusion:
             scoring_weights: object | None = None,
             timing: object | None = None,
             trace: object | None = None,
+            file_stage_orchestration: bool = False,
         ) -> ContextBundle:
             del question, token_budget, config, scoring_weights, timing, trace
             calls.append(
@@ -1054,6 +1055,7 @@ class TestRunArchexQueryFusion:
                     vector_source.stable_identity or "",
                     bm25_index_config.chunker,
                     vector_index_config.chunker,
+                    file_stage_orchestration,
                 )
             )
             return ContextBundle(query=task.question, token_budget=task.token_budget)
@@ -1063,6 +1065,7 @@ class TestRunArchexQueryFusion:
                 bm25_chunker="default",
                 vector_chunker="cast",
                 dual_leg_orchestration=True,
+                file_stage_orchestration=True,
             )
         )
         try:
@@ -1078,6 +1081,7 @@ class TestRunArchexQueryFusion:
                 f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}+chunker=cast",
                 "default",
                 "cast",
+                True,
             )
         ]
 

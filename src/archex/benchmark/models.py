@@ -148,6 +148,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     vector_chunker: ChunkerName | None = None
     rerank_candidate_limit: int | None = None
     dual_leg_orchestration: bool = False
+    file_stage_orchestration: bool = False
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):
