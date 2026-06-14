@@ -82,3 +82,45 @@ uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmark
 uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
 uv run archex benchmark gate --input .archex/e2e-jina --baseline .archex/e2e-tier2 --warn-latency-ms 3000
 ```
+
+## Targeted benchmark experiments
+
+### 2026-06-14 — dual-leg file-stage orchestration
+
+Candidate:
+
+| Candidate | Benchmark flags | Decision role |
+| --- | --- | --- |
+| Dual-leg control | `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration` | Current benchmark-only control |
+| Dual-leg file-stage orchestration | `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration` | Richer within-query file selection before final chunk packing |
+
+Decision rule:
+
+- Run only the targeted failing families first: `archex_benchmark_gate_lifecycle`, `archex_mcp_query_lifecycle`, `archex_pattern_detection`.
+- Keep the candidate only if it improves at least one failing family with no regression on the others.
+- Run a wider frontier only after the targeted set clears that bar.
+
+2026-06-14 targeted result: keep the candidate and promote it to the next wider frontier rerun. It preserved or improved recall on every targeted family, recovered `archex_pattern_detection` from `0.5` to `1.0` recall on both fusion paths, and reduced latency materially on all three tasks. Token efficiency improved on `archex_benchmark_gate_lifecycle` and `archex_mcp_query_lifecycle`, but regressed on `archex_pattern_detection`, so this is still a benchmark candidate rather than a default decision.
+
+Targeted smoke comparison:
+
+| Task | Strategy | Recall | F1 | Token efficiency | Latency |
+| --- | --- | --- | --- | --- | --- |
+| `archex_benchmark_gate_lifecycle` | fusion | `1.0 -> 1.0` | `1.000 -> 1.000` | `0.591 -> 0.698` | `5329 ms -> 797 ms` |
+| `archex_benchmark_gate_lifecycle` | fusion+rereank | `1.0 -> 1.0` | `1.000 -> 1.000` | `0.591 -> 0.698` | `9127 ms -> 2992 ms` |
+| `archex_mcp_query_lifecycle` | fusion | `0.8 -> 0.8` | `0.800 -> 0.800` | `0.842 -> 0.848` | `325 ms -> 272 ms` |
+| `archex_mcp_query_lifecycle` | fusion+rereank | `0.8 -> 0.8` | `0.800 -> 0.800` | `0.842 -> 0.848` | `1159 ms -> 592 ms` |
+| `archex_pattern_detection` | fusion | `0.5 -> 1.0` | `0.286 -> 0.571` | `0.873 -> 0.716` | `287 ms -> 256 ms` |
+| `archex_pattern_detection` | fusion+rereank | `0.5 -> 1.0` | `0.286 -> 0.571` | `0.873 -> 0.716` | `1133 ms -> 695 ms` |
+
+Operator commands:
+
+```bash
+for task in archex_benchmark_gate_lifecycle archex_mcp_query_lifecycle archex_pattern_detection; do
+  uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --tasks-dir benchmarks/tasks --output .archex/file-stage-control-smoke
+done
+
+for task in archex_benchmark_gate_lifecycle archex_mcp_query_lifecycle archex_pattern_detection; do
+  uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --tasks-dir benchmarks/tasks --output .archex/file-stage-candidate-smoke-v2
+done
+```
