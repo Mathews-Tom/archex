@@ -10,9 +10,20 @@ import pytest
 
 from archex.benchmark.models import BenchmarkRetrievalOptions, BenchmarkTask, Strategy
 from archex.benchmark.runner import AVAILABLE_STRATEGIES, DEFAULT_STRATEGIES, run_benchmark
+from archex.index.embeddings import (
+    JINA_BERT_CODE_REVISION,
+    JINA_V2_MAX_SEQ_LENGTH,
+    JINA_V2_MODEL_REVISION,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+JINA_V2_CACHE_IDENTITY = (
+    f"jina-v2@{JINA_V2_MODEL_REVISION}"
+    f"+code={JINA_BERT_CODE_REVISION}"
+    f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
+)
 
 
 @pytest.fixture
@@ -304,6 +315,62 @@ class TestRunBenchmark:
         assert captured == [
             ("coderank", False, None, "cast", 4),
             ("coderank", True, "cross-encoder/ms-marco-MiniLM-L-6-v2", "cast", 3),
+        ]
+
+    def test_warm_repo_index_uses_dual_leg_helper_when_enabled(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+    ) -> None:
+        from archex.benchmark import runner as runner_mod
+        from archex.models import Config, ContextBundle, IndexConfig, RepoSource
+
+        task, repo_path = fixture_task
+        captured: list[tuple[str, str, str, str, bool]] = []
+
+        def fake_dual_leg_query(
+            *,
+            bm25_source: RepoSource,
+            vector_source: RepoSource,
+            question: str,
+            token_budget: int,
+            config: Config,
+            bm25_index_config: IndexConfig,
+            vector_index_config: IndexConfig,
+            scoring_weights: object | None = None,
+            timing: object | None = None,
+            trace: object | None = None,
+        ) -> ContextBundle:
+            del question, token_budget, config, scoring_weights, timing, trace
+            captured.append(
+                (
+                    bm25_source.stable_identity or "",
+                    vector_source.stable_identity or "",
+                    bm25_index_config.chunker,
+                    vector_index_config.chunker,
+                    vector_index_config.rerank,
+                )
+            )
+            return ContextBundle(query=task.question, token_budget=task.token_budget)
+
+        with patch("archex.api.query_dual_leg_benchmark", fake_dual_leg_query):
+            runner_mod._warm_repo_index(  # pyright: ignore[reportPrivateUsage]
+                task,
+                repo_path,
+                BenchmarkRetrievalOptions(
+                    bm25_chunker="default",
+                    vector_chunker="cast",
+                    dual_leg_orchestration=True,
+                ),
+            )
+
+        assert captured == [
+            (
+                f"test/python_simple@HEAD#embedder={JINA_V2_CACHE_IDENTITY}+chunker=default",
+                f"test/python_simple@HEAD#embedder={JINA_V2_CACHE_IDENTITY}+chunker=cast",
+                "default",
+                "cast",
+                False,
+            )
         ]
 
     def test_skips_warmup_for_raw_only_strategies(

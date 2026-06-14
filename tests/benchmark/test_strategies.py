@@ -11,6 +11,7 @@ from archex.benchmark.models import BenchmarkRetrievalOptions, BenchmarkTask, St
 from archex.benchmark.strategies import (
     _archex_fields,  # pyright: ignore[reportPrivateUsage]
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
+    benchmark_dual_leg_enabled,
     benchmark_index_config,
     benchmark_repo_source,
     compute_bundle_completion_penalty,
@@ -529,6 +530,38 @@ class TestRunArchexQuery:
         assert rerank_config.chunker == "cast"
         assert rerank_config.rerank_candidate_limit == 3
 
+    def test_benchmark_dual_leg_enabled_requires_split_chunkers(self) -> None:
+        options = BenchmarkRetrievalOptions(
+            bm25_chunker="default",
+            vector_chunker="cast",
+            dual_leg_orchestration=True,
+        )
+        assert benchmark_dual_leg_enabled(Strategy.ARCHEX_QUERY_FUSION, options) is True
+        assert benchmark_dual_leg_enabled(Strategy.ARCHEX_QUERY, options) is False
+        assert (
+            benchmark_dual_leg_enabled(
+                Strategy.ARCHEX_QUERY_FUSION,
+                BenchmarkRetrievalOptions(
+                    bm25_chunker="default",
+                    vector_chunker="default",
+                    dual_leg_orchestration=True,
+                ),
+            )
+            is False
+        )
+        assert (
+            benchmark_dual_leg_enabled(
+                Strategy.ARCHEX_QUERY_FUSION,
+                BenchmarkRetrievalOptions(
+                    bm25_chunker="default",
+                    vector_chunker="cast",
+                    dual_leg_orchestration=True,
+                    splade=True,
+                ),
+            )
+            is False
+        )
+
     def test_archex_scout_fetch_strategy(self, python_simple_repo: Path) -> None:
         from archex.scout import ScoutBudget, ScoutFetchPlan, ScoutFile, ScoutResult, symbol_handle
 
@@ -984,6 +1017,69 @@ class TestRunArchexQueryFusion:
         assert result.files_accessed >= 0
         assert isinstance(result.recall, float)
         assert isinstance(result.precision, float)
+
+    def test_fusion_strategy_uses_dual_leg_helper_when_enabled(
+        self,
+        python_simple_repo: Path,
+    ) -> None:
+        from archex.models import Config, ContextBundle, RepoSource
+
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=4096,
+        )
+        calls: list[tuple[str, str, str, str]] = []
+
+        def fake_dual_leg_query(
+            *,
+            bm25_source: RepoSource,
+            vector_source: RepoSource,
+            question: str,
+            token_budget: int,
+            config: Config,
+            bm25_index_config: IndexConfig,
+            vector_index_config: IndexConfig,
+            scoring_weights: object | None = None,
+            timing: object | None = None,
+            trace: object | None = None,
+        ) -> ContextBundle:
+            del question, token_budget, config, scoring_weights, timing, trace
+            calls.append(
+                (
+                    bm25_source.stable_identity or "",
+                    vector_source.stable_identity or "",
+                    bm25_index_config.chunker,
+                    vector_index_config.chunker,
+                )
+            )
+            return ContextBundle(query=task.question, token_budget=task.token_budget)
+
+        token = set_benchmark_retrieval_options(
+            BenchmarkRetrievalOptions(
+                bm25_chunker="default",
+                vector_chunker="cast",
+                dual_leg_orchestration=True,
+            )
+        )
+        try:
+            with patch("archex.api.query_dual_leg_benchmark", fake_dual_leg_query):
+                result = run_archex_query_fusion(task, python_simple_repo)
+        finally:
+            reset_benchmark_retrieval_options(token)
+
+        assert result.strategy == Strategy.ARCHEX_QUERY_FUSION
+        assert calls == [
+            (
+                f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}+chunker=default",
+                f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}+chunker=cast",
+                "default",
+                "cast",
+            )
+        ]
 
 
 class TestRunSurrogateVector:

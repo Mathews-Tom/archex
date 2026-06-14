@@ -61,6 +61,91 @@ def _chunk(
     )
 
 
+class TestProjectResultsToCorpus:
+    def test_projects_by_symbol_id(self) -> None:
+        from archex.api import _project_results_to_corpus  # pyright: ignore[reportPrivateUsage]
+
+        corpus_chunks = [
+            _chunk(file_path="src/main.py", name="alpha", start_line=1, end_line=5),
+            _chunk(file_path="src/main.py", name="beta", start_line=7, end_line=12),
+        ]
+        projected, misses = _project_results_to_corpus(
+            [
+                (
+                    _chunk(file_path="src/main.py", name="beta", start_line=6, end_line=20),
+                    0.8,
+                )
+            ],
+            corpus_chunks,
+        )
+
+        assert misses == 0
+        assert projected == [(corpus_chunks[1], 0.8)]
+
+    def test_projects_by_overlap_and_deduplicates_scores(self) -> None:
+        from archex.api import _project_results_to_corpus  # pyright: ignore[reportPrivateUsage]
+
+        corpus_chunks = [
+            _chunk(file_path="src/main.py", name="alpha", start_line=1, end_line=5),
+            _chunk(file_path="src/main.py", name="beta", start_line=7, end_line=12),
+        ]
+        projected, misses = _project_results_to_corpus(
+            [
+                (
+                    _chunk(
+                        file_path="src/main.py",
+                        name="span",
+                        qualified_name="span",
+                        start_line=2,
+                        end_line=6,
+                        content="span",
+                    ),
+                    0.4,
+                ),
+                (
+                    _chunk(
+                        file_path="src/main.py",
+                        name="span-2",
+                        qualified_name="span-2",
+                        start_line=1,
+                        end_line=4,
+                        content="span-2",
+                    ),
+                    0.9,
+                ),
+            ],
+            corpus_chunks,
+        )
+
+        assert misses == 0
+        assert projected == [(corpus_chunks[0], 0.9)]
+
+    def test_dual_leg_query_uses_passthrough_when_budget_covers_corpus(self) -> None:
+        from archex.api import query_dual_leg_benchmark
+        from archex.models import Config, IndexConfig, RepoSource
+
+        chunk = _chunk(file_path="src/main.py", content="def foo():\n    return 1\n", token_count=6)
+        store = _make_store([chunk])
+        store.set_metadata("repo_total_tokens", "6")
+        store.set_metadata("chunk_count", "1")
+        source = RepoSource(local_path="/fake", stable_identity="repo@abc#chunker=default")
+
+        with patch("archex.api._ensure_index", return_value=store):
+            bundle = query_dual_leg_benchmark(
+                bm25_source=source,
+                vector_source=source,
+                question="How does foo work?",
+                token_budget=100,
+                config=Config(cache=True),
+                bm25_index_config=IndexConfig(vector=False, chunker="default"),
+                vector_index_config=IndexConfig(vector=True, chunker="cast"),
+            )
+
+        assert [ranked.chunk.file_path for ranked in bundle.chunks] == ["src/main.py"]
+        assert bundle.retrieval_metadata.bm25_chunker == "default"
+        assert bundle.retrieval_metadata.vector_chunker == "cast"
+
+
 # Shared test chunks
 CHUNKS = [
     _chunk(
