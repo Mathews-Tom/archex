@@ -162,3 +162,61 @@ uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-ch
 uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --tasks-dir benchmarks/tasks --output .archex/file-stage-candidate-full
 uv run archex benchmark gate --input .archex/file-stage-candidate-full --baseline .archex/file-stage-control-full --warn-latency-ms 3000
 ```
+
+### 2026-06-15 — direct file preservation targeted rerun
+
+Follow-up after the file-stage full-frontier regressions:
+
+- control: `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration`
+- candidate: `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation`
+
+2026-06-15 targeted result: keep the candidate and promote it to a wider frontier rerun. It recovered three of the four remaining self-repo failure families with no targeted regression.
+
+Targeted smoke comparison:
+
+| Task | Strategy | Recall | F1 | Token efficiency | Latency |
+| --- | --- | --- | --- | --- | --- |
+| `archex_adapter_registry` | fusion | `0.333 -> 1.000` | `0.222 -> 0.600` | `0.835 -> 0.711` | `837 ms -> 854 ms` |
+| `archex_adapter_registry` | fusion+rereank | `0.333 -> 1.000` | `0.222 -> 0.600` | `0.835 -> 0.711` | `4129 ms -> 4045 ms` |
+| `archex_project_init` | fusion | `0.500 -> 0.500` | `0.500 -> 0.500` | `0.640 -> 0.640` | `269 ms -> 262 ms` |
+| `archex_project_init` | fusion+rereank | `0.500 -> 0.500` | `0.500 -> 0.500` | `0.640 -> 0.640` | `1221 ms -> 1218 ms` |
+| `archex_project_reset` | fusion | `0.333 -> 1.000` | `0.286 -> 0.857` | `0.615 -> 0.578` | `272 ms -> 289 ms` |
+| `archex_project_reset` | fusion+rereank | `0.333 -> 1.000` | `0.286 -> 0.857` | `0.615 -> 0.578` | `767 ms -> 841 ms` |
+| `archex_query_cache_lifecycle` | fusion | `0.800 -> 1.000` | `0.800 -> 0.833` | `0.758 -> 0.769` | `324 ms -> 319 ms` |
+| `archex_query_cache_lifecycle` | fusion+rereank | `0.800 -> 1.000` | `0.800 -> 0.833` | `0.758 -> 0.769` | `1470 ms -> 1456 ms` |
+
+### 2026-06-15 — direct file preservation full frontier rerun
+
+2026-06-15 full-frontier result: do not adopt or merge the candidate yet. Mean recall improved, but mean F1 regressed slightly on both fusion paths and the baseline gate still failed on four tasks.
+
+Frontier summary:
+
+| Strategy | Recall | F1 | Token efficiency | p95 latency |
+| --- | --- | --- | --- | --- |
+| Control `archex_query_fusion` | `0.849` | `0.632` | `0.722` | `475 ms` |
+| Candidate `archex_query_fusion` | `0.872` | `0.628` | `0.719` | `482 ms` |
+| Control `archex_query_fusion_rerank` | `0.839` | `0.627` | `0.723` | `1267 ms` |
+| Candidate `archex_query_fusion_rerank` | `0.863` | `0.622` | `0.720` | `1153 ms` |
+
+Baseline-gate failures:
+
+- `archex_delta_indexing/archex_query_fusion`
+- `archex_delta_indexing/archex_query_fusion_rerank`
+- `archex_vector_cache_lifecycle/archex_query_fusion`
+- `archex_vector_cache_lifecycle/archex_query_fusion_rerank`
+
+Operator commands:
+
+```bash
+for task in archex_adapter_registry archex_project_init archex_project_reset archex_query_cache_lifecycle; do
+  uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --tasks-dir benchmarks/tasks --output .archex/direct-preservation-control-smoke
+done
+
+for task in archex_adapter_registry archex_project_init archex_project_reset archex_query_cache_lifecycle; do
+  uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --tasks-dir benchmarks/tasks --output .archex/direct-preservation-candidate-smoke
+done
+
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --tasks-dir benchmarks/tasks --output .archex/direct-preservation-control-full
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --tasks-dir benchmarks/tasks --output .archex/direct-preservation-candidate-full
+uv run archex benchmark gate --input .archex/direct-preservation-candidate-full --baseline .archex/direct-preservation-control-full --warn-latency-ms 3000
+```
