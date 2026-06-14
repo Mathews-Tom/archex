@@ -1521,6 +1521,65 @@ def test_support_file_penalty_is_0_15() -> None:
     assert 0.10 < ratio < 0.20, f"Expected ~0.15 ratio, got {ratio}"
 
 
+def test_adjust_file_scores_code_first_penalizes_support_files() -> None:
+    from archex.serve.context import _adjust_file_scores_code_first  # pyright: ignore[reportPrivateUsage]
+
+    adjusted = _adjust_file_scores_code_first(
+        {
+            "benchmarks/tasks/archex_pattern_detection.yaml": 10.0,
+            "src/archex/models.py": 4.0,
+        },
+        lexical_files={
+            "benchmarks/tasks/archex_pattern_detection.yaml",
+            "src/archex/models.py",
+        },
+        semantic_files={"src/archex/models.py"},
+    )
+
+    assert (
+        adjusted["src/archex/models.py"]
+        > adjusted["benchmarks/tasks/archex_pattern_detection.yaml"]
+    )
+
+
+def test_prefer_code_files_selects_code_before_support_files() -> None:
+    graph = DependencyGraph()
+    support = make_chunk("support", "benchmarks/tasks/archex_pattern_detection.yaml", token_count=9)
+    code_a = make_chunk("code_a", "src/archex/models.py", token_count=9)
+    code_b = make_chunk("code_b", "src/archex/analyze/patterns.py", token_count=9)
+    for chunk in (support, code_a, code_b):
+        graph.add_file_node(chunk.file_path)
+
+    bundle_default = assemble_context(
+        [(support, 100.0), (code_a, 6.0), (code_b, 5.0)],
+        graph,
+        [support, code_a, code_b],
+        "How does archex detect architectural patterns?",
+        token_budget=12,
+        vector_results=[(code_a, 0.9)],
+        prefer_code_files=False,
+        apply_intent_budget=False,
+    )
+    bundle_code_first = assemble_context(
+        [(support, 100.0), (code_a, 6.0), (code_b, 5.0)],
+        graph,
+        [support, code_a, code_b],
+        "How does archex detect architectural patterns?",
+        token_budget=12,
+        vector_results=[(code_a, 0.9)],
+        prefer_code_files=True,
+        apply_intent_budget=False,
+    )
+
+    assert (
+        bundle_default.chunks[0].chunk.file_path == "benchmarks/tasks/archex_pattern_detection.yaml"
+    )
+    assert bundle_code_first.chunks[0].chunk.file_path in {
+        "src/archex/models.py",
+        "src/archex/analyze/patterns.py",
+    }
+
+
 # ---------------------------------------------------------------------------
 # _is_entry_point unit tests
 # ---------------------------------------------------------------------------
