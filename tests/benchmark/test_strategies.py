@@ -511,6 +511,7 @@ class TestRunArchexQuery:
                 bm25_chunker="default",
                 vector_chunker="cast",
                 rerank_candidate_limit=3,
+                adaptive_rerank_limit=True,
             )
         )
         try:
@@ -528,6 +529,7 @@ class TestRunArchexQuery:
         assert bm25_config.chunker == "default"
         assert rerank_config.chunker == "cast"
         assert rerank_config.rerank_candidate_limit == 3
+        assert rerank_config.adaptive_rerank_limit is True
 
     def test_archex_scout_fetch_strategy(self, python_simple_repo: Path) -> None:
         from archex.scout import ScoutBudget, ScoutFetchPlan, ScoutFile, ScoutResult, symbol_handle

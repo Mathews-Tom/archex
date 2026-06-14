@@ -476,6 +476,33 @@ def _adaptive_max_files(
     return default
 
 
+def _resolve_rerank_candidate_limit(
+    candidate_list: list[tuple[CodeChunk, float]],
+    *,
+    configured_limit: int,
+    adaptive: bool,
+    signal_agreement: float | None,
+    bm25_cv: float | None,
+    broad_query: bool,
+) -> tuple[int, str]:
+    candidate_cap = min(configured_limit, len(candidate_list))
+    if candidate_cap <= 2 or not adaptive:
+        return candidate_cap, "fixed"
+    top_window_files = {chunk.file_path for chunk, _ in candidate_list[:candidate_cap]}
+    if broad_query:
+        return candidate_cap, "broad_query"
+    if len(top_window_files) >= min(3, candidate_cap):
+        return candidate_cap, "broad_multi_file_window"
+    if (
+        signal_agreement is not None
+        and signal_agreement <= 0.25
+        and bm25_cv is not None
+        and bm25_cv >= 0.35
+    ):
+        return 2, "low_agreement_high_lexical_concentration"
+    return candidate_cap, "fixed"
+
+
 def _is_architecture_query(question: str) -> bool:
     """Return True if the query contains any architecture keyword."""
     q_lower = question.lower()
@@ -904,6 +931,7 @@ def assemble_context(
     avg_idf: float | None = None,
     reranker: object | None = None,
     rerank_candidate_limit: int = 4,
+    adaptive_rerank_limit: bool = False,
     apply_intent_budget: bool = True,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
@@ -950,11 +978,18 @@ def assemble_context(
     splade_fusion_skipped = False
     splade_fusion_skip_reason = ""
     bm25_cv_val: float | None = None
+    signal_agreement_pre: float | None = None
     effective_vector: list[tuple[CodeChunk, float]] = []
     effective_splade: list[tuple[CodeChunk, float]] = []
     base_results = search_results
     if vector_results:
         from archex.index.fusion import adaptive_rsf, bm25_score_cv, should_fuse
+
+        _k_agree = 20
+        _bm25_top_k = {chunk.file_path for chunk, _ in search_results[:_k_agree]}
+        _vec_top_k = {chunk.file_path for chunk, _ in vector_results[:_k_agree]}
+        _union = _bm25_top_k | _vec_top_k
+        signal_agreement_pre = len(_bm25_top_k & _vec_top_k) / len(_union) if _union else 0.0
 
         # Gate fusion: skip when BM25 is confident and signals agree.
         # Always fuse when BM25 is empty — vector is the only signal.
@@ -962,15 +997,6 @@ def assemble_context(
         bm25_cv_val = bm25_score_cv(search_results)
 
         if fuse or not search_results:
-            # Compute signal_agreement (Jaccard of BM25 top-20 and vector top-20 file paths)
-            _k_agree = 20
-            _bm25_top_k = {chunk.file_path for chunk, _ in search_results[:_k_agree]}
-            _vec_top_k = {chunk.file_path for chunk, _ in vector_results[:_k_agree]}
-            _union = _bm25_top_k | _vec_top_k
-            signal_agreement_pre: float = (
-                len(_bm25_top_k & _vec_top_k) / len(_union) if _union else 0.0
-            )
-
             # RSF preserves score magnitude (unlike RRF which flattens to
             # rank-based 1/(k+rank)). Adaptive weights give vector meaningful
             # influence so unique vector hits can surface.
@@ -983,14 +1009,12 @@ def assemble_context(
             logger.debug("Fusion applied (RSF): %s", fuse_reason)
         else:
             # BM25 is confident — skip fusion, use BM25 results only
-            signal_agreement_pre = 0.0
             fusion_skipped = True
             fusion_skip_reason = fuse_reason
             strategy = "bm25+graph"  # downgrade strategy label
             bm25_by_id = _normalized_scores(search_results)
             logger.debug("Fusion skipped: %s", fuse_reason)
     else:
-        signal_agreement_pre = 0.0
         bm25_by_id = _normalized_scores(search_results)
 
     if splade_results:
@@ -1343,7 +1367,15 @@ def assemble_context(
             candidate_list = [
                 (chunk, bm25_by_id.get(chunk.id, 0.0)) for chunk in candidate_map.values()
             ]
-            candidates_for_rerank = candidate_list[:rerank_candidate_limit]
+            resolved_rerank_limit, rerank_limit_reason = _resolve_rerank_candidate_limit(
+                candidate_list,
+                configured_limit=rerank_candidate_limit,
+                adaptive=adaptive_rerank_limit,
+                signal_agreement=signal_agreement_pre if vector_results else None,
+                bm25_cv=bm25_cv_val,
+                broad_query=intent == QueryIntent.CLI,
+            )
+            candidates_for_rerank = candidate_list[:resolved_rerank_limit]
             reranked = reranker.rerank(question, candidates_for_rerank, top_k=DEFAULT_TOP_K)
             for chunk_id, rerank_score in _normalized_rerank_scores(reranked).items():
                 bm25_by_id[chunk_id] = max(bm25_by_id.get(chunk_id, 0.0), rerank_score)
@@ -1356,6 +1388,9 @@ def assemble_context(
                         end_ns=rerank_end,
                         metadata={
                             "candidates_available": len(candidate_list),
+                            "candidate_limit_configured": rerank_candidate_limit,
+                            "candidate_limit_used": resolved_rerank_limit,
+                            "candidate_limit_reason": rerank_limit_reason,
                             "candidates_scored": len(candidates_for_rerank),
                             "candidates_returned": len(reranked),
                             "candidate_files_preserved": len(
@@ -1365,9 +1400,10 @@ def assemble_context(
                     )
                 )
             logger.debug(
-                "Cross-encoder reranked %d/%d candidates",
+                "Cross-encoder reranked %d/%d candidates (%s)",
                 len(candidates_for_rerank),
                 len(candidate_list),
+                rerank_limit_reason,
             )
 
     # --- Scoring phase ---
@@ -1377,8 +1413,9 @@ def assemble_context(
     centrality = graph.structural_centrality()
 
     # Signal agreement was computed pre-fusion; carry it forward for metadata
-    signal_agreement: float | None = signal_agreement_pre if vector_results else None
-
+    # Signal agreement is measured whenever a vector leg is present, regardless
+    # of whether fusion was later applied or skipped.
+    signal_agreement: float | None = signal_agreement_pre
     # Candidate file set for cohesion computation
     candidate_files = {c.file_path for c in candidate_map.values()}
 

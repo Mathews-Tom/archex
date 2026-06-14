@@ -174,6 +174,14 @@ def benchmark_cmd() -> None:
     help="Cap candidates scored by the cross-encoder reranker.",
 )
 @click.option(
+    "--adaptive-rerank-limit/--no-adaptive-rerank-limit",
+    default=False,
+    help=(
+        "Benchmark-only policy: shrink rerank windows for low-agreement narrow frontiers "
+        "while preserving broader multi-file queries."
+    ),
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -202,6 +210,7 @@ def run_cmd(
     vector_chunker: ChunkerName | None,
     rerank_model: str | None,
     rerank_candidate_limit: int | None,
+    adaptive_rerank_limit: bool,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -232,6 +241,7 @@ def run_cmd(
         bm25_chunker=bm25_chunker,
         vector_chunker=vector_chunker,
         rerank_candidate_limit=rerank_candidate_limit,
+        adaptive_rerank_limit=adaptive_rerank_limit,
     )
     warmed_models = warm_benchmark_models(strategies, retrieval_options)
     if warmed_models:

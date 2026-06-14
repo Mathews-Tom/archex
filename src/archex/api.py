@@ -55,7 +55,7 @@ from archex.analyze.modules import detect_modules
 from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
 from archex.config import load_config, load_index_config
-from archex.exceptions import ArchexIndexError, DeltaIndexError
+from archex.exceptions import AcquireError, ArchexIndexError, DeltaIndexError
 from archex.index.bm25 import BM25Index
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
@@ -1603,13 +1603,19 @@ def query(
     preopened_store: IndexStore | None = None
     if refresh and config.cache:
         metadata_timing = timing or PipelineTiming()
-        preopened_store = _ensure_index(
-            source,
-            config,
-            timing=metadata_timing,
-            index_config=index_config,
-        )
-        cached_db = preopened_store.db_path
+        try:
+            preopened_store = _ensure_index(
+                source,
+                config,
+                timing=metadata_timing,
+                index_config=index_config,
+            )
+        except AcquireError:
+            cached_db = cache.get(cache_key)
+            if cached_db is None:
+                raise
+        else:
+            cached_db = preopened_store.db_path
     else:
         cached_db = cache.get(cache_key) if config.cache else None
     if cached_db is not None:
@@ -1809,6 +1815,7 @@ def query(
                     avg_idf=query_avg_idf,
                     reranker=_reranker,
                     rerank_candidate_limit=index_config.rerank_candidate_limit,
+                    adaptive_rerank_limit=index_config.adaptive_rerank_limit,
                     apply_intent_budget=False,
                 )
                 bundle.retrieval_metadata.vector_mode = index_config.vector_mode
@@ -2179,6 +2186,7 @@ def query(
                 avg_idf=query_avg_idf_miss,
                 reranker=_reranker_miss,
                 rerank_candidate_limit=index_config.rerank_candidate_limit,
+                adaptive_rerank_limit=index_config.adaptive_rerank_limit,
                 apply_intent_budget=False,
             )
             bundle.retrieval_metadata.vector_mode = index_config.vector_mode

@@ -147,6 +147,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     bm25_chunker: ChunkerName | None = None
     vector_chunker: ChunkerName | None = None
     rerank_candidate_limit: int | None = None
+    adaptive_rerank_limit: bool = False
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):

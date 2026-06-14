@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from archex.index.graph import DependencyGraph
 from archex.index.rerank import DEFAULT_TOP_K, RERANK_CANDIDATE_LIMIT, CrossEncoderReranker
 from archex.models import CodeChunk, ContextBundle, Module, SymbolKind
+from archex.observe import PipelineTrace
 from archex.serve.context import assemble_context
 from archex.serve.intent import INTENT_TOKEN_BUDGETS, QueryIntent
 from archex.serve.renderers.json import render_json
@@ -1161,6 +1162,111 @@ def test_assemble_context_honors_custom_rerank_candidate_limit() -> None:
 
     assert reranker.seen_candidate_count == 3
     assert reranker.seen_top_k == DEFAULT_TOP_K
+
+
+def test_assemble_context_adaptive_rerank_shrinks_low_agreement_narrow_window() -> None:
+    graph = DependencyGraph()
+    a1 = make_chunk("a1", "alpha.py", token_count=10)
+    a2 = make_chunk("a2", "alpha.py", token_count=10)
+    b1 = make_chunk("b1", "beta.py", token_count=10)
+    c1 = make_chunk("c1", "gamma.py", token_count=10)
+    d1 = make_chunk("d1", "delta.py", token_count=10)
+    e1 = make_chunk("e1", "epsilon.py", token_count=10)
+    chunks = [a1, a2, b1, c1, d1, e1]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+    search_results = [(a1, 10.0), (a2, 2.0), (b1, 1.0)]
+    vector_results = [(c1, 5.0), (d1, 4.0), (e1, 3.0)]
+    reranker = RecordingReranker()
+    trace = PipelineTrace(operation="query")
+
+    assemble_context(
+        search_results=search_results,
+        graph=graph,
+        all_chunks=chunks,
+        question="How does archex detect architectural patterns?",
+        token_budget=1000,
+        vector_results=vector_results,
+        reranker=reranker,
+        rerank_candidate_limit=3,
+        adaptive_rerank_limit=True,
+        apply_intent_budget=False,
+        trace=trace,
+    )
+
+    rerank = next(step for step in trace.steps if step.name == "rerank")
+    assert reranker.seen_candidate_count == 2
+    assert rerank.metadata["candidate_limit_used"] == 2
+    assert rerank.metadata["candidate_limit_reason"] == "low_agreement_high_lexical_concentration"
+
+
+def test_assemble_context_adaptive_rerank_preserves_broad_multi_file_window() -> None:
+    graph = DependencyGraph()
+    a1 = make_chunk("a1", "alpha.py", token_count=10)
+    b1 = make_chunk("b1", "beta.py", token_count=10)
+    c1 = make_chunk("c1", "gamma.py", token_count=10)
+    d1 = make_chunk("d1", "delta.py", token_count=10)
+    e1 = make_chunk("e1", "epsilon.py", token_count=10)
+    f1 = make_chunk("f1", "zeta.py", token_count=10)
+    chunks = [a1, b1, c1, d1, e1, f1]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+    search_results = [(a1, 10.0), (b1, 2.0), (c1, 1.0)]
+    vector_results = [(d1, 5.0), (e1, 4.0), (f1, 3.0)]
+    reranker = RecordingReranker()
+    trace = PipelineTrace(operation="query")
+
+    assemble_context(
+        search_results=search_results,
+        graph=graph,
+        all_chunks=chunks,
+        question="How does archex turn benchmark and dogfood results into a regression gate?",
+        token_budget=1000,
+        vector_results=vector_results,
+        reranker=reranker,
+        rerank_candidate_limit=3,
+        adaptive_rerank_limit=True,
+        apply_intent_budget=False,
+        trace=trace,
+    )
+
+    rerank = next(step for step in trace.steps if step.name == "rerank")
+    assert reranker.seen_candidate_count == 3
+    assert rerank.metadata["candidate_limit_used"] == 3
+    assert rerank.metadata["candidate_limit_reason"] == "broad_multi_file_window"
+
+
+def test_assemble_context_adaptive_rerank_does_not_treat_fusion_skip_as_low_agreement() -> None:
+    graph = DependencyGraph()
+    a1 = make_chunk("a1", "alpha.py", token_count=10)
+    b1 = make_chunk("b1", "beta.py", token_count=10)
+    c1 = make_chunk("c1", "gamma.py", token_count=10)
+    chunks = [a1, b1, c1]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+    search_results = [(a1, 10.0), (b1, 2.0), (c1, 1.0)]
+    vector_results = [(a1, 9.0), (b1, 1.5), (c1, 0.8)]
+    reranker = RecordingReranker()
+    trace = PipelineTrace(operation="query")
+
+    bundle = assemble_context(
+        search_results=search_results,
+        graph=graph,
+        all_chunks=chunks,
+        question="How does archex implement the query pipeline?",
+        token_budget=1000,
+        vector_results=vector_results,
+        reranker=reranker,
+        rerank_candidate_limit=3,
+        adaptive_rerank_limit=True,
+        apply_intent_budget=False,
+        trace=trace,
+    )
+
+    rerank = next(step for step in trace.steps if step.name == "rerank")
+    assert bundle.retrieval_metadata.signal_agreement == 1.0
+    assert reranker.seen_candidate_count == 3
+    assert rerank.metadata["candidate_limit_reason"] != "low_agreement_high_lexical_concentration"
 
 
 def test_assemble_context_reranker_preserves_candidates_outside_rerank_window() -> None:

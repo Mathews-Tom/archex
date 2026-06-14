@@ -698,6 +698,8 @@ def benchmark_index_config(
         updates["rerank_model"] = options.rerank_model
     if index_config.rerank and options.rerank_candidate_limit is not None:
         updates["rerank_candidate_limit"] = options.rerank_candidate_limit
+    if index_config.rerank and options.adaptive_rerank_limit:
+        updates["adaptive_rerank_limit"] = True
     if not updates:
         return index_config
     return index_config.model_copy(update=updates)
