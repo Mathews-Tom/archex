@@ -24,6 +24,7 @@ from archex.models import (
     SymbolKind,
     Visibility,
 )
+from archex.pipeline.chunker import chunker_revision
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -640,6 +641,7 @@ def test_index_metadata_prevents_cross_chunker_cache_reuse(
     )
     try:
         assert default_store.get_metadata("chunker") == "default"
+        assert default_store.get_metadata("chunker_revision") == chunker_revision("default")
     finally:
         default_store.close()
 
