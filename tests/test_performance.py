@@ -8,6 +8,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from archex.cache import CacheManager
@@ -336,6 +337,7 @@ class TestQueryCacheSkipsParse:
         store.conn.execute("PRAGMA wal_checkpoint(FULL)")
         store.close()
 
+        repo_path = tmp_path / "repo"
         repo_path.mkdir()
         subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
 
