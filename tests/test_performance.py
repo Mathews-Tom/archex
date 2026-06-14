@@ -12,6 +12,7 @@ import pytest
 
 from archex.cache import CacheManager
 from archex.index.graph import DependencyGraph
+from archex.index.store import IndexStore
 from archex.models import CodeChunk, Config, DiscoveredFile, Edge, EdgeKind, RepoSource
 from archex.parse.adapters import ADAPTERS
 from archex.parse.engine import TreeSitterEngine
