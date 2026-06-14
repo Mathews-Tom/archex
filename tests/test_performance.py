@@ -14,7 +14,7 @@ import pytest
 from archex.cache import CacheManager
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
-from archex.models import CodeChunk, Config, DiscoveredFile, Edge, EdgeKind, RepoSource
+from archex.models import CodeChunk, Config, DiscoveredFile, Edge, EdgeKind, RepoSource, SymbolKind
 from archex.parse.adapters import ADAPTERS
 from archex.parse.engine import TreeSitterEngine
 from archex.parse.imports import parse_imports
@@ -360,6 +360,7 @@ class TestQueryCacheSkipsParse:
 
             query(source, "what?", config=config)
         parse_spy.assert_not_called()
+
     def test_query_invalidates_stale_cache(self, tmp_path: Path, python_simple_repo: Path) -> None:
         """Cache with needs_reindex flag is invalidated and falls through to full pipeline."""
         from archex.index.bm25 import BM25Index
