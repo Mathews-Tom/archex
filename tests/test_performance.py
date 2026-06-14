@@ -344,6 +344,7 @@ class TestQueryCacheSkipsParse:
         cache = CacheManager(cache_dir=str(cache_dir))
         source = RepoSource(local_path=str(repo_path))
         key = cache.cache_key(source)
+        cache.put(key, db_path)
 
         config = Config(cache=True, cache_dir=str(cache_dir))
         with (
