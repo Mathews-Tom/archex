@@ -416,11 +416,15 @@ class _ArchexFields:
         "expansion_reason_counts",
         "expanded_file_reasons",
         "chunker",
+        "bm25_chunker",
+        "vector_chunker",
         "index_chunk_count",
         "mean_chunk_tokens",
     )
 
     chunker: ChunkerName
+    bm25_chunker: ChunkerName | None
+    vector_chunker: ChunkerName | None
     index_chunk_count: int
     mean_chunk_tokens: float
 
@@ -446,10 +450,12 @@ class _ArchexFields:
         expansion_test_candidates_skipped: int,
         expansion_zero_candidate_reason: str,
         expansion_reason_counts: dict[str, int],
+        expanded_file_reasons: dict[str, list[str]],
         chunker: ChunkerName,
+        bm25_chunker: ChunkerName | None,
+        vector_chunker: ChunkerName | None,
         index_chunk_count: int,
         mean_chunk_tokens: float,
-        expanded_file_reasons: dict[str, list[str]],
     ) -> None:
         self.tokens_input = tokens_input
         self.tokens_output = tokens_output
@@ -470,10 +476,12 @@ class _ArchexFields:
         self.expansion_test_candidates_skipped = expansion_test_candidates_skipped
         self.expansion_zero_candidate_reason = expansion_zero_candidate_reason
         self.expansion_reason_counts = expansion_reason_counts
+        self.expanded_file_reasons = expanded_file_reasons
         self.chunker = chunker
+        self.bm25_chunker = bm25_chunker
+        self.vector_chunker = vector_chunker
         self.index_chunk_count = index_chunk_count
         self.mean_chunk_tokens = mean_chunk_tokens
-        self.expanded_file_reasons = expanded_file_reasons
 
 
 def _archex_fields(
@@ -497,6 +505,8 @@ def _archex_fields(
     # seed_files_found is the file boundary for graph expansion diagnostics.
     meta = bundle.retrieval_metadata
     chunker = meta.chunker
+    bm25_chunker = meta.bm25_chunker
+    vector_chunker = meta.vector_chunker
     index_chunk_count = meta.index_chunk_count
     mean_chunk_tokens = meta.mean_chunk_tokens
     if meta.seed_file_paths or meta.expanded_file_paths:
@@ -531,6 +541,8 @@ def _archex_fields(
                 path: list(reasons) for path, reasons in meta.expanded_file_reasons.items()
             },
             chunker=chunker,
+            bm25_chunker=bm25_chunker,
+            vector_chunker=vector_chunker,
             index_chunk_count=index_chunk_count,
             mean_chunk_tokens=mean_chunk_tokens,
         )
@@ -586,6 +598,8 @@ def _archex_fields(
             path: list(reasons) for path, reasons in meta.expanded_file_reasons.items()
         },
         chunker=chunker,
+        bm25_chunker=bm25_chunker,
+        vector_chunker=vector_chunker,
         index_chunk_count=index_chunk_count,
         mean_chunk_tokens=mean_chunk_tokens,
     )
@@ -608,6 +622,25 @@ _VECTOR_CHUNKER_STRATEGIES = frozenset(
         Strategy.CROSS_LAYER_FUSION,
     }
 )
+
+_DUAL_LEG_STRATEGIES = frozenset(
+    {
+        Strategy.ARCHEX_QUERY_FUSION,
+        Strategy.ARCHEX_QUERY_FUSION_RERANK,
+    }
+)
+
+
+def benchmark_dual_leg_enabled(
+    strategy: Strategy,
+    options: BenchmarkRetrievalOptions,
+) -> bool:
+    if strategy not in _DUAL_LEG_STRATEGIES or not options.dual_leg_orchestration or options.splade:
+        return False
+    return _chunker_for_strategy(Strategy.ARCHEX_QUERY, options) != _chunker_for_strategy(
+        strategy,
+        options,
+    )
 
 
 def _chunker_for_strategy(
@@ -1237,27 +1270,73 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
     )
 
 
-def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
-    """Full fusion strategy: BM25 + independent vector + confidence-aware RRF."""
-    from archex.api import query
+def _run_benchmark_fusion_query(
+    task: BenchmarkTask,
+    repo_path: Path,
+    *,
+    strategy: Strategy,
+    rerank: bool,
+    timing: PipelineTiming,
+):
+    from archex.api import query, query_dual_leg_benchmark
     from archex.models import Config
 
-    t0 = time.perf_counter()
-    timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY_FUSION)
+    options = current_benchmark_retrieval_options()
     config = Config(cache=True, languages=task.languages)
+    if benchmark_dual_leg_enabled(strategy, options):
+        bm25_source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY)
+        vector_source = benchmark_repo_source(task, repo_path, strategy=strategy)
+        bm25_index_config = benchmark_index_config(
+            IndexConfig(vector=False),
+            strategy=Strategy.ARCHEX_QUERY,
+        )
+        vector_index_config = benchmark_index_config(
+            IndexConfig(vector=True, rerank=rerank),
+            strategy=strategy,
+        )
+        return query_dual_leg_benchmark(
+            bm25_source=bm25_source,
+            vector_source=vector_source,
+            question=task.question,
+            token_budget=task.token_budget,
+            config=config,
+            bm25_index_config=bm25_index_config,
+            vector_index_config=vector_index_config,
+            timing=timing,
+        )
+    source = benchmark_repo_source(task, repo_path, strategy=strategy)
     index_config = benchmark_index_config(
-        IndexConfig(vector=True),
-        strategy=Strategy.ARCHEX_QUERY_FUSION,
+        IndexConfig(vector=True, rerank=rerank),
+        strategy=strategy,
     )
-
-    bundle = query(
+    return query(
         source,
         task.question,
         token_budget=task.token_budget,
         explicit_token_budget=True,
         config=config,
         index_config=index_config,
+        timing=timing,
+    )
+
+
+def _fusion_result_index_config(*, rerank: bool) -> IndexConfig:
+    strategy = Strategy.ARCHEX_QUERY_FUSION_RERANK if rerank else Strategy.ARCHEX_QUERY_FUSION
+    return benchmark_index_config(
+        IndexConfig(vector=True, rerank=rerank),
+        strategy=strategy,
+    )
+
+
+def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Full fusion strategy: BM25 + independent vector + confidence-aware RRF."""
+    t0 = time.perf_counter()
+    timing = PipelineTiming()
+    bundle = _run_benchmark_fusion_query(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_FUSION,
+        rerank=False,
         timing=timing,
     )
 
@@ -1316,36 +1395,26 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         expansion_reason_counts=af.expansion_reason_counts,
         expanded_file_reasons=af.expanded_file_reasons,
+        category=task.category,
+        vector_mode=_fusion_result_index_config(rerank=False).vector_mode,
+        cache_state=_cache_state(timing),
         chunker=af.chunker,
+        bm25_chunker=af.bm25_chunker,
+        vector_chunker=af.vector_chunker,
         index_chunk_count=af.index_chunk_count,
         mean_chunk_tokens=af.mean_chunk_tokens,
-        category=task.category,
-        vector_mode=index_config.vector_mode,
-        cache_state=_cache_state(timing),
     )
 
 
 def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Fusion strategy with cross-encoder reranking: BM25 + vector + rerank."""
-    from archex.api import query
-    from archex.models import Config
-
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK)
-    config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(
-        IndexConfig(vector=True, rerank=True),
+    bundle = _run_benchmark_fusion_query(
+        task,
+        repo_path,
         strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK,
-    )
-
-    bundle = query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        explicit_token_budget=True,
-        config=config,
-        index_config=index_config,
+        rerank=True,
         timing=timing,
     )
 
@@ -1397,12 +1466,14 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         expansion_reason_counts=af.expansion_reason_counts,
         expanded_file_reasons=af.expanded_file_reasons,
+        category=task.category,
+        vector_mode=_fusion_result_index_config(rerank=True).vector_mode,
+        cache_state=_cache_state(timing),
         chunker=af.chunker,
+        bm25_chunker=af.bm25_chunker,
+        vector_chunker=af.vector_chunker,
         index_chunk_count=af.index_chunk_count,
         mean_chunk_tokens=af.mean_chunk_tokens,
-        category=task.category,
-        vector_mode=index_config.vector_mode,
-        cache_state=_cache_state(timing),
     )
 
 

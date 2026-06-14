@@ -633,6 +633,8 @@ class RetrievalMetadata(BaseModel):
     refresh_files_changed: int = 0
     refresh_skipped_reason: str = ""
     chunker: ChunkerName = "default"
+    bm25_chunker: ChunkerName | None = None
+    vector_chunker: ChunkerName | None = None
     index_chunk_count: int = 0
     mean_chunk_tokens: float = 0.0
 

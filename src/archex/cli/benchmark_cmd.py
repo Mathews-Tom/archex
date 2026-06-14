@@ -174,6 +174,14 @@ def benchmark_cmd() -> None:
     help="Cap candidates scored by the cross-encoder reranker.",
 )
 @click.option(
+    "--dual-leg-orchestration/--no-dual-leg-orchestration",
+    default=False,
+    help=(
+        "Benchmark-only path: run BM25 on the BM25 chunker inventory and vector retrieval on "
+        "the vector chunker inventory inside one fusion query."
+    ),
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -202,6 +210,7 @@ def run_cmd(
     vector_chunker: ChunkerName | None,
     rerank_model: str | None,
     rerank_candidate_limit: int | None,
+    dual_leg_orchestration: bool,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -232,6 +241,7 @@ def run_cmd(
         bm25_chunker=bm25_chunker,
         vector_chunker=vector_chunker,
         rerank_candidate_limit=rerank_candidate_limit,
+        dual_leg_orchestration=dual_leg_orchestration,
     )
     warmed_models = warm_benchmark_models(strategies, retrieval_options)
     if warmed_models:
