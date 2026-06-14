@@ -62,6 +62,7 @@ from archex.index.store import IndexStore
 from archex.languages import UNKNOWN_LANGUAGE_ID
 from archex.models import (
     ArchProfile,
+    ChunkerName,
     ChunkSurrogate,
     CodeChunk,
     Config,
@@ -1200,6 +1201,72 @@ def _surrogate_lookup(
     return stored_by_id
 
 
+def _line_overlap_score(left: CodeChunk, right: CodeChunk) -> int:
+    start = max(left.start_line, right.start_line)
+    end = min(left.end_line, right.end_line)
+    return max(0, end - start + 1)
+
+
+def _project_chunk_to_corpus(
+    chunk: CodeChunk,
+    chunks_by_file: dict[str, list[CodeChunk]],
+) -> CodeChunk | None:
+    candidates = chunks_by_file.get(chunk.file_path, [])
+    if not candidates:
+        return None
+    if chunk.symbol_id is not None:
+        for candidate in candidates:
+            if candidate.symbol_id == chunk.symbol_id:
+                return candidate
+    if chunk.symbol_name is not None:
+        for candidate in candidates:
+            if candidate.symbol_name == chunk.symbol_name:
+                return candidate
+    return max(
+        candidates,
+        key=lambda candidate: (
+            _line_overlap_score(chunk, candidate),
+            -abs(candidate.start_line - chunk.start_line),
+            -candidate.token_count,
+        ),
+    )
+
+
+def _project_results_to_corpus(
+    results: list[tuple[CodeChunk, float]],
+    corpus_chunks: list[CodeChunk],
+) -> tuple[list[tuple[CodeChunk, float]], int]:
+    chunks_by_file: dict[str, list[CodeChunk]] = {}
+    for chunk in corpus_chunks:
+        chunks_by_file.setdefault(chunk.file_path, []).append(chunk)
+    projected_scores: dict[str, float] = {}
+    projected_chunks: dict[str, CodeChunk] = {}
+    order: list[str] = []
+    misses = 0
+    for chunk, score in results:
+        projected = _project_chunk_to_corpus(chunk, chunks_by_file)
+        if projected is None:
+            misses += 1
+            continue
+        if projected.id not in projected_scores:
+            order.append(projected.id)
+            projected_chunks[projected.id] = projected
+            projected_scores[projected.id] = score
+            continue
+        projected_scores[projected.id] = max(projected_scores[projected.id], score)
+    return [(projected_chunks[chunk_id], projected_scores[chunk_id]) for chunk_id in order], misses
+
+
+def _stored_corpus_stats(store: IndexStore) -> tuple[int, int]:
+    stored_tokens = store.get_metadata("repo_total_tokens")
+    total_repo_tokens = (
+        int(stored_tokens) if stored_tokens is not None else store.get_total_tokens()
+    )
+    stored_count = store.get_metadata("chunk_count")
+    chunk_count = int(stored_count) if stored_count is not None else len(store.get_chunks())
+    return chunk_count, total_repo_tokens
+
+
 def _compute_dynamic_budget(
     total_repo_tokens: int,
     user_budget: int,
@@ -1359,12 +1426,216 @@ def _attach_index_metadata(
     *,
     chunk_count: int,
     total_repo_tokens: int,
+    bm25_chunker: ChunkerName | None = None,
+    vector_chunker: ChunkerName | None = None,
 ) -> None:
     bundle.retrieval_metadata.chunker = index_config.chunker
+    bundle.retrieval_metadata.bm25_chunker = bm25_chunker or index_config.chunker
+    bundle.retrieval_metadata.vector_chunker = (
+        (vector_chunker or index_config.chunker) if index_config.vector else vector_chunker
+    )
     bundle.retrieval_metadata.index_chunk_count = chunk_count
     bundle.retrieval_metadata.mean_chunk_tokens = (
         total_repo_tokens / chunk_count if chunk_count else 0.0
     )
+
+
+def query_dual_leg_benchmark(
+    *,
+    bm25_source: RepoSource,
+    vector_source: RepoSource,
+    question: str,
+    token_budget: int,
+    config: Config,
+    bm25_index_config: IndexConfig,
+    vector_index_config: IndexConfig,
+    scoring_weights: ScoringWeights | None = None,
+    timing: PipelineTiming | None = None,
+    trace: PipelineTrace | None = None,
+) -> ContextBundle:
+    """Benchmark-only query path using separate BM25 and vector chunk inventories."""
+    if bm25_index_config.splade or vector_index_config.splade:
+        raise ArchexIndexError(
+            "dual-leg benchmark orchestration does not support SPLADE; rerun without --splade"
+        )
+    t0 = time.perf_counter()
+    if trace is not None:
+        trace.operation = "query"
+        trace.start_ns = time.perf_counter_ns()
+        trace.metadata["dual_leg_orchestration"] = True
+    bm25_store: IndexStore | None = None
+    vector_store: IndexStore | None = None
+    bm25_open_timing = PipelineTiming()
+    vector_open_timing = PipelineTiming()
+    try:
+        bm25_store = _ensure_index(
+            bm25_source,
+            config,
+            timing=bm25_open_timing,
+            index_config=bm25_index_config,
+        )
+        if bm25_source.stable_identity == vector_source.stable_identity:
+            vector_store = bm25_store
+            vector_open_timing.cached = bm25_open_timing.cached
+        else:
+            vector_store = _ensure_index(
+                vector_source,
+                config,
+                timing=vector_open_timing,
+                index_config=vector_index_config,
+            )
+        if timing is not None:
+            timing.cached = bm25_open_timing.cached and vector_open_timing.cached
+            timing.index_ms = bm25_open_timing.index_ms + vector_open_timing.index_ms
+        bm25_chunk_count, bm25_total_repo_tokens = _stored_corpus_stats(bm25_store)
+        effective_budget = _compute_dynamic_budget(
+            bm25_total_repo_tokens,
+            token_budget,
+            None,
+        )
+        bm25_chunks = bm25_store.get_chunks()
+        if effective_budget >= bm25_total_repo_tokens:
+            bundle = passthrough_context(bm25_chunks, question, effective_budget)
+            _attach_index_metadata(
+                bundle,
+                bm25_index_config,
+                chunk_count=bm25_chunk_count,
+                total_repo_tokens=bm25_total_repo_tokens,
+                bm25_chunker=bm25_index_config.chunker,
+                vector_chunker=vector_index_config.chunker,
+            )
+            bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
+            if timing is not None:
+                timing.strategy = "passthrough"
+                timing.total_ms = _elapsed_ms(t0)
+            if trace is not None:
+                trace.metadata["strategy"] = "passthrough"
+                trace.end_ns = time.perf_counter_ns()
+                trace.log_summary()
+            return bundle
+        bm25 = BM25Index(bm25_store)
+        graph = DependencyGraph.from_edges(bm25_store.get_edges())
+        if graph.file_edge_count == 0 and graph.file_count > 1:
+            graph.add_co_directory_edges()
+        modules = _modules_or_raise(bm25_store, bm25_index_config)
+        top_k = _compute_top_k(bm25_chunk_count)
+        vector_chunks = vector_store.get_chunks()
+        vector_chunk_count, _ = _stored_corpus_stats(vector_store)
+        vector_top_k = _compute_vector_top_k(
+            bm25_top_k=top_k,
+            total_chunks=vector_chunk_count,
+        )
+        search_start = time.perf_counter()
+        (
+            bm25_raw,
+            path_boost,
+            symbol_seeds,
+            module_boost,
+        ) = _bm25_search_with_boosts(
+            bm25,
+            bm25_store,
+            question,
+            top_k,
+            bm25_chunks,
+            modules,
+            bm25_index_config,
+        )
+        search_results = bm25_raw + path_boost + symbol_seeds + module_boost
+        vector_cache = _cache_manager_for_source(vector_source, config)
+        vector_cache_key = vector_cache.cache_key(vector_source)
+        vector_npz = vector_cache.vector_path(
+            vector_cache_key,
+            vector_mode=vector_index_config.vector_mode,
+            surrogate_version=vector_index_config.surrogate_version,
+        )
+        vector_results = _vector_search_precomputed(
+            vector_npz,
+            vector_chunks,
+            question,
+            vector_index_config,
+            vector_top_k,
+        )
+        if vector_results is None and vector_index_config.vector:
+            vector_results = _vector_search_in_memory(
+                question,
+                vector_chunks,
+                vector_index_config,
+                timing,
+                top_k=vector_top_k,
+                surrogates_by_chunk_id=_surrogate_lookup(
+                    vector_store,
+                    vector_chunks,
+                    vector_index_config,
+                ),
+            )
+        projected_vector_results, projection_misses = _project_results_to_corpus(
+            vector_results or [],
+            bm25_chunks,
+        )
+        if timing is not None:
+            timing.search_ms = _elapsed_ms(search_start)
+            timing.vector_used = bool(projected_vector_results)
+            timing.vector_build_ms = _elapsed_ms(search_start)
+        if trace is not None:
+            trace.add_step(
+                StepTiming(
+                    name="search",
+                    start_ns=int(search_start * 1_000_000_000),
+                    end_ns=time.perf_counter_ns(),
+                    metadata={
+                        "bm25_results": len(search_results),
+                        "path_boost": len(path_boost),
+                        "symbol_seeds": len(symbol_seeds),
+                        "module_boost": len(module_boost),
+                        "vector_results_raw": len(vector_results or []),
+                        "vector_results_projected": len(projected_vector_results),
+                        "vector_projection_misses": projection_misses,
+                        "top_k": top_k,
+                        "vector_top_k": vector_top_k,
+                    },
+                )
+            )
+        bundle = assemble_context(
+            search_results=search_results,
+            graph=graph,
+            all_chunks=bm25_chunks,
+            question=question,
+            token_budget=effective_budget,
+            vector_results=projected_vector_results,
+            scoring_weights=scoring_weights,
+            trace=trace,
+            avg_idf=bm25.avg_idf(question) if projected_vector_results else None,
+            reranker=_maybe_reranker(vector_index_config),
+            rerank_candidate_limit=vector_index_config.rerank_candidate_limit,
+            apply_intent_budget=False,
+        )
+        bundle.retrieval_metadata.vector_mode = vector_index_config.vector_mode
+        bundle.retrieval_metadata.surrogate_version = (
+            vector_index_config.surrogate_version
+            if vector_index_config.vector_mode == VectorMode.SURROGATE
+            else None
+        )
+        _attach_index_metadata(
+            bundle,
+            bm25_index_config,
+            chunk_count=bm25_chunk_count,
+            total_repo_tokens=bm25_total_repo_tokens,
+            bm25_chunker=bm25_index_config.chunker,
+            vector_chunker=vector_index_config.chunker,
+        )
+        if timing is not None:
+            timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
+            timing.total_ms = _elapsed_ms(t0)
+        bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
+        if trace is not None:
+            trace.end_ns = time.perf_counter_ns()
+            trace.log_summary()
+        return bundle
+    finally:
+        if bm25_store is not None:
+            bm25_store.close()
+        if vector_store is not None and vector_store is not bm25_store:
+            vector_store.close()
 
 
 def _query_by_scout_handles(

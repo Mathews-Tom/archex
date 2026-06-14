@@ -147,6 +147,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     bm25_chunker: ChunkerName | None = None
     vector_chunker: ChunkerName | None = None
     rerank_candidate_limit: int | None = None
+    dual_leg_orchestration: bool = False
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):
@@ -244,6 +245,8 @@ class BenchmarkResult(BaseModel):
     freshness_measured: bool = False
     freshness_correct: bool = False
     chunker: ChunkerName = "default"
+    bm25_chunker: ChunkerName | None = None
+    vector_chunker: ChunkerName | None = None
     index_chunk_count: int = 0
     mean_chunk_tokens: float = 0.0
 

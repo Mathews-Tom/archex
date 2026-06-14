@@ -19,6 +19,7 @@ from archex.benchmark.models import (
     Strategy,
 )
 from archex.benchmark.strategies import (
+    benchmark_dual_leg_enabled,
     benchmark_index_config,
     benchmark_repo_source,
     default_strategy_registry,
@@ -90,31 +91,53 @@ def _warm_repo_index(
     path line up; this warms VectorMode.RAW only (fusion, rerank, query_vector),
     not surrogate-mode strategies.
     """
-    from archex.api import query
+    from archex.api import query, query_dual_leg_benchmark
     from archex.models import Config, IndexConfig
 
     retrieval_options = retrieval_options or BenchmarkRetrievalOptions()
     warm_strategy = (
         Strategy.ARCHEX_QUERY_FUSION_RERANK if warm_rerank else Strategy.ARCHEX_QUERY_FUSION
     )
+    dual_leg = benchmark_dual_leg_enabled(warm_strategy, retrieval_options)
     token = set_benchmark_retrieval_options(retrieval_options)
     try:
-        source = benchmark_repo_source(task, repo_path, strategy=warm_strategy)
         config = Config(cache=True, languages=task.languages)
+        if dual_leg:
+            bm25_source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY)
+            vector_source = benchmark_repo_source(task, repo_path, strategy=warm_strategy)
+            bm25_index_config = benchmark_index_config(
+                IndexConfig(vector=False),
+                strategy=Strategy.ARCHEX_QUERY,
+            )
+            vector_index_config = benchmark_index_config(
+                IndexConfig(vector=True, rerank=warm_rerank),
+                strategy=warm_strategy,
+            )
+            query_dual_leg_benchmark(
+                bm25_source=bm25_source,
+                vector_source=vector_source,
+                question=task.question,
+                token_budget=task.token_budget,
+                config=config,
+                bm25_index_config=bm25_index_config,
+                vector_index_config=vector_index_config,
+            )
+            return
+        source = benchmark_repo_source(task, repo_path, strategy=warm_strategy)
         index_config = benchmark_index_config(
             IndexConfig(vector=True, rerank=warm_rerank),
             strategy=warm_strategy,
         )
+        query(
+            source,
+            task.question,
+            token_budget=task.token_budget,
+            explicit_token_budget=True,
+            config=config,
+            index_config=index_config,
+        )
     finally:
         reset_benchmark_retrieval_options(token)
-    query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        explicit_token_budget=True,
-        config=config,
-        index_config=index_config,
-    )
 
 
 def _run_git(
