@@ -904,6 +904,7 @@ def assemble_context(
     avg_idf: float | None = None,
     reranker: object | None = None,
     rerank_candidate_limit: int = 4,
+    preserved_files: set[str] | None = None,
     apply_intent_budget: bool = True,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
@@ -1489,6 +1490,8 @@ def assemble_context(
         if score < score_cutoff:
             break
         top_files.add(fp)
+    if preserved_files:
+        top_files.update(file_path for file_path in preserved_files if file_path in file_agg)
     ranked = [rc for rc in ranked if rc.chunk.file_path in top_files]
 
     # Pack at least one high-scoring chunk per selected file before spending

@@ -149,6 +149,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     rerank_candidate_limit: int | None = None
     dual_leg_orchestration: bool = False
     file_stage_orchestration: bool = False
+    direct_file_preservation: bool = False
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):

@@ -501,6 +501,25 @@ def test_file_tree_built_from_included_chunks() -> None:
     assert "b.py" in bundle.structural_context.file_tree
 
 
+def test_preserved_files_survive_file_cutoff() -> None:
+    graph = DependencyGraph()
+    primary = make_chunk("primary", "src/archex/project.py", token_count=10)
+    preserved = make_chunk("preserved", "src/archex/cli/main.py", token_count=10)
+    other = make_chunk("other", "src/archex/cache.py", token_count=10)
+    bundle = assemble_context(
+        [(primary, 10.0), (preserved, 0.1), (other, 0.09)],
+        graph,
+        [primary, preserved, other],
+        "How does the project init command work?",
+        token_budget=1000,
+        preserved_files={"src/archex/cli/main.py"},
+        apply_intent_budget=False,
+    )
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "src/archex/project.py" in included_files
+    assert "src/archex/cli/main.py" in included_files
+
+
 def test_empty_search_results_returns_empty_bundle() -> None:
     graph = DependencyGraph()
     bundle = assemble_context([], graph, [], "q", token_budget=1000)

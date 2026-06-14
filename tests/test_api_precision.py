@@ -121,7 +121,7 @@ class TestProjectResultsToCorpus:
         assert projected == [(corpus_chunks[0], 0.9)]
 
     def test_select_dual_leg_file_stage_prefers_semantic_code_over_support(self) -> None:
-        from archex.api import _select_dual_leg_file_stage  # pyright: ignore[reportPrivateUsage]
+        import archex.api as api_mod
 
         lexical = [
             (_chunk(file_path="src/archex/analyze/patterns.py", token_count=8), 9.0),
@@ -134,11 +134,60 @@ class TestProjectResultsToCorpus:
             (_chunk(file_path="src/archex/models.py", token_count=8), 7.0),
         ]
 
-        selected = _select_dual_leg_file_stage(lexical, semantic)
+        selected = api_mod.__dict__["_select_dual_leg_file_stage"](lexical, semantic)
 
         assert "src/archex/analyze/patterns.py" in selected
         assert "src/archex/models.py" in selected
         assert "tests/analyze/test_patterns.py" not in selected
+
+    def test_select_direct_preservation_files_keeps_cli_bridges(self) -> None:
+        import archex.api as api_mod
+
+        lexical = [
+            (_chunk(file_path="src/archex/project.py", token_count=8), 9.0),
+            (_chunk(file_path="src/archex/cli/query_cmd.py", token_count=8), 8.0),
+            (_chunk(file_path="src/archex/cache.py", token_count=8), 7.0),
+        ]
+        all_chunks = [
+            _chunk(file_path="src/archex/project.py", token_count=8),
+            _chunk(file_path="src/archex/cli/query_cmd.py", token_count=8),
+            _chunk(file_path="src/archex/cli/main.py", token_count=8),
+            _chunk(file_path="src/archex/config.py", token_count=8),
+        ]
+
+        selected = api_mod.__dict__["_select_direct_preservation_files"](
+            "How does archex query cache lifecycle work?",
+            lexical,
+            all_chunks,
+            {"src/archex/project.py", "src/archex/cli/query_cmd.py"},
+        )
+
+        assert "src/archex/cli/main.py" in selected
+        assert "src/archex/config.py" in selected
+
+    def test_select_direct_preservation_files_keeps_adapter_core(self) -> None:
+        import archex.api as api_mod
+
+        lexical = [
+            (_chunk(file_path="src/archex/parse/adapters/__init__.py", token_count=8), 9.0),
+        ]
+        all_chunks = [
+            _chunk(file_path="src/archex/parse/adapters/__init__.py", token_count=8),
+            _chunk(file_path="src/archex/parse/adapters/base.py", token_count=8),
+            _chunk(file_path="src/archex/parse/adapters/python.py", token_count=8),
+        ]
+
+        selected = api_mod.__dict__["_select_direct_preservation_files"](
+            "How does archex register language adapters?",
+            lexical,
+            all_chunks,
+            {"src/archex/parse/adapters/__init__.py"},
+        )
+
+        assert selected == {
+            "src/archex/parse/adapters/base.py",
+            "src/archex/parse/adapters/python.py",
+        }
 
     def test_dual_leg_query_uses_passthrough_when_budget_covers_corpus(self) -> None:
         from archex.api import query_dual_leg_benchmark
