@@ -659,6 +659,80 @@ class TestRunCommand:
             dual_leg_orchestration=True
         )
 
+    def test_run_passes_file_stage_orchestration_flag(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter, self_only, progress, tasks
+            captured["retrieval_options"] = retrieval_options
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "run",
+                "--dual-leg-orchestration",
+                "--file-stage-orchestration",
+                "--bm25-chunker",
+                "default",
+                "--vector-chunker",
+                "cast",
+            ],
+        )
+        assert result.exit_code == 0
+        assert captured["retrieval_options"] == BenchmarkRetrievalOptions(
+            bm25_chunker="default",
+            vector_chunker="cast",
+            dual_leg_orchestration=True,
+            file_stage_orchestration=True,
+        )
+
+    def test_run_rejects_file_stage_without_dual_leg(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        result = runner.invoke(benchmark_cmd, ["run", "--file-stage-orchestration"])
+        assert result.exit_code != 0
+        assert "--file-stage-orchestration requires --dual-leg-orchestration" in result.output
+
+    def test_run_rejects_file_stage_with_same_chunkers(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "run",
+                "--dual-leg-orchestration",
+                "--file-stage-orchestration",
+                "--bm25-chunker",
+                "default",
+                "--vector-chunker",
+                "default",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "requires different --bm25-chunker and --vector-chunker" in result.output
+
     def test_run_passes_rerank_model_flag(
         self,
         runner: CliRunner,

@@ -182,6 +182,14 @@ def benchmark_cmd() -> None:
     ),
 )
 @click.option(
+    "--file-stage-orchestration/--no-file-stage-orchestration",
+    default=False,
+    help=(
+        "Benchmark-only path: preselect file candidates from the BM25 and vector legs "
+        "before final chunk assembly."
+    ),
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -211,6 +219,7 @@ def run_cmd(
     rerank_model: str | None,
     rerank_candidate_limit: int | None,
     dual_leg_orchestration: bool,
+    file_stage_orchestration: bool,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -222,6 +231,14 @@ def run_cmd(
             strategies.append(strategy)
     if scout and Strategy.ARCHEX_SCOUT_FETCH not in strategies:
         strategies.append(Strategy.ARCHEX_SCOUT_FETCH)
+    resolved_bm25_chunker = bm25_chunker or chunker
+    resolved_vector_chunker = vector_chunker or chunker
+    if file_stage_orchestration and not dual_leg_orchestration:
+        raise click.UsageError("--file-stage-orchestration requires --dual-leg-orchestration")
+    if file_stage_orchestration and resolved_bm25_chunker == resolved_vector_chunker:
+        raise click.UsageError(
+            "--file-stage-orchestration requires different --bm25-chunker and --vector-chunker"
+        )
     if query_fusion and Strategy.ARCHEX_QUERY_FUSION not in strategies:
         strategies.append(Strategy.ARCHEX_QUERY_FUSION)
     if cross_layer_fusion and Strategy.CROSS_LAYER_FUSION not in strategies:
@@ -242,6 +259,7 @@ def run_cmd(
         vector_chunker=vector_chunker,
         rerank_candidate_limit=rerank_candidate_limit,
         dual_leg_orchestration=dual_leg_orchestration,
+        file_stage_orchestration=file_stage_orchestration,
     )
     warmed_models = warm_benchmark_models(strategies, retrieval_options)
     if warmed_models:

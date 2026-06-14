@@ -1303,6 +1303,7 @@ def _run_benchmark_fusion_query(
             bm25_index_config=bm25_index_config,
             vector_index_config=vector_index_config,
             timing=timing,
+            file_stage_orchestration=options.file_stage_orchestration,
         )
     source = benchmark_repo_source(task, repo_path, strategy=strategy)
     index_config = benchmark_index_config(

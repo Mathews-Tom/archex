@@ -120,6 +120,26 @@ class TestProjectResultsToCorpus:
         assert misses == 0
         assert projected == [(corpus_chunks[0], 0.9)]
 
+    def test_select_dual_leg_file_stage_prefers_semantic_code_over_support(self) -> None:
+        from archex.api import _select_dual_leg_file_stage  # pyright: ignore[reportPrivateUsage]
+
+        lexical = [
+            (_chunk(file_path="src/archex/analyze/patterns.py", token_count=8), 9.0),
+            (_chunk(file_path="src/archex/acquire/discovery.py", token_count=8), 1.0),
+            (_chunk(file_path="src/archex/analyze/modules.py", token_count=8), 1.0),
+        ]
+        semantic = [
+            (_chunk(file_path="src/archex/serve/intent.py", token_count=8), 8.0),
+            (_chunk(file_path="tests/analyze/test_patterns.py", token_count=8), 7.5),
+            (_chunk(file_path="src/archex/models.py", token_count=8), 7.0),
+        ]
+
+        selected = _select_dual_leg_file_stage(lexical, semantic)
+
+        assert "src/archex/analyze/patterns.py" in selected
+        assert "src/archex/models.py" in selected
+        assert "tests/analyze/test_patterns.py" not in selected
+
     def test_dual_leg_query_uses_passthrough_when_budget_covers_corpus(self) -> None:
         from archex.api import query_dual_leg_benchmark
         from archex.models import Config, IndexConfig, RepoSource
