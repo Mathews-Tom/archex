@@ -1141,6 +1141,28 @@ def test_assemble_context_honors_reranker_default_top_k() -> None:
     assert reranker.seen_top_k == DEFAULT_TOP_K
 
 
+def test_assemble_context_honors_custom_rerank_candidate_limit() -> None:
+    graph = DependencyGraph()
+    chunks = [make_chunk(f"c{i}", f"f{i}.py", token_count=10) for i in range(DEFAULT_TOP_K + 5)]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+    search_results = [(chunk, float(DEFAULT_TOP_K + 5 - i)) for i, chunk in enumerate(chunks)]
+    reranker = RecordingReranker()
+
+    assemble_context(
+        search_results=search_results,
+        graph=graph,
+        all_chunks=chunks,
+        question="query",
+        token_budget=1000,
+        reranker=reranker,
+        rerank_candidate_limit=3,
+    )
+
+    assert reranker.seen_candidate_count == 3
+    assert reranker.seen_top_k == DEFAULT_TOP_K
+
+
 def test_assemble_context_reranker_preserves_candidates_outside_rerank_window() -> None:
     graph = DependencyGraph()
     distractors = [

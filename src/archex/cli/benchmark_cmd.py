@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
@@ -51,6 +52,7 @@ from archex.benchmark.readiness import (
 )
 from archex.benchmark.reporter import (
     format_bucketed_summary,
+    format_chunker_frontier_table,
     format_delta_summary,
     format_json,
     format_markdown,
@@ -64,6 +66,9 @@ from archex.benchmark.triage import (
     load_benchmark_tasks,
     triage_failures,
 )
+
+if TYPE_CHECKING:
+    from archex.models import ChunkerName
 
 DEFAULT_BENCHMARK_RESULTS_DIR = ".archex/benchmark-results"
 DEFAULT_DELTA_RESULTS_DIR = ".archex/delta-results"
@@ -139,9 +144,34 @@ def benchmark_cmd() -> None:
     help="Embedder to pin across every vector-backed benchmark strategy.",
 )
 @click.option(
+    "--chunker",
+    default="default",
+    show_default=True,
+    type=click.Choice(["default", "cast"]),
+    help="Chunker to pin across every archex benchmark strategy.",
+)
+@click.option(
+    "--bm25-chunker",
+    default=None,
+    type=click.Choice(["default", "cast"]),
+    help="Override chunker for BM25-backed strategies only.",
+)
+@click.option(
+    "--vector-chunker",
+    default=None,
+    type=click.Choice(["default", "cast"]),
+    help="Override chunker for vector-backed strategies only.",
+)
+@click.option(
     "--rerank-model",
     default=None,
     help="Cross-encoder model to use for the fusion+rerank benchmark strategy.",
+)
+@click.option(
+    "--rerank-candidate-limit",
+    default=None,
+    type=int,
+    help="Cap candidates scored by the cross-encoder reranker.",
 )
 @click.option(
     "--self-only",
@@ -167,7 +197,11 @@ def run_cmd(
     splade: bool,
     module_prefilter: bool,
     embedder: str,
+    chunker: ChunkerName,
+    bm25_chunker: ChunkerName | None,
+    vector_chunker: ChunkerName | None,
     rerank_model: str | None,
+    rerank_candidate_limit: int | None,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -194,6 +228,10 @@ def run_cmd(
         module_prefilter=module_prefilter,
         embedder=embedder,
         rerank_model=rerank_model,
+        chunker=chunker,
+        bm25_chunker=bm25_chunker,
+        vector_chunker=vector_chunker,
+        rerank_candidate_limit=rerank_candidate_limit,
     )
     warmed_models = warm_benchmark_models(strategies, retrieval_options)
     if warmed_models:
@@ -588,6 +626,7 @@ def gate_cmd(
             baseline_reports.append(BenchmarkReport.model_validate(data))
         if not baseline_reports:
             raise click.ClickException(f"No baseline result files found in {baseline_dir}")
+        click.echo(format_chunker_frontier_table(reports, baseline_reports))
 
         recall_regressions = check_recall_regressions(reports, baseline_reports, thresholds)
         if advisory_warnings:

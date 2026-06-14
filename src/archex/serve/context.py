@@ -903,6 +903,7 @@ def assemble_context(
     expansion_min_override: float | None = None,
     avg_idf: float | None = None,
     reranker: object | None = None,
+    rerank_candidate_limit: int = 4,
     apply_intent_budget: bool = True,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
@@ -1335,18 +1336,14 @@ def assemble_context(
     # complete candidate pool for file-level aggregation and only update scores
     # for the bounded window sent through the expensive cross-encoder.
     if reranker is not None:
-        from archex.index.rerank import (
-            DEFAULT_TOP_K,
-            RERANK_CANDIDATE_LIMIT,
-            CrossEncoderReranker,
-        )
+        from archex.index.rerank import DEFAULT_TOP_K, CrossEncoderReranker
 
         if isinstance(reranker, CrossEncoderReranker):
             rerank_start = time.perf_counter_ns()
             candidate_list = [
                 (chunk, bm25_by_id.get(chunk.id, 0.0)) for chunk in candidate_map.values()
             ]
-            candidates_for_rerank = candidate_list[:RERANK_CANDIDATE_LIMIT]
+            candidates_for_rerank = candidate_list[:rerank_candidate_limit]
             reranked = reranker.rerank(question, candidates_for_rerank, top_k=DEFAULT_TOP_K)
             for chunk_id, rerank_score in _normalized_rerank_scores(reranked).items():
                 bm25_by_id[chunk_id] = max(bm25_by_id.get(chunk_id, 0.0), rerank_score)

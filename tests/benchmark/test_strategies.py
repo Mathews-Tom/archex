@@ -11,6 +11,7 @@ from archex.benchmark.models import BenchmarkRetrievalOptions, BenchmarkTask, St
 from archex.benchmark.strategies import (
     _archex_fields,  # pyright: ignore[reportPrivateUsage]
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
+    benchmark_index_config,
     benchmark_repo_source,
     compute_bundle_completion_penalty,
     compute_map,
@@ -388,8 +389,12 @@ class TestRunArchexQuery:
         source_a = benchmark_repo_source(sample_task, repo_a)
         source_b = benchmark_repo_source(sample_task, repo_b)
 
-        assert source_a.stable_identity == f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}"
-        assert source_b.stable_identity == f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}"
+        assert source_a.stable_identity == (
+            f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}+chunker=default"
+        )
+        assert source_b.stable_identity == (
+            f"test/repo@abc#embedder={JINA_V2_CACHE_IDENTITY}+chunker=default"
+        )
         assert cache.cache_key(source_a) == cache.cache_key(source_b)
 
     def test_benchmark_source_resolves_missing_commit_from_git_head(
@@ -407,7 +412,9 @@ class TestRunArchexQuery:
         with patch.object(CacheManager, "git_head", return_value="resolved"):
             source = benchmark_repo_source(task, tmp_path)
 
-        assert source.stable_identity == (f"test/repo@resolved#embedder={JINA_V2_CACHE_IDENTITY}")
+        assert source.stable_identity == (
+            f"test/repo@resolved#embedder={JINA_V2_CACHE_IDENTITY}+chunker=default"
+        )
 
     def test_benchmark_source_rejects_missing_commit_without_git_head(
         self,
@@ -445,6 +452,82 @@ class TestRunArchexQuery:
         assert result.tokens_input >= 0
         assert result.tokens_output >= 0
         assert result.tokens_raw_baseline >= 0
+
+    def test_archex_query_reports_configured_chunker_metadata(
+        self,
+        python_simple_repo: Path,
+    ) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=4096,
+        )
+
+        token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(bm25_chunker="cast"))
+        try:
+            result = run_archex_query(task, python_simple_repo)
+        finally:
+            reset_benchmark_retrieval_options(token)
+
+        assert result.chunker == "cast"
+        assert result.index_chunk_count > 0
+        assert result.mean_chunk_tokens > 0.0
+
+    def test_strategy_specific_chunkers_split_cache_identity(
+        self,
+        sample_task: BenchmarkTask,
+        tmp_path: Path,
+    ) -> None:
+        token = set_benchmark_retrieval_options(
+            BenchmarkRetrievalOptions(bm25_chunker="default", vector_chunker="cast")
+        )
+        try:
+            bm25_source = benchmark_repo_source(
+                sample_task,
+                tmp_path,
+                strategy=Strategy.ARCHEX_QUERY,
+            )
+            vector_source = benchmark_repo_source(
+                sample_task,
+                tmp_path,
+                strategy=Strategy.ARCHEX_QUERY_FUSION,
+            )
+        finally:
+            reset_benchmark_retrieval_options(token)
+
+        assert bm25_source.stable_identity is not None
+        assert vector_source.stable_identity is not None
+        assert bm25_source.stable_identity.endswith("chunker=default")
+        assert vector_source.stable_identity.endswith("chunker=cast")
+
+    def test_benchmark_index_config_uses_strategy_chunker_and_rerank_limit(self) -> None:
+        from archex.models import IndexConfig
+
+        token = set_benchmark_retrieval_options(
+            BenchmarkRetrievalOptions(
+                bm25_chunker="default",
+                vector_chunker="cast",
+                rerank_candidate_limit=3,
+            )
+        )
+        try:
+            bm25_config = benchmark_index_config(
+                IndexConfig(vector=False),
+                strategy=Strategy.ARCHEX_QUERY,
+            )
+            rerank_config = benchmark_index_config(
+                IndexConfig(vector=True, rerank=True),
+                strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK,
+            )
+        finally:
+            reset_benchmark_retrieval_options(token)
+
+        assert bm25_config.chunker == "default"
+        assert rerank_config.chunker == "cast"
+        assert rerank_config.rerank_candidate_limit == 3
 
     def test_archex_scout_fetch_strategy(self, python_simple_repo: Path) -> None:
         from archex.scout import ScoutBudget, ScoutFetchPlan, ScoutFile, ScoutResult, symbol_handle

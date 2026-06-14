@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13,11 +14,12 @@ import pytest
 from archex.cache import CacheManager
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
-from archex.models import CodeChunk, Config, DiscoveredFile, Edge, EdgeKind, RepoSource
+from archex.models import CodeChunk, Config, DiscoveredFile, Edge, EdgeKind, RepoSource, SymbolKind
 from archex.parse.adapters import ADAPTERS
 from archex.parse.engine import TreeSitterEngine
 from archex.parse.imports import parse_imports
 from archex.parse.symbols import extract_symbols, extract_symbols_and_imports
+from archex.pipeline.chunker import chunker_revision
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -313,6 +315,53 @@ class TestVectorPath:
 
 
 class TestQueryCacheSkipsParse:
+    def test_parse_not_called_on_cache_hit(self, tmp_path: Path) -> None:
+        from archex.index.bm25 import BM25Index
+
+        db_path = tmp_path / "idx.db"
+        store = IndexStore(db_path)
+        chunk = CodeChunk(
+            id="t.py:f:1",
+            symbol_id="t.py::f#function",
+            content="def f(): pass",
+            file_path="t.py",
+            start_line=1,
+            end_line=1,
+            language="python",
+            symbol_name="f",
+            symbol_kind=SymbolKind.FUNCTION,
+        )
+        store.insert_chunks([chunk])
+        store.insert_edges([Edge(source="t.py", target="u.py", kind=EdgeKind.IMPORTS)])
+        bm25 = BM25Index(store)
+        bm25.build([chunk])
+        store.set_metadata("chunker", "default")
+        store.set_metadata("chunker_revision", chunker_revision("default"))
+        store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+        store.close()
+
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        cache = CacheManager(cache_dir=str(cache_dir))
+        source = RepoSource(local_path=str(repo_path))
+        key = cache.cache_key(source)
+        cache.put(key, db_path)
+
+        config = Config(cache=True, cache_dir=str(cache_dir))
+        with (
+            patch("archex.api.extract_symbols_and_imports") as parse_spy,
+            patch("archex.cache.CacheManager.git_head", return_value=None),
+        ):
+            from archex.api import query
+
+            query(source, "what?", config=config)
+        parse_spy.assert_called_once()
+        assert parse_spy.call_args.args[0] == []
+
     def test_query_invalidates_stale_cache(self, tmp_path: Path, python_simple_repo: Path) -> None:
         """Cache with needs_reindex flag is invalidated and falls through to full pipeline."""
         from archex.index.bm25 import BM25Index

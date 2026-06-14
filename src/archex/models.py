@@ -162,6 +162,7 @@ class IndexConfig(BaseModel):
     retrieval_policy: RetrievalPolicy = RetrievalPolicy.AUTO
     rerank: bool = False
     rerank_model: str | None = None
+    rerank_candidate_limit: int = 4
     chunker: ChunkerName = "default"
     chunk_max_tokens: int = 500
     chunk_min_tokens: int = 50
@@ -181,6 +182,8 @@ class IndexConfig(BaseModel):
             raise ValueError("chunk_min_tokens must be <= chunk_max_tokens")
         if not self.surrogate_version.strip():
             raise ValueError("surrogate_version must not be empty")
+        if self.rerank_candidate_limit < 1:
+            raise ValueError("rerank_candidate_limit must be at least 1")
         return self
 
 
@@ -629,6 +632,9 @@ class RetrievalMetadata(BaseModel):
     refresh_time_ms: float = 0.0
     refresh_files_changed: int = 0
     refresh_skipped_reason: str = ""
+    chunker: ChunkerName = "default"
+    index_chunk_count: int = 0
+    mean_chunk_tokens: float = 0.0
 
 
 class ContextBundle(BaseModel):

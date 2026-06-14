@@ -82,3 +82,40 @@ uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmark
 uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
 uv run archex benchmark gate --input .archex/e2e-jina --baseline .archex/e2e-tier2 --warn-latency-ms 3000
 ```
+
+## C6 chunking and retrieval experiment archive
+
+### 2026-06-15 — stack disposition after C6 validation
+
+Stable benchmark spine:
+
+- `feat/cast-chunker` / PR `#212`
+- `feat/chunker-benchmark-arm` / PR `#213`
+
+Archived benchmark-only experiment branches:
+
+| Branch / PR | Experiment | Result |
+| --- | --- | --- |
+| `feat/adaptive-rerank-benchmark-policy` / `#214` | adaptive rerank candidate limit | Safe benchmark knob. No recall recovery. |
+| `feat/adaptive-fusion-benchmark-policy` / `#215` | adaptive fusion policy | No targeted recall win. Latency regressed. |
+| `feat/dual-leg-benchmark-orchestration` / `#216` | BM25 default + vector cast dual-leg retrieval | Efficiency improved. Recall did not. |
+| `feat/file-first-benchmark-ranking` / `#217` | file-first ranking contract | No recall recovery. |
+| `feat/file-stage-benchmark-orchestration` / `#218` | file-stage orchestration | Strong targeted wins. Broader frontier regressed. |
+| `feat/expansion-controls-benchmark-policy` / `#219` | strict expansion controls | Helped `fastapi_dependency_injection`. Did not fix the main self-repo failures. |
+| `feat/direct-file-preservation-benchmark-policy` / `#220` | direct file preservation | Best targeted recovery so far. Still lost to the stable spine. |
+| `feat/delta-vector-cache-preservation-policy` / `#221` | delta/vector-cache preservation | Beat its parent branch. Not enough to beat the stable spine after consolidation. |
+| `feat/retrieval-policy-consolidation` / `#222` | consolidated retrieval policy line | Improved recall and token efficiency. Failed the stable-spine gate on F1 and latency. |
+
+Final disposition:
+
+- Merge only the durable infrastructure line: `#212` then `#213`.
+- Keep `archex_query` as the product default.
+- Keep the current chunker default unchanged.
+- Close or park `#214` through `#222` as archived benchmark evidence.
+
+Future work starts from the stable benchmark spine, not the draft ladder. The next narrow investigation set is:
+
+- `archex_project_index`
+- `archex_project_init`
+- `express_error_handling`
+- `fastapi_dependency_injection` rerank

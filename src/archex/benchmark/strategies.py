@@ -23,7 +23,7 @@ from archex.benchmark.models import (
 )
 from archex.cache import CacheManager
 from archex.exceptions import ArchexError, ConfigError
-from archex.models import IndexConfig, PipelineTiming, RepoSource
+from archex.models import ChunkerName, IndexConfig, PipelineTiming, RepoSource
 from archex.reporting import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -415,7 +415,14 @@ class _ArchexFields:
         "expansion_zero_candidate_reason",
         "expansion_reason_counts",
         "expanded_file_reasons",
+        "chunker",
+        "index_chunk_count",
+        "mean_chunk_tokens",
     )
+
+    chunker: ChunkerName
+    index_chunk_count: int
+    mean_chunk_tokens: float
 
     def __init__(
         self,
@@ -439,6 +446,9 @@ class _ArchexFields:
         expansion_test_candidates_skipped: int,
         expansion_zero_candidate_reason: str,
         expansion_reason_counts: dict[str, int],
+        chunker: ChunkerName,
+        index_chunk_count: int,
+        mean_chunk_tokens: float,
         expanded_file_reasons: dict[str, list[str]],
     ) -> None:
         self.tokens_input = tokens_input
@@ -460,6 +470,9 @@ class _ArchexFields:
         self.expansion_test_candidates_skipped = expansion_test_candidates_skipped
         self.expansion_zero_candidate_reason = expansion_zero_candidate_reason
         self.expansion_reason_counts = expansion_reason_counts
+        self.chunker = chunker
+        self.index_chunk_count = index_chunk_count
+        self.mean_chunk_tokens = mean_chunk_tokens
         self.expanded_file_reasons = expanded_file_reasons
 
 
@@ -483,6 +496,9 @@ def _archex_fields(
     # Seed vs expansion: candidates_found is a chunk count, while
     # seed_files_found is the file boundary for graph expansion diagnostics.
     meta = bundle.retrieval_metadata
+    chunker = meta.chunker
+    index_chunk_count = meta.index_chunk_count
+    mean_chunk_tokens = meta.mean_chunk_tokens
     if meta.seed_file_paths or meta.expanded_file_paths:
         seed_files = list(meta.seed_file_paths)
         expanded_files = list(meta.expanded_file_paths)
@@ -514,6 +530,9 @@ def _archex_fields(
             expanded_file_reasons={
                 path: list(reasons) for path, reasons in meta.expanded_file_reasons.items()
             },
+            chunker=chunker,
+            index_chunk_count=index_chunk_count,
+            mean_chunk_tokens=mean_chunk_tokens,
         )
 
     seed_file_count = meta.seed_files_found
@@ -566,6 +585,9 @@ def _archex_fields(
         expanded_file_reasons={
             path: list(reasons) for path, reasons in meta.expanded_file_reasons.items()
         },
+        chunker=chunker,
+        index_chunk_count=index_chunk_count,
+        mean_chunk_tokens=mean_chunk_tokens,
     )
 
 
@@ -575,6 +597,26 @@ def _cache_state(timing: PipelineTiming) -> str:
 
 def current_benchmark_retrieval_options() -> BenchmarkRetrievalOptions:
     return _BENCHMARK_RETRIEVAL_OPTIONS.get() or BenchmarkRetrievalOptions()
+
+
+_VECTOR_CHUNKER_STRATEGIES = frozenset(
+    {
+        Strategy.ARCHEX_QUERY_VECTOR,
+        Strategy.SURROGATE_VECTOR,
+        Strategy.ARCHEX_QUERY_FUSION,
+        Strategy.ARCHEX_QUERY_FUSION_RERANK,
+        Strategy.CROSS_LAYER_FUSION,
+    }
+)
+
+
+def _chunker_for_strategy(
+    strategy: Strategy,
+    options: BenchmarkRetrievalOptions,
+) -> ChunkerName:
+    if strategy in _VECTOR_CHUNKER_STRATEGIES:
+        return options.vector_chunker or options.chunker
+    return options.bm25_chunker or options.chunker
 
 
 def set_benchmark_retrieval_options(
@@ -603,8 +645,22 @@ def _embedder_cache_identity(embedder: str) -> str:
     )
 
 
-def _retrieval_cache_suffix(options: BenchmarkRetrievalOptions) -> str:
+def _retrieval_cache_suffix(
+    options: BenchmarkRetrievalOptions,
+    *,
+    strategy: Strategy | None = None,
+) -> str:
     enabled: list[str] = [f"embedder={_embedder_cache_identity(options.embedder)}"]
+    if strategy is None:
+        bm25_chunker = _chunker_for_strategy(Strategy.ARCHEX_QUERY, options)
+        vector_chunker = _chunker_for_strategy(Strategy.ARCHEX_QUERY_FUSION, options)
+        if bm25_chunker == vector_chunker:
+            enabled.append(f"chunker={bm25_chunker}")
+        else:
+            enabled.append(f"bm25-chunker={bm25_chunker}")
+            enabled.append(f"vector-chunker={vector_chunker}")
+    else:
+        enabled.append(f"chunker={_chunker_for_strategy(strategy, options)}")
     if options.splade:
         enabled.append("splade")
     if options.module_prefilter:
@@ -618,9 +674,20 @@ def _corpus_cache_suffix(task: BenchmarkTask) -> str:
     return "scope=" + "|".join(sorted(task.include_paths))
 
 
-def benchmark_index_config(index_config: IndexConfig) -> IndexConfig:
+def benchmark_index_config(
+    index_config: IndexConfig,
+    *,
+    strategy: Strategy | None = None,
+) -> IndexConfig:
     options = current_benchmark_retrieval_options()
-    updates: dict[str, bool | str] = {}
+    strategy_chunker = (
+        _chunker_for_strategy(strategy, options)
+        if strategy is not None
+        else (options.vector_chunker or options.chunker)
+        if index_config.vector
+        else (options.bm25_chunker or options.chunker)
+    )
+    updates: dict[str, bool | str | int] = {"chunker": strategy_chunker}
     if index_config.vector:
         updates["embedder"] = options.embedder
     if options.splade:
@@ -629,6 +696,8 @@ def benchmark_index_config(index_config: IndexConfig) -> IndexConfig:
         updates["module_prefilter"] = True
     if index_config.rerank and options.rerank_model is not None:
         updates["rerank_model"] = options.rerank_model
+    if index_config.rerank and options.rerank_candidate_limit is not None:
+        updates["rerank_candidate_limit"] = options.rerank_candidate_limit
     if not updates:
         return index_config
     return index_config.model_copy(update=updates)
@@ -639,7 +708,11 @@ def benchmark_cache_enabled(default: bool) -> bool:
     return default or options.splade or options.module_prefilter
 
 
-def benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
+def benchmark_repo_source(
+    task: BenchmarkTask,
+    repo_path: Path,
+    strategy: Strategy | None = None,
+) -> RepoSource:
     commit = task.commit or CacheManager.git_head(str(repo_path))
     if not commit:
         raise ConfigError(
@@ -650,7 +723,10 @@ def benchmark_repo_source(task: BenchmarkTask, repo_path: Path) -> RepoSource:
         suffix
         for suffix in (
             _corpus_cache_suffix(task),
-            _retrieval_cache_suffix(current_benchmark_retrieval_options()),
+            _retrieval_cache_suffix(
+                current_benchmark_retrieval_options(),
+                strategy=strategy,
+            ),
         )
         if suffix
     ]
@@ -702,8 +778,11 @@ def measure_archex_freshness(task: BenchmarkTask, repo_path: Path) -> tuple[floa
         if edit_target is None:
             return (0.0, False)
 
-        source = benchmark_repo_source(task, target)
-        index_config = benchmark_index_config(IndexConfig(vector=False))
+        source = benchmark_repo_source(task, target, strategy=Strategy.ARCHEX_QUERY)
+        index_config = benchmark_index_config(
+            IndexConfig(vector=False),
+            strategy=Strategy.ARCHEX_QUERY,
+        )
         config = Config(cache=True, languages=task.languages, cache_dir=str(workdir / "cache"))
         query(source, _FRESHNESS_MARKER, config=config, index_config=index_config)
         with edit_target.open("a", encoding="utf-8") as handle:
@@ -731,12 +810,15 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY)
     config = Config(
         cache=benchmark_cache_enabled(default=False),
         languages=task.languages,
     )
-    index_config = benchmark_index_config(IndexConfig(vector=False))
+    index_config = benchmark_index_config(
+        IndexConfig(vector=False),
+        strategy=Strategy.ARCHEX_QUERY,
+    )
 
     bundle = query(
         source,
@@ -810,6 +892,9 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         expansion_reason_counts=af.expansion_reason_counts,
         expanded_file_reasons=af.expanded_file_reasons,
+        chunker=af.chunker,
+        index_chunk_count=af.index_chunk_count,
+        mean_chunk_tokens=af.mean_chunk_tokens,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -827,12 +912,15 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_SCOUT_FETCH)
     config = Config(
         cache=benchmark_cache_enabled(default=False),
         languages=task.languages,
     )
-    index_config = benchmark_index_config(IndexConfig(vector=False))
+    index_config = benchmark_index_config(
+        IndexConfig(vector=False),
+        strategy=Strategy.ARCHEX_SCOUT_FETCH,
+    )
 
     scout_result, direct_bundle = scout_with_bundle(
         source,
@@ -939,6 +1027,9 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         expansion_ratio=0.0,
         seed_recall=compute_recall(set(scout_ranked_files), task.expected_files),
         seed_precision=compute_precision(set(scout_ranked_files), task.expected_files),
+        chunker=fetch_fields.chunker,
+        index_chunk_count=fetch_fields.index_chunk_count,
+        mean_chunk_tokens=fetch_fields.mean_chunk_tokens,
         category=task.category,
         cache_state=_cache_state(timing),
         provenance={
@@ -977,9 +1068,12 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY_VECTOR)
     config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(IndexConfig(bm25=False, vector=True))
+    index_config = benchmark_index_config(
+        IndexConfig(bm25=False, vector=True),
+        strategy=Strategy.ARCHEX_QUERY_VECTOR,
+    )
 
     bundle = query(
         source,
@@ -1046,6 +1140,9 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         expansion_reason_counts=af.expansion_reason_counts,
         expanded_file_reasons=af.expanded_file_reasons,
+        chunker=af.chunker,
+        index_chunk_count=af.index_chunk_count,
+        mean_chunk_tokens=af.mean_chunk_tokens,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -1059,7 +1156,7 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path, strategy=Strategy.SURROGATE_VECTOR)
     config = Config(cache=True, languages=task.languages)
     index_config = benchmark_index_config(
         IndexConfig(
@@ -1068,7 +1165,8 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
             embedder=current_benchmark_retrieval_options().embedder,
             vector_mode=VectorMode.SURROGATE,
             retrieval_policy=RetrievalPolicy.VECTOR_ONLY,
-        )
+        ),
+        strategy=Strategy.SURROGATE_VECTOR,
     )
 
     bundle = query(
@@ -1129,6 +1227,9 @@ def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         expansion_reason_counts=af.expansion_reason_counts,
         expanded_file_reasons=af.expanded_file_reasons,
+        chunker=af.chunker,
+        index_chunk_count=af.index_chunk_count,
+        mean_chunk_tokens=af.mean_chunk_tokens,
         category=task.category,
         vector_mode=index_config.vector_mode,
         surrogate_version=index_config.surrogate_version,
@@ -1143,9 +1244,12 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY_FUSION)
     config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(IndexConfig(vector=True))
+    index_config = benchmark_index_config(
+        IndexConfig(vector=True),
+        strategy=Strategy.ARCHEX_QUERY_FUSION,
+    )
 
     bundle = query(
         source,
@@ -1212,6 +1316,9 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         expansion_reason_counts=af.expansion_reason_counts,
         expanded_file_reasons=af.expanded_file_reasons,
+        chunker=af.chunker,
+        index_chunk_count=af.index_chunk_count,
+        mean_chunk_tokens=af.mean_chunk_tokens,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -1225,9 +1332,12 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK)
     config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(IndexConfig(vector=True, rerank=True))
+    index_config = benchmark_index_config(
+        IndexConfig(vector=True, rerank=True),
+        strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK,
+    )
 
     bundle = query(
         source,
@@ -1287,6 +1397,9 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         expansion_reason_counts=af.expansion_reason_counts,
         expanded_file_reasons=af.expanded_file_reasons,
+        chunker=af.chunker,
+        index_chunk_count=af.index_chunk_count,
+        mean_chunk_tokens=af.mean_chunk_tokens,
         category=task.category,
         vector_mode=index_config.vector_mode,
         cache_state=_cache_state(timing),
@@ -1300,7 +1413,7 @@ def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path)
+    source = benchmark_repo_source(task, repo_path, strategy=Strategy.CROSS_LAYER_FUSION)
     config = Config(cache=True, languages=task.languages)
     index_config = benchmark_index_config(
         IndexConfig(
@@ -1308,7 +1421,8 @@ def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
             embedder=current_benchmark_retrieval_options().embedder,
             vector_mode=VectorMode.SURROGATE,
             retrieval_policy=RetrievalPolicy.CROSS_LAYER,
-        )
+        ),
+        strategy=Strategy.CROSS_LAYER_FUSION,
     )
 
     bundle = query(
@@ -1369,6 +1483,9 @@ def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
         expansion_reason_counts=af.expansion_reason_counts,
         expanded_file_reasons=af.expanded_file_reasons,
+        chunker=af.chunker,
+        index_chunk_count=af.index_chunk_count,
+        mean_chunk_tokens=af.mean_chunk_tokens,
         category=task.category,
         vector_mode=index_config.vector_mode,
         surrogate_version=index_config.surrogate_version,
