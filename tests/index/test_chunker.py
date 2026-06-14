@@ -657,8 +657,6 @@ def test_index_metadata_prevents_cross_chunker_cache_reuse(
         cast_store.close()
 
 
-
-
 def test_cast_preserves_symbol_before_trailing_blank_line() -> None:
     source = b"def trailing() -> int:\n    return 1\n"
     parsed = ParsedFile(
