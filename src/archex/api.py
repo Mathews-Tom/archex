@@ -1548,6 +1548,7 @@ def query_dual_leg_benchmark(
             vector_mode=vector_index_config.vector_mode,
             surrogate_version=vector_index_config.surrogate_version,
         )
+        vector_search_start = time.perf_counter()
         vector_results = _vector_search_precomputed(
             vector_npz,
             vector_chunks,
@@ -1555,6 +1556,7 @@ def query_dual_leg_benchmark(
             vector_index_config,
             vector_top_k,
         )
+        used_precomputed_vector = vector_results is not None
         if vector_results is None and vector_index_config.vector:
             vector_results = _vector_search_in_memory(
                 question,
@@ -1575,7 +1577,8 @@ def query_dual_leg_benchmark(
         if timing is not None:
             timing.search_ms = _elapsed_ms(search_start)
             timing.vector_used = bool(projected_vector_results)
-            timing.vector_build_ms = _elapsed_ms(search_start)
+            if used_precomputed_vector:
+                timing.vector_build_ms = _elapsed_ms(vector_search_start)
         if trace is not None:
             trace.add_step(
                 StepTiming(
@@ -1607,6 +1610,7 @@ def query_dual_leg_benchmark(
             avg_idf=bm25.avg_idf(question) if projected_vector_results else None,
             reranker=_maybe_reranker(vector_index_config),
             rerank_candidate_limit=vector_index_config.rerank_candidate_limit,
+            prefer_code_files=True,
             apply_intent_budget=False,
         )
         bundle.retrieval_metadata.vector_mode = vector_index_config.vector_mode

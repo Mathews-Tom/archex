@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archex.models import (
@@ -110,6 +111,16 @@ def _is_support_file(file_path: str, query_terms: set[str]) -> bool:
     if any(marker in lower_path for marker in _SUPPORT_PATH_MARKERS):
         return not query_terms & _SUPPORT_QUERY_TERMS
     return False
+
+
+def _is_file_first_support_artifact(file_path: str) -> bool:
+    lower_path = file_path.lower()
+    if _is_test_file(lower_path):
+        return True
+    if lower_path.startswith(("docs/", "benchmarks/", ".github/")):
+        return True
+    suffix = Path(lower_path).suffix
+    return suffix in {".json", ".md", ".rst", ".toml", ".txt", ".yaml", ".yml"}
 
 
 def _type_definitions(chunks: list[RankedChunk]) -> list[TypeDefinition]:
@@ -550,6 +561,32 @@ def _aggregate_file_scores(ranked: list[RankedChunk]) -> dict[str, float]:
     return aggregated
 
 
+def _adjust_file_scores_code_first(
+    file_scores: dict[str, float],
+    *,
+    lexical_files: set[str],
+    semantic_files: set[str],
+) -> dict[str, float]:
+    adjusted: dict[str, float] = {}
+    for file_path, score in file_scores.items():
+        lexical = file_path in lexical_files
+        semantic = file_path in semantic_files
+        if _is_file_first_support_artifact(file_path):
+            adjusted[file_path] = score * (0.10 if semantic and not lexical else 0.20)
+            continue
+        if lexical and semantic:
+            adjusted[file_path] = score * 1.15
+            continue
+        if lexical:
+            adjusted[file_path] = score * 1.10
+            continue
+        if semantic:
+            adjusted[file_path] = score * 1.05
+            continue
+        adjusted[file_path] = score
+    return adjusted
+
+
 def _nested_included_range(
     chunk: CodeChunk,
     included_ranges: dict[str, list[tuple[int, int]]],
@@ -605,6 +642,7 @@ def _pack_ranked_chunks(
     top_files: set[str],
     token_budget: int,
     max_chunks_per_file: int | None = None,
+    prefer_file_rank_order: bool = False,
 ) -> tuple[list[RankedChunk], int]:
     included: list[RankedChunk] = []
     included_ids: set[str] = set()
@@ -620,12 +658,13 @@ def _pack_ranked_chunks(
         for file_path, _score in sorted_files
         if file_path in top_files and file_path in best_by_file
     ]
-    ordered_files.sort(
-        key=lambda file_path: (
-            _is_test_file(file_path),
-            -best_by_file[file_path].final_score,
+    if not prefer_file_rank_order:
+        ordered_files.sort(
+            key=lambda file_path: (
+                _is_test_file(file_path),
+                -best_by_file[file_path].final_score,
+            )
         )
-    )
     for file_path in ordered_files:
         total_tokens = _try_include_ranked_chunk(
             best_by_file[file_path],
@@ -904,6 +943,7 @@ def assemble_context(
     avg_idf: float | None = None,
     reranker: object | None = None,
     rerank_candidate_limit: int = 4,
+    prefer_code_files: bool = False,
     apply_intent_budget: bool = True,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
@@ -1452,13 +1492,28 @@ def assemble_context(
     # relevant chunks does not swamp a file with one or two highly relevant
     # chunks. The strongest chunk keeps full weight; each later chunk halves.
     file_agg = _aggregate_file_scores(ranked)
-    sorted_files = sorted(file_agg.items(), key=lambda x: -x[1])
-    top_file_score = sorted_files[0][1] if sorted_files else 0.0
+    if prefer_code_files:
+        file_agg = _adjust_file_scores_code_first(
+            file_agg,
+            lexical_files={chunk.file_path for chunk, _ in search_results},
+            semantic_files={chunk.file_path for chunk, _ in effective_vector},
+        )
+    score_sorted_files = sorted(file_agg.items(), key=lambda x: -x[1])
+    sorted_files = score_sorted_files
+    if prefer_code_files:
+        code_files = [
+            item for item in score_sorted_files if not _is_file_first_support_artifact(item[0])
+        ]
+        support_files = [
+            item for item in score_sorted_files if _is_file_first_support_artifact(item[0])
+        ]
+        sorted_files = code_files + support_files
+    top_file_score = score_sorted_files[0][1] if score_sorted_files else 0.0
     score_cutoff = top_file_score * _file_score_cutoff_ratio(
         fusion_applied=fusion_bm25_weight is not None or bool(effective_splade)
     )
     top_files: set[str] = set()
-    adaptive_max = _adaptive_max_files(sorted_files)
+    adaptive_max = _adaptive_max_files(score_sorted_files)
     if intent == QueryIntent.CLI or q_terms & {
         "graph",
         "dependency",
@@ -1472,35 +1527,48 @@ def assemble_context(
             adaptive_max = cap
         else:
             adaptive_max = min(adaptive_max, cap)
-    aligned_files = {
-        fp for fp, _score in sorted_files if _path_alignment_boost(fp, alignment_terms) > 1.0
-    }
-    for fp, _score in sorted_files:
-        if fp not in aligned_files:
-            continue
-        top_files.add(fp)
-        if len(top_files) >= adaptive_max:
-            break
-    for fp, score in sorted_files:
-        if len(top_files) >= adaptive_max:
-            break
-        if fp in top_files:
-            continue
-        if score < score_cutoff:
-            break
-        top_files.add(fp)
+    if prefer_code_files:
+        code_files = [
+            (fp, score) for fp, score in sorted_files if not _is_file_first_support_artifact(fp)
+        ]
+        support_files = [
+            (fp, score) for fp, score in sorted_files if _is_file_first_support_artifact(fp)
+        ]
+        for fp, _score in code_files[:adaptive_max]:
+            top_files.add(fp)
+        for fp, score in support_files:
+            if len(top_files) >= adaptive_max:
+                break
+            if score < score_cutoff:
+                break
+            top_files.add(fp)
+    else:
+        aligned_files = {
+            fp for fp, _score in sorted_files if _path_alignment_boost(fp, alignment_terms) > 1.0
+        }
+        for fp, _score in sorted_files:
+            if fp not in aligned_files:
+                continue
+            top_files.add(fp)
+            if len(top_files) >= adaptive_max:
+                break
+        for fp, score in sorted_files:
+            if len(top_files) >= adaptive_max:
+                break
+            if fp in top_files:
+                continue
+            if score < score_cutoff:
+                break
+            top_files.add(fp)
     ranked = [rc for rc in ranked if rc.chunk.file_path in top_files]
 
-    # Pack at least one high-scoring chunk per selected file before spending
-    # remaining budget on extra chunks. This preserves file-level recall when one
-    # high-scoring file has many chunks, while nested-range suppression prevents
-    # class/module chunks and their child chunks from duplicating the same lines.
     included, total_tokens = _pack_ranked_chunks(
         ranked,
         sorted_files,
         top_files,
         token_budget,
         max_chunks_per_file=CLI_MAX_CHUNKS_PER_FILE if intent == QueryIntent.CLI else None,
+        prefer_file_rank_order=prefer_code_files,
     )
 
     chunks_dropped = len(ranked) - len(included)
