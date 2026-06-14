@@ -336,12 +336,14 @@ class TestQueryCacheSkipsParse:
         store.conn.execute("PRAGMA wal_checkpoint(FULL)")
         store.close()
 
+        repo_path = tmp_path / "repo"
+        (repo_path / ".git").mkdir(parents=True)
+
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         cache = CacheManager(cache_dir=str(cache_dir))
-        source = RepoSource(local_path="/fake")
+        source = RepoSource(local_path=str(repo_path))
         key = cache.cache_key(source)
-        cache.put(key, db_path)
 
         config = Config(cache=True, cache_dir=str(cache_dir))
         with (
