@@ -220,3 +220,54 @@ uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-ch
 uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --tasks-dir benchmarks/tasks --output .archex/direct-preservation-candidate-full
 uv run archex benchmark gate --input .archex/direct-preservation-candidate-full --baseline .archex/direct-preservation-control-full --warn-latency-ms 3000
 ```
+
+### 2026-06-15 — delta/vector-cache preservation targeted rerun
+
+Follow-up after the direct file preservation full-frontier regressions:
+
+- control: `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation`
+- candidate: `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --delta-cache-preservation`
+
+2026-06-15 targeted result: keep the candidate and promote it to a wider frontier rerun. It recovered both remaining failure families on both fusion paths.
+
+Targeted smoke comparison:
+
+| Task | Strategy | Recall | F1 | Token efficiency | Latency |
+| --- | --- | --- | --- | --- | --- |
+| `archex_delta_indexing` | fusion | `0.500 -> 1.000` | `0.250 -> 0.500` | `0.505 -> 0.474` | `4336 ms -> 977 ms` |
+| `archex_delta_indexing` | fusion+rereank | `0.500 -> 1.000` | `0.250 -> 0.500` | `0.505 -> 0.474` | `27878 ms -> 4235 ms` |
+| `archex_vector_cache_lifecycle` | fusion | `0.600 -> 1.000` | `0.545 -> 0.769` | `0.733 -> 0.779` | `301 ms -> 614 ms` |
+| `archex_vector_cache_lifecycle` | fusion+rereank | `0.600 -> 1.000` | `0.545 -> 0.769` | `0.733 -> 0.779` | `890 ms -> 838 ms` |
+
+### 2026-06-15 — delta/vector-cache preservation full frontier rerun
+
+2026-06-15 full-frontier result: this candidate cleared the benchmark gate against the direct-file-preservation baseline. Mean recall and mean F1 improved on both fusion paths, token efficiency edged up, and rerank p95 improved.
+
+Frontier summary:
+
+| Strategy | Recall | F1 | Token efficiency | p95 latency |
+| --- | --- | --- | --- | --- |
+| Control `archex_query_fusion` | `0.872` | `0.628` | `0.719` | `856 ms` |
+| Candidate `archex_query_fusion` | `0.898` | `0.634` | `0.721` | `891 ms` |
+| Control `archex_query_fusion_rerank` | `0.863` | `0.622` | `0.720` | `1666 ms` |
+| Candidate `archex_query_fusion_rerank` | `0.889` | `0.628` | `0.722` | `1154 ms` |
+
+Baseline gate:
+
+- passed
+
+Operator commands:
+
+```bash
+for task in archex_delta_indexing archex_vector_cache_lifecycle; do
+  uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --tasks-dir benchmarks/tasks --output .archex/delta-cache-control-smoke
+done
+
+for task in archex_delta_indexing archex_vector_cache_lifecycle; do
+  uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --delta-cache-preservation --tasks-dir benchmarks/tasks --output .archex/delta-cache-candidate-smoke
+done
+
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --tasks-dir benchmarks/tasks --output .archex/delta-cache-control-full
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --delta-cache-preservation --tasks-dir benchmarks/tasks --output .archex/delta-cache-candidate-full
+uv run archex benchmark gate --input .archex/delta-cache-candidate-full --baseline .archex/delta-cache-control-full --warn-latency-ms 3000
+```
