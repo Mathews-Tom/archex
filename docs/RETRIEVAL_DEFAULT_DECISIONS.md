@@ -162,3 +162,39 @@ uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-ch
 uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --tasks-dir benchmarks/tasks --output .archex/file-stage-candidate-full
 uv run archex benchmark gate --input .archex/file-stage-candidate-full --baseline .archex/file-stage-control-full --warn-latency-ms 3000
 ```
+
+### 2026-06-14 — file-stage strict expansion controls targeted rerun
+
+Follow-up after the file-stage frontier regressions:
+
+- control: `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration`
+- candidate: `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --strict-expansion-controls`
+
+2026-06-14 targeted result: keep as an experimental benchmark knob, but do not run a wider frontier yet. The stricter expansion controls recovered `fastapi_dependency_injection` on the rerank path from `0.667` to `1.000` recall and materially cut latency there, but they did not recover the four remaining self-repo failure families.
+
+Targeted smoke comparison:
+
+| Task | Strategy | Recall | F1 | Token efficiency | Latency |
+| --- | --- | --- | --- | --- | --- |
+| `archex_adapter_registry` | fusion | `0.333 -> 0.333` | `0.222 -> 0.250` | `0.769 -> 0.756` | `862 ms -> 477 ms` |
+| `archex_adapter_registry` | fusion+rereank | `0.333 -> 0.333` | `0.222 -> 0.222` | `0.769 -> 0.772` | `2776 ms -> 2818 ms` |
+| `archex_project_init` | fusion | `0.500 -> 0.500` | `0.500 -> 0.500` | `0.635 -> 0.635` | `1116 ms -> 1052 ms` |
+| `archex_project_init` | fusion+rereank | `0.500 -> 0.500` | `0.500 -> 0.500` | `0.635 -> 0.635` | `2094 ms -> 2144 ms` |
+| `archex_project_reset` | fusion | `0.333 -> 0.333` | `0.286 -> 0.286` | `0.615 -> 0.615` | `510 ms -> 632 ms` |
+| `archex_project_reset` | fusion+rereank | `0.333 -> 0.333` | `0.286 -> 0.286` | `0.615 -> 0.615` | `1405 ms -> 1472 ms` |
+| `archex_query_cache_lifecycle` | fusion | `0.800 -> 0.800` | `0.800 -> 0.800` | `0.753 -> 0.753` | `509 ms -> 618 ms` |
+| `archex_query_cache_lifecycle` | fusion+rereank | `0.800 -> 0.800` | `0.800 -> 0.800` | `0.753 -> 0.753` | `1791 ms -> 1707 ms` |
+| `fastapi_dependency_injection` | fusion | `1.000 -> 1.000` | `0.857 -> 0.857` | `0.800 -> 0.797` | `203 ms -> 168 ms` |
+| `fastapi_dependency_injection` | fusion+rereank | `0.667 -> 1.000` | `0.571 -> 0.857` | `0.808 -> 0.797` | `1504 ms -> 759 ms` |
+
+Operator commands:
+
+```bash
+for task in archex_adapter_registry archex_project_init archex_project_reset archex_query_cache_lifecycle fastapi_dependency_injection; do
+  uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --tasks-dir benchmarks/tasks --output .archex/expansion-control-control-smoke
+done
+
+for task in archex_adapter_registry archex_project_init archex_project_reset archex_query_cache_lifecycle fastapi_dependency_injection; do
+  uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --strict-expansion-controls --tasks-dir benchmarks/tasks --output .archex/expansion-control-candidate-smoke
+done
+```
