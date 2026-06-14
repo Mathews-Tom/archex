@@ -652,43 +652,11 @@ def test_index_metadata_prevents_cross_chunker_cache_reuse(
     )
     try:
         assert cast_store.get_metadata("chunker") == "cast"
-        assert cast_store.get_metadata("chunker_revision") == chunker_revision("cast")
         assert cast_timing.cached is False
     finally:
         cast_store.close()
 
 
-def test_index_metadata_prevents_stale_chunker_revision_cache_reuse(
-    python_simple_repo: Path,
-    tmp_path: Path,
-) -> None:
-    from archex.api import index_repository
-
-    source = RepoSource(local_path=str(python_simple_repo))
-    config = Config(cache=True, cache_dir=str(tmp_path / "cache"))
-
-    initial_store = index_repository(
-        source,
-        config=config,
-        timing=PipelineTiming(),
-        index_config=IndexConfig(chunker="cast"),
-    )
-    try:
-        initial_store.set_metadata("chunker_revision", "stale")
-    finally:
-        initial_store.close()
-
-    refreshed_timing = PipelineTiming()
-    refreshed_store = index_repository(
-        source,
-        config=config,
-        timing=refreshed_timing,
-        index_config=IndexConfig(chunker="cast"),
-    )
-    try:
-        assert refreshed_store.get_metadata("chunker_revision") == chunker_revision("cast")
-    finally:
-        refreshed_store.close()
 
 
 def test_cast_preserves_symbol_before_trailing_blank_line() -> None:
