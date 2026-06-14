@@ -150,6 +150,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     dual_leg_orchestration: bool = False
     file_stage_orchestration: bool = False
     direct_file_preservation: bool = False
+    delta_cache_preservation: bool = False
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):

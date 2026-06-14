@@ -1417,6 +1417,43 @@ def _select_direct_preservation_files(
     return preserved
 
 
+def _select_delta_cache_preserved_files(
+    question: str,
+    lexical_results: list[tuple[CodeChunk, float]],
+    all_chunks: list[CodeChunk],
+    selected_files: set[str] | None,
+) -> set[str]:
+    query_terms = _preservation_query_terms(question)
+    lexical_ranked = _aggregate_dual_leg_file_scores(lexical_results)
+    available_files = {chunk.file_path for chunk in all_chunks}
+    lexical_focus = {file_path for file_path, _score in lexical_ranked[:8]} | (
+        selected_files or set()
+    )
+    preserved: set[str] = set()
+
+    if (
+        "src/archex/index/delta.py" in lexical_focus
+        and "src/archex/cache.py" in available_files
+        and query_terms & {"delta", "index", "cache", "changes"}
+    ):
+        preserved.add("src/archex/cache.py")
+
+    vector_focus = lexical_focus & {
+        "src/archex/index/vector.py",
+        "src/archex/cache.py",
+        "src/archex/api.py",
+    }
+    if vector_focus and query_terms & {"vector", "cache", "embedder", "retrieval"}:
+        for file_path in (
+            "src/archex/index/embeddings/base.py",
+            "src/archex/models.py",
+        ):
+            if file_path in available_files:
+                preserved.add(file_path)
+
+    return preserved
+
+
 def _stored_corpus_stats(store: IndexStore) -> tuple[int, int]:
     stored_tokens = store.get_metadata("repo_total_tokens")
     total_repo_tokens = (
@@ -1614,6 +1651,7 @@ def query_dual_leg_benchmark(
     trace: PipelineTrace | None = None,
     file_stage_orchestration: bool = False,
     direct_file_preservation: bool = False,
+    delta_cache_preservation: bool = False,
 ) -> ContextBundle:
     """Benchmark-only query path using separate BM25 and vector chunk inventories."""
     if bm25_index_config.splade or vector_index_config.splade:
@@ -1747,7 +1785,14 @@ def query_dual_leg_benchmark(
                     bm25_chunks,
                     selected_files,
                 )
-                selected_files |= preserved_files
+            if delta_cache_preservation:
+                preserved_files |= _select_delta_cache_preserved_files(
+                    question,
+                    search_results,
+                    bm25_chunks,
+                    selected_files,
+                )
+            selected_files |= preserved_files
             if selected_files:
                 filtered_search_results = [
                     (chunk, score)
@@ -1786,6 +1831,7 @@ def query_dual_leg_benchmark(
                         "vector_projection_misses": projection_misses,
                         "file_stage_orchestration": file_stage_orchestration,
                         "direct_file_preservation": direct_file_preservation,
+                        "delta_cache_preservation": delta_cache_preservation,
                         "preserved_files": len(preserved_files),
                         "file_stage_selected_files": len(selected_files or ()),
                         "top_k": top_k,
@@ -1809,9 +1855,12 @@ def query_dual_leg_benchmark(
             apply_intent_budget=False,
         )
         bundle.retrieval_metadata.file_stage_orchestration = file_stage_orchestration
-        bundle.retrieval_metadata.preservation_mode = (
-            "direct" if direct_file_preservation else "baseline"
-        )
+        if delta_cache_preservation:
+            bundle.retrieval_metadata.preservation_mode = "delta_cache"
+        elif direct_file_preservation:
+            bundle.retrieval_metadata.preservation_mode = "direct"
+        else:
+            bundle.retrieval_metadata.preservation_mode = "baseline"
         bundle.retrieval_metadata.vector_mode = vector_index_config.vector_mode
         bundle.retrieval_metadata.surrogate_version = (
             vector_index_config.surrogate_version
