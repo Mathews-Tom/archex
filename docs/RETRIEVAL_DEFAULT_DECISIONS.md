@@ -82,3 +82,55 @@ uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmark
 uv run archex benchmark readiness --input .archex/e2e-jina --tasks-dir benchmarks/tasks --strategy archex_query_fusion_rerank --format markdown
 uv run archex benchmark gate --input .archex/e2e-jina --baseline .archex/e2e-tier2 --warn-latency-ms 3000
 ```
+
+## Retrieval policy consolidation
+
+### 2026-06-15 — consolidated retrieval policy line vs stable benchmark spine
+
+Candidate branches consolidated into one benchmark-only line:
+
+- dual-leg benchmark orchestration
+- file-stage orchestration
+- direct file preservation
+- delta/vector-cache preservation
+
+Comparison:
+
+- stable spine: `feat/chunker-benchmark-arm`
+- candidate: `feat/retrieval-policy-consolidation`
+
+Decision rule:
+
+- run one full-frontier comparison of the consolidated candidate against the stable benchmark spine
+- require no baseline gate regressions before replacing the exploratory draft ladder with a mergeable retrieval-policy branch
+
+2026-06-15 result: do not replace the stable benchmark spine. The consolidated candidate improved mean recall, but it still failed the baseline gate and regressed F1 versus the stable spine on both fusion paths.
+
+Frontier summary:
+
+| Strategy | Branch | Recall | F1 | Token efficiency | p95 latency |
+| --- | --- | --- | --- | --- | --- |
+| `archex_query_fusion` | stable spine | `0.883` | `0.689` | `0.682` | `781 ms` |
+| `archex_query_fusion` | consolidated candidate | `0.898` | `0.634` | `0.718` | `4456 ms` |
+| `archex_query_fusion_rerank` | stable spine | `0.883` | `0.689` | `0.682` | `4150 ms` |
+| `archex_query_fusion_rerank` | consolidated candidate | `0.889` | `0.628` | `0.720` | `10527 ms` |
+
+Baseline-gate failures:
+
+- `archex_project_index/archex_query_fusion`
+- `archex_project_index/archex_query_fusion_rerank`
+- `archex_project_init/archex_query_fusion`
+- `archex_project_init/archex_query_fusion_rerank`
+- `express_error_handling/archex_query_fusion`
+- `express_error_handling/archex_query_fusion_rerank`
+- `fastapi_dependency_injection/archex_query_fusion_rerank`
+
+Operator commands:
+
+```bash
+PYTHONPATH=/Users/druk/WorkSpace/AetherForge/archex-stable-spine/src /Users/druk/WorkSpace/AetherForge/archex/.venv/bin/python -m archex.cli.main benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --tasks-dir benchmarks/tasks --output /Users/druk/WorkSpace/AetherForge/archex/.archex/stable-spine-full
+
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --direct-file-preservation --delta-cache-preservation --tasks-dir benchmarks/tasks --output .archex/retrieval-policy-consolidated-full
+
+uv run archex benchmark gate --input .archex/retrieval-policy-consolidated-full --baseline .archex/stable-spine-full --warn-latency-ms 3000
+```
