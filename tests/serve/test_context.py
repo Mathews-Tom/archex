@@ -1072,6 +1072,111 @@ def test_fusion_weights_reflect_high_agreement() -> None:
     assert meta.fusion_vector_weight == 0.40
 
 
+def test_adaptive_fusion_policy_biases_architecture_queries_toward_bm25() -> None:
+    graph = DependencyGraph()
+    chunks = [
+        make_chunk("a", "src/archex/analyze/patterns.py", token_count=10),
+        make_chunk("b", "src/archex/models.py", token_count=10),
+        make_chunk("c", "benchmarks/tasks/archex_pattern_detection.yaml", token_count=10),
+        make_chunk("d", "docs/OVERVIEW.md", token_count=10),
+        make_chunk("e", "benchmarks/arch_tasks/python_patterns.yaml", token_count=10),
+    ]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+    bm25_results = [(chunks[0], 5.0), (chunks[1], 4.9), (chunks[2], 4.8)]
+    vec_results = [(chunks[3], 0.9), (chunks[1], 0.8), (chunks[0], 0.7)]
+    trace = PipelineTrace(operation="query")
+
+    bundle = assemble_context(
+        bm25_results,
+        graph,
+        chunks,
+        "How does archex detect architectural patterns?",
+        token_budget=1000,
+        vector_results=vec_results,
+        trace=trace,
+        adaptive_fusion_policy=False,
+        apply_intent_budget=False,
+    )
+
+    fusion = next(step for step in trace.steps if step.name == "fusion")
+    assert not bundle.retrieval_metadata.fusion_skipped
+    assert bundle.retrieval_metadata.fusion_bm25_weight == 0.40
+    assert fusion.metadata["adaptive"] is False
+
+
+def test_adaptive_fusion_policy_records_bm25_biased_fusion_trace() -> None:
+    graph = DependencyGraph()
+    chunks = [
+        make_chunk("a", "src/archex/analyze/patterns.py", token_count=10),
+        make_chunk("b", "src/archex/models.py", token_count=10),
+        make_chunk("c", "benchmarks/tasks/archex_pattern_detection.yaml", token_count=10),
+        make_chunk("d", "docs/OVERVIEW.md", token_count=10),
+        make_chunk("e", "benchmarks/arch_tasks/python_patterns.yaml", token_count=10),
+    ]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+    bm25_results = [(chunks[0], 5.0), (chunks[1], 4.9), (chunks[2], 4.8)]
+    vec_results = [(chunks[3], 0.9), (chunks[1], 0.8), (chunks[0], 0.7)]
+    trace = PipelineTrace(operation="query")
+
+    bundle = assemble_context(
+        bm25_results,
+        graph,
+        chunks,
+        "How does archex detect architectural patterns?",
+        token_budget=1000,
+        vector_results=vec_results,
+        trace=trace,
+        adaptive_fusion_policy=True,
+        apply_intent_budget=False,
+    )
+
+    fusion = next(step for step in trace.steps if step.name == "fusion")
+    reason = fusion.metadata["reason"]
+    assert isinstance(reason, str)
+    assert bundle.retrieval_metadata.fusion_skipped
+    assert bundle.retrieval_metadata.fusion_bm25_weight is None
+    assert fusion.metadata["adaptive"] is True
+    assert reason.startswith("adaptive_architecture_skip_non_code_vector:")
+
+
+def test_adaptive_fusion_policy_biases_low_agreement_architecture_query() -> None:
+    graph = DependencyGraph()
+    chunks = [
+        make_chunk("a", "src/archex/analyze/patterns.py", token_count=10),
+        make_chunk("b", "src/archex/models.py", token_count=10),
+        make_chunk("c", "benchmarks/tasks/archex_pattern_detection.yaml", token_count=10),
+        make_chunk("d", "docs/OVERVIEW.md", token_count=10),
+        make_chunk("e", "benchmarks/arch_tasks/python_patterns.yaml", token_count=10),
+    ]
+    for chunk in chunks:
+        graph.add_file_node(chunk.file_path)
+    bm25_results = [(chunks[0], 10.0), (chunks[1], 2.0), (chunks[2], 1.0)]
+    vec_results = [(chunks[3], 0.9), (chunks[4], 0.8), (chunks[0], 0.7)]
+    trace = PipelineTrace(operation="query")
+
+    bundle = assemble_context(
+        bm25_results,
+        graph,
+        chunks,
+        "How does archex detect architectural patterns?",
+        token_budget=1000,
+        vector_results=vec_results,
+        trace=trace,
+        adaptive_fusion_policy=True,
+        apply_intent_budget=False,
+    )
+
+    fusion = next(step for step in trace.steps if step.name == "fusion")
+    reason = fusion.metadata["reason"]
+    assert isinstance(reason, str)
+    assert not bundle.retrieval_metadata.fusion_skipped
+    assert bundle.retrieval_metadata.fusion_bm25_weight == 0.65
+    assert bundle.retrieval_metadata.fusion_vector_weight == 0.35
+    assert reason.startswith("adaptive_architecture_bm25_bias:")
+
+
 # ---------------------------------------------------------------------------
 # Vector-seed retrieval tests
 # ---------------------------------------------------------------------------

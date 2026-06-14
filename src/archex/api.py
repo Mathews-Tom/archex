@@ -1816,6 +1816,7 @@ def query(
                     reranker=_reranker,
                     rerank_candidate_limit=index_config.rerank_candidate_limit,
                     adaptive_rerank_limit=index_config.adaptive_rerank_limit,
+                    adaptive_fusion_policy=index_config.adaptive_fusion_policy,
                     apply_intent_budget=False,
                 )
                 bundle.retrieval_metadata.vector_mode = index_config.vector_mode
@@ -2187,6 +2188,7 @@ def query(
                 reranker=_reranker_miss,
                 rerank_candidate_limit=index_config.rerank_candidate_limit,
                 adaptive_rerank_limit=index_config.adaptive_rerank_limit,
+                adaptive_fusion_policy=index_config.adaptive_fusion_policy,
                 apply_intent_budget=False,
             )
             bundle.retrieval_metadata.vector_mode = index_config.vector_mode

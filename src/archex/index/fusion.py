@@ -7,6 +7,8 @@ that decides whether fusion adds value for a given query.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -30,6 +32,90 @@ def bm25_score_cv(bm25_results: list[tuple[CodeChunk, float]], top_n: int = 10) 
     if mean < 1e-9:
         return 0.0
     return float(arr.std() / mean)
+
+
+@dataclass(frozen=True)
+class FusionPolicyDecision:
+    should_fuse: bool
+    reason: str
+    bm25_weight: float | None = None
+    vector_weight: float | None = None
+
+
+def _signal_agreement(
+    bm25_results: list[tuple[CodeChunk, float]],
+    vector_results: list[tuple[CodeChunk, float]],
+    *,
+    top_n: int = 20,
+) -> float:
+    bm25_top = {chunk.file_path for chunk, _ in bm25_results[:top_n]}
+    vec_top = {chunk.file_path for chunk, _ in vector_results[:top_n]}
+    union = bm25_top | vec_top
+    return len(bm25_top & vec_top) / len(union) if union else 0.0
+
+
+def _non_code_file_count(results: list[tuple[CodeChunk, float]], *, top_n: int = 5) -> int:
+    non_code_suffixes = {".json", ".md", ".rst", ".toml", ".txt", ".yaml", ".yml"}
+    return sum(
+        1
+        for chunk, _ in results[:top_n]
+        if Path(chunk.file_path).suffix.lower() in non_code_suffixes
+    )
+
+
+def resolve_fusion_policy(
+    bm25_results: list[tuple[CodeChunk, float]],
+    vector_results: list[tuple[CodeChunk, float]],
+    *,
+    avg_idf: float | None = None,
+    adaptive: bool = False,
+    query_intent: str | None = None,
+) -> FusionPolicyDecision:
+    should_apply, reason = should_fuse(bm25_results, vector_results, avg_idf=avg_idf)
+    if not should_apply or not adaptive:
+        return FusionPolicyDecision(should_fuse=should_apply, reason=reason)
+
+    signal_agreement = _signal_agreement(bm25_results, vector_results)
+    bm25_cv = bm25_score_cv(bm25_results)
+    vector_non_code = _non_code_file_count(vector_results)
+    bm25_non_code = _non_code_file_count(bm25_results)
+
+    if query_intent == "architecture_broad" and signal_agreement <= 0.25 and bm25_cv >= 0.30:
+        return FusionPolicyDecision(
+            should_fuse=True,
+            reason=(
+                f"adaptive_architecture_bm25_bias:cv={bm25_cv:.3f},agreement={signal_agreement:.3f}"
+            ),
+            bm25_weight=0.65,
+            vector_weight=0.35,
+        )
+
+    if (
+        query_intent == "architecture_broad"
+        and not reason.startswith("low_idf_force_fusion")
+        and signal_agreement >= 0.4
+        and bm25_cv <= 0.15
+        and vector_non_code > 0
+        and vector_non_code >= bm25_non_code
+    ):
+        return FusionPolicyDecision(
+            should_fuse=False,
+            reason=(
+                "adaptive_architecture_skip_non_code_vector:"
+                f"cv={bm25_cv:.3f},agreement={signal_agreement:.3f},"
+                f"vector_non_code={vector_non_code}"
+            ),
+        )
+
+    if query_intent == "general" and signal_agreement <= 0.05 and bm25_cv >= 0.25:
+        return FusionPolicyDecision(
+            should_fuse=True,
+            reason=(f"adaptive_general_balance:cv={bm25_cv:.3f},agreement={signal_agreement:.3f}"),
+            bm25_weight=0.50,
+            vector_weight=0.50,
+        )
+
+    return FusionPolicyDecision(should_fuse=True, reason=reason)
 
 
 def should_fuse(
@@ -220,12 +306,17 @@ def adaptive_rsf(
     vector_results: list[tuple[CodeChunk, float]],
     signal_agreement: float,
     bm25_cv: float,
+    *,
+    weight_override: tuple[float, float] | None = None,
 ) -> tuple[list[tuple[CodeChunk, float]], float, float]:
     """Fuse BM25 and vector results using RSF with adaptive weights.
 
     Combines RSF's score-magnitude preservation with confidence-aware
     weight scheduling. Returns (fused_results, bm25_weight, vector_weight).
     """
-    bm25_weight, vector_weight = adaptive_rsf_weights(signal_agreement, bm25_cv)
+    if weight_override is None:
+        bm25_weight, vector_weight = adaptive_rsf_weights(signal_agreement, bm25_cv)
+    else:
+        bm25_weight, vector_weight = weight_override
     fused = relative_score_fusion(bm25_results, vector_results, bm25_weight, vector_weight)
     return fused, bm25_weight, vector_weight

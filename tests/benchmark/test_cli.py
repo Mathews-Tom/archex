@@ -659,6 +659,35 @@ class TestRunCommand:
             adaptive_rerank_limit=True
         )
 
+    def test_run_passes_adaptive_fusion_policy_flag(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter, self_only, progress, tasks
+            captured["retrieval_options"] = retrieval_options
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(benchmark_cmd, ["run", "--adaptive-fusion-policy"])
+        assert result.exit_code == 0
+        assert captured["retrieval_options"] == BenchmarkRetrievalOptions(
+            adaptive_fusion_policy=True
+        )
+
     def test_run_passes_rerank_model_flag(
         self,
         runner: CliRunner,

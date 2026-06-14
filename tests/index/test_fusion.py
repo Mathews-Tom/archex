@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from archex.index.fusion import (
+    FusionPolicyDecision,
     adaptive_rsf,
     adaptive_rsf_weights,
     bm25_score_cv,
@@ -12,6 +13,7 @@ from archex.index.fusion import (
     normalize_scores,
     reciprocal_rank_fusion,
     relative_score_fusion,
+    resolve_fusion_policy,
     should_fuse,
 )
 from archex.models import CodeChunk, SymbolKind
@@ -209,6 +211,117 @@ class TestAdaptiveRSFWeights:
             for cv in [0.1, 0.3, 0.5, 0.8]:
                 bw, vw = adaptive_rsf_weights(agreement, cv)
                 assert bw + vw == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
+
+
+class TestResolveFusionPolicy:
+    def test_default_policy_defers_to_should_fuse(self) -> None:
+        bm25 = _results([("a", "a.py", 5.0), ("b", "b.py", 4.9), ("c", "c.py", 4.8)])
+        vec = _results([("x", "x.py", 0.9), ("y", "y.py", 0.8), ("z", "z.py", 0.7)])
+        decision = resolve_fusion_policy(bm25, vec)
+        assert decision == FusionPolicyDecision(True, "fusion_needed:cv=0.017,agreement=0.000")
+
+    def test_architecture_policy_biases_bm25_when_vector_is_non_code_heavy(self) -> None:
+        bm25 = _results(
+            [
+                ("a", "src/archex/analyze/patterns.py", 5.0),
+                ("b", "src/archex/models.py", 4.9),
+                ("c", "benchmarks/tasks/archex_pattern_detection.yaml", 4.8),
+            ]
+        )
+        vec = _results(
+            [
+                ("x", "docs/OVERVIEW.md", 0.9),
+                ("y", "src/archex/models.py", 0.8),
+                ("z", "src/archex/analyze/patterns.py", 0.7),
+            ]
+        )
+        decision = resolve_fusion_policy(
+            bm25,
+            vec,
+            adaptive=True,
+            query_intent="architecture_broad",
+        )
+        assert not decision.should_fuse
+        assert decision.bm25_weight is None
+        assert decision.vector_weight is None
+        assert decision.reason.startswith("adaptive_architecture_skip_non_code_vector:")
+
+    def test_architecture_skip_does_not_override_low_idf_force_fusion(self) -> None:
+        bm25 = _results(
+            [
+                ("a", "src/archex/analyze/patterns.py", 5.0),
+                ("b", "src/archex/models.py", 4.9),
+                ("c", "benchmarks/tasks/archex_pattern_detection.yaml", 4.8),
+            ]
+        )
+        vec = _results(
+            [
+                ("x", "docs/OVERVIEW.md", 0.9),
+                ("y", "src/archex/models.py", 0.8),
+                ("z", "src/archex/analyze/patterns.py", 0.7),
+            ]
+        )
+        decision = resolve_fusion_policy(
+            bm25,
+            vec,
+            avg_idf=1.0,
+            adaptive=True,
+            query_intent="architecture_broad",
+        )
+        assert decision.should_fuse
+        assert decision.reason.startswith("low_idf_force_fusion:")
+
+    def test_architecture_policy_can_bias_bm25_without_skipping(self) -> None:
+        bm25 = _results(
+            [
+                ("a", "src/archex/analyze/patterns.py", 10.0),
+                ("b", "src/archex/models.py", 2.0),
+                ("c", "benchmarks/tasks/archex_pattern_detection.yaml", 1.0),
+            ]
+        )
+        vec = _results(
+            [
+                ("x", "docs/OVERVIEW.md", 0.9),
+                ("y", "benchmarks/arch_tasks/python_patterns.yaml", 0.8),
+                ("z", "src/archex/analyze/patterns.py", 0.7),
+            ]
+        )
+        decision = resolve_fusion_policy(
+            bm25,
+            vec,
+            adaptive=True,
+            query_intent="architecture_broad",
+        )
+        assert decision.should_fuse
+        assert decision.bm25_weight == 0.65
+        assert decision.vector_weight == 0.35
+        assert decision.reason.startswith("adaptive_architecture_bm25_bias:")
+
+    def test_general_policy_balances_non_code_vector_disagreement(self) -> None:
+        bm25 = _results(
+            [
+                ("a", "src/archex/benchmark/gate.py", 10.0),
+                ("b", "src/archex/benchmark/reporter.py", 2.0),
+                ("c", "src/archex/benchmark/baseline.py", 1.0),
+            ]
+        )
+        vec = _results(
+            [
+                ("x", "benchmarks/baseline.json", 0.9),
+                ("y", "docs/OVERVIEW.md", 0.8),
+                ("z", "src/archex/dogfood.py", 0.7),
+            ]
+        )
+        decision = resolve_fusion_policy(
+            bm25,
+            vec,
+            adaptive=True,
+            query_intent="general",
+        )
+        assert decision.should_fuse
+        assert decision.bm25_weight == 0.50
+        assert decision.vector_weight == 0.50
+        assert decision.reason.startswith("adaptive_general_balance:")
 
 
 # ---------------------------------------------------------------------------

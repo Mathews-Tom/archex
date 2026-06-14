@@ -148,6 +148,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     vector_chunker: ChunkerName | None = None
     rerank_candidate_limit: int | None = None
     adaptive_rerank_limit: bool = False
+    adaptive_fusion_policy: bool = False
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):

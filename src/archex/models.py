@@ -164,6 +164,7 @@ class IndexConfig(BaseModel):
     rerank_model: str | None = None
     rerank_candidate_limit: int = 4
     adaptive_rerank_limit: bool = False
+    adaptive_fusion_policy: bool = False
     chunker: ChunkerName = "default"
     chunk_max_tokens: int = 500
     chunk_min_tokens: int = 50

@@ -182,6 +182,14 @@ def benchmark_cmd() -> None:
     ),
 )
 @click.option(
+    "--adaptive-fusion-policy/--no-adaptive-fusion-policy",
+    default=False,
+    help=(
+        "Benchmark-only policy: rebalance BM25/vector fusion for query families where "
+        "the default fusion weights over-amplify vector novelty."
+    ),
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -211,6 +219,7 @@ def run_cmd(
     rerank_model: str | None,
     rerank_candidate_limit: int | None,
     adaptive_rerank_limit: bool,
+    adaptive_fusion_policy: bool,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -242,6 +251,7 @@ def run_cmd(
         vector_chunker=vector_chunker,
         rerank_candidate_limit=rerank_candidate_limit,
         adaptive_rerank_limit=adaptive_rerank_limit,
+        adaptive_fusion_policy=adaptive_fusion_policy,
     )
     warmed_models = warm_benchmark_models(strategies, retrieval_options)
     if warmed_models:

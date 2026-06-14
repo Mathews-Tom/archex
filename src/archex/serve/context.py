@@ -932,6 +932,7 @@ def assemble_context(
     reranker: object | None = None,
     rerank_candidate_limit: int = 4,
     adaptive_rerank_limit: bool = False,
+    adaptive_fusion_policy: bool = False,
     apply_intent_budget: bool = True,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
@@ -983,37 +984,77 @@ def assemble_context(
     effective_splade: list[tuple[CodeChunk, float]] = []
     base_results = search_results
     if vector_results:
-        from archex.index.fusion import adaptive_rsf, bm25_score_cv, should_fuse
+        from archex.index.fusion import (
+            FusionPolicyDecision,
+            adaptive_rsf,
+            bm25_score_cv,
+            resolve_fusion_policy,
+        )
 
+        fusion_start = time.perf_counter_ns()
         _k_agree = 20
         _bm25_top_k = {chunk.file_path for chunk, _ in search_results[:_k_agree]}
         _vec_top_k = {chunk.file_path for chunk, _ in vector_results[:_k_agree]}
         _union = _bm25_top_k | _vec_top_k
         signal_agreement_pre = len(_bm25_top_k & _vec_top_k) / len(_union) if _union else 0.0
-
-        # Gate fusion: skip when BM25 is confident and signals agree.
-        # Always fuse when BM25 is empty — vector is the only signal.
-        fuse, fuse_reason = should_fuse(search_results, vector_results, avg_idf=avg_idf)
         bm25_cv_val = bm25_score_cv(search_results)
+        fusion_decision = resolve_fusion_policy(
+            search_results,
+            vector_results,
+            avg_idf=avg_idf,
+            adaptive=adaptive_fusion_policy,
+            query_intent=str(intent),
+        )
+        if not search_results and not fusion_decision.should_fuse:
+            fusion_decision = FusionPolicyDecision(True, "vector_only_force_fusion")
 
-        if fuse or not search_results:
-            # RSF preserves score magnitude (unlike RRF which flattens to
-            # rank-based 1/(k+rank)). Adaptive weights give vector meaningful
-            # influence so unique vector hits can surface.
+        if fusion_decision.should_fuse:
+            weight_override = None
+            if (
+                fusion_decision.bm25_weight is not None
+                and fusion_decision.vector_weight is not None
+            ):
+                weight_override = (
+                    fusion_decision.bm25_weight,
+                    fusion_decision.vector_weight,
+                )
             merged, fusion_bm25_weight, fusion_vector_weight = adaptive_rsf(
-                search_results, vector_results, signal_agreement_pre, bm25_cv_val
+                search_results,
+                vector_results,
+                signal_agreement_pre,
+                bm25_cv_val,
+                weight_override=weight_override,
             )
             base_results = merged
             bm25_by_id = _normalized_scores(merged)
             effective_vector = vector_results
-            logger.debug("Fusion applied (RSF): %s", fuse_reason)
+            logger.debug("Fusion applied (RSF): %s", fusion_decision.reason)
         else:
-            # BM25 is confident — skip fusion, use BM25 results only
             fusion_skipped = True
-            fusion_skip_reason = fuse_reason
-            strategy = "bm25+graph"  # downgrade strategy label
+            fusion_skip_reason = fusion_decision.reason
+            strategy = "bm25+graph"
             bm25_by_id = _normalized_scores(search_results)
-            logger.debug("Fusion skipped: %s", fuse_reason)
+            logger.debug("Fusion skipped: %s", fusion_decision.reason)
+
+        if trace is not None:
+            fusion_metadata: dict[str, str | int | float | bool] = {
+                "adaptive": adaptive_fusion_policy,
+                "applied": not fusion_skipped,
+                "reason": fusion_decision.reason,
+                "signal_agreement": signal_agreement_pre,
+                "bm25_cv": bm25_cv_val,
+            }
+            if fusion_bm25_weight is not None and fusion_vector_weight is not None:
+                fusion_metadata["bm25_weight"] = fusion_bm25_weight
+                fusion_metadata["vector_weight"] = fusion_vector_weight
+            trace.add_step(
+                StepTiming(
+                    name="fusion",
+                    start_ns=fusion_start,
+                    end_ns=time.perf_counter_ns(),
+                    metadata=fusion_metadata,
+                )
+            )
     else:
         bm25_by_id = _normalized_scores(search_results)
 

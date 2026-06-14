@@ -694,6 +694,8 @@ def benchmark_index_config(
         updates["splade"] = True
     if options.module_prefilter and index_config.bm25:
         updates["module_prefilter"] = True
+    if index_config.vector and options.adaptive_fusion_policy:
+        updates["adaptive_fusion_policy"] = True
     if index_config.rerank and options.rerank_model is not None:
         updates["rerank_model"] = options.rerank_model
     if index_config.rerank and options.rerank_candidate_limit is not None:
