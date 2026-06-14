@@ -124,3 +124,41 @@ for task in archex_benchmark_gate_lifecycle archex_mcp_query_lifecycle archex_pa
   uv run archex benchmark run --task "$task" --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --tasks-dir benchmarks/tasks --output .archex/file-stage-candidate-smoke-v2
 done
 ```
+
+### 2026-06-14 — dual-leg file-stage orchestration full frontier rerun
+
+Follow-up after the targeted pass:
+
+- control: `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration`
+- candidate: `--bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration`
+
+2026-06-14 full-frontier result: do not adopt the candidate yet. The targeted pattern-detection win did not generalize. The broader rerun improved token efficiency and p95 latency, but it reduced mean F1 on both fusion paths and failed the baseline gate with nine recall regressions.
+
+Frontier summary:
+
+| Strategy | Recall | F1 | Token efficiency | p95 latency |
+| --- | --- | --- | --- | --- |
+| Control `archex_query_fusion` | `0.834` | `0.648` | `0.708` | `1207 ms` |
+| Candidate `archex_query_fusion` | `0.838` | `0.626` | `0.739` | `1099 ms` |
+| Control `archex_query_fusion_rerank` | `0.834` | `0.648` | `0.709` | `2341 ms` |
+| Candidate `archex_query_fusion_rerank` | `0.828` | `0.620` | `0.738` | `2094 ms` |
+
+Baseline-gate failures:
+
+- `archex_adapter_registry/archex_query_fusion`
+- `archex_adapter_registry/archex_query_fusion_rerank`
+- `archex_project_init/archex_query_fusion`
+- `archex_project_init/archex_query_fusion_rerank`
+- `archex_project_reset/archex_query_fusion`
+- `archex_project_reset/archex_query_fusion_rerank`
+- `archex_query_cache_lifecycle/archex_query_fusion`
+- `archex_query_cache_lifecycle/archex_query_fusion_rerank`
+- `fastapi_dependency_injection/archex_query_fusion_rerank`
+
+Operator commands:
+
+```bash
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --tasks-dir benchmarks/tasks --output .archex/file-stage-control-full
+uv run archex benchmark run --query-fusion --rerank --embedder jina-v2 --bm25-chunker default --vector-chunker cast --dual-leg-orchestration --file-stage-orchestration --tasks-dir benchmarks/tasks --output .archex/file-stage-candidate-full
+uv run archex benchmark gate --input .archex/file-stage-candidate-full --baseline .archex/file-stage-control-full --warn-latency-ms 3000
+```
