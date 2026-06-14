@@ -38,6 +38,14 @@ def implementation_gate_paths(args: Sequence[str]) -> bool:
         return True
     if not paths:
         return False
+    if any(
+        path == "tests/pipeline" or path.startswith("tests/pipeline/") for path in paths
+    ) and any(path == "tests/benchmark" or path.startswith("tests/benchmark/") for path in paths):
+        allowed_prefixes = ("tests/pipeline", "tests/index", "tests/benchmark")
+        return all(
+            any(path == prefix or path.startswith(f"{prefix}/") for prefix in allowed_prefixes)
+            for path in paths
+        )
     if any(path.startswith("tests/benchmark") for path in paths):
         allowed_prefixes = ("tests/analyze", "tests/benchmark", "tests/serve")
         return all(

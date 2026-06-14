@@ -17,7 +17,7 @@ from archex.parse import (
     extract_symbols_and_imports,
     resolve_imports,
 )
-from archex.pipeline.chunker import ASTChunker
+from archex.pipeline.chunker import create_chunker
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def build_chunks(
     strict: bool = False,
 ) -> list[CodeChunk]:
     """Build code chunks from parsed files with source-bytes hydration."""
-    file_chunker: Chunker = chunker if chunker is not None else ASTChunker(config=index_config)
+    file_chunker: Chunker = chunker if chunker is not None else create_chunker(index_config)
     return file_chunker.chunk_files(parsed_files, _read_sources(files, strict=strict))
 
 
@@ -214,7 +214,7 @@ def produce_artifacts(
     sources = _read_sources(artifacts.files, strict=strict)
 
     # Stage 3: chunk
-    chunker: Chunker = ASTChunker(config=effective_index_config)
+    chunker: Chunker = create_chunker(effective_index_config)
     chunks = chunker.chunk_files(artifacts.parsed_files, sources)
 
     # Stage 4: build dependency edges
