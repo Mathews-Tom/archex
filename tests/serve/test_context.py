@@ -800,6 +800,64 @@ def test_expansion_metadata_records_file_reasons_without_changing_output() -> No
     assert meta.expansion_reason_counts["test_file"] == 1
 
 
+def test_strict_expansion_seed_filter_drops_support_seed_files() -> None:
+    from archex.serve.context import _strict_expansion_seed_files  # pyright: ignore[reportPrivateUsage]
+
+    seeds = {
+        "src/archex/project.py",
+        "src/archex/serve/compare/state_management.py",
+        "tests/acquire/test_local.py",
+    }
+
+    filtered = _strict_expansion_seed_files(seeds, {"project", "state"})
+
+    assert filtered == {"src/archex/project.py"}
+
+
+def test_strict_expansion_controls_skip_support_and_keep_entry_point() -> None:
+    graph = DependencyGraph()
+    for file_path in (
+        "src/app/project.py",
+        "src/app/core.py",
+        "src/cli/main.py",
+        "src/serve/compare/state_management.py",
+    ):
+        graph.add_file_node(file_path)
+    graph.add_file_edge("src/app/project.py", "src/app/core.py", kind="imports")
+    graph.add_file_edge("src/app/project.py", "src/cli/main.py", kind="imports")
+    graph.add_file_edge(
+        "src/app/project.py",
+        "src/serve/compare/state_management.py",
+        kind="imports",
+    )
+
+    seed_chunk = make_chunk("seed", "src/app/project.py", token_count=10)
+    core_chunk = make_chunk("core", "src/app/core.py", token_count=10)
+    main_chunk = make_chunk("main", "src/cli/main.py", token_count=10)
+    support_chunk = make_chunk("support", "src/serve/compare/state_management.py", token_count=10)
+
+    bundle = assemble_context(
+        [(seed_chunk, 5.0)],
+        graph,
+        [seed_chunk, core_chunk, main_chunk, support_chunk],
+        "How does the project init command work?",
+        strict_expansion_controls=True,
+        modules=[
+            Module(
+                name="app",
+                root_path="src/app",
+                files=["src/app/project.py", "src/app/core.py"],
+            )
+        ],
+    )
+
+    included_files = {rc.chunk.file_path for rc in bundle.chunks}
+    assert "src/app/core.py" in included_files
+    assert "src/cli/main.py" in included_files
+    assert "src/serve/compare/state_management.py" not in included_files
+    assert bundle.retrieval_metadata.expansion_control_mode == "strict"
+
+
 def test_low_signal_hub_expansion_is_suppressed_without_dropping_aligned_file() -> None:
     graph = DependencyGraph()
     for file_path in (

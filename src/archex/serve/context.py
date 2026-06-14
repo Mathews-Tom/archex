@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archex.models import (
@@ -110,6 +111,14 @@ def _is_support_file(file_path: str, query_terms: set[str]) -> bool:
     if any(marker in lower_path for marker in _SUPPORT_PATH_MARKERS):
         return not query_terms & _SUPPORT_QUERY_TERMS
     return False
+
+
+def _is_file_first_support_artifact(file_path: str) -> bool:
+    lower_path = file_path.lower()
+    if lower_path.startswith(("tests/", "benchmarks/", "docs/", ".github/")):
+        return True
+    suffix = Path(lower_path).suffix
+    return suffix in {".json", ".md", ".rst", ".toml", ".txt", ".yaml", ".yml"}
 
 
 def _type_definitions(chunks: list[RankedChunk]) -> list[TypeDefinition]:
@@ -775,6 +784,65 @@ def _is_low_signal_expansion_candidate(
     return not any(term in file_path.lower() for term in query_terms)
 
 
+def _strict_expansion_bonus(
+    file_path: str,
+    reasons: set[str],
+    source_count: int,
+    query_terms: set[str],
+) -> float:
+    lower_path = file_path.lower()
+    path_match = any(term in lower_path for term in query_terms)
+    bonus = 0.0
+    if "entry_point" in reasons:
+        bonus += 0.8
+    if "same_module" in reasons:
+        bonus += 0.5
+    if "import_target" in reasons:
+        bonus += 0.35
+    if path_match:
+        bonus += 0.25
+    if source_count >= 2:
+        bonus += 0.2
+    if "importer" in reasons and "import_target" not in reasons:
+        bonus -= 0.2
+    if "cross_module" in reasons and "same_module" not in reasons:
+        bonus -= 0.25
+    if "hub" in reasons and source_count < 2 and not path_match:
+        bonus -= 0.4
+    if _is_support_file(file_path, query_terms) or _is_file_first_support_artifact(file_path):
+        bonus -= 0.75
+    return bonus
+
+
+def _should_skip_strict_expansion_candidate(
+    file_path: str,
+    reasons: set[str],
+    source_count: int,
+    query_terms: set[str],
+) -> bool:
+    lower_path = file_path.lower()
+    path_match = any(term in lower_path for term in query_terms)
+    if _is_file_first_support_artifact(file_path):
+        return True
+    if _is_support_file(file_path, query_terms) and not (
+        "entry_point" in reasons or path_match or source_count >= 2
+    ):
+        return True
+    if "same_module" in reasons or "entry_point" in reasons:
+        return False
+    return "cross_module" in reasons and not (path_match or source_count >= 2)
+
+
+def _strict_expansion_seed_files(seed_files: set[str], query_terms: set[str]) -> set[str]:
+    filtered = {
+        file_path
+        for file_path in seed_files
+        if not _is_support_file(file_path, query_terms)
+        and not _is_file_first_support_artifact(file_path)
+    }
+    return filtered or seed_files
+
+
 def _hop2_expansion_priority(expansion: _Hop2Expansion) -> dict[str, float]:
     hop1_files = set(expansion.hop1_files_added)
     hop2_priority: dict[str, float] = {}
@@ -904,6 +972,7 @@ def assemble_context(
     avg_idf: float | None = None,
     reranker: object | None = None,
     rerank_candidate_limit: int = 4,
+    strict_expansion_controls: bool = False,
     apply_intent_budget: bool = True,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
@@ -1068,6 +1137,11 @@ def assemble_context(
     qualifying_seeds = [
         fp for fp in seed_files if norm_seed_scores.get(fp, 0.0) >= effective_expansion_min
     ]
+    expansion_control_mode = "strict" if strict_expansion_controls else "baseline"
+    expansion_seed_files = set(qualifying_seeds)
+    if strict_expansion_controls:
+        expansion_seed_files = _strict_expansion_seed_files(expansion_seed_files, q_terms)
+        qualifying_seeds = [fp for fp in qualifying_seeds if fp in expansion_seed_files]
     expansion_eligible_seeds = len(qualifying_seeds)
     logger.debug(
         "graph_expansion: %d/%d seed files qualify (threshold=%.3f)",
@@ -1092,7 +1166,7 @@ def assemble_context(
     import_neighbor_edges = 0
     same_module_candidates: set[str] = set()
     hub_candidates: set[str] = set()
-    for file_path in seed_files:
+    for file_path in expansion_seed_files:
         # Only expand from seeds above the confidence threshold
         if norm_seed_scores.get(file_path, 0.0) < effective_expansion_min:
             continue
@@ -1199,7 +1273,21 @@ def assemble_context(
 
     sorted_expansion = sorted(
         expansion_priority.keys(),
-        key=lambda f: -expansion_priority[f],
+        key=lambda f: (
+            -(
+                expansion_priority[f]
+                + (
+                    _strict_expansion_bonus(
+                        f,
+                        expansion_reasons_by_file.get(f, set()),
+                        expansion_source_count.get(f, 0),
+                        q_terms,
+                    )
+                    if strict_expansion_controls
+                    else 0.0
+                )
+            )
+        ),
     )
 
     # Build chunk lookup by file
@@ -1208,7 +1296,7 @@ def assemble_context(
     # Collect candidate chunks (seed + file-capped expansion), dedup by id
     # Cap per-file to prevent one large file from monopolizing the expansion budget.
     # Skip test files in expansion — they add noise without improving relevance.
-    max_per_file = 1 if intent == QueryIntent.CLI else 3
+    max_per_file = 1 if intent == QueryIntent.CLI else (2 if strict_expansion_controls else 3)
     # Vector-only seeds participate in scoring even when BM25 returned nothing
     # for that file.
     candidate_map = _initial_candidate_map(search_results, effective_vector, effective_splade)
@@ -1216,6 +1304,7 @@ def assemble_context(
     expansion_test_candidates_skipped = 0
     hop1_files_added: list[str] = []
     expanded_file_paths: list[str] = []
+    max_expansion_files = 6 if strict_expansion_controls else MAX_EXPANSION_FILES
     for file_path in sorted_expansion:
         if _is_test_file(file_path):
             expansion_test_candidates_skipped += 1
@@ -1226,11 +1315,21 @@ def assemble_context(
                 "test_file",
             )
             continue
+        reasons = expansion_reasons_by_file.get(file_path, set())
+        source_count = expansion_source_count.get(file_path, 0)
         if _is_low_signal_expansion_candidate(
             file_path,
-            expansion_reasons_by_file.get(file_path, set()),
-            expansion_source_count.get(file_path, 0),
+            reasons,
+            source_count,
             q_terms,
+        ) or (
+            strict_expansion_controls
+            and _should_skip_strict_expansion_candidate(
+                file_path,
+                reasons,
+                source_count,
+                q_terms,
+            )
         ):
             _record_expansion_reason(
                 expansion_reasons_by_file,
@@ -1256,7 +1355,7 @@ def assemble_context(
             expansion_files_added += 1
             hop1_files_added.append(file_path)
             expanded_file_paths.append(file_path)
-        if expansion_files_added >= MAX_EXPANSION_FILES:
+        if expansion_files_added >= max_expansion_files:
             break
 
     expansion_zero_candidate_reason = _zero_expansion_reason(
@@ -1320,13 +1419,13 @@ def assemble_context(
                     "expansion_import_neighbor_edges": import_neighbor_edges,
                     "expansion_same_module_candidates": len(same_module_candidates),
                     "expansion_hub_candidates": len(hub_candidates),
-                    "expansion_test_candidates_skipped": expansion_test_candidates_skipped,
                     "expansion_zero_candidate_reason": expansion_zero_candidate_reason,
                     "expansion_reason_counts": ",".join(
                         f"{reason}:{count}"
                         for reason, count in sorted(expansion_reason_counts.items())
                     ),
                     "expanded_file_reasons": len(expanded_file_reasons),
+                    "expansion_control_mode": expansion_control_mode,
                 },
             )
         )
@@ -1572,10 +1671,10 @@ def assemble_context(
         expansion_zero_candidate_reason=expansion_zero_candidate_reason,
         expansion_import_neighbor_edges=import_neighbor_edges,
         expansion_same_module_candidates=len(same_module_candidates),
-        expansion_hub_candidates=len(hub_candidates),
         expansion_test_candidates_skipped=expansion_test_candidates_skipped,
         expansion_reason_counts=dict(expansion_reason_counts),
         expanded_file_reasons=expanded_file_reasons,
+        expansion_control_mode=expansion_control_mode,
         bm25_cv=bm25_cv_val,
         splade_results=len(splade_results or []),
         splade_used=bool(effective_splade),

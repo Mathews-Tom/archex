@@ -688,6 +688,7 @@ class TestRunCommand:
                 "run",
                 "--dual-leg-orchestration",
                 "--file-stage-orchestration",
+                "--strict-expansion-controls",
                 "--bm25-chunker",
                 "default",
                 "--vector-chunker",
@@ -700,6 +701,7 @@ class TestRunCommand:
             vector_chunker="cast",
             dual_leg_orchestration=True,
             file_stage_orchestration=True,
+            strict_expansion_controls=True,
         )
 
     def test_run_rejects_file_stage_without_dual_leg(
@@ -732,6 +734,19 @@ class TestRunCommand:
         )
         assert result.exit_code != 0
         assert "requires different --bm25-chunker and --vector-chunker" in result.output
+
+    def test_run_rejects_strict_expansion_without_file_stage(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        result = runner.invoke(
+            benchmark_cmd,
+            ["run", "--dual-leg-orchestration", "--strict-expansion-controls"],
+        )
+        assert result.exit_code != 0
+        assert "--strict-expansion-controls requires --file-stage-orchestration" in result.output
 
     def test_run_passes_rerank_model_flag(
         self,

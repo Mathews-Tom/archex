@@ -1534,6 +1534,7 @@ def query_dual_leg_benchmark(
     timing: PipelineTiming | None = None,
     trace: PipelineTrace | None = None,
     file_stage_orchestration: bool = False,
+    strict_expansion_controls: bool = False,
 ) -> ContextBundle:
     """Benchmark-only query path using separate BM25 and vector chunk inventories."""
     if bm25_index_config.splade or vector_index_config.splade:
@@ -1585,6 +1586,10 @@ def query_dual_leg_benchmark(
                 total_repo_tokens=bm25_total_repo_tokens,
                 bm25_chunker=bm25_index_config.chunker,
                 vector_chunker=vector_index_config.chunker,
+            )
+            bundle.retrieval_metadata.file_stage_orchestration = file_stage_orchestration
+            bundle.retrieval_metadata.expansion_control_mode = (
+                "strict" if strict_expansion_controls else "baseline"
             )
             bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
             if timing is not None:
@@ -1691,6 +1696,7 @@ def query_dual_leg_benchmark(
                         "vector_results_projected": len(projected_vector_results),
                         "vector_projection_misses": projection_misses,
                         "file_stage_orchestration": file_stage_orchestration,
+                        "strict_expansion_controls": strict_expansion_controls,
                         "file_stage_selected_files": len(selected_files or ()),
                         "top_k": top_k,
                         "vector_top_k": vector_top_k,
@@ -1709,7 +1715,11 @@ def query_dual_leg_benchmark(
             avg_idf=bm25.avg_idf(question) if filtered_vector_results else None,
             reranker=_maybe_reranker(vector_index_config),
             rerank_candidate_limit=vector_index_config.rerank_candidate_limit,
+            strict_expansion_controls=strict_expansion_controls,
             apply_intent_budget=False,
+        )
+        bundle.retrieval_metadata.expansion_control_mode = (
+            "strict" if strict_expansion_controls else "baseline"
         )
         bundle.retrieval_metadata.file_stage_orchestration = file_stage_orchestration
         bundle.retrieval_metadata.vector_mode = vector_index_config.vector_mode

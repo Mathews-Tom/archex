@@ -636,6 +636,7 @@ class RetrievalMetadata(BaseModel):
     bm25_chunker: ChunkerName | None = None
     vector_chunker: ChunkerName | None = None
     file_stage_orchestration: bool = False
+    expansion_control_mode: str = "baseline"
     index_chunk_count: int = 0
     mean_chunk_tokens: float = 0.0
 
