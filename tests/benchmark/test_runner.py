@@ -325,7 +325,7 @@ class TestRunBenchmark:
         from archex.models import Config, ContextBundle, IndexConfig, RepoSource
 
         task, repo_path = fixture_task
-        captured: list[tuple[str, str, str, str, bool, bool, bool]] = []
+        captured: list[tuple[str, str, str, str, bool, bool, bool, bool]] = []
 
         def fake_dual_leg_query(
             *,
@@ -341,6 +341,7 @@ class TestRunBenchmark:
             trace: object | None = None,
             file_stage_orchestration: bool = False,
             direct_file_preservation: bool = False,
+            delta_cache_preservation: bool = False,
         ) -> ContextBundle:
             del question, token_budget, config, scoring_weights, timing, trace
             captured.append(
@@ -352,6 +353,7 @@ class TestRunBenchmark:
                     vector_index_config.rerank,
                     file_stage_orchestration,
                     direct_file_preservation,
+                    delta_cache_preservation,
                 )
             )
             return ContextBundle(query=task.question, token_budget=task.token_budget)
@@ -366,6 +368,7 @@ class TestRunBenchmark:
                     dual_leg_orchestration=True,
                     file_stage_orchestration=True,
                     direct_file_preservation=True,
+                    delta_cache_preservation=True,
                 ),
             )
 
@@ -376,6 +379,7 @@ class TestRunBenchmark:
                 "default",
                 "cast",
                 False,
+                True,
                 True,
                 True,
             )

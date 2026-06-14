@@ -189,6 +189,53 @@ class TestProjectResultsToCorpus:
             "src/archex/parse/adapters/python.py",
         }
 
+    def test_select_delta_cache_preserved_files_keeps_delta_cache_bridge(self) -> None:
+        import archex.api as api_mod
+
+        lexical = [
+            (_chunk(file_path="src/archex/index/delta.py", token_count=8), 9.0),
+            (_chunk(file_path="src/archex/index/store.py", token_count=8), 8.0),
+        ]
+        all_chunks = [
+            _chunk(file_path="src/archex/index/delta.py", token_count=8),
+            _chunk(file_path="src/archex/cache.py", token_count=8),
+        ]
+
+        selected = api_mod.__dict__["_select_delta_cache_preserved_files"](
+            "How does delta indexing detect and apply changes?",
+            lexical,
+            all_chunks,
+            {"src/archex/index/delta.py"},
+        )
+
+        assert selected == {"src/archex/cache.py"}
+
+    def test_select_delta_cache_preserved_files_keeps_vector_contract_files(self) -> None:
+        import archex.api as api_mod
+
+        lexical = [
+            (_chunk(file_path="src/archex/index/vector.py", token_count=8), 9.0),
+            (_chunk(file_path="src/archex/cache.py", token_count=8), 8.0),
+        ]
+        all_chunks = [
+            _chunk(file_path="src/archex/index/vector.py", token_count=8),
+            _chunk(file_path="src/archex/cache.py", token_count=8),
+            _chunk(file_path="src/archex/models.py", token_count=8),
+            _chunk(file_path="src/archex/index/embeddings/base.py", token_count=8),
+        ]
+
+        selected = api_mod.__dict__["_select_delta_cache_preserved_files"](
+            "How does archex build, cache, and reload vector indexes for query retrieval?",
+            lexical,
+            all_chunks,
+            {"src/archex/index/vector.py", "src/archex/cache.py"},
+        )
+
+        assert selected == {
+            "src/archex/models.py",
+            "src/archex/index/embeddings/base.py",
+        }
+
     def test_dual_leg_query_uses_passthrough_when_budget_covers_corpus(self) -> None:
         from archex.api import query_dual_leg_benchmark
         from archex.models import Config, IndexConfig, RepoSource

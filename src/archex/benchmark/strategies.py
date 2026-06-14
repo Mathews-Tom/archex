@@ -1305,6 +1305,7 @@ def _run_benchmark_fusion_query(
             timing=timing,
             file_stage_orchestration=options.file_stage_orchestration,
             direct_file_preservation=options.direct_file_preservation,
+            delta_cache_preservation=options.delta_cache_preservation,
         )
     source = benchmark_repo_source(task, repo_path, strategy=strategy)
     index_config = benchmark_index_config(

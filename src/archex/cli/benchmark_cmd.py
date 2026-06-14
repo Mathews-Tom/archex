@@ -198,6 +198,14 @@ def benchmark_cmd() -> None:
     ),
 )
 @click.option(
+    "--delta-cache-preservation/--no-delta-cache-preservation",
+    default=False,
+    help=(
+        "Benchmark-only path: preserve direct delta-indexing and vector-cache lifecycle "
+        "files on top of direct file preservation."
+    ),
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -229,6 +237,7 @@ def run_cmd(
     dual_leg_orchestration: bool,
     file_stage_orchestration: bool,
     direct_file_preservation: bool,
+    delta_cache_preservation: bool,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -250,6 +259,8 @@ def run_cmd(
         )
     if direct_file_preservation and not file_stage_orchestration:
         raise click.UsageError("--direct-file-preservation requires --file-stage-orchestration")
+    if delta_cache_preservation and not direct_file_preservation:
+        raise click.UsageError("--delta-cache-preservation requires --direct-file-preservation")
     if query_fusion and Strategy.ARCHEX_QUERY_FUSION not in strategies:
         strategies.append(Strategy.ARCHEX_QUERY_FUSION)
     if cross_layer_fusion and Strategy.CROSS_LAYER_FUSION not in strategies:
@@ -272,6 +283,7 @@ def run_cmd(
         dual_leg_orchestration=dual_leg_orchestration,
         file_stage_orchestration=file_stage_orchestration,
         direct_file_preservation=direct_file_preservation,
+        delta_cache_preservation=delta_cache_preservation,
     )
     warmed_models = warm_benchmark_models(strategies, retrieval_options)
     if warmed_models:
