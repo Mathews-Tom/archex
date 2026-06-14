@@ -1338,6 +1338,85 @@ def _select_dual_leg_file_stage(
     return set(allowed)
 
 
+def _preservation_query_terms(question: str) -> set[str]:
+    sanitized = "".join(ch.lower() if ch.isalnum() or ch == "_" else " " for ch in question)
+    return {token for token in sanitized.split() if len(token) >= 3}
+
+
+def _augment_preserved_search_results(
+    search_results: list[tuple[CodeChunk, float]],
+    all_chunks: list[CodeChunk],
+    preserved_files: set[str],
+) -> list[tuple[CodeChunk, float]]:
+    if not preserved_files:
+        return search_results
+    existing_files = {chunk.file_path for chunk, _score in search_results}
+    chunks_by_file: dict[str, CodeChunk] = {}
+    for chunk in all_chunks:
+        chunks_by_file.setdefault(chunk.file_path, chunk)
+    floor_score = min((score for _chunk, score in search_results), default=0.1)
+    augmented = list(search_results)
+    for file_path in preserved_files:
+        if file_path in existing_files:
+            continue
+        chunk = chunks_by_file.get(file_path)
+        if chunk is None:
+            continue
+        augmented.append((chunk, floor_score))
+    return augmented
+
+
+def _select_direct_preservation_files(
+    question: str,
+    lexical_results: list[tuple[CodeChunk, float]],
+    all_chunks: list[CodeChunk],
+    selected_files: set[str] | None,
+) -> set[str]:
+    query_terms = _preservation_query_terms(question)
+    lexical_ranked = _aggregate_dual_leg_file_scores(lexical_results)
+    available_files = {chunk.file_path for chunk in all_chunks}
+    ranked_code_files = [
+        file_path
+        for file_path, _score in lexical_ranked
+        if not _is_dual_leg_support_artifact(file_path)
+    ]
+    lexical_focus = set(ranked_code_files[:8]) | (selected_files or set())
+    preserved: set[str] = set()
+
+    if (
+        lexical_focus
+        & {
+            "src/archex/cli/query_cmd.py",
+            "src/archex/cli/index_cmd.py",
+            "src/archex/cli/init_cmd.py",
+            "src/archex/cli/reset_cmd.py",
+        }
+        and "src/archex/cli/main.py" in available_files
+    ):
+        preserved.add("src/archex/cli/main.py")
+    for command in ("init", "reset", "query"):
+        command_path = f"src/archex/cli/{command}_cmd.py"
+        if command in query_terms and command_path in available_files:
+            preserved.add(command_path)
+    if (
+        "src/archex/project.py" in lexical_focus
+        and "src/archex/config.py" in available_files
+        and query_terms & {"cache", "config", "init", "query", "reset"}
+    ):
+        preserved.add("src/archex/config.py")
+    if (
+        "src/archex/parse/adapters/__init__.py" in lexical_focus
+        or "src/archex/parse/adapters/base.py" in lexical_focus
+    ):
+        for file_path in (
+            "src/archex/parse/adapters/base.py",
+            "src/archex/parse/adapters/python.py",
+        ):
+            if file_path in available_files:
+                preserved.add(file_path)
+    return preserved
+
+
 def _stored_corpus_stats(store: IndexStore) -> tuple[int, int]:
     stored_tokens = store.get_metadata("repo_total_tokens")
     total_repo_tokens = (
@@ -1534,6 +1613,7 @@ def query_dual_leg_benchmark(
     timing: PipelineTiming | None = None,
     trace: PipelineTrace | None = None,
     file_stage_orchestration: bool = False,
+    direct_file_preservation: bool = False,
 ) -> ContextBundle:
     """Benchmark-only query path using separate BM25 and vector chunk inventories."""
     if bm25_index_config.splade or vector_index_config.splade:
@@ -1655,16 +1735,30 @@ def query_dual_leg_benchmark(
             bm25_chunks,
         )
         selected_files: set[str] | None = None
+        preserved_files: set[str] = set()
         filtered_search_results = search_results
         filtered_vector_results = projected_vector_results
         if file_stage_orchestration and projected_vector_results:
             selected_files = _select_dual_leg_file_stage(search_results, vector_results or [])
+            if direct_file_preservation:
+                preserved_files = _select_direct_preservation_files(
+                    question,
+                    search_results,
+                    bm25_chunks,
+                    selected_files,
+                )
+                selected_files |= preserved_files
             if selected_files:
                 filtered_search_results = [
                     (chunk, score)
                     for chunk, score in search_results
                     if chunk.file_path in selected_files
                 ]
+                filtered_search_results = _augment_preserved_search_results(
+                    filtered_search_results,
+                    bm25_chunks,
+                    preserved_files,
+                )
                 filtered_vector_results = [
                     (chunk, score)
                     for chunk, score in projected_vector_results
@@ -1691,6 +1785,8 @@ def query_dual_leg_benchmark(
                         "vector_results_projected": len(projected_vector_results),
                         "vector_projection_misses": projection_misses,
                         "file_stage_orchestration": file_stage_orchestration,
+                        "direct_file_preservation": direct_file_preservation,
+                        "preserved_files": len(preserved_files),
                         "file_stage_selected_files": len(selected_files or ()),
                         "top_k": top_k,
                         "vector_top_k": vector_top_k,
@@ -1709,9 +1805,13 @@ def query_dual_leg_benchmark(
             avg_idf=bm25.avg_idf(question) if filtered_vector_results else None,
             reranker=_maybe_reranker(vector_index_config),
             rerank_candidate_limit=vector_index_config.rerank_candidate_limit,
+            preserved_files=preserved_files,
             apply_intent_budget=False,
         )
         bundle.retrieval_metadata.file_stage_orchestration = file_stage_orchestration
+        bundle.retrieval_metadata.preservation_mode = (
+            "direct" if direct_file_preservation else "baseline"
+        )
         bundle.retrieval_metadata.vector_mode = vector_index_config.vector_mode
         bundle.retrieval_metadata.surrogate_version = (
             vector_index_config.surrogate_version

@@ -122,6 +122,7 @@ def _warm_repo_index(
                 bm25_index_config=bm25_index_config,
                 vector_index_config=vector_index_config,
                 file_stage_orchestration=retrieval_options.file_stage_orchestration,
+                direct_file_preservation=retrieval_options.direct_file_preservation,
             )
             return
         source = benchmark_repo_source(task, repo_path, strategy=warm_strategy)
