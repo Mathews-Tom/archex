@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy, TaskCategory
 from archex.benchmark.reporter import (
     format_bucketed_summary,
+    format_chunker_frontier_table,
     format_json,
     format_markdown,
     format_strategy_comparison,
     format_summary,
 )
+
+if TYPE_CHECKING:
+    from archex.models import ChunkerName
 
 
 def _make_result(
@@ -21,6 +27,9 @@ def _make_result(
     tokens_input: int = 2000,
     tokens_output: int = 1000,
     token_efficiency: float = 0.5,
+    chunker: ChunkerName = "default",
+    index_chunk_count: int = 10,
+    mean_chunk_tokens: float = 50.0,
     category: TaskCategory | None = None,
 ) -> BenchmarkResult:
     return BenchmarkResult(
@@ -38,6 +47,9 @@ def _make_result(
         wall_time_ms=50.0,
         cached=False,
         timestamp="2025-01-01T00:00:00Z",
+        chunker=chunker,
+        index_chunk_count=index_chunk_count,
+        mean_chunk_tokens=mean_chunk_tokens,
         category=category,
     )
 
@@ -190,3 +202,41 @@ class TestFormatBucketedSummary:
         assert "external-framework (1 tasks)" in output
         assert "All Tasks (2 tasks)" in output
         assert "Seed Recall" in output
+
+
+class TestFormatChunkerFrontierTable:
+    def test_contains_quality_latency_and_granularity_axes(self) -> None:
+        baseline = _make_report(
+            [
+                _make_result(
+                    Strategy.ARCHEX_QUERY_FUSION_RERANK,
+                    recall=0.80,
+                    precision=0.40,
+                    token_efficiency=0.60,
+                    chunker="default",
+                    index_chunk_count=100,
+                    mean_chunk_tokens=80.0,
+                )
+            ]
+        )
+        candidate = _make_report(
+            [
+                _make_result(
+                    Strategy.ARCHEX_QUERY_FUSION_RERANK,
+                    recall=0.82,
+                    precision=0.42,
+                    token_efficiency=0.61,
+                    chunker="cast",
+                    index_chunk_count=120,
+                    mean_chunk_tokens=70.0,
+                )
+            ]
+        )
+
+        table = format_chunker_frontier_table([candidate], [baseline])
+
+        assert "Chunker Frontier Comparison" in table
+        assert "archex_query_fusion_rerank | default" in table
+        assert "archex_query_fusion_rerank | cast" in table
+        assert "Chunk Count" in table
+        assert "Mean Chunk Tokens" in table

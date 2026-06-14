@@ -89,7 +89,7 @@ from archex.parse import (
     resolve_imports,
 )
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
-from archex.pipeline.chunker import Chunker, create_chunker
+from archex.pipeline.chunker import Chunker, chunker_revision, create_chunker
 from archex.pipeline.service import build_chunk_surrogates
 from archex.project import uses_project_cache_layout
 from archex.scout import (
@@ -128,11 +128,14 @@ def _cache_manager_for_source(source: RepoSource, config: Config) -> CacheManage
 
 
 def _index_config_metadata_matches(store: IndexStore, index_config: IndexConfig) -> bool:
-    return store.get_metadata("chunker") == index_config.chunker
+    return store.get_metadata("chunker") == index_config.chunker and store.get_metadata(
+        "chunker_revision"
+    ) == chunker_revision(index_config.chunker)
 
 
 def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> None:
     store.set_metadata("chunker", index_config.chunker)
+    store.set_metadata("chunker_revision", chunker_revision(index_config.chunker))
 
 
 def _full_index(
@@ -1350,6 +1353,20 @@ def _attach_refresh_metadata(bundle: ContextBundle, timing: PipelineTiming | Non
         )
 
 
+def _attach_index_metadata(
+    bundle: ContextBundle,
+    index_config: IndexConfig,
+    *,
+    chunk_count: int,
+    total_repo_tokens: int,
+) -> None:
+    bundle.retrieval_metadata.chunker = index_config.chunker
+    bundle.retrieval_metadata.index_chunk_count = chunk_count
+    bundle.retrieval_metadata.mean_chunk_tokens = (
+        total_repo_tokens / chunk_count if chunk_count else 0.0
+    )
+
+
 def _query_by_scout_handles(
     source: RepoSource,
     question: str,
@@ -1369,9 +1386,21 @@ def _query_by_scout_handles(
     store = _ensure_index(source, config, timing=timing, index_config=index_config)
     try:
         chunks = _chunks_for_scout_handles(store, handles)
+        stored_tokens = store.get_metadata("repo_total_tokens")
+        total_repo_tokens = (
+            int(stored_tokens) if stored_tokens is not None else store.get_total_tokens()
+        )
+        stored_count = store.get_metadata("chunk_count")
+        chunk_count = int(stored_count) if stored_count is not None else len(store.get_chunks())
     finally:
         store.close()
     bundle = _context_bundle_for_handle_chunks(question, chunks, token_budget)
+    _attach_index_metadata(
+        bundle,
+        index_config,
+        chunk_count=chunk_count,
+        total_repo_tokens=total_repo_tokens,
+    )
     bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
     if timing is not None:
         timing.search_ms = bundle.retrieval_metadata.assembly_time_ms
@@ -1628,6 +1657,12 @@ def query(
                     if trace is not None:
                         trace.end_ns = time.perf_counter_ns()
                         trace.log_summary()
+                    _attach_index_metadata(
+                        pt,
+                        index_config,
+                        chunk_count=chunk_count,
+                        total_repo_tokens=total_repo_tokens,
+                    )
                     _attach_refresh_metadata(pt, metadata_timing)
                     return pt
 
@@ -1773,6 +1808,7 @@ def query(
                     trace=trace,
                     avg_idf=query_avg_idf,
                     reranker=_reranker,
+                    rerank_candidate_limit=index_config.rerank_candidate_limit,
                     apply_intent_budget=False,
                 )
                 bundle.retrieval_metadata.vector_mode = index_config.vector_mode
@@ -1780,6 +1816,12 @@ def query(
                     index_config.surrogate_version
                     if index_config.vector_mode == VectorMode.SURROGATE
                     else None
+                )
+                _attach_index_metadata(
+                    bundle,
+                    index_config,
+                    chunk_count=chunk_count,
+                    total_repo_tokens=total_repo_tokens,
                 )
                 if timing is not None:
                     timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
@@ -2012,6 +2054,12 @@ def query(
                     trace.log_summary()
                 pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
                 logger.info("query() [passthrough] completed in %.0fms", _elapsed_ms(t0))
+                _attach_index_metadata(
+                    pt,
+                    index_config,
+                    chunk_count=len(all_chunks),
+                    total_repo_tokens=total_repo_tokens,
+                )
                 _attach_refresh_metadata(pt, metadata_timing)
                 return pt
 
@@ -2130,6 +2178,7 @@ def query(
                 trace=trace,
                 avg_idf=query_avg_idf_miss,
                 reranker=_reranker_miss,
+                rerank_candidate_limit=index_config.rerank_candidate_limit,
                 apply_intent_budget=False,
             )
             bundle.retrieval_metadata.vector_mode = index_config.vector_mode
@@ -2151,6 +2200,12 @@ def query(
         if trace is not None:
             trace.end_ns = time.perf_counter_ns()
             trace.log_summary()
+        _attach_index_metadata(
+            bundle,
+            index_config,
+            chunk_count=len(all_chunks),
+            total_repo_tokens=total_repo_tokens,
+        )
         _attach_refresh_metadata(bundle, metadata_timing)
         return bundle
     finally:

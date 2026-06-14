@@ -251,7 +251,7 @@ class TestRunBenchmark:
         from archex.models import ContextBundle, IndexConfig
 
         task, repo_path = fixture_task
-        captured: list[tuple[str | None, bool, str | None]] = []
+        captured: list[tuple[str | None, bool, str | None, str, int]] = []
 
         def fake_query(
             _source: object,
@@ -264,7 +264,15 @@ class TestRunBenchmark:
         ) -> ContextBundle:
             del config
             del explicit_token_budget
-            captured.append((index_config.embedder, index_config.rerank, index_config.rerank_model))
+            captured.append(
+                (
+                    index_config.embedder,
+                    index_config.rerank,
+                    index_config.rerank_model,
+                    index_config.chunker,
+                    index_config.rerank_candidate_limit,
+                )
+            )
             return ContextBundle(
                 query=question,
                 chunks=[],
@@ -276,21 +284,26 @@ class TestRunBenchmark:
             runner_mod._warm_repo_index(  # pyright: ignore[reportPrivateUsage]
                 task,
                 repo_path,
-                BenchmarkRetrievalOptions(embedder="coderank"),
+                BenchmarkRetrievalOptions(
+                    embedder="coderank",
+                    vector_chunker="cast",
+                ),
             )
             runner_mod._warm_repo_index(  # pyright: ignore[reportPrivateUsage]
                 task,
                 repo_path,
                 BenchmarkRetrievalOptions(
                     embedder="coderank",
+                    vector_chunker="cast",
                     rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+                    rerank_candidate_limit=3,
                 ),
                 warm_rerank=True,
             )
 
         assert captured == [
-            ("coderank", False, None),
-            ("coderank", True, "cross-encoder/ms-marco-MiniLM-L-6-v2"),
+            ("coderank", False, None, "cast", 4),
+            ("coderank", True, "cross-encoder/ms-marco-MiniLM-L-6-v2", "cast", 3),
         ]
 
     def test_skips_warmup_for_raw_only_strategies(
@@ -446,7 +459,9 @@ class TestRunBenchmark:
             f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
         )
         source = benchmark_repo_source(task, repo_path)
-        assert source.stable_identity == f"test/python_simple@HEAD#embedder={jina_identity}"
+        assert source.stable_identity == (
+            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=default"
+        )
 
         token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(splade=True))
         try:
@@ -455,7 +470,7 @@ class TestRunBenchmark:
             reset_benchmark_retrieval_options(token)
 
         assert splade_source.stable_identity == (
-            f"test/python_simple@HEAD#embedder={jina_identity}+splade"
+            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=default+splade"
         )
 
         coderank_token = set_benchmark_retrieval_options(
@@ -466,6 +481,12 @@ class TestRunBenchmark:
         finally:
             reset_benchmark_retrieval_options(coderank_token)
 
+        cast_token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(chunker="cast"))
+        try:
+            cast_source = benchmark_repo_source(task, repo_path)
+        finally:
+            reset_benchmark_retrieval_options(cast_token)
+
         scoped_token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions())
         scoped_task = task.model_copy(update={"include_paths": ["src", "tests"]})
         try:
@@ -474,10 +495,39 @@ class TestRunBenchmark:
             reset_benchmark_retrieval_options(scoped_token)
 
         assert scoped_source.stable_identity == (
-            f"test/python_simple@HEAD#scope=src|tests+embedder={jina_identity}"
+            f"test/python_simple@HEAD#scope=src|tests+embedder={jina_identity}+chunker=default"
+        )
+        assert cast_source.stable_identity == (
+            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=cast"
         )
 
-        assert coderank_source.stable_identity == "test/python_simple@HEAD#embedder=coderank"
+        assert coderank_source.stable_identity == (
+            "test/python_simple@HEAD#embedder=coderank+chunker=default"
+        )
+
+        split_token = set_benchmark_retrieval_options(
+            BenchmarkRetrievalOptions(bm25_chunker="default", vector_chunker="cast")
+        )
+        try:
+            split_bm25_source = benchmark_repo_source(
+                task,
+                repo_path,
+                strategy=Strategy.ARCHEX_QUERY,
+            )
+            split_vector_source = benchmark_repo_source(
+                task,
+                repo_path,
+                strategy=Strategy.ARCHEX_QUERY_FUSION,
+            )
+        finally:
+            reset_benchmark_retrieval_options(split_token)
+
+        assert split_bm25_source.stable_identity == (
+            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=default"
+        )
+        assert split_vector_source.stable_identity == (
+            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=cast"
+        )
 
     def test_benchmark_index_config_applies_module_prefilter_only_with_bm25(self) -> None:
         from archex.benchmark.strategies import (
@@ -514,6 +564,7 @@ class TestRunBenchmark:
         assert vector_config.embedder == "jina-v2"
         assert vector_config.rerank_model is None
         assert rerank_config.rerank_model == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        assert bm25_config.chunker == "default"
         assert cache_enabled is True
 
 

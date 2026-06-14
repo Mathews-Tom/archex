@@ -367,6 +367,7 @@ def apply_delta(
         resolve_imports,
     )
     from archex.parse.adapters import default_adapter_registry
+    from archex.pipeline.chunker import chunker_revision
 
     t_start = time.perf_counter()
 
@@ -457,6 +458,7 @@ def apply_delta(
 
     # 6. Update metadata
     store.set_metadata("chunker", effective_index_config.chunker)
+    store.set_metadata("chunker_revision", chunker_revision(effective_index_config.chunker))
     store.set_metadata("repo_total_tokens", str(sum(chunk.token_count for chunk in all_chunks)))
     store.set_metadata("chunk_count", str(len(all_chunks)))
     store.set_metadata("commit_hash", manifest.current_commit)

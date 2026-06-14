@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 import tiktoken
 
 from archex.models import (
+    ChunkerName,
     CodeChunk,
     ImportStatement,
     IndexConfig,
@@ -477,6 +478,16 @@ class CastChunker(ASTChunker):
         result.sort(key=lambda c: c.start_line)
         _disambiguate_symbol_ids(result)
         return result
+
+
+_CHUNKER_REVISIONS: dict[ChunkerName, str] = {
+    "default": "v1",
+    "cast": "v2",
+}
+
+
+def chunker_revision(chunker: ChunkerName) -> str:
+    return _CHUNKER_REVISIONS[chunker]
 
 
 def create_chunker(config: IndexConfig | None = None) -> Chunker:

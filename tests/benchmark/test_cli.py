@@ -543,6 +543,93 @@ class TestRunCommand:
         assert result.exit_code == 0
         assert captured["retrieval_options"] == BenchmarkRetrievalOptions(embedder="coderank")
 
+    def test_run_passes_chunker_flag(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter, self_only, progress, tasks
+            captured["retrieval_options"] = retrieval_options
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(benchmark_cmd, ["run", "--chunker", "cast"])
+        assert result.exit_code == 0
+        assert captured["retrieval_options"] == BenchmarkRetrievalOptions(chunker="cast")
+
+    def test_run_passes_strategy_chunker_flags(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter, self_only, progress, tasks
+            captured["retrieval_options"] = retrieval_options
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(
+            benchmark_cmd,
+            ["run", "--bm25-chunker", "default", "--vector-chunker", "cast"],
+        )
+        assert result.exit_code == 0
+        assert captured["retrieval_options"] == BenchmarkRetrievalOptions(
+            bm25_chunker="default",
+            vector_chunker="cast",
+        )
+
+    def test_run_passes_rerank_candidate_limit_flag(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run_all(
+            tasks_dir: Path,
+            output_dir: Path,
+            strategies: list[Strategy] | None = None,
+            task_filter: str | None = None,
+            self_only: bool = False,
+            progress: object | None = None,
+            tasks: object | None = None,
+            retrieval_options: BenchmarkRetrievalOptions | None = None,
+        ) -> list[BenchmarkReport]:
+            del tasks_dir, output_dir, strategies, task_filter, self_only, progress, tasks
+            captured["retrieval_options"] = retrieval_options
+            return []
+
+        monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
+        monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
+        result = runner.invoke(benchmark_cmd, ["run", "--rerank-candidate-limit", "3"])
+        assert result.exit_code == 0
+        assert captured["retrieval_options"] == BenchmarkRetrievalOptions(rerank_candidate_limit=3)
+
     def test_run_passes_rerank_model_flag(
         self,
         runner: CliRunner,

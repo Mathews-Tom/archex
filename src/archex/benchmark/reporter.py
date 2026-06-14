@@ -53,6 +53,19 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
 def _aggregate_strategy_metrics(
     reports: list[BenchmarkReport],
     fields: tuple[str, ...],
@@ -283,6 +296,57 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
         lines.append(f"- **{label}**: {best_strategy} ({best_count} wins)")
     lines.append("")
 
+    return "\n".join(lines)
+
+
+def format_chunker_frontier_table(
+    candidate_reports: list[BenchmarkReport],
+    baseline_reports: list[BenchmarkReport],
+) -> str:
+    """Render a default-vs-candidate chunker frontier table."""
+    if not candidate_reports or not baseline_reports:
+        return "No chunker frontier comparison available."
+
+    rows: dict[tuple[str, str], dict[str, list[float]]] = defaultdict(
+        lambda: {
+            "recall": [],
+            "precision": [],
+            "f1_score": [],
+            "token_efficiency": [],
+            "wall_time_ms": [],
+            "index_chunk_count": [],
+            "mean_chunk_tokens": [],
+        }
+    )
+    for report in [*baseline_reports, *candidate_reports]:
+        for result in report.results:
+            key = (result.strategy.value, result.chunker)
+            rows[key]["recall"].append(result.recall)
+            rows[key]["precision"].append(result.precision)
+            rows[key]["f1_score"].append(result.f1_score)
+            rows[key]["token_efficiency"].append(result.token_efficiency)
+            rows[key]["wall_time_ms"].append(result.wall_time_ms)
+            rows[key]["index_chunk_count"].append(float(result.index_chunk_count))
+            rows[key]["mean_chunk_tokens"].append(result.mean_chunk_tokens)
+
+    lines = [
+        "## Chunker Frontier Comparison",
+        "",
+        "| Strategy | Chunker | Recall | Precision | F1 | Token Efficiency | p95 ms "
+        "| Chunk Count | Mean Chunk Tokens |",
+        "|----------|---------|--------|-----------|----|------------------|--------|-------------|-------------------|",
+    ]
+    for strategy, chunker in sorted(rows):
+        metrics = rows[(strategy, chunker)]
+        lines.append(
+            f"| {strategy} | {chunker} | {_mean(metrics['recall']):.3f} "
+            f"| {_mean(metrics['precision']):.3f} | {_mean(metrics['f1_score']):.3f} "
+            f"| {_mean(metrics['token_efficiency']):.3f} "
+            f"| {_percentile(metrics['wall_time_ms'], 0.95):.0f} "
+            f"| {_mean(metrics['index_chunk_count']):.0f} "
+            f"| {_mean(metrics['mean_chunk_tokens']):.1f} |"
+        )
+    lines.append("")
     return "\n".join(lines)
 
 

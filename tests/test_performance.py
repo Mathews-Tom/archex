@@ -18,6 +18,7 @@ from archex.parse.adapters import ADAPTERS
 from archex.parse.engine import TreeSitterEngine
 from archex.parse.imports import parse_imports
 from archex.parse.symbols import extract_symbols, extract_symbols_and_imports
+from archex.pipeline.chunker import chunker_revision
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -333,6 +334,8 @@ class TestQueryCacheSkipsParse:
         store.insert_edges([Edge(source="t.py", target="u.py", kind=EdgeKind.IMPORTS)])
         bm25 = BM25Index(store)
         bm25.build([chunk])
+        store.set_metadata("chunker", "default")
+        store.set_metadata("chunker_revision", chunker_revision("default"))
         store.conn.execute("PRAGMA wal_checkpoint(FULL)")
         store.close()
 

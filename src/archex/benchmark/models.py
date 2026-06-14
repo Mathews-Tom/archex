@@ -7,6 +7,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from archex.models import (  # noqa: TCH001 — Pydantic needs at runtime
+    ChunkerName,
     DeltaMeta,
     PipelineTiming,
     SymbolKind,
@@ -142,6 +143,10 @@ class BenchmarkRetrievalOptions(BaseModel):
     embedder: str = "jina-v2"
     rerank_model: str | None = None
     freshness: bool = False
+    chunker: ChunkerName = "default"
+    bm25_chunker: ChunkerName | None = None
+    vector_chunker: ChunkerName | None = None
+    rerank_candidate_limit: int | None = None
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):
@@ -238,6 +243,9 @@ class BenchmarkResult(BaseModel):
     freshness_latency_ms: float = 0.0
     freshness_measured: bool = False
     freshness_correct: bool = False
+    chunker: ChunkerName = "default"
+    index_chunk_count: int = 0
+    mean_chunk_tokens: float = 0.0
 
 
 class BenchmarkReport(BaseModel):

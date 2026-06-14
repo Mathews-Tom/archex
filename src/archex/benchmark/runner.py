@@ -19,6 +19,7 @@ from archex.benchmark.models import (
     Strategy,
 )
 from archex.benchmark.strategies import (
+    benchmark_index_config,
     benchmark_repo_source,
     default_strategy_registry,
     reset_benchmark_retrieval_options,
@@ -92,17 +93,20 @@ def _warm_repo_index(
     from archex.api import query
     from archex.models import Config, IndexConfig
 
-    source = benchmark_repo_source(task, repo_path)
-    config = Config(cache=True, languages=task.languages)
     retrieval_options = retrieval_options or BenchmarkRetrievalOptions()
-    index_config = IndexConfig(
-        vector=True,
-        embedder=retrieval_options.embedder,
-        splade=retrieval_options.splade,
-        module_prefilter=retrieval_options.module_prefilter,
-        rerank=warm_rerank,
-        rerank_model=retrieval_options.rerank_model,
+    warm_strategy = (
+        Strategy.ARCHEX_QUERY_FUSION_RERANK if warm_rerank else Strategy.ARCHEX_QUERY_FUSION
     )
+    token = set_benchmark_retrieval_options(retrieval_options)
+    try:
+        source = benchmark_repo_source(task, repo_path, strategy=warm_strategy)
+        config = Config(cache=True, languages=task.languages)
+        index_config = benchmark_index_config(
+            IndexConfig(vector=True, rerank=warm_rerank),
+            strategy=warm_strategy,
+        )
+    finally:
+        reset_benchmark_retrieval_options(token)
     query(
         source,
         task.question,
