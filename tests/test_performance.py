@@ -359,7 +359,8 @@ class TestQueryCacheSkipsParse:
             from archex.api import query
 
             query(source, "what?", config=config)
-        parse_spy.assert_not_called()
+        parse_spy.assert_called_once()
+        assert parse_spy.call_args.args[0] == []
 
     def test_query_invalidates_stale_cache(self, tmp_path: Path, python_simple_repo: Path) -> None:
         """Cache with needs_reindex flag is invalidated and falls through to full pipeline."""
