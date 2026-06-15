@@ -12,6 +12,18 @@ archex turns a repository into a ranked, token-budgeted context bundle with symb
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [Claude Code / MCP](#mcp-and-claude-code) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
 
+<p align="center">
+  <a href="assets/archex-explainer.mp4">
+    <img src="assets/archex-infographic-landscape.png" alt="archex local code context workflow infographic" width="820">
+  </a>
+</p>
+
+<p align="center">
+  <a href="assets/archex-explainer.mp4">Watch the explainer</a> ·
+  <a href="assets/archex-infographic-landscape.svg">Open SVG infographic</a> ·
+  <a href="docs/ARCHEX_VS_COCOINDEX.md">Read the measured comparison</a>
+</p>
+
 ## Proof bar
 
 | Local-first | Interfaces | Language coverage | Public comparison |
