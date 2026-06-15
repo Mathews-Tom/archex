@@ -30,7 +30,11 @@ def warm_benchmark_models(
 
         default_embedder_registry.load_entry_points()
         embedder = default_embedder_registry.create(
-            IndexConfig(vector=True, embedder=retrieval_options.embedder)
+            IndexConfig(
+                vector=True,
+                embedder=retrieval_options.embedder,
+                allow_remote_code=retrieval_options.allow_remote_code,
+            )
         )
         if embedder is None:
             msg = "Benchmark vector strategy requires a configured embedder"
@@ -52,7 +56,10 @@ def warm_benchmark_models(
         from archex.index.rerank import DEFAULT_MODEL, CrossEncoderReranker
 
         rerank_model = retrieval_options.rerank_model or DEFAULT_MODEL
-        CrossEncoderReranker(model_name=rerank_model).warm()
+        CrossEncoderReranker(
+            model_name=rerank_model,
+            allow_remote_code=retrieval_options.allow_remote_code,
+        ).warm()
         warmed.append(rerank_model)
 
     return warmed

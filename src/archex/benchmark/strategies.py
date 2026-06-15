@@ -697,6 +697,8 @@ def benchmark_index_config(
         updates["module_prefilter"] = True
     if index_config.rerank and options.rerank_model is not None:
         updates["rerank_model"] = options.rerank_model
+    if options.allow_remote_code:
+        updates["allow_remote_code"] = True
     if index_config.rerank and options.rerank_candidate_limit is not None:
         updates["rerank_candidate_limit"] = options.rerank_candidate_limit
     if not updates:

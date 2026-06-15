@@ -51,7 +51,8 @@ class TestBenchmarkPreflight:
             dimension = 768
 
         class RecordingReranker:
-            def __init__(self, model_name: str) -> None:
+            def __init__(self, model_name: str, *, allow_remote_code: bool = False) -> None:
+                del allow_remote_code
                 self._model_name = model_name
 
             def warm(self) -> None:

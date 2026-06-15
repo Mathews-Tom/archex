@@ -40,12 +40,26 @@ def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int
     default=False,
     help="Build opt-in module responsibility summaries.",
 )
-def index_cmd(source: str, output_format: str, splade: bool, module_prefilter: bool) -> None:
+@click.option(
+    "--allow-remote-code",
+    is_flag=True,
+    default=False,
+    help="Allow explicitly selected pinned model paths that require Hugging Face remote code.",
+)
+def index_cmd(
+    source: str,
+    output_format: str,
+    splade: bool,
+    module_prefilter: bool,
+    allow_remote_code: bool,
+) -> None:
     """Build or refresh the index for SOURCE without running a query."""
     repo_source = RepoSource(local_path=source)
     repo_root = Path(source).expanduser().resolve()
     config = load_config(repo_source)
     index_config = load_index_config(repo_source)
+    if allow_remote_code:
+        index_config = index_config.model_copy(update={"allow_remote_code": True})
     if splade:
         index_config = index_config.model_copy(update={"splade": True})
     if module_prefilter:

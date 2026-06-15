@@ -7,11 +7,17 @@ import sys
 from typing import Any
 
 from archex.exceptions import ArchexIndexError
+from archex.index.model_policy import (
+    CODERANK_MODEL_ID,
+    CODERANK_MODEL_REVISION,
+    embedder_security_profile,
+    remote_code_trust_value,
+)
 
 logger = logging.getLogger(__name__)
 
-HF_MODEL_ID = "nomic-ai/CodeRankEmbed"
-HF_MODEL_REVISION = "3c4b60807d71f79b43f3c4363786d9493691f8b1"
+HF_MODEL_ID = CODERANK_MODEL_ID
+HF_MODEL_REVISION = CODERANK_MODEL_REVISION
 QUERY_PREFIX = "Represent this query for searching relevant code: "
 
 
@@ -44,9 +50,11 @@ class CodeRankEmbedder:
         self,
         model_name: str = HF_MODEL_ID,
         batch_size: int = 32,
+        allow_remote_code: bool = False,
     ) -> None:
         self._model_name = model_name
         self._batch_size = batch_size
+        self._allow_remote_code = allow_remote_code
         self._model: Any = None
         self._dimension: int | None = None
 
@@ -55,6 +63,11 @@ class CodeRankEmbedder:
         if self._model is not None:
             return
 
+        profile = embedder_security_profile("coderank")
+        trust_remote_code = remote_code_trust_value(
+            profile,
+            allow_remote_code=self._allow_remote_code,
+        )
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as e:
@@ -62,7 +75,6 @@ class CodeRankEmbedder:
                 "CodeRankEmbedder requires sentence-transformers. "
                 "Install with: uv add 'archex[vector-torch]'"
             ) from e
-
         device = _best_device()
         print(
             f"Loading embedding model '{self._model_name}' on {device} "
@@ -73,7 +85,7 @@ class CodeRankEmbedder:
         self._model = SentenceTransformer(
             self._model_name,
             revision=HF_MODEL_REVISION if self._model_name == HF_MODEL_ID else None,
-            trust_remote_code=True,
+            trust_remote_code=trust_remote_code,
             device=device,
         )
         self._dimension = self._model.get_sentence_embedding_dimension()

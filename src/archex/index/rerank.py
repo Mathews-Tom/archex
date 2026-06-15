@@ -8,14 +8,18 @@ from typing import TYPE_CHECKING, Any
 
 from archex.exceptions import ArchexIndexError
 from archex.index.huggingface import resolve_hf_model_path
+from archex.index.model_policy import (
+    JINA_RERANKER_MODEL,
+    JINA_RERANKER_REVISION,
+    remote_code_trust_value,
+    reranker_security_profile,
+)
 
 if TYPE_CHECKING:
     from archex.models import CodeChunk
 
 logger = logging.getLogger(__name__)
 
-JINA_RERANKER_MODEL = "jinaai/jina-reranker-v3"
-JINA_RERANKER_REVISION = "10fb694fc21f7a710a563ff1eb977a460f3868e4"
 DEFAULT_MODEL = JINA_RERANKER_MODEL
 MODEL_REVISIONS = {
     JINA_RERANKER_MODEL: JINA_RERANKER_REVISION,
@@ -100,8 +104,9 @@ class CrossEncoderReranker:
     candidates to improve precision without affecting recall.
     """
 
-    def __init__(self, model_name: str = DEFAULT_MODEL) -> None:
+    def __init__(self, model_name: str = DEFAULT_MODEL, *, allow_remote_code: bool = False) -> None:
         self._model_name = model_name
+        self._allow_remote_code = allow_remote_code
         self._model: Any = None
 
     def _uses_transformers_rerank_api(self) -> bool:
@@ -110,6 +115,12 @@ class CrossEncoderReranker:
     def _load_model(self) -> None:
         if self._model is not None:
             return
+
+        profile = reranker_security_profile(self._model_name)
+        trust_remote_code = remote_code_trust_value(
+            profile,
+            allow_remote_code=self._allow_remote_code,
+        )
 
         cached_model = _MODEL_CACHE.get(self._model_name)
         if cached_model is not None:
@@ -145,7 +156,7 @@ class CrossEncoderReranker:
                 model_path,
                 revision=revision,
                 dtype="auto",
-                trust_remote_code=True,
+                trust_remote_code=trust_remote_code,
             )
             if not hasattr(model, "rerank"):
                 raise ArchexIndexError(
@@ -167,7 +178,7 @@ class CrossEncoderReranker:
             cross_encoder: Any = CrossEncoder
             self._model = cross_encoder(
                 model_path,
-                trust_remote_code=True,
+                trust_remote_code=False,
                 device=device,
             )
             _ensure_padding_token(self._model)
