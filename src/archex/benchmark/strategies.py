@@ -14,6 +14,7 @@ from collections.abc import Callable
 from contextvars import ContextVar, Token
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from archex.benchmark.models import (
     BenchmarkResult,
@@ -803,23 +804,24 @@ def measure_archex_freshness(task: BenchmarkTask, repo_path: Path) -> tuple[floa
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
-    """archex query strategy: use BM25-based retrieval."""
+def _run_query_strategy(
+    task: BenchmarkTask,
+    repo_path: Path,
+    *,
+    strategy: Strategy,
+    index_config: IndexConfig,
+    cache: bool,
+    include_completion: bool = False,
+    measure_freshness: bool = False,
+) -> BenchmarkResult:
     from archex.api import query
     from archex.models import Config
 
     t0 = time.perf_counter()
     timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY)
-    config = Config(
-        cache=benchmark_cache_enabled(default=False),
-        languages=task.languages,
-    )
-    index_config = benchmark_index_config(
-        IndexConfig(vector=False),
-        strategy=Strategy.ARCHEX_QUERY,
-    )
-
+    source = benchmark_repo_source(task, repo_path, strategy=strategy)
+    config = Config(cache=cache, languages=task.languages)
+    index_config = benchmark_index_config(index_config, strategy=strategy)
     bundle = query(
         source,
         task.question,
@@ -830,77 +832,106 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         timing=timing,
     )
 
-    ranked_files = [c.chunk.file_path for c in bundle.chunks]
+    ranked_files = [chunk.chunk.file_path for chunk in bundle.chunks]
     unique_ranked = _deduplicate_ranked(ranked_files)
     result_files = set(unique_ranked)
     wall_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "Strategy %s for %s: cached=%s, wall_time=%.1fms",
+        strategy.value,
+        task.task_id,
+        timing.cached,
+        wall_ms,
+    )
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
-    f1 = compute_f1(recall, precision)
-    mrr_val = compute_mrr(ranked_files, task.expected_files)
-    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
-    map_val = compute_map(ranked_files, task.expected_files)
     af = _archex_fields(bundle, task, repo_path)
-    completion_tokens, completion_files = compute_bundle_completion_penalty(
-        repo_path, result_files, task.expected_files
-    )
-    if current_benchmark_retrieval_options().freshness:
-        freshness_latency_ms, freshness_correct = measure_archex_freshness(task, repo_path)
-    else:
-        freshness_latency_ms, freshness_correct = (0.0, False)
+    result_fields: dict[str, Any] = {
+        "task_id": task.task_id,
+        "strategy": strategy,
+        "tokens_total": bundle.token_count,
+        "tokens_input": af.tokens_input,
+        "tokens_output": af.tokens_output,
+        "token_efficiency": af.token_efficiency,
+        "tokens_raw_baseline": af.tokens_raw_baseline,
+        "symbol_recall": af.symbol_recall,
+        "tool_calls": 1,
+        "files_accessed": len(result_files),
+        "recall": recall,
+        "precision": precision,
+        "f1_score": compute_f1(recall, precision),
+        "mrr": compute_mrr(ranked_files, task.expected_files),
+        "ndcg": compute_ndcg(ranked_files, task.expected_files),
+        "map_score": compute_map(ranked_files, task.expected_files),
+        "savings_vs_raw": 0.0,
+        "wall_time_ms": wall_ms,
+        "cached": timing.cached,
+        "timing": timing,
+        "timestamp": now_iso(),
+        "unique_ranked_files": af.unique_ranked_files,
+        "seed_files": af.seed_files,
+        "expanded_files": af.expanded_files,
+        "expansion_ratio": af.expansion_ratio,
+        "seed_recall": af.seed_recall,
+        "seed_precision": af.seed_precision,
+        "expansion_eligible_seeds": af.expansion_eligible_seeds,
+        "expansion_candidates_found": af.expansion_candidates_found,
+        "expansion_import_neighbor_edges": af.expansion_import_neighbor_edges,
+        "expansion_same_module_candidates": af.expansion_same_module_candidates,
+        "expansion_hub_candidates": af.expansion_hub_candidates,
+        "expansion_test_candidates_skipped": af.expansion_test_candidates_skipped,
+        "expansion_zero_candidate_reason": af.expansion_zero_candidate_reason,
+        "expansion_reason_counts": af.expansion_reason_counts,
+        "expanded_file_reasons": af.expanded_file_reasons,
+        "chunker": af.chunker,
+        "index_chunk_count": af.index_chunk_count,
+        "mean_chunk_tokens": af.mean_chunk_tokens,
+        "category": task.category,
+        "vector_mode": index_config.vector_mode,
+        "surrogate_version": index_config.surrogate_version,
+        "cache_state": _cache_state(timing),
+    }
+    if include_completion:
+        completion_tokens, completion_files = compute_bundle_completion_penalty(
+            repo_path, result_files, task.expected_files
+        )
+        result_fields.update(
+            {
+                "result_files": unique_ranked,
+                "bundle_completion_tokens": completion_tokens,
+                "bundle_completion_files": completion_files,
+                "token_efficiency_with_completion": compute_token_efficiency(
+                    af.tokens_output + completion_tokens,
+                    af.tokens_input + completion_tokens,
+                ),
+            }
+        )
+    if measure_freshness:
+        freshness_measured = current_benchmark_retrieval_options().freshness
+        if freshness_measured:
+            freshness_latency_ms, freshness_correct = measure_archex_freshness(task, repo_path)
+        else:
+            freshness_latency_ms, freshness_correct = (0.0, False)
+        result_fields.update(
+            {
+                "freshness_latency_ms": freshness_latency_ms,
+                "freshness_measured": freshness_measured,
+                "freshness_correct": freshness_correct,
+            }
+        )
+    return BenchmarkResult(**result_fields)
 
-    return BenchmarkResult(
-        task_id=task.task_id,
+
+def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """archex query strategy: use BM25-based retrieval."""
+    return _run_query_strategy(
+        task,
+        repo_path,
         strategy=Strategy.ARCHEX_QUERY,
-        tokens_total=bundle.token_count,
-        tokens_input=af.tokens_input,
-        tokens_output=af.tokens_output,
-        token_efficiency=af.token_efficiency,
-        result_files=unique_ranked,
-        bundle_completion_tokens=completion_tokens,
-        bundle_completion_files=completion_files,
-        token_efficiency_with_completion=compute_token_efficiency(
-            af.tokens_output + completion_tokens, af.tokens_input + completion_tokens
-        ),
-        tokens_raw_baseline=af.tokens_raw_baseline,
-        symbol_recall=af.symbol_recall,
-        tool_calls=1,
-        files_accessed=len(result_files),
-        recall=recall,
-        precision=precision,
-        f1_score=f1,
-        mrr=mrr_val,
-        ndcg=ndcg_val,
-        map_score=map_val,
-        savings_vs_raw=0.0,  # backfilled by runner
-        wall_time_ms=wall_ms,
-        cached=timing.cached,
-        timing=timing,
-        timestamp=now_iso(),
-        unique_ranked_files=af.unique_ranked_files,
-        seed_files=af.seed_files,
-        expanded_files=af.expanded_files,
-        expansion_ratio=af.expansion_ratio,
-        seed_recall=af.seed_recall,
-        seed_precision=af.seed_precision,
-        expansion_eligible_seeds=af.expansion_eligible_seeds,
-        expansion_candidates_found=af.expansion_candidates_found,
-        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
-        expansion_same_module_candidates=af.expansion_same_module_candidates,
-        expansion_hub_candidates=af.expansion_hub_candidates,
-        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
-        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
-        expansion_reason_counts=af.expansion_reason_counts,
-        expanded_file_reasons=af.expanded_file_reasons,
-        chunker=af.chunker,
-        index_chunk_count=af.index_chunk_count,
-        mean_chunk_tokens=af.mean_chunk_tokens,
-        category=task.category,
-        vector_mode=index_config.vector_mode,
-        cache_state=_cache_state(timing),
-        freshness_latency_ms=freshness_latency_ms,
-        freshness_measured=current_benchmark_retrieval_options().freshness,
-        freshness_correct=freshness_correct,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+        include_completion=True,
+        measure_freshness=True,
     )
 
 
@@ -1063,442 +1094,72 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
 
 def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Pure vector retrieval strategy: vector search without BM25."""
-    from archex.api import query
-    from archex.models import Config
-
-    t0 = time.perf_counter()
-    timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY_VECTOR)
-    config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(
-        IndexConfig(bm25=False, vector=True),
+    return _run_query_strategy(
+        task,
+        repo_path,
         strategy=Strategy.ARCHEX_QUERY_VECTOR,
-    )
-
-    bundle = query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        explicit_token_budget=True,
-        config=config,
-        index_config=index_config,
-        timing=timing,
-    )
-
-    ranked_files = [c.chunk.file_path for c in bundle.chunks]
-    result_files = set(_deduplicate_ranked(ranked_files))
-    wall_ms = (time.perf_counter() - t0) * 1000
-    logger.info(
-        "Strategy %s for %s: cached=%s, wall_time=%.1fms",
-        "archex_query_vector",
-        task.task_id,
-        timing.cached,
-        wall_ms,
-    )
-    recall = compute_recall(result_files, task.expected_files)
-    precision = compute_precision(result_files, task.expected_files)
-    f1 = compute_f1(recall, precision)
-    mrr_val = compute_mrr(ranked_files, task.expected_files)
-    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
-    map_val = compute_map(ranked_files, task.expected_files)
-    af = _archex_fields(bundle, task, repo_path)
-
-    return BenchmarkResult(
-        task_id=task.task_id,
-        strategy=Strategy.ARCHEX_QUERY_VECTOR,
-        tokens_total=bundle.token_count,
-        tokens_input=af.tokens_input,
-        tokens_output=af.tokens_output,
-        token_efficiency=af.token_efficiency,
-        tokens_raw_baseline=af.tokens_raw_baseline,
-        symbol_recall=af.symbol_recall,
-        tool_calls=1,
-        files_accessed=len(result_files),
-        recall=recall,
-        precision=precision,
-        f1_score=f1,
-        mrr=mrr_val,
-        ndcg=ndcg_val,
-        map_score=map_val,
-        savings_vs_raw=0.0,  # backfilled by runner
-        wall_time_ms=wall_ms,
-        cached=timing.cached,
-        timing=timing,
-        timestamp=now_iso(),
-        unique_ranked_files=af.unique_ranked_files,
-        seed_files=af.seed_files,
-        expanded_files=af.expanded_files,
-        expansion_ratio=af.expansion_ratio,
-        seed_recall=af.seed_recall,
-        seed_precision=af.seed_precision,
-        expansion_eligible_seeds=af.expansion_eligible_seeds,
-        expansion_candidates_found=af.expansion_candidates_found,
-        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
-        expansion_same_module_candidates=af.expansion_same_module_candidates,
-        expansion_hub_candidates=af.expansion_hub_candidates,
-        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
-        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
-        expansion_reason_counts=af.expansion_reason_counts,
-        expanded_file_reasons=af.expanded_file_reasons,
-        chunker=af.chunker,
-        index_chunk_count=af.index_chunk_count,
-        mean_chunk_tokens=af.mean_chunk_tokens,
-        category=task.category,
-        vector_mode=index_config.vector_mode,
-        cache_state=_cache_state(timing),
+        index_config=IndexConfig(bm25=False, vector=True),
+        cache=True,
     )
 
 
 def run_surrogate_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Pure surrogate-vector retrieval strategy."""
-    from archex.api import query
-    from archex.models import Config, RetrievalPolicy, VectorMode
+    from archex.models import RetrievalPolicy, VectorMode
 
-    t0 = time.perf_counter()
-    timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path, strategy=Strategy.SURROGATE_VECTOR)
-    config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(
-        IndexConfig(
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.SURROGATE_VECTOR,
+        index_config=IndexConfig(
             bm25=False,
             vector=True,
             embedder=current_benchmark_retrieval_options().embedder,
             vector_mode=VectorMode.SURROGATE,
             retrieval_policy=RetrievalPolicy.VECTOR_ONLY,
         ),
-        strategy=Strategy.SURROGATE_VECTOR,
-    )
-
-    bundle = query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        explicit_token_budget=True,
-        config=config,
-        index_config=index_config,
-        timing=timing,
-    )
-
-    ranked_files = [c.chunk.file_path for c in bundle.chunks]
-    result_files = set(_deduplicate_ranked(ranked_files))
-    wall_ms = (time.perf_counter() - t0) * 1000
-    recall = compute_recall(result_files, task.expected_files)
-    precision = compute_precision(result_files, task.expected_files)
-    f1 = compute_f1(recall, precision)
-    mrr_val = compute_mrr(ranked_files, task.expected_files)
-    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
-    map_val = compute_map(ranked_files, task.expected_files)
-    af = _archex_fields(bundle, task, repo_path)
-
-    return BenchmarkResult(
-        task_id=task.task_id,
-        strategy=Strategy.SURROGATE_VECTOR,
-        tokens_total=bundle.token_count,
-        tokens_input=af.tokens_input,
-        tokens_output=af.tokens_output,
-        token_efficiency=af.token_efficiency,
-        tokens_raw_baseline=af.tokens_raw_baseline,
-        symbol_recall=af.symbol_recall,
-        tool_calls=1,
-        files_accessed=len(result_files),
-        recall=recall,
-        precision=precision,
-        f1_score=f1,
-        mrr=mrr_val,
-        ndcg=ndcg_val,
-        map_score=map_val,
-        savings_vs_raw=0.0,
-        wall_time_ms=wall_ms,
-        cached=timing.cached,
-        timing=timing,
-        timestamp=now_iso(),
-        unique_ranked_files=af.unique_ranked_files,
-        seed_files=af.seed_files,
-        expanded_files=af.expanded_files,
-        expansion_ratio=af.expansion_ratio,
-        seed_recall=af.seed_recall,
-        seed_precision=af.seed_precision,
-        expansion_eligible_seeds=af.expansion_eligible_seeds,
-        expansion_candidates_found=af.expansion_candidates_found,
-        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
-        expansion_same_module_candidates=af.expansion_same_module_candidates,
-        expansion_hub_candidates=af.expansion_hub_candidates,
-        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
-        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
-        expansion_reason_counts=af.expansion_reason_counts,
-        expanded_file_reasons=af.expanded_file_reasons,
-        chunker=af.chunker,
-        index_chunk_count=af.index_chunk_count,
-        mean_chunk_tokens=af.mean_chunk_tokens,
-        category=task.category,
-        vector_mode=index_config.vector_mode,
-        surrogate_version=index_config.surrogate_version,
-        cache_state=_cache_state(timing),
+        cache=True,
     )
 
 
 def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Full fusion strategy: BM25 + independent vector + confidence-aware RRF."""
-    from archex.api import query
-    from archex.models import Config
-
-    t0 = time.perf_counter()
-    timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY_FUSION)
-    config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(
-        IndexConfig(vector=True),
+    return _run_query_strategy(
+        task,
+        repo_path,
         strategy=Strategy.ARCHEX_QUERY_FUSION,
-    )
-
-    bundle = query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        explicit_token_budget=True,
-        config=config,
-        index_config=index_config,
-        timing=timing,
-    )
-
-    ranked_files = [c.chunk.file_path for c in bundle.chunks]
-    result_files = set(_deduplicate_ranked(ranked_files))
-    wall_ms = (time.perf_counter() - t0) * 1000
-    logger.info(
-        "Strategy %s for %s: cached=%s, wall_time=%.1fms",
-        "archex_query_fusion",
-        task.task_id,
-        timing.cached,
-        wall_ms,
-    )
-    recall = compute_recall(result_files, task.expected_files)
-    precision = compute_precision(result_files, task.expected_files)
-    f1 = compute_f1(recall, precision)
-    mrr_val = compute_mrr(ranked_files, task.expected_files)
-    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
-    map_val = compute_map(ranked_files, task.expected_files)
-    af = _archex_fields(bundle, task, repo_path)
-
-    return BenchmarkResult(
-        task_id=task.task_id,
-        strategy=Strategy.ARCHEX_QUERY_FUSION,
-        tokens_total=bundle.token_count,
-        tokens_input=af.tokens_input,
-        tokens_output=af.tokens_output,
-        token_efficiency=af.token_efficiency,
-        tokens_raw_baseline=af.tokens_raw_baseline,
-        symbol_recall=af.symbol_recall,
-        tool_calls=1,
-        files_accessed=len(result_files),
-        recall=recall,
-        precision=precision,
-        f1_score=f1,
-        mrr=mrr_val,
-        ndcg=ndcg_val,
-        map_score=map_val,
-        savings_vs_raw=0.0,  # backfilled by runner
-        wall_time_ms=wall_ms,
-        cached=timing.cached,
-        timing=timing,
-        timestamp=now_iso(),
-        unique_ranked_files=af.unique_ranked_files,
-        seed_files=af.seed_files,
-        expanded_files=af.expanded_files,
-        expansion_ratio=af.expansion_ratio,
-        seed_recall=af.seed_recall,
-        seed_precision=af.seed_precision,
-        expansion_eligible_seeds=af.expansion_eligible_seeds,
-        expansion_candidates_found=af.expansion_candidates_found,
-        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
-        expansion_same_module_candidates=af.expansion_same_module_candidates,
-        expansion_hub_candidates=af.expansion_hub_candidates,
-        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
-        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
-        expansion_reason_counts=af.expansion_reason_counts,
-        expanded_file_reasons=af.expanded_file_reasons,
-        chunker=af.chunker,
-        index_chunk_count=af.index_chunk_count,
-        mean_chunk_tokens=af.mean_chunk_tokens,
-        category=task.category,
-        vector_mode=index_config.vector_mode,
-        cache_state=_cache_state(timing),
+        index_config=IndexConfig(vector=True),
+        cache=True,
     )
 
 
 def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Fusion strategy with cross-encoder reranking: BM25 + vector + rerank."""
-    from archex.api import query
-    from archex.models import Config
-
-    t0 = time.perf_counter()
-    timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK)
-    config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(
-        IndexConfig(vector=True, rerank=True),
+    return _run_query_strategy(
+        task,
+        repo_path,
         strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK,
-    )
-
-    bundle = query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        explicit_token_budget=True,
-        config=config,
-        index_config=index_config,
-        timing=timing,
-    )
-
-    ranked_files = [c.chunk.file_path for c in bundle.chunks]
-    result_files = set(_deduplicate_ranked(ranked_files))
-    wall_ms = (time.perf_counter() - t0) * 1000
-    recall = compute_recall(result_files, task.expected_files)
-    precision = compute_precision(result_files, task.expected_files)
-    f1 = compute_f1(recall, precision)
-    mrr_val = compute_mrr(ranked_files, task.expected_files)
-    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
-    map_val = compute_map(ranked_files, task.expected_files)
-    af = _archex_fields(bundle, task, repo_path)
-
-    return BenchmarkResult(
-        task_id=task.task_id,
-        strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK,
-        tokens_total=bundle.token_count,
-        tokens_input=af.tokens_input,
-        tokens_output=af.tokens_output,
-        token_efficiency=af.token_efficiency,
-        tokens_raw_baseline=af.tokens_raw_baseline,
-        symbol_recall=af.symbol_recall,
-        tool_calls=1,
-        files_accessed=len(result_files),
-        recall=recall,
-        precision=precision,
-        f1_score=f1,
-        mrr=mrr_val,
-        ndcg=ndcg_val,
-        map_score=map_val,
-        savings_vs_raw=0.0,
-        wall_time_ms=wall_ms,
-        cached=timing.cached,
-        timing=timing,
-        timestamp=now_iso(),
-        unique_ranked_files=af.unique_ranked_files,
-        seed_files=af.seed_files,
-        expanded_files=af.expanded_files,
-        expansion_ratio=af.expansion_ratio,
-        seed_recall=af.seed_recall,
-        seed_precision=af.seed_precision,
-        expansion_eligible_seeds=af.expansion_eligible_seeds,
-        expansion_candidates_found=af.expansion_candidates_found,
-        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
-        expansion_same_module_candidates=af.expansion_same_module_candidates,
-        expansion_hub_candidates=af.expansion_hub_candidates,
-        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
-        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
-        expansion_reason_counts=af.expansion_reason_counts,
-        expanded_file_reasons=af.expanded_file_reasons,
-        chunker=af.chunker,
-        index_chunk_count=af.index_chunk_count,
-        mean_chunk_tokens=af.mean_chunk_tokens,
-        category=task.category,
-        vector_mode=index_config.vector_mode,
-        cache_state=_cache_state(timing),
+        index_config=IndexConfig(vector=True, rerank=True),
+        cache=True,
     )
 
 
 def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """BM25 over raw chunks plus vector retrieval over surrogates."""
-    from archex.api import query
-    from archex.models import Config, RetrievalPolicy, VectorMode
+    from archex.models import RetrievalPolicy, VectorMode
 
-    t0 = time.perf_counter()
-    timing = PipelineTiming()
-    source = benchmark_repo_source(task, repo_path, strategy=Strategy.CROSS_LAYER_FUSION)
-    config = Config(cache=True, languages=task.languages)
-    index_config = benchmark_index_config(
-        IndexConfig(
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.CROSS_LAYER_FUSION,
+        index_config=IndexConfig(
             vector=True,
             embedder=current_benchmark_retrieval_options().embedder,
             vector_mode=VectorMode.SURROGATE,
             retrieval_policy=RetrievalPolicy.CROSS_LAYER,
         ),
-        strategy=Strategy.CROSS_LAYER_FUSION,
+        cache=True,
     )
-
-    bundle = query(
-        source,
-        task.question,
-        token_budget=task.token_budget,
-        explicit_token_budget=True,
-        config=config,
-        index_config=index_config,
-        timing=timing,
-    )
-
-    ranked_files = [c.chunk.file_path for c in bundle.chunks]
-    result_files = set(_deduplicate_ranked(ranked_files))
-    wall_ms = (time.perf_counter() - t0) * 1000
-    recall = compute_recall(result_files, task.expected_files)
-    precision = compute_precision(result_files, task.expected_files)
-    f1 = compute_f1(recall, precision)
-    mrr_val = compute_mrr(ranked_files, task.expected_files)
-    ndcg_val = compute_ndcg(ranked_files, task.expected_files)
-    map_val = compute_map(ranked_files, task.expected_files)
-    af = _archex_fields(bundle, task, repo_path)
-
-    return BenchmarkResult(
-        task_id=task.task_id,
-        strategy=Strategy.CROSS_LAYER_FUSION,
-        tokens_total=bundle.token_count,
-        tokens_input=af.tokens_input,
-        tokens_output=af.tokens_output,
-        token_efficiency=af.token_efficiency,
-        tokens_raw_baseline=af.tokens_raw_baseline,
-        symbol_recall=af.symbol_recall,
-        tool_calls=1,
-        files_accessed=len(result_files),
-        recall=recall,
-        precision=precision,
-        f1_score=f1,
-        mrr=mrr_val,
-        ndcg=ndcg_val,
-        map_score=map_val,
-        savings_vs_raw=0.0,
-        wall_time_ms=wall_ms,
-        cached=timing.cached,
-        timing=timing,
-        timestamp=now_iso(),
-        unique_ranked_files=af.unique_ranked_files,
-        seed_files=af.seed_files,
-        expanded_files=af.expanded_files,
-        expansion_ratio=af.expansion_ratio,
-        seed_recall=af.seed_recall,
-        seed_precision=af.seed_precision,
-        expansion_eligible_seeds=af.expansion_eligible_seeds,
-        expansion_candidates_found=af.expansion_candidates_found,
-        expansion_import_neighbor_edges=af.expansion_import_neighbor_edges,
-        expansion_same_module_candidates=af.expansion_same_module_candidates,
-        expansion_hub_candidates=af.expansion_hub_candidates,
-        expansion_test_candidates_skipped=af.expansion_test_candidates_skipped,
-        expansion_zero_candidate_reason=af.expansion_zero_candidate_reason,
-        expansion_reason_counts=af.expansion_reason_counts,
-        expanded_file_reasons=af.expanded_file_reasons,
-        chunker=af.chunker,
-        index_chunk_count=af.index_chunk_count,
-        mean_chunk_tokens=af.mean_chunk_tokens,
-        category=task.category,
-        vector_mode=index_config.vector_mode,
-        surrogate_version=index_config.surrogate_version,
-        cache_state=_cache_state(timing),
-    )
-
-
-def run_archex_symbol_lookup(
-    task: BenchmarkTask,
-    repo_path: Path,
-) -> BenchmarkResult:
-    """Symbol lookup strategy — requires Enhancement 1+2."""
-    raise NotImplementedError("Requires Enhancement 1+2: Stable IDs + Precision Tools")
 
 
 class StrategyRegistry:
@@ -1565,5 +1226,4 @@ default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_FUSION_RERANK.value, run_archex_query_fusion_rerank
 )
 default_strategy_registry.register(Strategy.CROSS_LAYER_FUSION.value, run_cross_layer_fusion)
-default_strategy_registry.register(Strategy.ARCHEX_SYMBOL_LOOKUP.value, run_archex_symbol_lookup)
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)

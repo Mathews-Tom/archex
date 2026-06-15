@@ -39,7 +39,6 @@ class TestAvailableStrategies:
         assert Strategy.ARCHEX_SCOUT_FETCH in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY_FUSION in AVAILABLE_STRATEGIES
         assert Strategy.CROSS_LAYER_FUSION in AVAILABLE_STRATEGIES
-        assert Strategy.ARCHEX_SYMBOL_LOOKUP not in AVAILABLE_STRATEGIES
 
 
 class TestBenchmarkPreflight:
@@ -328,20 +327,6 @@ class TestRunBenchmark:
             repo_path=repo_path,
         )
         assert warmed == []
-
-    def test_symbol_lookup_skipped_gracefully(
-        self,
-        fixture_task: tuple[BenchmarkTask, Path],
-    ) -> None:
-        task, repo_path = fixture_task
-        report = run_benchmark(
-            task,
-            strategies=[Strategy.RAW_FILES, Strategy.ARCHEX_SYMBOL_LOOKUP],
-            repo_path=repo_path,
-        )
-        # symbol_lookup should be skipped, only raw_files in results
-        assert len(report.results) == 1
-        assert report.results[0].strategy == Strategy.RAW_FILES
 
     def test_default_strategies_used_when_none(
         self,

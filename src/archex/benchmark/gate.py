@@ -33,7 +33,6 @@ class QualityThresholds(BaseModel):
         "raw_files",
         "raw_grepped",
         "archex_query_vector",
-        "archex_symbol_lookup",
     }
     # Per-strategy threshold overrides; keyed by strategy value string
     strategy_thresholds: dict[str, QualityThresholds] = {}
