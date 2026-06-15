@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1.7
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    ARCHEX_VECTOR=true \
+    ARCHEX_EMBEDDER=fastembed
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /uvx /usr/local/bin/
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY src ./src
+
+RUN uv sync --frozen --no-dev --no-editable --extra mcp --extra vector-fast
+RUN uv run python -c "from fastembed import TextEmbedding; next(TextEmbedding(model_name='BAAI/bge-small-en-v1.5').embed(['archex warmup']))"
+
+ENV PATH="/app/.venv/bin:$PATH"
+WORKDIR /workspace
+CMD ["archex", "--help"]
