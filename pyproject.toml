@@ -103,7 +103,7 @@ ignore = ["TC003"]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 include = ["src/archex", "tests"]
-exclude = ["tests/fixtures/", ".venv/"]
+exclude = ["tests/fixtures/", ".venv/", "assets/"]
 venvPath = "."
 venv = ".venv"
 

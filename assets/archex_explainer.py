@@ -1,21 +1,47 @@
 """archex explainer — animated overview (Manim Community v0.20).
 
 Render:
-    python3 render_video.py archex_explainer.py ArchexExplainer --quality high --format mp4 --output assets/archex-explainer.mp4
+    python3 render_video.py archex_explainer.py ArchexExplainer --quality high \
+        --format mp4 --output assets/archex-explainer.mp4
 
 Beats: title -> the problem (grep) -> archex pipeline -> measured bars -> stat tiles -> close.
 """
 
 from __future__ import annotations
 
-from manim import *
+from manim import (
+    BOLD,
+    DOWN,
+    LEFT,
+    ORIGIN,
+    RIGHT,
+    UL,
+    UP,
+    UR,
+    Arrow,
+    FadeIn,
+    FadeOut,
+    GrowArrow,
+    GrowFromEdge,
+    Indicate,
+    LaggedStart,
+    Mobject,
+    MoveToTarget,
+    Rectangle,
+    RoundedRectangle,
+    Scene,
+    Square,
+    Text,
+    VGroup,
+    Write,
+)
 
 # Palette — matches assets/archex-infographic.svg
 BG = "#0b0f1e"
 PANEL = "#131a30"
 TEXT = "#eaf0fb"
 MUTED = "#8a93a8"
-TEAL = "#2dd4bf"   # archex
+TEAL = "#2dd4bf"  # archex
 SKY = "#56b6ff"
 SLATE = "#586079"  # competition
 AMBER = "#f4a836"  # grep
@@ -62,34 +88,68 @@ class ArchexExplainer(Scene):
         self.play(FadeIn(heading), run_time=0.5)
 
         # agent on the left
-        agent_box = RoundedRectangle(corner_radius=0.15, width=2.6, height=1.4,
-                                     stroke_color=SKY, stroke_width=2.5,
-                                     fill_color=PANEL, fill_opacity=1)
+        agent_box = RoundedRectangle(
+            corner_radius=0.15,
+            width=2.6,
+            height=1.4,
+            stroke_color=SKY,
+            stroke_width=2.5,
+            fill_color=PANEL,
+            fill_opacity=1,
+        )
         agent_lbl = Text("AI agent", font_size=30, color=TEXT, weight=BOLD)
         agent = VGroup(agent_box, agent_lbl).move_to([-4.6, 1.4, 0])
 
         # repo files on the right
-        files = VGroup(*[
-            RoundedRectangle(corner_radius=0.06, width=1.9, height=0.42,
-                             stroke_color=MUTED, stroke_width=1.5,
-                             fill_color="#1b2440", fill_opacity=1)
-            for _ in range(6)
-        ]).arrange(DOWN, buff=0.16).move_to([4.6, 1.2, 0])
+        files = (
+            VGroup(
+                *[
+                    RoundedRectangle(
+                        corner_radius=0.06,
+                        width=1.9,
+                        height=0.42,
+                        stroke_color=MUTED,
+                        stroke_width=1.5,
+                        fill_color="#1b2440",
+                        fill_opacity=1,
+                    )
+                    for _ in range(6)
+                ]
+            )
+            .arrange(DOWN, buff=0.16)
+            .move_to([4.6, 1.2, 0])
+        )
         repo_lbl = Text("repository", font_size=24, color=MUTED).next_to(files, UP, buff=0.25)
 
-        grep = Text('runs grep / glob', font_size=26, color=AMBER, weight=BOLD)
+        grep = Text("runs grep / glob", font_size=26, color=AMBER, weight=BOLD)
         grep.move_to([0, 2.1, 0])
-        grep_arrow = Arrow([-3.2, 1.4, 0], [3.4, 1.4, 0], color=AMBER, stroke_width=4,
-                           buff=0.2, max_tip_length_to_length_ratio=0.06)
+        grep_arrow = Arrow(
+            [-3.2, 1.4, 0],
+            [3.4, 1.4, 0],
+            color=AMBER,
+            stroke_width=4,
+            buff=0.2,
+            max_tip_length_to_length_ratio=0.06,
+        )
 
-        self.play(FadeIn(agent), LaggedStart(*[FadeIn(f) for f in files], lag_ratio=0.1),
-                  FadeIn(repo_lbl), run_time=1.1)
+        self.play(
+            FadeIn(agent),
+            LaggedStart(*[FadeIn(f) for f in files], lag_ratio=0.1),
+            FadeIn(repo_lbl),
+            run_time=1.1,
+        )
         self.play(Write(grep), GrowArrow(grep_arrow), run_time=0.9)
 
         # context window — whole files get dumped in
-        ctx = RoundedRectangle(corner_radius=0.12, width=9.6, height=1.5,
-                               stroke_color=RED, stroke_width=2.5,
-                               fill_color="#1a0f12", fill_opacity=1).move_to([0, -1.4, 0])
+        ctx = RoundedRectangle(
+            corner_radius=0.12,
+            width=9.6,
+            height=1.5,
+            stroke_color=RED,
+            stroke_width=2.5,
+            fill_color="#1a0f12",
+            fill_opacity=1,
+        ).move_to([0, -1.4, 0])
         ctx_lbl = Text("context window", font_size=24, color=MUTED).next_to(ctx, UP, buff=0.22)
         self.play(FadeIn(ctx), FadeIn(ctx_lbl), run_time=0.6)
 
@@ -101,13 +161,22 @@ class ArchexExplainer(Scene):
         self.play(Indicate(ctx, color=RED, scale_factor=1.03), run_time=0.6)
 
         # readout
-        recall = Text("recall 1.00", font_size=30, color=GREEN, weight=BOLD).move_to([-3.3, -3.05, 0])
-        toneff = Text("token-efficiency 0.00", font_size=30, color=RED, weight=BOLD).move_to([2.4, -3.05, 0])
-        self.play(FadeIn(recall, shift=UP * 0.2), FadeIn(toneff, shift=UP * 0.2), run_time=0.8)
+        recall = Text("recall 1.00", font_size=30, color=GREEN, weight=BOLD).move_to(
+            [-3.3, -3.05, 0]
+        )
+        toneff = Text("token-efficiency 0.00", font_size=30, color=RED, weight=BOLD).move_to(
+            [2.4, -3.05, 0]
+        )
+        self.play(
+            FadeIn(recall, shift=UP * 0.2),
+            FadeIn(toneff, shift=UP * 0.2),
+            run_time=0.8,
+        )
         self.wait(2.2)
 
-        self._clear(heading, agent, files, repo_lbl, grep, grep_arrow, ctx, ctx_lbl,
-                    dumped, recall, toneff)
+        self._clear(
+            heading, agent, files, repo_lbl, grep, grep_arrow, ctx, ctx_lbl, dumped, recall, toneff
+        )
 
     # ---------- beat 3: pipeline ----------
     def _beat_pipeline(self):
@@ -122,9 +191,15 @@ class ArchexExplainer(Scene):
         ]
         boxes = VGroup()
         for n, t, s, c in data:
-            rect = RoundedRectangle(corner_radius=0.12, width=2.7, height=1.9,
-                                    stroke_color=c, stroke_width=2.5,
-                                    fill_color=PANEL, fill_opacity=1)
+            rect = RoundedRectangle(
+                corner_radius=0.12,
+                width=2.7,
+                height=1.9,
+                stroke_color=c,
+                stroke_width=2.5,
+                fill_color=PANEL,
+                fill_opacity=1,
+            )
             num = Text(n, font_size=18, color=c, weight=BOLD)
             title = Text(t, font_size=29, color=TEXT, weight=BOLD)
             sub = Text(s, font_size=17, color=MUTED, line_spacing=0.85)
@@ -134,16 +209,35 @@ class ArchexExplainer(Scene):
             boxes.add(VGroup(rect, num, inner))
         boxes.arrange(RIGHT, buff=0.55).move_to([0, 0.4, 0])
 
-        arrows = VGroup(*[
-            Arrow(boxes[i].get_right(), boxes[i + 1].get_left(), buff=0.12,
-                  color=MUTED, stroke_width=3, max_tip_length_to_length_ratio=0.25)
-            for i in range(len(boxes) - 1)
-        ])
+        arrows = VGroup(
+            *[
+                Arrow(
+                    boxes[i].get_right(),
+                    boxes[i + 1].get_left(),
+                    buff=0.12,
+                    color=MUTED,
+                    stroke_width=3,
+                    max_tip_length_to_length_ratio=0.25,
+                )
+                for i in range(len(boxes) - 1)
+            ]
+        )
 
-        repo_in = Text("repository", font_size=22, color=MUTED).next_to(boxes[0], UP, buff=0.4).shift(LEFT * 0.1)
-        bundle_out = Text("context bundle", font_size=22, color=TEAL, weight=BOLD).next_to(boxes[-1], UP, buff=0.4).shift(RIGHT * 0.1)
+        repo_in = (
+            Text("repository", font_size=22, color=MUTED)
+            .next_to(boxes[0], UP, buff=0.4)
+            .shift(LEFT * 0.1)
+        )
+        bundle_out = (
+            Text("context bundle", font_size=22, color=TEAL, weight=BOLD)
+            .next_to(boxes[-1], UP, buff=0.4)
+            .shift(RIGHT * 0.1)
+        )
 
-        self.play(LaggedStart(*[FadeIn(b, shift=UP * 0.2) for b in boxes], lag_ratio=0.22), run_time=1.8)
+        self.play(
+            LaggedStart(*[FadeIn(b, shift=UP * 0.2) for b in boxes], lag_ratio=0.22),
+            run_time=1.8,
+        )
         self.play(LaggedStart(*[GrowArrow(a) for a in arrows], lag_ratio=0.3), run_time=1.0)
         self.play(FadeIn(repo_in), FadeIn(bundle_out), run_time=0.6)
 
@@ -160,24 +254,36 @@ class ArchexExplainer(Scene):
         self.play(FadeIn(heading), run_time=0.5)
 
         # legend
-        leg_a = VGroup(Square(0.28, fill_color=TEAL, fill_opacity=1, stroke_width=0),
-                       Text("archex", font_size=24, color=TEXT)).arrange(RIGHT, buff=0.18)
-        leg_c = VGroup(Square(0.28, fill_color=SLATE, fill_opacity=1, stroke_width=0),
-                       Text("competition", font_size=24, color=MUTED)).arrange(RIGHT, buff=0.18)
+        leg_a = VGroup(
+            Square(0.28, fill_color=TEAL, fill_opacity=1, stroke_width=0),
+            Text("archex", font_size=24, color=TEXT),
+        ).arrange(RIGHT, buff=0.18)
+        leg_c = VGroup(
+            Square(0.28, fill_color=SLATE, fill_opacity=1, stroke_width=0),
+            Text("competition", font_size=24, color=MUTED),
+        ).arrange(RIGHT, buff=0.18)
         legend = VGroup(leg_a, leg_c).arrange(RIGHT, buff=0.8).to_corner(UR, buff=0.7)
         self.play(FadeIn(legend), run_time=0.5)
 
-        BAR_X = -3.2
-        UNIT = 6.2
+        bar_x = -3.2
+        unit = 6.2
 
         def bar(value: float, color: str, y: float) -> Rectangle:
-            w = value * UNIT
-            r = Rectangle(width=w, height=0.34, fill_color=color, fill_opacity=1, stroke_width=0)
-            r.move_to([BAR_X + w / 2, y, 0])
-            return r
+            width = value * unit
+            rect = Rectangle(
+                width=width,
+                height=0.34,
+                fill_color=color,
+                fill_opacity=1,
+                stroke_width=0,
+            )
+            rect.move_to([bar_x + width / 2, y, 0])
+            return rect
 
         def val(value: float, color: str, b: Rectangle) -> Text:
-            return Text(f"{value:.2f}", font_size=24, color=color, weight=BOLD).next_to(b, RIGHT, buff=0.18)
+            return Text(f"{value:.2f}", font_size=24, color=color, weight=BOLD).next_to(
+                b, RIGHT, buff=0.18
+            )
 
         groups = [
             ("Recall", 0.95, 0.32, 1.6),
@@ -186,8 +292,8 @@ class ArchexExplainer(Scene):
         ]
         all_objs = []
         for name, a_val, c_val, yc in groups:
-            label = Text(name, font_size=26, color=TEXT).move_to([BAR_X - 0.4, yc, 0])
-            label.align_to([BAR_X - 0.4, 0, 0], RIGHT)
+            label = Text(name, font_size=26, color=TEXT).move_to([bar_x - 0.4, yc, 0])
+            label.align_to([bar_x - 0.4, 0, 0], RIGHT)
             a_bar = bar(a_val, TEAL, yc + 0.24)
             c_bar = bar(c_val, SLATE, yc - 0.24)
             a_lbl = val(a_val, TEAL, a_bar)
@@ -206,9 +312,15 @@ class ArchexExplainer(Scene):
         self.play(FadeIn(heading), run_time=0.5)
 
         def tile(kicker: str, a_text: str, c_text: str, note: str, pos):
-            rect = RoundedRectangle(corner_radius=0.14, width=5.8, height=2.7,
-                                    stroke_color="#232c46", stroke_width=2,
-                                    fill_color=PANEL, fill_opacity=1)
+            rect = RoundedRectangle(
+                corner_radius=0.14,
+                width=5.8,
+                height=2.7,
+                stroke_color="#232c46",
+                stroke_width=2,
+                fill_color=PANEL,
+                fill_opacity=1,
+            )
             k = Text(kicker, font_size=20, color=MUTED, weight=BOLD)
             a = Text(a_text, font_size=52, color=TEAL, weight=BOLD)
             vs = Text("vs", font_size=28, color=MUTED)
@@ -219,10 +331,8 @@ class ArchexExplainer(Scene):
             inner.move_to(rect.get_center())
             return VGroup(rect, inner).move_to(pos)
 
-        t1 = tile("TOKENS FOR THE AGENT TO FINISH", "922", "11,188",
-                  "≈ 12× fewer", [-3.1, 0.2, 0])
-        t2 = tile("COLD START", "0 ms", "4,721 ms",
-                  "no daemon warm-up", [3.1, 0.2, 0])
+        t1 = tile("TOKENS FOR THE AGENT TO FINISH", "922", "11,188", "≈ 12× fewer", [-3.1, 0.2, 0])
+        t2 = tile("COLD START", "0 ms", "4,721 ms", "no daemon warm-up", [3.1, 0.2, 0])
 
         self.play(FadeIn(t1, shift=UP * 0.2), run_time=0.7)
         self.play(FadeIn(t2, shift=UP * 0.2), run_time=0.7)
@@ -232,13 +342,20 @@ class ArchexExplainer(Scene):
 
     # ---------- beat 6: close ----------
     def _beat_close(self):
-        traits = Text("local-first · deterministic · no API key · Apache-2.0",
-                      font_size=32, color=MUTED)
+        traits = Text(
+            "local-first · deterministic · no API key · Apache-2.0", font_size=32, color=MUTED
+        )
         traits.move_to([0, 1.7, 0])
 
-        term = RoundedRectangle(corner_radius=0.12, width=8.4, height=1.2,
-                                stroke_color="#2a3350", stroke_width=2,
-                                fill_color="#0a0d18", fill_opacity=1).move_to([0, 0.1, 0])
+        term = RoundedRectangle(
+            corner_radius=0.12,
+            width=8.4,
+            height=1.2,
+            stroke_color="#2a3350",
+            stroke_width=2,
+            fill_color="#0a0d18",
+            fill_opacity=1,
+        ).move_to([0, 0.1, 0])
         prompt = Text("$", font_size=38, color=TEAL, weight=BOLD)
         cmd = Text("uv tool install archex", font_size=38, color=TEXT, weight=BOLD)
         cmdline = VGroup(prompt, cmd).arrange(RIGHT, buff=0.35).move_to(term.get_center())
