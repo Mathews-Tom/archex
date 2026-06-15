@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from archex.index.chunker import ASTChunker
 from archex.index.store import IndexStore
 from archex.models import (
     CodeChunk,
@@ -19,6 +18,7 @@ from archex.models import (
 )
 from archex.parse.adapters.rust import RustAdapter
 from archex.parse.engine import TreeSitterEngine
+from archex.pipeline.chunker import ASTChunker
 
 if TYPE_CHECKING:
     from collections.abc import Generator

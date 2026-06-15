@@ -573,7 +573,7 @@ def detect_entry_points(files: list[ParsedFile]) -> list[str]:
 | `index/vector.py`           | `VectorIndex` with Nomic Embed Code via ONNX runtime. Build, search, save, load. |
 | `index/embeddings/nomic.py` | `NomicCodeEmbedder` — loads ONNX model, handles tokenization, batch inference.   |
 | `index/embeddings/base.py`  | `Embedder` protocol.                                                             |
-| `index/embeddings/api.py`   | `APIEmbedder` for Voyage/OpenAI API-based embeddings.                            |
+| `index/embeddings/api.py`   | Historical API-backed embedding prototype; removed after the project standardized on local-first embedding providers and entry-point extensions. |
 
 **Hybrid retrieval in context assembly:**
 

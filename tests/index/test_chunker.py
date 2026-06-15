@@ -5,13 +5,6 @@ from pathlib import Path
 import pytest
 import tiktoken
 
-from archex.index.chunker import (
-    ASTChunker,
-    CastChunker,
-    _format_import,  # pyright: ignore[reportPrivateUsage]
-    _import_relevant,  # pyright: ignore[reportPrivateUsage]
-    create_chunker,
-)
 from archex.models import (
     CodeChunk,
     Config,
@@ -24,7 +17,14 @@ from archex.models import (
     SymbolKind,
     Visibility,
 )
-from archex.pipeline.chunker import chunker_revision
+from archex.pipeline.chunker import (
+    ASTChunker,
+    CastChunker,
+    _format_import,  # pyright: ignore[reportPrivateUsage]
+    _import_relevant,  # pyright: ignore[reportPrivateUsage]
+    chunker_revision,
+    create_chunker,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -775,7 +775,7 @@ def test_merge_backward_into_previous() -> None:
 
 def test_merge_small_chunks_empty_input() -> None:
     """_merge_small_chunks returns empty list for empty input."""
-    from archex.index.chunker import _merge_small_chunks  # pyright: ignore[reportPrivateUsage]
+    from archex.pipeline.chunker import _merge_small_chunks  # pyright: ignore[reportPrivateUsage]
 
     encoder = tiktoken.get_encoding("cl100k_base")
     result = _merge_small_chunks([], 50, encoder)
@@ -946,7 +946,7 @@ def test_blank_lines_only_file_level_skipped() -> None:
 
 
 def test_expand_identifiers_camel_case() -> None:
-    from archex.index.chunker import expand_identifiers
+    from archex.pipeline.chunker import expand_identifiers
 
     result = expand_identifiers("ValidatorDecoratorInfo")
     assert "validator" in result.lower()
@@ -955,7 +955,7 @@ def test_expand_identifiers_camel_case() -> None:
 
 
 def test_expand_identifiers_snake_case() -> None:
-    from archex.index.chunker import expand_identifiers
+    from archex.pipeline.chunker import expand_identifiers
 
     result = expand_identifiers("solve_dependencies")
     assert "solve" in result.lower()
@@ -963,7 +963,7 @@ def test_expand_identifiers_snake_case() -> None:
 
 
 def test_expand_identifiers_mixed() -> None:
-    from archex.index.chunker import expand_identifiers
+    from archex.pipeline.chunker import expand_identifiers
 
     result = expand_identifiers("get_dependant")
     assert "get" in result.lower()
@@ -971,7 +971,7 @@ def test_expand_identifiers_mixed() -> None:
 
 
 def test_expand_identifiers_no_identifiers() -> None:
-    from archex.index.chunker import expand_identifiers
+    from archex.pipeline.chunker import expand_identifiers
 
     text = "just some lowercase words"
     result = expand_identifiers(text)
@@ -980,7 +980,7 @@ def test_expand_identifiers_no_identifiers() -> None:
 
 
 def test_expand_identifiers_short_filtered() -> None:
-    from archex.index.chunker import expand_identifiers
+    from archex.pipeline.chunker import expand_identifiers
 
     # "a" and "x" are ≤2 chars and should be filtered from fragments
     result = expand_identifiers("a = x + MyVar")

@@ -592,9 +592,9 @@ def test_round_trip_parse_chunk_store_retrieve(
     adapter: SwiftAdapter,
     tmp_path: Path,
 ) -> None:
-    from archex.index.chunker import ASTChunker
     from archex.index.store import IndexStore
     from archex.models import IndexConfig, ParsedFile
+    from archex.pipeline.chunker import ASTChunker
 
     source = (FIXTURES_DIR / "Models" / "User.swift").read_bytes()
     tree = engine.parse_bytes(source, adapter.language_id)

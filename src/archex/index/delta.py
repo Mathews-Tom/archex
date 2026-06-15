@@ -359,7 +359,6 @@ def apply_delta(
     """
     from archex.acquire import discover_files
     from archex.index.bm25 import BM25Index
-    from archex.index.chunker import create_chunker
     from archex.parse import (
         TreeSitterEngine,
         build_file_map,
@@ -367,7 +366,7 @@ def apply_delta(
         resolve_imports,
     )
     from archex.parse.adapters import default_adapter_registry
-    from archex.pipeline.chunker import chunker_revision
+    from archex.pipeline.chunker import chunker_revision, create_chunker
 
     t_start = time.perf_counter()
 

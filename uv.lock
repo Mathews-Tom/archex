@@ -199,22 +199,18 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "fastembed" },
     { name = "langchain-core" },
     { name = "leidenalg" },
     { name = "llama-index-core" },
+    { name = "lsp-client", marker = "python_full_version >= '3.12'" },
     { name = "mcp" },
     { name = "onnxruntime" },
     { name = "python-igraph" },
+    { name = "sentence-transformers" },
     { name = "tokenizers" },
-]
-dev = [
-    { name = "httpx" },
-    { name = "pre-commit" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
+    { name = "torch" },
+    { name = "transformers" },
 ]
 graph = [
     { name = "leidenalg" },
@@ -250,23 +246,26 @@ vector-torch = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "langchain-core" },
     { name = "llama-index-core" },
     { name = "mcp" },
     { name = "numpy" },
+    { name = "pre-commit" },
+    { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "ruff" },
     { name = "scipy" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "archex", extras = ["vector", "graph", "mcp", "langchain", "llamaindex"], marker = "extra == 'all'" },
+    { name = "archex", extras = ["vector", "vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap"], marker = "extra == 'all'" },
     { name = "click", specifier = ">=8.1" },
     { name = "einops", specifier = ">=0.8.2" },
     { name = "fastembed", marker = "extra == 'vector-fast'", specifier = ">=0.4" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.2" },
     { name = "leidenalg", marker = "extra == 'graph'", specifier = ">=0.10" },
     { name = "llama-index-core", marker = "extra == 'llamaindex'", specifier = ">=0.10" },
@@ -274,16 +273,10 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
     { name = "networkx", specifier = ">=3.3" },
     { name = "onnxruntime", marker = "extra == 'vector'", specifier = ">=1.17" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
     { name = "pydantic", specifier = ">=2.7" },
-    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "python-igraph", marker = "extra == 'graph'", specifier = ">=0.11" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = "==14.3.3" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "sentence-transformers", marker = "extra == 'vector-torch'", specifier = ">=5.2,<6" },
     { name = "tiktoken", specifier = ">=0.7" },
     { name = "tokenizers", marker = "extra == 'vector'", specifier = ">=0.15" },
@@ -302,17 +295,21 @@ requires-dist = [
     { name = "tree-sitter-typescript", specifier = ">=0.23" },
     { name = "watchdog", specifier = ">=6.0.0" },
 ]
-provides-extras = ["vector", "vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap", "all", "dev"]
+provides-extras = ["vector", "vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap", "all"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "langchain-core", specifier = ">=0.2" },
     { name = "llama-index-core", specifier = ">=0.10" },
     { name = "mcp", specifier = ">=1.0" },
     { name = "numpy", specifier = ">=2.4.2" },
+    { name = "pre-commit", specifier = ">=3.7" },
+    { name = "pyright", specifier = ">=1.1" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "ruff", specifier = ">=0.5" },
     { name = "scipy", specifier = ">=1.17.1" },
 ]
 
