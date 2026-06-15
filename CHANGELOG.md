@@ -1,6 +1,13 @@
 # Changelog
 
 
+## 0.9.1 (2026-06-15)
+
+### Changed
+
+- Refreshed the README as the project front page with a concise hero, proof bar, audience routing, quickstart, trust and operations guidance, measured-results pointers, and current CLI/MCP/Python/Docker usage.
+- Updated system design and roadmap documentation so shipped post-roadmap surfaces, historical execution records, and retrieval-default decision authority have one explicit documentation hierarchy.
+
 ## 0.9.0 (2026-06-13)
 
 ### Added
