@@ -187,7 +187,6 @@ class TestApplyDelta:
         """Build a full index for the repo. Returns (store, graph)."""
         from archex.acquire import discover_files
         from archex.index.bm25 import BM25Index
-        from archex.index.chunker import ASTChunker
         from archex.index.graph import DependencyGraph
         from archex.parse import (
             TreeSitterEngine,
@@ -197,6 +196,7 @@ class TestApplyDelta:
             resolve_imports,
         )
         from archex.parse.adapters import default_adapter_registry
+        from archex.pipeline.chunker import ASTChunker
 
         files = discover_files(repo_path)
         engine = TreeSitterEngine()

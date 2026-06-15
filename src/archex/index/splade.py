@@ -236,7 +236,7 @@ class SPLADEIndex:
 
     def build(self, chunks: list[CodeChunk]) -> None:
         """Encode all chunks into sparse vectors and build the inverted index."""
-        from archex.index.chunker import expand_identifiers
+        from archex.pipeline.chunker import expand_identifiers
 
         conn = self._store.conn
 

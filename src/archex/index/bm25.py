@@ -140,7 +140,7 @@ class BM25Index:
         return bool(row and row[0] > 0)
 
     def build(self, chunks: list[CodeChunk]) -> None:
-        from archex.index.chunker import expand_identifiers
+        from archex.pipeline.chunker import expand_identifiers
 
         conn = self._store.conn
         conn.execute(_DROP_FTS_ROWS)
