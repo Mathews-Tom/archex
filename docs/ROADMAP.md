@@ -1,6 +1,8 @@
 # archex — Roadmap
 
-> Phased execution plan from scaffolding to production release.
+> Historical execution record from scaffold through the completed 2026-06-12 unified roadmap.
+> Current capability details live in [README](../README.md) and [System Design](SYSTEM_DESIGN.md).
+> Completed-work history is preserved in `.docs/2026-06-12-unified-roadmap-session-prompts.md`; default-strategy evidence remains authoritative in [Retrieval Default Decisions](RETRIEVAL_DEFAULT_DECISIONS.md) and [ADR-001](adr/001-retrieval-default-evidence-gate.md).
 
 ---
 
@@ -55,7 +57,9 @@ gantt
 | **6 — Harden, Optimize, Polish, Extend** | ~1 week  | Security hardening, performance optimization, code polish, extensibility APIs   | v0.3.0 — 538 tests, 84% coverage, plugin entry points    | ✅ Complete |
 | **7 — Refactor + Test Coverage**         | ~1 day   | Source simplification, error handling, adapter dedup, 90% test coverage         | v0.4.0 — 641 tests, 90% coverage, shared ts_node module  | ✅ Complete |
 | **Enhancements — Delta + Languages**     | ~3 days  | Delta indexing, Java/Kotlin/C#/Swift adapters, JVM helpers, pipeline service    | v0.5.0 — 1274 tests, 92% coverage, 8 language adapters   | ✅ Complete |
-| **8-Phase Improvement Plan**             | 6 days   | Benchmark-driven retrieval quality, observability, test coverage                | 25-task benchmark corpus, quality gates, 92% coverage     | ✅ Complete |
+| **8-Phase Improvement Plan**             | 6 days   | Benchmark-driven retrieval quality, observability, test coverage                | 25-task benchmark corpus, quality gates, 92% coverage    | ✅ Complete |
+| **2026 Unified Roadmap**                 | ~10 sessions | G3–G6 system improvements plus C1–C6 competitive enhancements                | Edge confidence, graph queries, scout, freshness/watch, head-to-head harness, cAST A/B, expanded languages, distribution parity | ✅ Complete |
+| **Enhancement — Distribution Parity**    | ~4 days  | Zero-friction onboarding parity with cocoindex-code                             | Doctor command, Claude Code skill, Docker images, C1-backed comparison page | ✅ Complete |
 
 ---
 
@@ -942,7 +946,45 @@ Build evaluation datasets and assertions using Attest's graduated assertion pipe
 - [x] Integration tests pass with new adapters registered
 - [x] 1274 tests, 92% coverage, 0 pyright errors
 
+
+### Enhancement 8 — Distribution Parity
+
+**Goal:** Match cocoindex-code's zero-friction distribution story for local-first agent workflows without introducing hosted inference dependencies.
+
+**Deliverables:**
+
+- `archex doctor` with text/JSON checks for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, and `.archex/` disk usage
+- `skills/archex/SKILL.md` plus `/archex` command asset teaching doctor-first, scout→fetch usage
+- `docker/Dockerfile.slim` for BM25-only/no-torch onboarding
+- `docker/Dockerfile.full` for local FastEmbed with prewarmed model cache
+- `.github/workflows/docker.yml` building both images and publishing GHCR tags on pushes to `main`
+- `docs/ARCHEX_VS_COCOINDEX.md` with C1-backed measured-results and capability tables
+- README Docker usage and comparison summary pointer
+
+**Acceptance Criteria:**
+
+- [x] `uv run archex doctor .` reports a healthy repo-local install after refresh
+- [x] `uv run pytest tests/cli/ -q` covers healthy and corrupt doctor states
+- [x] Slim Docker image builds locally without torch dependencies
+- [x] Claude Code skill is versioned in-repo and publishable
+- [x] Comparison page cites accepted C1 cells and commands; no long benchmarks re-run
+- [x] Stack landed as four dependent PR slices: doctor → skill → docker → comparison
+
 ---
+
+
+### 2026 Unified Roadmap Completion
+
+**Goal:** Close the 2026-06-12 execution program and make the completed-work record subordinate to the current capability docs.
+
+**Delivered surfaces:**
+
+- strict benchmark task validation, public head-to-head harness, and evidence-gated comparison against `ccc` and raw grep/read
+- working-tree delta refresh, query-time auto-refresh, and optional warm MCP watch mode
+- edge confidence/provenance, graph-native CLI/MCP queries, and token-light scout→fetch protocol
+- expanded language tiers, cAST chunking A/B infrastructure, and distribution parity through doctor/skill/Docker/comparison docs
+
+**Authority chain:** README → `docs/SYSTEM_DESIGN.md` / `docs/ARCHEX_VS_COCOINDEX.md` → `.docs/2026-06-12-unified-roadmap-session-prompts.md` → `docs/RETRIEVAL_DEFAULT_DECISIONS.md` / ADR-001.
 
 ## Ongoing Maintenance
 
