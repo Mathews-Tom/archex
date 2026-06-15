@@ -330,6 +330,14 @@ Default embedder, reranker, and strategy switches are evidence-gated in `docs/RE
 
 A public same-task `archex` vs `ccc` vs raw-grep/read harness lives under `benchmarks/headtohead/`; the latest recorded operator run artifacts are tracked in `benchmarks/headtohead/results/`.
 
+See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the evidence-backed C1 comparison. Accepted C1 aggregate results:
+
+| Lane | Recall | F1 | Token efficiency | Warm latency ms |
+| --- | ---: | ---: | ---: | ---: |
+| `archex` | 0.95 | 0.66 | 0.76 | 408 |
+| `ccc` | 0.32 | 0.31 | 0.48 | 521 |
+| `raw-grep/read` | 1.00 | 0.38 | 0.00 | 155 |
+
 Latest local 35-task benchmark, compared with the previous accepted baseline:
 
 | Strategy | Returned tokens | Weighted raw-baseline savings | Recall | Token efficiency |
