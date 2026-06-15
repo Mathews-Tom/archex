@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .bg    { fill: #0b0f1e; }
+    .panel { fill: #131a30; }
+    .stroke{ fill: none; }
+    text { font-family: 'Helvetica Neue','Arial',sans-serif; fill: #eaf0fb; }
+    .mono { font-family: 'Courier New','Consolas',monospace; }
+    .eyebrow-m { font-size: 15px; letter-spacing: 2.5px; fill: #2dd4bf; font-weight: 700; }
+    .brand { font-size: 84px; font-weight: 800; letter-spacing: -2px; }
+    .subtitle { font-size: 30px; font-weight: 700; fill: #2dd4bf; }
+    .lede { font-size: 19px; fill: #aeb7cc; }
+    .sectlabel { font-size: 14px; letter-spacing: 2.5px; font-weight: 700; fill: #8a93a8; }
+    .stage-n { font-size: 13px; font-weight: 700; }
+    .stage-t { font-size: 24px; font-weight: 700; fill: #eaf0fb; }
+    .stage-s { font-size: 14.5px; fill: #8a93a8; }
+    .metric  { font-size: 20px; font-weight: 700; fill: #cfd6e6; }
+    .val-a   { font-size: 18px; font-weight: 800; fill: #2dd4bf; }
+    .val-c   { font-size: 18px; font-weight: 800; fill: #8c95ab; }
+    .tile-k  { font-size: 12.5px; letter-spacing: 1.5px; font-weight: 700; fill: #8a93a8; }
+    .tile-big{ font-size: 40px; font-weight: 800; }
+    .chip-t  { font-size: 15px; font-weight: 600; fill: #cfd6e6; }
+    .term    { font-size: 28px; font-weight: 700; }
+    .repo    { font-size: 22px; font-weight: 700; fill: #2dd4bf; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#46507a"></path>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1920" height="1080"></rect>
+  <rect x="0" y="0" width="1920" height="8" fill="#2dd4bf"></rect>
+
+  <!-- ===== HERO ===== -->
+  <text class="eyebrow-m mono" x="68" y="62">v0.10.1 · APACHE-2.0 · LOCAL-FIRST · NO API KEY · NO TELEMETRY</text>
+  <text class="brand" x="64" y="150">archex<tspan fill="#2dd4bf">.</tspan></text>
+  <text class="subtitle" x="68" y="196">Local code context for agents.</text>
+  <text class="lede" x="68" y="234">Turns a repository into a ranked, token-budgeted context bundle — symbols, dependencies,</text>
+  <text class="lede" x="68" y="260">graph context, provenance. It returns <tspan fill="#eaf0fb" font-weight="700">context, not an answer.</tspan></text>
+
+  <!-- hero CTA -->
+  <text class="sectlabel" x="1576" y="86" text-anchor="middle">GET STARTED</text>
+  <rect x="1296" y="100" width="560" height="72" rx="10" fill="#0a0d18"></rect>
+  <rect x="1296" y="100" width="560" height="72" rx="10" class="stroke" stroke="#2a3350" stroke-width="1.5"></rect>
+  <text class="term mono" x="1576" y="145" text-anchor="middle"><tspan fill="#2dd4bf">$ </tspan><tspan fill="#eaf0fb">uv tool install archex</tspan></text>
+  <text class="repo mono" x="1576" y="212" text-anchor="middle">github.com/Mathews-Tom/archex</text>
+
+  <line x1="64" y1="288" x2="1856" y2="288" stroke="#232c46" stroke-width="1.5"></line>
+
+  <!-- ===== PIPELINE (full-width band) ===== -->
+  <text class="sectlabel" x="68" y="324">THE PIPELINE   repository → context bundle</text>
+  <g>
+    <!-- card1 Parse -->
+    <rect class="panel" x="64" y="346" width="430" height="112" rx="10"></rect>
+    <rect class="stroke" x="64" y="346" width="430" height="112" rx="10" stroke="#232c46" stroke-width="1.5"></rect>
+    <rect x="64" y="346" width="6" height="112" rx="3" fill="#2dd4bf"></rect>
+    <text class="stage-n mono" x="92" y="378" fill="#2dd4bf">01</text>
+    <text class="stage-t" x="92" y="406">Parse</text>
+    <text class="stage-s mono" x="92" y="434">tree-sitter · 25 languages</text>
+    <!-- card2 Index -->
+    <rect class="panel" x="518" y="346" width="430" height="112" rx="10"></rect>
+    <rect class="stroke" x="518" y="346" width="430" height="112" rx="10" stroke="#232c46" stroke-width="1.5"></rect>
+    <rect x="518" y="346" width="6" height="112" rx="3" fill="#56b6ff"></rect>
+    <text class="stage-n mono" x="546" y="378" fill="#56b6ff">02</text>
+    <text class="stage-t" x="546" y="406">Index</text>
+    <text class="stage-s mono" x="546" y="434">BM25F + local vectors + SPLADE</text>
+    <!-- card3 Retrieve -->
+    <rect class="panel" x="972" y="346" width="430" height="112" rx="10"></rect>
+    <rect class="stroke" x="972" y="346" width="430" height="112" rx="10" stroke="#232c46" stroke-width="1.5"></rect>
+    <rect x="972" y="346" width="6" height="112" rx="3" fill="#56b6ff"></rect>
+    <text class="stage-n mono" x="1000" y="378" fill="#56b6ff">03</text>
+    <text class="stage-t" x="1000" y="406">Retrieve</text>
+    <text class="stage-s mono" x="1000" y="434">RRF fusion + rerank + graph</text>
+    <!-- card4 Assemble -->
+    <rect class="panel" x="1426" y="346" width="430" height="112" rx="10"></rect>
+    <rect class="stroke" x="1426" y="346" width="430" height="112" rx="10" stroke="#2dd4bf" stroke-width="1.5"></rect>
+    <rect x="1426" y="346" width="6" height="112" rx="3" fill="#2dd4bf"></rect>
+    <text class="stage-n mono" x="1454" y="378" fill="#2dd4bf">04</text>
+    <text class="stage-t" x="1454" y="406">Assemble</text>
+    <text class="stage-s mono" x="1454" y="434">token-budgeted, dependency-closed</text>
+    <!-- arrows -->
+    <line x1="496" y1="402" x2="516" y2="402" stroke="#46507a" stroke-width="2.5" marker-end="url(#arrow)"></line>
+    <line x1="950" y1="402" x2="970" y2="402" stroke="#46507a" stroke-width="2.5" marker-end="url(#arrow)"></line>
+    <line x1="1404" y1="402" x2="1424" y2="402" stroke="#46507a" stroke-width="2.5" marker-end="url(#arrow)"></line>
+  </g>
+
+  <!-- ===== DUAL BAND ===== -->
+  <!-- LEFT: benchmark -->
+  <text class="sectlabel" x="68" y="512">MEASURED · 19-TASK HEAD-TO-HEAD · APPLE M1 PRO</text>
+  <!-- legend -->
+  <rect x="600" y="500" width="14" height="14" rx="3" fill="#2dd4bf"></rect>
+  <text class="mono" x="620" y="512" font-size="13" fill="#cfd6e6">archex</text>
+  <rect x="722" y="500" width="14" height="14" rx="3" fill="#586079"></rect>
+  <text class="mono" x="742" y="512" font-size="13" fill="#cfd6e6">competition</text>
+
+  <!-- bars: BAR_X=210, UNIT=560 -->
+  <line x1="770" y1="538" x2="770" y2="768" stroke="#232c46" stroke-width="1.5" stroke-dasharray="4 5"></line>
+  <text class="mono" x="770" y="788" font-size="11" fill="#5a6580" text-anchor="middle">1.0</text>
+  <!-- Recall -->
+  <text class="metric" x="196" y="570" text-anchor="end">Recall</text>
+  <rect x="210" y="544" width="532" height="24" rx="4" fill="#2dd4bf"></rect>
+  <text class="val-a mono" x="754" y="562">0.95</text>
+  <rect x="210" y="574" width="179" height="24" rx="4" fill="#586079"></rect>
+  <text class="val-c mono" x="401" y="592">0.32</text>
+  <!-- F1 -->
+  <text class="metric" x="196" y="654" text-anchor="end">F1</text>
+  <rect x="210" y="628" width="370" height="24" rx="4" fill="#2dd4bf"></rect>
+  <text class="val-a mono" x="592" y="646">0.66</text>
+  <rect x="210" y="658" width="174" height="24" rx="4" fill="#586079"></rect>
+  <text class="val-c mono" x="396" y="676">0.31</text>
+  <!-- Token eff -->
+  <text class="metric" x="196" y="738" text-anchor="end">Token eff.</text>
+  <rect x="210" y="712" width="426" height="24" rx="4" fill="#2dd4bf"></rect>
+  <text class="val-a mono" x="648" y="730">0.76</text>
+  <rect x="210" y="742" width="269" height="24" rx="4" fill="#586079"></rect>
+  <text class="val-c mono" x="491" y="760">0.48</text>
+
+  <!-- RIGHT: killer tiles + grep callout -->
+  <!-- tile 1 -->
+  <rect class="panel" x="1020" y="486" width="406" height="150" rx="10"></rect>
+  <rect class="stroke" x="1020" y="486" width="406" height="150" rx="10" stroke="#232c46" stroke-width="1.5"></rect>
+  <text class="tile-k mono" x="1044" y="518">COMPLETION-PENALTY TOKENS</text>
+  <text class="tile-big mono" x="1044" y="572" fill="#2dd4bf">922</text>
+  <text class="mono" x="1148" y="572" font-size="24" fill="#5a6580">vs</text>
+  <text class="tile-big mono" x="1196" y="572" fill="#8c95ab">11,188</text>
+  <text class="mono" x="1044" y="606" font-size="13.5" fill="#8a93a8">tokens for the agent to finish · ≈12× fewer</text>
+  <!-- tile 2 -->
+  <rect class="panel" x="1450" y="486" width="406" height="150" rx="10"></rect>
+  <rect class="stroke" x="1450" y="486" width="406" height="150" rx="10" stroke="#232c46" stroke-width="1.5"></rect>
+  <text class="tile-k mono" x="1474" y="518">COLD START</text>
+  <text class="tile-big mono" x="1474" y="572" fill="#2dd4bf">0 ms</text>
+  <text class="mono" x="1580" y="572" font-size="24" fill="#5a6580">vs</text>
+  <text class="tile-big mono" x="1632" y="572" fill="#8c95ab">4,721 ms</text>
+  <text class="mono" x="1474" y="606" font-size="13.5" fill="#8a93a8">no daemon warm-up required</text>
+
+  <!-- grep callout -->
+  <rect x="1020" y="656" width="836" height="116" rx="10" fill="#1a1606"></rect>
+  <rect x="1020" y="656" width="836" height="116" rx="10" class="stroke" stroke="#5c4a14" stroke-width="1.5"></rect>
+  <rect x="1020" y="656" width="7" height="116" rx="3.5" fill="#f4a836"></rect>
+  <text x="1048" y="694" font-size="21" font-weight="800" fill="#f4a836">The real baseline isn’t another index — it’s grep.</text>
+  <text class="lede" x="1048" y="724" font-size="15.5">grep gets recall <tspan class="mono" fill="#f4a836">1.00</tspan> and token-efficiency <tspan class="mono" fill="#f4a836">0.00</tspan> — it dumps everything in.</text>
+  <text class="lede" x="1048" y="748" font-size="15.5">archex hands back only the relevant slice, at a fraction of the tokens.</text>
+
+  <line x1="64" y1="826" x2="1856" y2="826" stroke="#232c46" stroke-width="1.5"></line>
+
+  <!-- ===== FOOTER ===== -->
+  <text class="sectlabel" x="68" y="862">SHIP IT ANYWHERE · ONE DETERMINISTIC CORE</text>
+  <g>
+    <rect x="64" y="882" width="200" height="40" rx="20" class="panel"></rect><rect x="64" y="882" width="200" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="164" y="907" text-anchor="middle">CLI · 21 commands</text>
+    <rect x="288" y="882" width="175" height="40" rx="20" class="panel"></rect><rect x="288" y="882" width="175" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="375" y="907" text-anchor="middle">MCP · 14 tools</text>
+    <rect x="487" y="882" width="150" height="40" rx="20" class="panel"></rect><rect x="487" y="882" width="150" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="562" y="907" text-anchor="middle">Python API</text>
+    <rect x="661" y="882" width="185" height="40" rx="20" class="panel"></rect><rect x="661" y="882" width="185" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="753" y="907" text-anchor="middle">Docker slim / full</text>
+    <rect x="870" y="882" width="195" height="40" rx="20" class="panel"></rect><rect x="870" y="882" width="195" height="40" rx="20" class="stroke" stroke="#2dd4bf" stroke-width="1.3"></rect><text class="chip-t" x="967" y="907" text-anchor="middle" fill="#2dd4bf">Claude Code skill</text>
+    <rect x="1089" y="882" width="150" height="40" rx="20" class="panel"></rect><rect x="1089" y="882" width="150" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="1164" y="907" text-anchor="middle">LangChain</text>
+    <rect x="1263" y="882" width="155" height="40" rx="20" class="panel"></rect><rect x="1263" y="882" width="155" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="1340" y="907" text-anchor="middle">LlamaIndex</text>
+    <rect x="1442" y="882" width="210" height="40" rx="20" class="panel"></rect><rect x="1442" y="882" width="210" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="1547" y="907" text-anchor="middle">scout: map → fetch</text>
+    <rect x="1676" y="882" width="160" height="40" rx="20" class="panel"></rect><rect x="1676" y="882" width="160" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="1756" y="907" text-anchor="middle">graph query</text>
+  </g>
+
+  <text class="mono" x="68" y="1000" font-size="14" fill="#5a6580">Deterministic retrieval · runs fully local · same query = same bundle, every time.</text>
+  <text class="subtitle" x="1856" y="1004" text-anchor="end" font-size="26">context, not an answer.</text>
+</svg>
