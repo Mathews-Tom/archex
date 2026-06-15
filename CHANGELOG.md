@@ -1,12 +1,20 @@
 # Changelog
 
 
-## 0.9.1 (2026-06-15)
+## 0.10.0 (2026-06-15)
 
 ### Changed
 
 - Refreshed the README as the project front page with a concise hero, proof bar, audience routing, quickstart, trust and operations guidance, measured-results pointers, and current CLI/MCP/Python/Docker usage.
+- Removed unnecessary local-repo positional arguments from README examples now that repo-local CLI commands default to the current working directory.
 - Updated system design and roadmap documentation so shipped post-roadmap surfaces, historical execution records, and retrieval-default decision authority have one explicit documentation hierarchy.
+- Supersedes the mistaken `0.9.1` patch release with the intended minor release number.
+
+## 0.9.1 (2026-06-15)
+
+### Changed
+
+- Published with patch numbering by mistake; superseded by `0.10.0`.
 
 ## 0.9.0 (2026-06-13)
 

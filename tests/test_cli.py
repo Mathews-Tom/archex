@@ -974,6 +974,27 @@ class TestSymbolCmd:
         assert "def greet():" in result.output
         assert "print('hi')" in result.output
 
+    def test_symbol_defaults_source_to_cwd(self) -> None:
+        from unittest.mock import patch
+
+        from archex.models import SymbolKind, SymbolSource
+
+        sym = SymbolSource(
+            symbol_id="f.py::greet#function",
+            name="greet",
+            kind=SymbolKind.FUNCTION,
+            file_path="f.py",
+            start_line=1,
+            end_line=1,
+            source="def greet(): pass",
+        )
+        runner = CliRunner()
+        with patch("archex.cli.symbol_cmd.get_symbol", return_value=sym) as symbol_mock:
+            result = runner.invoke(cli, ["symbol", "f.py::greet#function"])
+        assert result.exit_code == 0, result.output
+        assert symbol_mock.call_args.args[0].local_path == "."
+        assert symbol_mock.call_args.kwargs["symbol_id"] == "f.py::greet#function"
+
     def test_symbol_json(self) -> None:
         from unittest.mock import patch
 

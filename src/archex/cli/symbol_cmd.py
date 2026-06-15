@@ -12,12 +12,12 @@ from archex.utils import resolve_source
 
 
 @click.command("symbol")
-@click.argument("source")
-@click.argument("symbol_id")
+@click.argument("args", nargs=-1, required=True)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.option("--timing", is_flag=True, default=False, help="Print timing breakdown.")
-def symbol_cmd(source: str, symbol_id: str, output_json: bool, timing: bool) -> None:
+def symbol_cmd(args: tuple[str, ...], output_json: bool, timing: bool) -> None:
     """Retrieve the full source for a single symbol by its stable ID."""
+    source, symbol_id = _source_and_symbol_id(args)
     source_obj = resolve_source(source)
 
     pt = PipelineTiming() if timing else None
@@ -40,3 +40,11 @@ def symbol_cmd(source: str, symbol_id: str, output_json: bool, timing: bool) -> 
         print_timing(pt)
         raw = get_file_token_count(source_obj, result.file_path)
         print_savings(result.token_count, raw, pt.total_ms)
+
+
+def _source_and_symbol_id(args: tuple[str, ...]) -> tuple[str, str]:
+    if len(args) == 1:
+        return ".", args[0]
+    if len(args) == 2:
+        return args[0], args[1]
+    raise click.UsageError("symbol requires a symbol ID, or source and symbol ID")

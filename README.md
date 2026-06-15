@@ -22,7 +22,7 @@ archex turns a repository into a ranked, token-budgeted context bundle with symb
 
 | If you are evaluating... | Start here | Why |
 | --- | --- | --- |
-| Agent workflows | `archex doctor .`, then `archex scout . "question" --budget 1000 --format json` | Checks local trust first, then returns a compact map plus exact fetch handles. |
+| Agent workflows | `archex doctor`, then `archex scout "question" --budget 1000 --format json` | Checks local trust first, then returns a compact map plus exact fetch handles. |
 | Claude Code or MCP | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, and an in-repo skill that teaches doctor → scout → fetch. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and retriever integrations. |
 | Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, retrieval gates, and default-strategy decisions. |
@@ -32,16 +32,16 @@ archex turns a repository into a ranked, token-budgeted context bundle with symb
 
 ```bash
 uv tool install archex
-archex doctor .
-archex query ./my-project "How does authentication work?" --format xml
+archex doctor
+archex query "How does authentication work?" --format xml
 ```
 
-`archex doctor .` reports whether the local index, grammar support, model cache, MCP registration, and `.archex/` state are healthy. If the repo has not been initialized yet:
+`archex doctor` reports whether the local index, grammar support, model cache, MCP registration, and `.archex/` state are healthy. Repo-local commands default to the current working directory. If the repo has not been initialized yet:
 
 ```bash
-archex init ./my-project
-archex index ./my-project
-archex query ./my-project "How does authentication work?" --format xml
+archex init
+archex index
+archex query "How does authentication work?" --format xml
 ```
 
 ## What archex returns
@@ -99,11 +99,11 @@ archex is a selection and assembly layer. Compression tools can shrink the final
 ### CLI
 
 ```bash
-archex query ./repo "Where is cache invalidation handled?" --format xml
-archex scout ./repo "How does authentication flow through this repo?" --budget 1000 --format json
-archex graph export ./repo --output .archex/archgraph.json
+archex query "Where is cache invalidation handled?" --format xml
+archex scout "How does authentication flow through this repo?" --budget 1000 --format json
+archex graph export --output .archex/archgraph.json
 archex graph neighbors src/auth/middleware.py --graph .archex/archgraph.json --format markdown
-archex symbol ./repo 'symbol:src/auth/middleware.py::authenticate#function'
+archex symbol 'symbol:src/auth/middleware.py::authenticate#function'
 ```
 
 ### MCP and Claude Code
@@ -137,7 +137,7 @@ from archex import query
 from archex.models import RepoSource
 
 bundle = query(
-    RepoSource(local_path="./my-project"),
+    RepoSource(local_path="."),
     "Where is database connection pooling implemented?",
 )
 print(bundle.to_prompt(format="xml"))
@@ -151,10 +151,10 @@ Two local-first images are built in CI:
 
 ```bash
 # BM25-only, no torch
-docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim archex doctor .
+docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim archex doctor
 
 # Full local-embedding image with FastEmbed prewarmed
-docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:full archex query . "Where is cache invalidation handled?" --strategy hybrid
+docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:full archex query "Where is cache invalidation handled?" --strategy hybrid
 ```
 
 Warm-container MCP pattern:
@@ -205,22 +205,22 @@ The local 35-task retrieval benchmark still governs default-strategy decisions. 
 
 ```bash
 # Repo-local lifecycle
-archex init .
-archex index .
+archex init
+archex index
 archex status --strict
-archex doctor . --format json
+archex doctor --format json
 
 # Architecture and graph surfaces
-archex analyze . --format markdown
-archex onboard .
-archex graph export . --output .archex/archgraph.json
+archex analyze --format markdown
+archex onboard
+archex graph export --output .archex/archgraph.json
 archex graph path src/archex/cli/query_cmd.py src/archex/serve/context.py --graph .archex/archgraph.json --format markdown
-archex impact . src/archex/serve/context.py
+archex impact --changed-file src/archex/serve/context.py
 
 # Benchmarks and gates
 archex benchmark headtohead report --input .archex/headtohead --format markdown
 archex benchmark gate --input .archex/e2e --baseline .archex/e2e-baseline --warn-latency-ms 3000
-archex dogfood . --all --baseline benchmarks/dogfood_baseline.json --format dogfood-delta
+archex dogfood --all --baseline benchmarks/dogfood_baseline.json --format dogfood-delta
 ```
 
 ## Installation details
