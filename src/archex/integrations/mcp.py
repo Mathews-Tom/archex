@@ -652,6 +652,157 @@ def _yes_no(value: bool) -> str:
     return "yes" if value else "no"
 
 
+async def _run_mcp_tool(
+    loop: asyncio.AbstractEventLoop,
+    name: str,
+    arguments: dict[str, Any],
+) -> str:
+    if name == "analyze_repo":
+        repo_url: str = arguments["repo_url"]
+        fmt: str = arguments.get("format", "json")
+        return await loop.run_in_executor(None, handle_analyze_repo, repo_url, fmt)
+    if name == "scout_repo":
+        repo_url = arguments["repo_url"]
+        question = arguments["question"]
+        budget_arg = arguments.get("budget")
+        budget = int(budget_arg) if budget_arg is not None else None
+        fmt_arg = arguments.get("format", "json")
+        scout_fmt: ScoutFormat = "markdown" if fmt_arg == "markdown" else "json"
+        return await loop.run_in_executor(
+            None, handle_scout_repo, repo_url, question, budget, scout_fmt
+        )
+    if name == "query_repo":
+        repo_url = arguments["repo_url"]
+        question: str = arguments["question"]
+        budget_arg = arguments.get("budget")
+        budget = int(budget_arg) if budget_arg is not None else None
+        return await loop.run_in_executor(None, handle_query_repo, repo_url, question, budget)
+    if name == "compare_repos":
+        repo_a: str = arguments["repo_a"]
+        repo_b: str = arguments["repo_b"]
+        dims: str = arguments.get("dimensions", "api_surface,error_handling")
+        return await loop.run_in_executor(None, handle_compare_repos, repo_a, repo_b, dims)
+    if name == "get_file_tree":
+        repo_url = arguments["repo_url"]
+        max_depth: int = int(arguments.get("max_depth", 5))
+        language: str | None = arguments.get("language")
+        return await loop.run_in_executor(None, handle_get_file_tree, repo_url, max_depth, language)
+    if name == "get_file_outline":
+        repo_url = arguments["repo_url"]
+        file_path: str = arguments["file_path"]
+        return await loop.run_in_executor(None, handle_get_file_outline, repo_url, file_path)
+    if name == "search_symbols":
+        repo_url = arguments["repo_url"]
+        sym_query: str = arguments["query"]
+        kind: str | None = arguments.get("kind")
+        language = arguments.get("language")
+        limit: int = int(arguments.get("limit", 20))
+        return await loop.run_in_executor(
+            None, handle_search_symbols, repo_url, sym_query, kind, language, limit
+        )
+    if name == "get_symbol":
+        repo_url = arguments["repo_url"]
+        symbol_id: str = arguments["symbol_id"]
+        return await loop.run_in_executor(None, handle_get_symbol, repo_url, symbol_id)
+    if name == "get_symbols_batch":
+        repo_url = arguments["repo_url"]
+        symbol_ids: list[str] = arguments["symbol_ids"]
+        return await loop.run_in_executor(None, handle_get_symbols_batch, repo_url, symbol_ids)
+    if name == "graph_lookup":
+        graph_path = arguments["graph_path"]
+        node: str = arguments["node"]
+        fmt = arguments.get("format", "json")
+        limit = int(arguments.get("limit", 25))
+        hub_degree = int(arguments.get("hub_degree", 50))
+        token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+        return await loop.run_in_executor(
+            None,
+            handle_graph_lookup,
+            graph_path,
+            node,
+            fmt,
+            limit,
+            hub_degree,
+            token_budget,
+        )
+    if name == "graph_neighbors":
+        graph_path = arguments["graph_path"]
+        node = arguments["node"]
+        fmt = arguments.get("format", "json")
+        direction: GraphDirection = arguments.get("direction", "both")
+        depth = int(arguments.get("depth", 1))
+        limit = int(arguments.get("limit", 25))
+        hub_degree = int(arguments.get("hub_degree", 50))
+        token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+        return await loop.run_in_executor(
+            None,
+            handle_graph_neighbors,
+            graph_path,
+            node,
+            fmt,
+            direction,
+            depth,
+            limit,
+            hub_degree,
+            token_budget,
+        )
+    if name == "graph_path":
+        graph_path = arguments["graph_path"]
+        source: str = arguments["source"]
+        target: str = arguments["target"]
+        fmt = arguments.get("format", "json")
+        direction = arguments.get("direction", "both")
+        max_edges = int(arguments.get("max_edges", 100))
+        hub_degree = int(arguments.get("hub_degree", 50))
+        token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+        return await loop.run_in_executor(
+            None,
+            handle_graph_path,
+            graph_path,
+            source,
+            target,
+            fmt,
+            direction,
+            max_edges,
+            hub_degree,
+            token_budget,
+        )
+    if name == "graph_stats":
+        graph_path = arguments["graph_path"]
+        fmt = arguments.get("format", "json")
+        hub_limit = int(arguments.get("hub_limit", 10))
+        hub_degree = int(arguments.get("hub_degree", 50))
+        token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+        return await loop.run_in_executor(
+            None,
+            handle_graph_stats,
+            graph_path,
+            fmt,
+            hub_limit,
+            hub_degree,
+            token_budget,
+        )
+    if name == "graph_hubs":
+        graph_path = arguments["graph_path"]
+        fmt = arguments.get("format", "json")
+        limit = int(arguments.get("limit", 25))
+        threshold_arg = arguments.get("threshold")
+        threshold = int(threshold_arg) if threshold_arg is not None else None
+        hub_degree = int(arguments.get("hub_degree", 50))
+        token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+        return await loop.run_in_executor(
+            None,
+            handle_graph_hubs,
+            graph_path,
+            fmt,
+            limit,
+            threshold,
+            hub_degree,
+            token_budget,
+        )
+    raise ValueError(f"Unknown tool: {name!r}")
+
+
 def build_server() -> Any:
     """Build and return a configured MCP Server instance.
 
@@ -1076,162 +1227,7 @@ def build_server() -> Any:
         arguments: dict[str, Any],
     ) -> list[mcp_types.TextContent]:
         loop = asyncio.get_running_loop()
-
-        if name == "analyze_repo":
-            repo_url: str = arguments["repo_url"]
-            fmt: str = arguments.get("format", "json")
-            result_text = await loop.run_in_executor(None, handle_analyze_repo, repo_url, fmt)
-        elif name == "scout_repo":
-            repo_url = arguments["repo_url"]
-            question = arguments["question"]
-            budget_arg = arguments.get("budget")
-            budget = int(budget_arg) if budget_arg is not None else None
-            fmt_arg = arguments.get("format", "json")
-            scout_fmt: ScoutFormat = "markdown" if fmt_arg == "markdown" else "json"
-            result_text = await loop.run_in_executor(
-                None, handle_scout_repo, repo_url, question, budget, scout_fmt
-            )
-        elif name == "query_repo":
-            repo_url = arguments["repo_url"]
-            question: str = arguments["question"]
-            budget_arg = arguments.get("budget")
-            budget = int(budget_arg) if budget_arg is not None else None
-            result_text = await loop.run_in_executor(
-                None, handle_query_repo, repo_url, question, budget
-            )
-        elif name == "compare_repos":
-            repo_a: str = arguments["repo_a"]
-            repo_b: str = arguments["repo_b"]
-            dims: str = arguments.get("dimensions", "api_surface,error_handling")
-            result_text = await loop.run_in_executor(
-                None, handle_compare_repos, repo_a, repo_b, dims
-            )
-        elif name == "get_file_tree":
-            repo_url = arguments["repo_url"]
-            max_depth: int = int(arguments.get("max_depth", 5))
-            language: str | None = arguments.get("language")
-            result_text = await loop.run_in_executor(
-                None, handle_get_file_tree, repo_url, max_depth, language
-            )
-        elif name == "get_file_outline":
-            repo_url = arguments["repo_url"]
-            file_path: str = arguments["file_path"]
-            result_text = await loop.run_in_executor(
-                None, handle_get_file_outline, repo_url, file_path
-            )
-        elif name == "search_symbols":
-            repo_url = arguments["repo_url"]
-            sym_query: str = arguments["query"]
-            kind: str | None = arguments.get("kind")
-            language = arguments.get("language")
-            limit: int = int(arguments.get("limit", 20))
-            result_text = await loop.run_in_executor(
-                None, handle_search_symbols, repo_url, sym_query, kind, language, limit
-            )
-        elif name == "get_symbol":
-            repo_url = arguments["repo_url"]
-            symbol_id: str = arguments["symbol_id"]
-            result_text = await loop.run_in_executor(None, handle_get_symbol, repo_url, symbol_id)
-        elif name == "get_symbols_batch":
-            repo_url = arguments["repo_url"]
-            symbol_ids: list[str] = arguments["symbol_ids"]
-            result_text = await loop.run_in_executor(
-                None, handle_get_symbols_batch, repo_url, symbol_ids
-            )
-        elif name == "graph_lookup":
-            graph_path = arguments["graph_path"]
-            node: str = arguments["node"]
-            fmt = arguments.get("format", "json")
-            limit = int(arguments.get("limit", 25))
-            hub_degree = int(arguments.get("hub_degree", 50))
-            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
-            result_text = await loop.run_in_executor(
-                None,
-                handle_graph_lookup,
-                graph_path,
-                node,
-                fmt,
-                limit,
-                hub_degree,
-                token_budget,
-            )
-        elif name == "graph_neighbors":
-            graph_path = arguments["graph_path"]
-            node = arguments["node"]
-            fmt = arguments.get("format", "json")
-            direction: GraphDirection = arguments.get("direction", "both")
-            depth = int(arguments.get("depth", 1))
-            limit = int(arguments.get("limit", 25))
-            hub_degree = int(arguments.get("hub_degree", 50))
-            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
-            result_text = await loop.run_in_executor(
-                None,
-                handle_graph_neighbors,
-                graph_path,
-                node,
-                fmt,
-                direction,
-                depth,
-                limit,
-                hub_degree,
-                token_budget,
-            )
-        elif name == "graph_path":
-            graph_path = arguments["graph_path"]
-            source: str = arguments["source"]
-            target: str = arguments["target"]
-            fmt = arguments.get("format", "json")
-            direction = arguments.get("direction", "both")
-            max_edges = int(arguments.get("max_edges", 100))
-            hub_degree = int(arguments.get("hub_degree", 50))
-            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
-            result_text = await loop.run_in_executor(
-                None,
-                handle_graph_path,
-                graph_path,
-                source,
-                target,
-                fmt,
-                direction,
-                max_edges,
-                hub_degree,
-                token_budget,
-            )
-        elif name == "graph_stats":
-            graph_path = arguments["graph_path"]
-            fmt = arguments.get("format", "json")
-            hub_limit = int(arguments.get("hub_limit", 10))
-            hub_degree = int(arguments.get("hub_degree", 50))
-            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
-            result_text = await loop.run_in_executor(
-                None,
-                handle_graph_stats,
-                graph_path,
-                fmt,
-                hub_limit,
-                hub_degree,
-                token_budget,
-            )
-        elif name == "graph_hubs":
-            graph_path = arguments["graph_path"]
-            fmt = arguments.get("format", "json")
-            limit = int(arguments.get("limit", 25))
-            threshold_arg = arguments.get("threshold")
-            threshold = int(threshold_arg) if threshold_arg is not None else None
-            hub_degree = int(arguments.get("hub_degree", 50))
-            token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
-            result_text = await loop.run_in_executor(
-                None,
-                handle_graph_hubs,
-                graph_path,
-                fmt,
-                limit,
-                threshold,
-                hub_degree,
-                token_budget,
-            )
-        else:
-            raise ValueError(f"Unknown tool: {name!r}")
+        result_text = await _run_mcp_tool(loop, name, arguments)
 
         return [mcp_types.TextContent(type="text", text=result_text)]
 
