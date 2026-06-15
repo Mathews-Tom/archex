@@ -196,6 +196,7 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 
 | Surface | Contract |
 | --- | --- |
+| Security policy | Supported versions, disclosure workflow, no-telemetry posture, secret-handling guidance, and model remote-code policy live in [SECURITY.md](SECURITY.md). |
 | `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, and `.archex/` disk usage. |
 | Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
 | Freshness | Query and MCP paths can apply small working-tree deltas; `archex mcp --watch` keeps a warm process current when enabled. |
