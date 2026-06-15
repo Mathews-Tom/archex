@@ -174,6 +174,40 @@ uv add "archex[splade]"                   # SPLADE sparse retrieval
 uv add "archex[all]"                      # vector + graph + mcp + langchain + llamaindex
 ```
 
+### Docker images
+
+Two local-first images are built in CI:
+
+```bash
+# BM25-only, no torch
+docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim archex doctor .
+
+# Full local-embedding image with FastEmbed prewarmed
+docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:full archex query . "Where is cache invalidation handled?" --strategy hybrid
+```
+
+For MCP clients, keep a warm container alive and execute `archex mcp` inside it:
+
+```bash
+docker run -d --name archex-mcp -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim sleep infinity
+docker exec -i archex-mcp archex mcp
+```
+
+MCP client config for that warm container:
+
+```json
+{
+  "mcpServers": {
+    "archex": {
+      "command": "docker",
+      "args": ["exec", "-i", "archex-mcp", "archex", "mcp"]
+    }
+  }
+}
+```
+
+The mounted repository owns `.archex/`, so indexes survive container restarts and stay out of source control.
+
 ## Usage
 
 ### Analyze a repository
