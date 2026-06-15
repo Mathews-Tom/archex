@@ -1,37 +1,52 @@
 # archex
 
+**Local code context for agents.**
+
+archex turns a repository into a ranked, token-budgeted context bundle with symbols, dependencies, graph context, and provenance. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key.
+
 [![CI](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Coverage](https://codecov.io/gh/Mathews-Tom/archex/graph/badge.svg)](https://codecov.io/gh/Mathews-Tom/archex)
 
-**archex gives AI agents the right code context with fewer tokens.**
+**Start:** [30-second quickstart](#30-second-quickstart) · [Claude Code / MCP](#mcp-and-claude-code) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
 
-Your agent reads files. archex reads codebases.
+## Proof bar
 
-Today, an agent that needs to understand unfamiliar code opens one file, then follows an import, then opens a type definition, then backtracks — burning 15,000 tokens to end up with maybe 60% of what it needed. archex replaces that whole exploration loop with one call: it indexes the repository locally, ranks the relevant code, pulls in the dependencies and type context the agent would have had to chase by hand, and hands back a compact, structured bundle. No hosted LLM, no prose, no API key.
+| Local-first | Interfaces | Language coverage | Public comparison |
+| --- | --- | --- | --- |
+| No hosted inference, no API key for core/MCP/Docker slim | CLI, MCP, Python API, Docker, Claude Code skill | 25 declared language IDs with explicit `full` vs `chunk-only` tiers | C1 head-to-head: archex / `ccc` / raw grep-read on the same tasks |
 
-> Want the longer version of the story first? Read [Why archex](docs/WHY_ARCHEX.md).
+## Fast paths
 
-## Try it in 30 seconds
+| If you are evaluating... | Start here | Why |
+| --- | --- | --- |
+| Agent workflows | `archex doctor .`, then `archex scout . "question" --budget 1000 --format json` | Checks local trust first, then returns a compact map plus exact fetch handles. |
+| Claude Code or MCP | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, and an in-repo skill that teaches doctor → scout → fetch. |
+| Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and retriever integrations. |
+| Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, retrieval gates, and default-strategy decisions. |
+| Architecture understanding | [System Design](docs/SYSTEM_DESIGN.md) | Current pipeline, graph query, scout, language tiers, and distribution surfaces. |
+
+## 30-second quickstart
 
 ```bash
-# Install the CLI (no init, no config, no API key)
 uv tool install archex
-
-# Ask any local repository a question
-archex query ./my-project "How does authentication work?"
-
-# Point it at a public GitHub repo when you have network access
-archex query https://github.com/encode/httpx "Where is connection pooling implemented?"
+archex doctor .
+archex query ./my-project "How does authentication work?" --format xml
 ```
 
-That's the whole on-ramp. There is no project to set up and nothing to register — archex indexes the repo on the fly and answers.
+`archex doctor .` reports whether the local index, grammar support, model cache, MCP registration, and `.archex/` state are healthy. If the repo has not been initialized yet:
 
-## What you get back
+```bash
+archex init ./my-project
+archex index ./my-project
+archex query ./my-project "How does authentication work?" --format xml
+```
 
-archex returns a *context bundle*, not an answer. Here is a trimmed XML bundle for "How does authentication work?":
+## What archex returns
+
+archex returns a **context bundle**, not an answer. The downstream agent or model still does the reasoning; archex decides which code, symbols, dependencies, and type context belong in the prompt.
 
 ```xml
 <context query="How does authentication work?">
@@ -67,38 +82,37 @@ class User: ...
 </context>
 ```
 
-Ranked code chunks, the imports and type definitions they depend on, the dependency chain, and provenance — packed to a token budget. You decide which model, prompt, or editing workflow consumes it. Prefer JSON or Markdown instead? Add `--format json` or `--format markdown`.
+The bundle carries ranked chunks, import context, referenced type definitions, dependency edges, token counts, and provenance. Use `--format json` or `--format markdown` when XML is not the right downstream envelope.
 
-## Why it helps
+## Why archex is different
 
-On the latest local 35-task benchmark, the product-default `archex query` reduced what the downstream agent had to read versus a raw-file crawl while keeping retrieval quality high:
+Agents usually explore repositories by opening one file, following imports, checking type definitions, and backtracking. That burns context before the real task starts. archex performs local retrieval and structural expansion first: BM25F, optional local vector/SPLADE signals, graph expansion with edge confidence, type-definition packing, and intent-routed token budgets.
 
-- **71.3% fewer returned tokens than reading raw files** — archex returns 6,037 mean tokens per query instead of making the agent read the full raw-file baseline.
-- **Recall 0.819** — the agent still gets most of what it actually needed.
-- **Token efficiency 0.702** — `1 − returned_tokens / accessed_file_tokens`, higher is better.
+```text
+Repository → repo-local index → intent routing → retrieval → graph/type expansion → token-budgeted bundle → agent / MCP client
+```
 
-Every number is measured and gated in CI, not asserted. Full baseline-vs-current release tables and gate rules live in [Performance and gates](#performance-and-gates).
+archex is a selection and assembly layer. Compression tools can shrink the final bundle later, but compressed irrelevant context is still irrelevant.
 
-## Who it's for
+## Use it your way
 
-| If you are a…              | archex gives you…                                                                                     |
-| -------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **AI agent developer**     | Precise codebase context without burning the context window — one call replaces multi-file crawling.  |
-| **Solo developer**         | An architectural map and pattern detection for an unfamiliar repo in minutes instead of hours.        |
-| **Team lead**              | Cross-repo comparison and architectural-drift detection you can wire into CI.                          |
-| **Open-source contributor**| A read on a project's structure before you open a PR — find the right place to make the change.        |
-
-## Choose your integration
-
-### CLI — any agent, any shell
+### CLI
 
 ```bash
 archex query ./repo "Where is cache invalidation handled?" --format xml
-archex tree ./repo --depth 3
-archex symbol ./repo "src/auth/middleware.py::authenticate#function"
+archex scout ./repo "How does authentication flow through this repo?" --budget 1000 --format json
+archex graph export ./repo --output .archex/archgraph.json
+archex graph neighbors src/auth/middleware.py --graph .archex/archgraph.json --format markdown
+archex symbol ./repo 'symbol:src/auth/middleware.py::authenticate#function'
 ```
 
-### MCP server — Claude Code, Claude Desktop, and other MCP clients
+### MCP and Claude Code
+
+Install the MCP extra and register the stdio server:
+
+```bash
+uv tool install "archex[mcp]"
+```
 
 ```json
 {
@@ -108,73 +122,30 @@ archex symbol ./repo "src/auth/middleware.py::authenticate#function"
 }
 ```
 
-Eight tools register automatically: `analyze_repo`, `query_repo`, `compare_repos`, `get_file_tree`, `get_file_outline`, `search_symbols`, `get_symbol`, and `get_symbols_batch`.
+For warm local sessions, keep the MCP process alive and optionally watch the repo:
 
-### Python API — applications and retrieval frameworks
+```bash
+archex mcp --watch --watch-path .
+```
+
+The in-repo Claude Code skill lives at [`skills/archex/`](skills/archex/). Its `/archex` command runs `archex doctor`, initializes/indexes when needed, scouts first for broad questions, then fetches exact `symbol:` or `chunk:` handles before a larger bundle query.
+
+### Python API
 
 ```python
-from archex import analyze, query
+from archex import query
 from archex.models import RepoSource
 
-source = RepoSource(local_path="./my-project")
-profile = analyze(source)
-print(f"{len(profile.module_map)} modules")
-
-bundle = query(source, "How does authentication work?")
+bundle = query(
+    RepoSource(local_path="./my-project"),
+    "Where is database connection pooling implemented?",
+)
 print(bundle.to_prompt(format="xml"))
 ```
 
-LangChain and LlamaIndex retrievers ship in the `[langchain]` and `[llamaindex]` extras.
+`analyze()` returns an `ArchProfile`; `compare()` returns deterministic cross-repo dimension comparisons. LangChain and LlamaIndex retrievers ship as optional extras.
 
-## What archex does well
-
-| Outcome | How |
-| --- | --- |
-| **Find the right files** | BM25F weighted-field search, optional local vector retrieval, confidence-weighted RRF, local cross-encoder reranking, path/symbol boosts, dependency expansion. |
-| **Spend fewer tokens** | Intent-routed budgets, file-diverse packing, nested-range suppression, raw-file baselines, token-efficiency gates, honest MCP envelope accounting. |
-| **Give agents structured context** | XML, JSON, and Markdown bundles with ranked chunks, provenance, imports, type definitions, and stable symbol IDs. |
-| **Understand architecture deterministically** | Module detection, pattern recognition, interface extraction, architecture graph export, onboarding, impact analysis, and cross-repo comparison. |
-| **Stay local and CI-friendly** | Repo-local `.archex/` indexes, generated artifacts outside source control, no hosted-model dependency, deterministic gates. |
-
-Core properties:
-
-- **Local first** — BM25F, optional local embeddings, optional local reranking. No hosted LLM inference.
-- **Token-budgeted by design** — definition lookups stay small; broad architecture questions get larger budgets; explicit `--budget` always overrides.
-- **Structured for agents** — bundles carry ranked chunks, symbol metadata, imports, type context, dependency expansion, and provenance.
-- **Language-aware** — Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, C#, and Swift via tree-sitter adapters.
-- **Deterministic architecture views** — modules, symbols, patterns, dependency graph, file tree, impact analysis, onboarding, and cross-repo comparisons.
-
-```text
-Repository → local index → intent classifier → hybrid retrieval → dependency/type expansion → token-budgeted bundle → agent / MCP client
-```
-
-Full pipeline anatomy lives in [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
-
-## Installation
-
-The core package handles the supported languages, structural analysis, and BM25 retrieval with zero API calls. Extras are opt-in:
-
-```bash
-uv tool install archex                    # CLI, system-wide
-uv add archex                             # project dependency
-
-# Agent integrations
-uv tool install "archex[mcp]"             # MCP server
-uv add "archex[langchain]"                # LangChain retriever
-uv add "archex[llamaindex]"               # LlamaIndex retriever
-uv add "archex[lsap]"                     # LSP type enrichment
-
-# Vector retrieval
-uv add "archex[vector]"                   # ONNX local embeddings
-uv add "archex[vector-fast]"              # FastEmbed
-uv add "archex[vector-torch]"             # sentence-transformers / torch
-uv add "archex[splade]"                   # SPLADE sparse retrieval
-
-# Everything
-uv add "archex[all]"                      # vector + graph + mcp + langchain + llamaindex
-```
-
-### Docker images
+### Docker
 
 Two local-first images are built in CI:
 
@@ -186,14 +157,14 @@ docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:sl
 docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:full archex query . "Where is cache invalidation handled?" --strategy hybrid
 ```
 
-For MCP clients, keep a warm container alive and execute `archex mcp` inside it:
+Warm-container MCP pattern:
 
 ```bash
 docker run -d --name archex-mcp -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim sleep infinity
 docker exec -i archex-mcp archex mcp
 ```
 
-MCP client config for that warm container:
+MCP client config for that container:
 
 ```json
 {
@@ -208,129 +179,19 @@ MCP client config for that warm container:
 
 The mounted repository owns `.archex/`, so indexes survive container restarts and stay out of source control.
 
-## Usage
+## Trust and operations
 
-### Analyze a repository
+| Surface | Contract |
+| --- | --- |
+| `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, and `.archex/` disk usage. |
+| Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
+| Freshness | Query and MCP paths can apply small working-tree deltas; `archex mcp --watch` keeps a warm process current when enabled. |
+| Default strategy | `archex_query` remains the product default until a full evidence gate beats it on F1, recall, token efficiency, and p95. |
+| Distribution | Core CLI, MCP, skill, slim Docker, and benchmark gates work without hosted inference or API keys. |
 
-```python
-from archex import analyze
-from archex.models import RepoSource
+## Measured results
 
-profile = analyze(RepoSource(local_path="./my-project"))
-
-for module in profile.module_map:
-    print(f"{module.name}: {len(module.files)} files")
-for pattern in profile.pattern_catalog:
-    print(f"[{pattern.confidence:.0%}] {pattern.name}")
-```
-
-### Query for context
-
-```python
-from archex import query
-from archex.models import RepoSource
-
-bundle = query(
-    RepoSource(local_path="./my-project"),
-    "Where is database connection pooling implemented?",
-)
-
-print(bundle.to_prompt(format="xml"))
-```
-
-`query()` returns a `ContextBundle`, not a generated explanation. Feed that bundle to your agent, MCP client, or downstream LLM. Pass `token_budget=...` when you need an explicit override; otherwise archex uses the intent-routed budget.
-
-### Surgical lookups that replace whole-file reads
-
-```python
-from archex.api import file_outline, file_tree, get_symbol, search_symbols
-from archex.models import RepoSource
-
-source = RepoSource(local_path="./my-project")
-
-tree = file_tree(source, max_depth=3, language="python")
-outline = file_outline(source, "src/auth/middleware.py")
-matches = search_symbols(source, "authenticate", kind="function")
-symbol = get_symbol(source, "src/auth/middleware.py::authenticate#function")
-```
-
-### Compare repositories
-
-```python
-from archex import compare
-from archex.models import RepoSource
-
-result = compare(
-    RepoSource(local_path="./project-a"),
-    RepoSource(local_path="./project-b"),
-    dimensions=["error_handling", "api_surface"],
-)
-```
-
-## CLI at a glance
-
-```bash
-archex analyze ./repo --format markdown              # architecture profile
-archex query ./repo "How does auth work?"            # intent-budgeted context bundle
-archex query ./repo "Find the query pipeline" --format xml
-archex compare ./repo-a ./repo-b                     # cross-repo architectural diff
-archex tree ./repo --depth 3                         # annotated file tree
-archex outline ./repo src/auth/middleware.py         # symbol outline for one file
-archex symbols ./repo "authenticate"                 # symbol search
-archex symbol ./repo "src/auth.py::login#function"   # full source by stable ID
-archex explain ./repo src/auth.py                    # deterministic structural explanation
-archex graph export ./repo --format json             # architecture graph artifact
-archex impact ./repo src/auth.py                     # deterministic blast-radius analysis
-archex onboard ./repo                                # deterministic onboarding guide
-
-# Repo-local lifecycle
-archex init && archex index && archex status
-archex dogfood . --all --baseline benchmarks/dogfood_baseline.json --format dogfood-delta
-archex reset --force
-
-# Cache and benchmarks
-archex cache list | clean --max-age 168 | info
-archex benchmark run --query-fusion --rerank --embedder jina-v2 --tasks-dir benchmarks/tasks --output .archex/e2e
-archex benchmark gate --input .archex/e2e --baseline .archex/e2e-baseline --warn-latency-ms 3000
-```
-
-Run `archex --help` or any subcommand with `--help` for the full option list.
-
-## Repo-local mode
-
-For agent or maintainer workflows tied to a single checked-out repo:
-
-```bash
-cd ./my-project
-archex init     # creates .archex/, adds it to .gitignore
-archex index    # build or refresh
-archex status   # is the index fresh? does HEAD match? is the tree dirty?
-archex query "Where is cache invalidation handled?"
-```
-
-The entire `.archex/` directory is generated state — SQLite index, vector artifacts, graph artifacts, cache metadata, and dogfood reports — and stays out of source control. `archex status --strict` fails on stale or dirty state, which is useful in CI gates.
-
-## archex vs. the alternatives
-
-archex gives AI agents structural priors about codebases they have not seen. A pre-computed map is cheap, fast, and complete; file-by-file exploration is expensive, slow, and incomplete.
-
-| Capability | archex | archex + LSAP | Claude Code | LSP |
-| --- | --- | --- | --- | --- |
-| Cold-start codebase understanding | **Yes** — pre-computed map | **Yes** — structural + semantic | Slow — sequential | No — needs session |
-| Semantic type resolution | Syntactic tree-sitter signals | **Yes** — LSP hover/refs/defs | Via LLM reasoning | **Yes** — compiler-backed |
-| Token-budget context assembly | **Yes** — ranked, packed | **Yes** — type-enriched | Manual selection | Not designed for it |
-| Cross-repo structural comparison | **Yes** — deterministic dimensions | **Yes** | No | No |
-| Offline / CI embeddable | **Yes** | Partial — needs language server | No | Partial |
-| Works with any agent framework | **Yes** — CLI, MCP, Python API | **Yes** — async Python API | Claude-specific | Editor-specific |
-
-## Performance and gates
-
-archex optimizes the amount of context the downstream agent must read, not recall alone. Benchmark reports track recall, precision, F1, MRR, NDCG, MAP, latency, returned tokens, raw-file baselines, and token efficiency (`1 − returned_tokens / accessed_file_tokens`, higher is better).
-Default embedder, reranker, and strategy switches are evidence-gated in `docs/RETRIEVAL_DEFAULT_DECISIONS.md`; the 2026-06-09 retrieval-default run kept `archex_query` as the product default and did not refresh `benchmarks/dogfood_baseline.json`.
-
-A public same-task `archex` vs `ccc` vs raw-grep/read harness lives under `benchmarks/headtohead/`; the latest recorded operator run artifacts are tracked in `benchmarks/headtohead/results/`.
-
-See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the evidence-backed C1 comparison. Accepted C1 aggregate results:
+The public C1 harness runs the same external-repo tasks through archex, cocoindex-code (`ccc`), and a raw grep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, and bundle-completion penalty tokens. See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for methodology and evidence sources.
 
 | Lane | Recall | F1 | Token efficiency | Warm latency ms |
 | --- | ---: | ---: | ---: | ---: |
@@ -338,101 +199,61 @@ See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the evidence-ba
 | `ccc` | 0.32 | 0.31 | 0.48 | 521 |
 | `raw-grep/read` | 1.00 | 0.38 | 0.00 | 155 |
 
-Latest local 35-task benchmark, compared with the previous accepted baseline:
+The local 35-task retrieval benchmark still governs default-strategy decisions. The accepted decision record keeps `archex_query` as the product default: [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) and [ADR-001](docs/adr/001-retrieval-default-evidence-gate.md).
 
-| Strategy | Returned tokens | Weighted raw-baseline savings | Recall | Token efficiency |
-| --- | ---: | ---: | ---: | ---: |
-| `archex_query` | 7,110 → 6,037 (-15.1%) | 66.2% → 71.3% | 0.629 → 0.819 | 0.351 → 0.702 |
-| `archex_query_fusion` | 7,173 → 7,293 (+1.7%) | 65.9% → 65.4% | 0.627 → 0.809 | 0.307 → 0.612 |
-| `archex_query_fusion_rerank` | 7,178 → 7,307 (+1.8%) | 65.9% → 65.3% | 0.627 → 0.818 | 0.307 → 0.612 |
-
-Release gates are intentionally tied to the product contract:
-
-- hard fail if product-default token efficiency falls below the measured floor (`0.08`);
-- hard fail if any gated strategy regresses recall against the accepted baseline when `--baseline` is supplied;
-- hard fail if a baseline row is missing;
-- warn, but do not fail, on absolute non-token rows such as rank-2 MRR or low recall rows already accepted in the baseline;
-- dogfood must report zero regressions.
-
-Reproduce the architecture-quality smoke, retrieval benchmark/readiness/triage/gate, and dogfood run locally:
+## Advanced workflows
 
 ```bash
-bash scripts/benchmark_pipeline.sh
+# Repo-local lifecycle
+archex init .
+archex index .
+archex status --strict
+archex doctor . --format json
+
+# Architecture and graph surfaces
+archex analyze . --format markdown
+archex onboard .
+archex graph export . --output .archex/archgraph.json
+archex graph path src/archex/cli/query_cmd.py src/archex/serve/context.py --graph .archex/archgraph.json --format markdown
+archex impact . src/archex/serve/context.py
+
+# Benchmarks and gates
+archex benchmark headtohead report --input .archex/headtohead --format markdown
+archex benchmark gate --input .archex/e2e --baseline .archex/e2e-baseline --warn-latency-ms 3000
+archex dogfood . --all --baseline benchmarks/dogfood_baseline.json --format dogfood-delta
 ```
 
-The script resolves the repo root from its own location, writes a fresh `logs/benchmark_pipeline.log`, streams output to the terminal that started it, and keeps running later steps so failures are reported together. Defaults are intentionally generic: architecture results go to `.archex/arch-quality-current`, retrieval results go to `.archex/benchmark-current`, retrieval stages (`run`, `readiness`, `triage`, `gate`) can be toggled independently, retrieval baseline comparison is enabled only when `ARCHEX_BENCHMARK_BASELINE_DIR` is supplied, and dogfood uses `benchmarks/dogfood_baseline.json`. Override paths, strategy, formats, thresholds, and extra benchmark flags with `ARCHEX_*` environment variables in `scripts/benchmark_pipeline.sh`; set `ARCHEX_RUN_ARCH_BENCHMARK=0`, `ARCHEX_RUN_BENCHMARK_RUN=0`, `ARCHEX_RUN_BENCHMARK_READINESS=0`, `ARCHEX_RUN_BENCHMARK_TRIAGE=0`, `ARCHEX_RUN_BENCHMARK_GATE=0`, or `ARCHEX_RUN_DOGFOOD=0` to skip a stage.
+## Installation details
+
+```bash
+uv tool install archex                    # CLI, system-wide
+uv add archex                             # project dependency
+
+# Agent integrations
+uv tool install "archex[mcp]"             # MCP server
+uv add "archex[langchain]"                # LangChain retriever
+uv add "archex[llamaindex]"               # LlamaIndex retriever
+uv add "archex[lsap]"                     # LSP type enrichment
+
+# Local retrieval extras
+uv add "archex[vector]"                   # ONNX local embeddings
+uv add "archex[vector-fast]"              # FastEmbed
+uv add "archex[vector-torch]"             # sentence-transformers / torch
+uv add "archex[splade]"                   # SPLADE sparse retrieval
+uv add "archex[graph]"                    # Leiden graph clustering
+# Core extras bundle: vector, graph, MCP, LangChain, LlamaIndex
+uv add "archex[all]"
+```
 
 ## Language support
 
-| Language | Extensions | Tier | Extraction |
-| --- | --- | --- | --- |
-| Python | `.py` | full | Symbols, imports, graph edges |
-| JavaScript | `.js`, `.jsx` | full | Symbols, imports, graph edges |
-| TypeScript | `.ts` | full | Symbols, imports, graph edges |
-| TSX | `.tsx` | full | TypeScript adapter path; symbols, imports, graph edges |
-| Go | `.go` | full | Symbols, imports, graph edges |
-| Rust | `.rs` | full | Symbols, imports, graph edges |
-| Java | `.java` | full | Symbols, imports, graph edges |
-| Kotlin | `.kt`, `.kts` | full | Symbols, imports, graph edges |
-| C# | `.cs` | full | Symbols, imports, graph edges |
-| Swift | `.swift` | full | Symbols, imports, graph edges |
-| C | `.c`, `.h` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| PHP | `.php` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| Ruby | `.rb` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| Scala | `.scala`, `.sc` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| Lua | `.lua` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| Bash / Shell | `.sh`, `.bash`, `.zsh` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| SQL | `.sql` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| HTML | `.html`, `.htm` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| CSS | `.css` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| YAML | `.yaml`, `.yml` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| TOML | `.toml` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| JSON | `.json` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| Markdown | `.md`, `.markdown` | chunk-only | AST chunking + retrieval; no symbols/import graph |
-| Solidity | `.sol` | chunk-only | AST chunking + retrieval; no symbols/import graph |
+| Tier | Languages | Extraction |
+| --- | --- | --- |
+| `full` | Python, JavaScript, TypeScript/TSX, Go, Rust, Java, Kotlin, C#, Swift | Symbols, imports, graph edges |
+| `chunk-only` | C, C++, PHP, Ruby, Scala, Lua, Bash/Shell, SQL, HTML, CSS, YAML, TOML, JSON, Markdown, Solidity | AST chunking + retrieval; no symbol/import graph claim |
+| `unknown` | any other text file | line-window chunks for BM25 visibility |
 
-Tier `full` means symbol extraction, import extraction, and graph edges are implemented and tested. Tier `chunk-only` means tree-sitter chunking and retrieval only; archex does not claim symbols or dependency edges for those languages.
-
-Need another language? Register an adapter via Python entry points — no core changes required.
-
-## Configuration
-
-Configuration cascades from defaults through `~/.archex/config.toml`, repo-local `.archex/settings.toml`, `ARCHEX_*` environment variables, and explicit CLI/API arguments. Later sources override earlier ones.
-
-```toml
-# ~/.archex/config.toml
-[default]
-languages = ["python", "typescript"]
-cache = true
-cache_dir = "~/.archex/cache"
-parallel = true
-delta_threshold = 0.5
-```
-
-Repo-local settings created by `archex init`:
-
-```toml
-# .archex/settings.toml
-[project]
-mode = "local"
-
-[index]
-cache_dir = ".archex"
-vector = false
-delta_threshold = 0.5
-```
-
-## Extending archex
-
-archex exposes plugin surfaces via Python entry points and protocols: language adapters, pattern detectors, chunkers, scoring weights, benchmark strategies, and embedders. Register an adapter in your own package:
-
-```toml
-[project.entry-points."archex.language_adapters"]
-dart = "mypackage.adapters:DartAdapter"
-```
-
-Implement the `LanguageAdapter` protocol from `archex.parse.adapters.base` and archex picks it up automatically. The same pattern applies to `archex.pattern_detectors`. See [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) for the full extension surface.
+Need another language? Register an adapter via Python entry points. See [System Design](docs/SYSTEM_DESIGN.md) for the extension contract.
 
 ## What archex is not
 
@@ -449,20 +270,21 @@ git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
 
-uv run pytest                    # 2061 tests, 91% coverage (85% gate floor)
 uv run ruff check && uv run ruff format --check .
-uv run pyright                   # strict mode
+uv run pyright
+uv run pytest
 ```
 
-Contribution guidelines and the dogfood gate workflow live in [CONTRIBUTING.md](CONTRIBUTING.md). New contributors welcome — language adapters and pattern detectors are the easiest first PRs.
+## Documentation map
 
-## Learn more
+Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) → `.docs/2026-06-12-unified-roadmap-session-prompts.md` → [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) / [ADR-001](docs/adr/001-retrieval-default-evidence-gate.md).
 
 - [Why archex](docs/WHY_ARCHEX.md) — the agent token problem this solves
-- [System Overview](docs/OVERVIEW.md) — what archex is and is not
-- [System Design](docs/SYSTEM_DESIGN.md) — pipeline anatomy and extensibility surfaces
-- [Benchmark Readiness](docs/BENCHMARK_READINESS.md) — retrieval quality history
-- [Roadmap](docs/ROADMAP.md) — what is next
+- [System Overview](docs/OVERVIEW.md) — product overview and boundaries
+- [System Design](docs/SYSTEM_DESIGN.md) — shipped architecture, graph query, scout, language tiers, and distribution surfaces
+- [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) — evidence-backed C1 comparison
+- [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) — default-strategy evidence gate
+- [Roadmap](docs/ROADMAP.md) — historical execution record
 
 ## License
 
