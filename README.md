@@ -12,6 +12,20 @@ archex turns a repository into a ranked, token-budgeted context bundle with symb
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [Claude Code / MCP](#mcp-and-claude-code) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
 
+**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [Quickstart](#30-second-quickstart) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development)
+
+<p align="center">
+  <a href="assets/archex-explainer.mp4">
+    <img src="assets/archex-infographic-landscape.png" alt="archex local code context workflow infographic" width="820">
+  </a>
+</p>
+
+<p align="center">
+  <a href="assets/archex-explainer.mp4">Watch the explainer</a> ·
+  <a href="assets/archex-infographic-landscape.svg">Open SVG infographic</a> ·
+  <a href="docs/ARCHEX_VS_COCOINDEX.md">Read the measured comparison</a>
+</p>
+
 ## Proof bar
 
 | Local-first | Interfaces | Language coverage | Public comparison |
@@ -289,3 +303,13 @@ Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs.
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=Mathews-Tom%2Farchex&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&legend=top-left" />
+ </picture>
+</a>
