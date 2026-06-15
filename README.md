@@ -291,10 +291,10 @@ uv run pytest
 
 ## Documentation map
 
-Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) → `.docs/2026-06-12-unified-roadmap-session-prompts.md` → [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) / [ADR-001](docs/adr/001-retrieval-default-evidence-gate.md).
+Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) → [Roadmap completion record](docs/ROADMAP.md#2026-unified-roadmap-completion) → [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) / [ADR-001](docs/adr/001-retrieval-default-evidence-gate.md).
 
 - [Why archex](docs/WHY_ARCHEX.md) — the agent token problem this solves
-- [System Overview](docs/OVERVIEW.md) — product overview and boundaries
+- [System Overview](docs/OVERVIEW.md) — current product overview and boundaries
 - [System Design](docs/SYSTEM_DESIGN.md) — shipped architecture, graph query, scout, language tiers, and distribution surfaces
 - [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) — evidence-backed C1 comparison
 - [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) — default-strategy evidence gate

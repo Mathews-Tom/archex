@@ -11,7 +11,7 @@ archex is a Python library and CLI that transforms any Git repository into struc
 - **Human architects** receive an `ArchProfile` — module boundaries, dependency graphs, detected patterns, interface surfaces, and inferred trade-offs — enabling informed design decisions without reading thousands of lines of source.
 - **AI agents** receive a `ContextBundle` — relevance-ranked, syntax-aligned code chunks annotated with structural metadata, assembled to fit within a specified token budget — enabling accurate reimplementation without access to the original repo.
 
-archex is framework-agnostic, LLM-optional, and multi-language. It is designed to be called by any agent framework (LangChain, LlamaIndex, Mastra, Claude Code, Cursor) as a tool, embedded in CI pipelines for architectural drift detection, or used interactively by developers via its CLI.
+archex is framework-agnostic, local-first, and multi-language. It is designed to be called by any agent framework (LangChain, LlamaIndex, Claude Code, Cursor) as a tool, embedded in CI pipelines for architectural drift detection, or used interactively by developers via its CLI.
 
 ---
 
@@ -65,16 +65,16 @@ compare(A, B)         → ComparisonResult → Both evaluate alternatives with e
 
 archex has zero coupling to any agent framework. It produces structured data (`ArchProfile`, `ContextBundle`) that any consumer can ingest — LangChain retrievers, LlamaIndex query engines, Claude Code MCP tools, raw Python scripts, or CLI output piped to stdout. Agent frameworks are integration targets, not dependencies.
 
-### 3.2 LLM-Optional
+### 3.2 Local-First and Deterministic
 
-The entire structural pipeline — AST parsing, symbol extraction, import resolution, dependency graph construction, module boundary detection, pattern recognition, chunking, BM25 indexing, token budget assembly — runs without any LLM calls. This means:
+The entire structural pipeline — AST parsing, symbol extraction, import resolution, dependency graph construction, module boundary detection, pattern recognition, chunking, BM25 indexing, token budget assembly, and optional local embedding/reranking — runs without hosted LLM calls. This means:
 
 - **Deterministic:** Same repo + same config = same output, every time
-- **Fast:** No API latency in the critical path
-- **Free:** No token cost for structural analysis
+- **Fast:** No hosted API latency in the critical path
+- **Free to run locally:** No per-query token bill for core retrieval
 - **Testable:** Every stage produces inspectable intermediate outputs
 
-LLMs are used only for enrichment (module descriptions, trade-off inference, cross-repo comparison) and are always opt-in behind a `Provider` interface.
+archex returns evidence and context; downstream agents or LLMs do the reasoning outside the core pipeline.
 
 ### 3.3 Retrieval-First
 
@@ -183,11 +183,11 @@ The `ArchProfile` is a complete architectural map of a codebase:
 
 | Component             | What It Contains                                                        | How It's Produced                                             |
 | --------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **Module Map**        | Logical module boundaries, files per module, exports, inter-module deps | Community detection (Louvain) on file-level dependency graph  |
-| **Dependency Graph**  | File-level and symbol-level edges (imports, calls, inherits, uses_type) | AST import resolution + symbol reference tracing              |
-| **Pattern Catalog**   | Detected architectural patterns with confidence scores and evidence     | Rule-based detection on graph structure + AST signatures      |
-| **Interface Surface** | Public APIs, type definitions, exported contracts                       | Export classification via `LanguageAdapter`                   |
-| **Decision Log**      | Inferred trade-offs and design rationale                                | Structural evidence (deterministic) + optional LLM enrichment |
+| **Module Map**        | Logical module boundaries, files per module, exports, inter-module deps | Leiden-first community detection on file-level dependency graph, with Louvain fallback |
+| **Dependency Graph**  | File-level and symbol-level edges with confidence and evidence           | AST import resolution + symbol reference tracing                         |
+| **Pattern Catalog**   | Detected architectural patterns with confidence scores and evidence      | Rule-based detection on graph structure + AST signatures                  |
+| **Interface Surface** | Public APIs, type definitions, exported contracts                        | Export classification via `LanguageAdapter`                              |
+| **Decision Log**      | Deterministic design trade-offs inferred from structural evidence        | Rule-based comparison templates and metrics                              |
 | **Stats**             | Lines, files, language breakdown, dependency counts                     | Direct enumeration                                            |
 
 ### 4.5 Language Adapter System
@@ -250,19 +250,20 @@ archex cache clean --max-age 168
 ### 5.3 As an Agent Tool
 
 ```python
-# MCP tool for Claude Code / Claude Desktop
-@mcp.tool()
-def query_repo(repo_url: str, question: str, budget: int = 8000) -> str:
-    return query(repo_url, question, token_budget=budget).to_prompt()
+from archex import query
 
-# LangChain retriever
-from archex.integrations.langchain import ArchexRetriever
-retriever = ArchexRetriever(source="https://github.com/encode/httpx")
-
-# Generic tool for any agent framework
 def research(repo: str, question: str) -> str:
-    return query(repo, question, token_budget=8000).to_prompt()
+    bundle = query(repo, question, token_budget=8000)
+    return bundle.to_prompt(format="xml")
 ```
+
+For Claude Code and Claude Desktop, the MCP server exposes the same core operations directly:
+
+```bash
+archex mcp
+```
+
+LangChain and LlamaIndex integrations adapt archex bundles to their retriever/query-engine interfaces without changing the core retrieval pipeline.
 
 ### 5.4 As a Sub-Agent via CLI
 
@@ -296,12 +297,12 @@ archex follows a minimal-dependency strategy:
 
 | Extra                   | Dependencies                | Purpose                                      |
 | ----------------------- | --------------------------- | -------------------------------------------- |
-| `archex[vector]`        | `onnxruntime`, `tokenizers` | Local embedding via Nomic Embed Code (~50MB) |
-| `archex[vector-torch]`  | `sentence-transformers`     | Full torch-backed embeddings (~2GB)          |
-| `archex[voyage]`        | `voyageai`                  | Voyage Code API embeddings                   |
-| `archex[openai]`        | `openai`                    | OpenAI API embeddings + LLM enrichment       |
-| `archex[anthropic]`     | `anthropic`                 | Anthropic API LLM enrichment                 |
-| `archex[all]`           | All optional deps           | Everything                                   |
+| `archex[vector]`        | `onnxruntime`, `tokenizers` | Local ONNX/tokenizer-backed embeddings       |
+| `archex[vector-fast]`   | `fastembed`                 | Fast local embedding runtime                 |
+| `archex[vector-torch]`  | `sentence-transformers`     | Full torch-backed local embeddings           |
+| `archex[splade]`        | `transformers`, `torch`     | Optional SPLADE sparse retrieval leg         |
+| `archex[graph]`         | `python-igraph`, `leidenalg` | Leiden module detection                      |
+| `archex[mcp]`           | `mcp`                       | Model Context Protocol server                |
 
 Core grammar dependencies include the standalone tree-sitter packages for tier-full languages plus `tree-sitter-language-pack` for the shared runtime grammar path.
 

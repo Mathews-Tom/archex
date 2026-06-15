@@ -27,11 +27,11 @@ archex replaces that entire exploration loop with a single call.
 
 archex indexes a codebase once using AST parsing (tree-sitter), builds a dependency graph, and then serves two types of consumers:
 
-**For agents:** A single `query_repo("How does authentication work?", budget=8000)` call returns a pre-assembled context block — the right code chunks, their type definitions, the dependency chain between them, and structural metadata — all packed within your token budget. The agent gets everything it needs to implement, not just the file it asked for.
+**For agents:** A single `query("./repo", "How does authentication work?", token_budget=8000)` call returns a pre-assembled context block — the right code chunks, their type definitions, the dependency chain between them, and structural metadata — all packed within your token budget. The agent gets everything it needs to implement, not just the file it asked for.
 
-**For developers:** A single `analyze_repo("./my-project")` call returns a full architectural map — module boundaries, detected design patterns, public API surface, inter-module dependencies, and inferred trade-offs. No need to read thousands of lines to understand how a codebase is organized.
+**For developers:** A single `analyze("./my-project")` call returns a full architectural map — module boundaries, detected design patterns, public API surface, inter-module dependencies, and inferred trade-offs. No need to read thousands of lines to understand how a codebase is organized.
 
-**For teams:** A single `compare_repos("./project-a", "./project-b", dimensions=["error_handling", "api_surface"])` call produces a structured comparison showing how two codebases approach the same architectural concerns differently.
+**For teams:** A single `compare("./project-a", "./project-b", dimensions=["error_handling", "api_surface"])` call produces a structured comparison showing how two codebases approach the same architectural concerns differently.
 
 ---
 
@@ -78,7 +78,7 @@ Without archex:  Agent reads 8 files across 3 directories → 38,000 tokens
                  Agent misses a type definition             → +1 more read
                  Total: ~45,000 tokens, 10 file reads, incomplete understanding
 
-With archex:     query_repo("How does auth work?", budget=8000) → 7,600 tokens
+With archex:     query("./repo", "How does auth work?", token_budget=8000) → 7,600 tokens
                  Includes: auth middleware, session store, user model,
                  permission checker, config, 3 type definitions
                  Total: 7,600 tokens, 1 call, complete context
@@ -134,23 +134,21 @@ The result is a self-contained context block where every token earns its place.
 
 archex doesn't just index code — it understands code structure:
 
-- **Module Detection:** Louvain community detection on the dependency graph finds natural module boundaries, even when the file system doesn't reflect them.
+- **Module Detection:** Leiden-first community detection on the dependency graph finds natural module boundaries, even when the file system doesn't reflect them.
 - **Pattern Recognition:** Rule-based detection identifies middleware chains, plugin systems, event buses, repository patterns, and strategy patterns — with confidence scores and file-level evidence.
 - **Interface Extraction:** Identifies the public API surface with usage counts, parameter types, and documentation.
-- **Trade-off Inference:** Structural evidence reveals design decisions (e.g., "chose sync over async," "centralized config over distributed") with optional LLM enrichment for deeper analysis.
+- **Trade-off Inference:** Structural evidence reveals design decisions (e.g., "chose sync over async," "centralized config over distributed") without hidden hosted model calls.
 
-### LLM-Optional
+### Local-First Core
 
-The entire structural pipeline — AST parsing, symbol extraction, dependency graphs, module detection, pattern recognition, chunking, BM25 indexing, token budget assembly — runs without any LLM calls.
+The entire structural pipeline — AST parsing, symbol extraction, dependency graphs, module detection, pattern recognition, chunking, BM25 indexing, token budget assembly, and optional local embedding/reranking — runs without hosted LLM calls.
 
 This means:
 
 - **Deterministic:** Same repo + same config = same output, always
-- **Fast:** No API latency in the critical path
-- **Free:** No token cost for structural analysis
+- **Fast:** No hosted API latency in the critical path
+- **No per-query bill:** Core retrieval runs locally
 - **Testable:** Every pipeline stage produces inspectable intermediate output
-
-LLM enrichment is available for deeper analysis (module descriptions, trade-off rationale) but is always opt-in. You control when and whether to spend LLM tokens.
 
 ### Global Cache or Repo-Local Lifecycle
 
@@ -427,7 +425,7 @@ print(bundle.to_prompt(format="xml"))
 }
 ```
 
-Your agent now has access to `analyze_repo`, `query_repo`, `compare_repos`, `get_file_tree`, `get_file_outline`, `search_symbols`, `get_symbol`, and `get_symbols_batch`.
+Your agent now has access to `analyze_repo`, `scout_repo`, `query_repo`, `compare_repos`, file/symbol precision tools, and graph exploration tools.
 
 ---
 
@@ -437,9 +435,9 @@ Your agent now has access to `analyze_repo`, `query_repo`, `compare_repos`, `get
 ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
 │ Acquire  │ → │  Parse   │ → │  Index   │ → │ Analyze  │ → │  Serve   │
 │          │   │          │   │          │   │          │   │          │
-│ git clone│   │tree-sitter│   │ BM25     │   │ Louvain  │   │ArchProfile│
+│ git clone│   │tree-sitter│   │ BM25     │   │ Leiden  │   │ArchProfile│
 │ local    │   │ AST walk │   │ Vector   │   │ Patterns │   │ Context  │
-│ discover │   │ 8 langs  │   │ Dep Graph│   │ Interfaces│   │ Compare  │
+│ discover │   │25 langs  │   │ Dep Graph│   │ Interfaces│   │ Compare  │
 └──────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
                                     │
                               ┌─────┴─────┐
@@ -449,8 +447,8 @@ Your agent now has access to `analyze_repo`, `query_repo`, `compare_repos`, `get
                               └───────────┘
 ```
 
-- **Zero external services.** Everything runs locally. SQLite for storage, NetworkX for graph algorithms, tree-sitter for parsing.
-- **LLM-optional.** The entire pipeline works without API keys. LLM enrichment is opt-in.
+- **Zero external services by default.** Core retrieval runs locally with SQLite for storage, NetworkX/igraph for graph algorithms, and tree-sitter for parsing.
+- **Local-first.** The core pipeline works without API keys or hidden hosted model calls.
 - **Framework-agnostic.** No coupling to LangChain, LlamaIndex, or any specific agent framework.
 
 ---
@@ -485,7 +483,7 @@ archex is Apache 2.0 licensed. Contributions welcome.
 git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
-uv run pytest  # 2061 tests, 91% coverage
+uv run pytest  # non-slow test suite with coverage gate
 ```
 
 Extensible via entry points: add language adapters and pattern detectors without modifying core.
