@@ -25,7 +25,6 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_FUSION = "archex_query_fusion"
     CROSS_LAYER_FUSION = "cross_layer_fusion"
     ARCHEX_QUERY_FUSION_RERANK = "archex_query_fusion_rerank"
-    ARCHEX_SYMBOL_LOOKUP = "archex_symbol_lookup"
     EXTERNAL_MCP = "external_mcp"
 
 

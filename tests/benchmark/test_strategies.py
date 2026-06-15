@@ -30,7 +30,6 @@ from archex.benchmark.strategies import (
     run_archex_query_fusion_rerank,
     run_archex_query_vector,
     run_archex_scout_fetch,
-    run_archex_symbol_lookup,
     run_cross_layer_fusion,
     run_raw_files,
     run_raw_grepped,
@@ -1038,16 +1037,3 @@ class TestRunArchexQueryFusionRerank:
         assert result.timing is not None
         assert 0.0 <= result.recall <= 1.0
         assert 0.0 <= result.precision <= 1.0
-
-
-class TestRunArchexSymbolLookup:
-    def test_raises_not_implemented(self, python_simple_repo: Path) -> None:
-        task = BenchmarkTask(
-            task_id="test",
-            repo="test/repo",
-            commit="abc",
-            question="How?",
-            expected_files=["main.py"],
-        )
-        with pytest.raises(NotImplementedError, match="Enhancement 1"):
-            run_archex_symbol_lookup(task, python_simple_repo)

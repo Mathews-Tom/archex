@@ -199,7 +199,6 @@ def test_check_gate_exempt_strategies_skipped() -> None:
         Strategy.RAW_FILES,
         Strategy.RAW_GREPPED,
         Strategy.ARCHEX_QUERY_VECTOR,
-        Strategy.ARCHEX_SYMBOL_LOOKUP,
     ):
         reports = [_make_report_for_strategy(strategy, recall=0.0)]
         violations = check_gate(reports)
