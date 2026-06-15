@@ -1,13 +1,29 @@
 # Changelog
 
 
+## 0.10.1 (2026-06-15)
+
+### Fixed
+
+- Added GitHub Container Registry login to the Docker image workflow so main-branch pushes can publish `ghcr.io/mathews-tom/archex:slim` and `ghcr.io/mathews-tom/archex:full` instead of failing with anonymous-token `403 Forbidden`.
+- Expanded the release notes and changelog coverage for the intended `0.10.x` release line so the record includes all shipped changes since `0.9.0`.
+
 ## 0.10.0 (2026-06-15)
+
+### Added
+
+- Added selectable cAST chunking plus chunker benchmark infrastructure and supporting cache/test alignment.
+- Added `archex doctor` diagnostics for index health, staleness, model cache presence, grammar availability, MCP registration, and `.archex/` disk usage.
+- Added the in-repo Claude Code skill and `/archex` command workflow.
+- Added slim and full Docker images, including the warm-container MCP pattern documented in the README and system design.
+- Added the public archex vs. cocoindex-code comparison page with same-task head-to-head methodology and C1 evidence links.
 
 ### Changed
 
 - Refreshed the README as the project front page with a concise hero, proof bar, audience routing, quickstart, trust and operations guidance, measured-results pointers, and current CLI/MCP/Python/Docker usage.
 - Removed unnecessary local-repo positional arguments from README examples now that repo-local CLI commands default to the current working directory.
 - Updated system design and roadmap documentation so shipped post-roadmap surfaces, historical execution records, and retrieval-default decision authority have one explicit documentation hierarchy.
+- Let `archex symbol <symbol-id>` default to the current directory, matching the query, scout, and symbols local-default behavior.
 - Supersedes the mistaken `0.9.1` patch release with the intended minor release number.
 
 ## 0.9.1 (2026-06-15)
