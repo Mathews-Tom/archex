@@ -3,7 +3,7 @@
 ## Development Setup
 
 ```bash
-git clone https://github.com/determ-ai/archex.git
+git clone https://github.com/Mathews-Tom/archex.git
 cd archex
 uv sync --all-extras
 ```
@@ -11,17 +11,17 @@ uv sync --all-extras
 ## Running Tests
 
 ```bash
-# Full test suite (1274 tests)
+# Full non-slow test suite with coverage gate
 uv run pytest
 
-# With coverage report
+# With HTML coverage report
 uv run pytest --cov-report=html
 
-# Skip slow tests
-uv run pytest -m "not slow"
+# Include slow tests
+uv run pytest -m ""
 
 # Run a specific test file
-uv run pytest tests/test_api.py -v
+uv run pytest tests/test_integration.py -v
 ```
 
 ## Linting and Type Checking
@@ -40,7 +40,7 @@ uv run ruff format .
 uv run pyright .
 ```
 
-All checks must pass before submitting a PR. CI runs lint, format check, type check, and tests on Python 3.11, 3.12, and 3.13.
+All checks must pass before submitting a PR. CI runs lint, format check, type check, and tests on supported Python versions.
 
 ## Code Style
 
@@ -83,16 +83,16 @@ my_pattern = "mypackage.patterns:detect_my_pattern"
 
 ```bash
 # Run all benchmark tasks
-uv run archex benchmark run benchmarks/tasks/ --strategies bm25
+uv run archex benchmark run --tasks-dir benchmarks/tasks --output .archex/e2e
 
 # Run specific tasks
-uv run archex benchmark run benchmarks/tasks/ --filter "archex_*"
+uv run archex benchmark run --tasks-dir benchmarks/tasks --filter "archex_*" --output .archex/e2e
 
 # Check quality gate
-uv run archex benchmark gate benchmarks/results/latest.json
+uv run archex benchmark gate --input .archex/e2e --baseline benchmarks/dogfood_baseline.json --warn-latency-ms 3000
 
-# Generate report
-uv run archex benchmark report benchmarks/results/latest.json --format markdown
+# Generate head-to-head report from captured results
+uv run archex benchmark headtohead report --input .archex/headtohead --format markdown
 ```
 
 ## Pull Request Process
