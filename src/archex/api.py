@@ -1367,6 +1367,47 @@ def _attach_index_metadata(
     )
 
 
+def _attach_vector_metadata(bundle: ContextBundle, index_config: IndexConfig) -> None:
+    bundle.retrieval_metadata.vector_mode = index_config.vector_mode
+    bundle.retrieval_metadata.surrogate_version = (
+        index_config.surrogate_version if index_config.vector_mode == VectorMode.SURROGATE else None
+    )
+
+
+def _finalize_context_bundle(
+    bundle: ContextBundle,
+    *,
+    label: str,
+    started_at: float,
+    timing: PipelineTiming | None,
+    trace: PipelineTrace | None,
+    index_config: IndexConfig,
+    chunk_count: int,
+    total_repo_tokens: int,
+    metadata_timing: PipelineTiming | None,
+) -> ContextBundle:
+    _attach_vector_metadata(bundle, index_config)
+    _attach_index_metadata(
+        bundle,
+        index_config,
+        chunk_count=chunk_count,
+        total_repo_tokens=total_repo_tokens,
+    )
+    if timing is not None:
+        timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
+        timing.total_ms = _elapsed_ms(started_at)
+    bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(started_at)
+    if label:
+        logger.info("query() [%s] completed in %.0fms", label, _elapsed_ms(started_at))
+    else:
+        logger.info("query() completed in %.0fms", _elapsed_ms(started_at))
+    if trace is not None:
+        trace.end_ns = time.perf_counter_ns()
+        trace.log_summary()
+    _attach_refresh_metadata(bundle, metadata_timing)
+    return bundle
+
+
 def _query_by_scout_handles(
     source: RepoSource,
     question: str,
@@ -1811,29 +1852,17 @@ def query(
                     rerank_candidate_limit=index_config.rerank_candidate_limit,
                     apply_intent_budget=False,
                 )
-                bundle.retrieval_metadata.vector_mode = index_config.vector_mode
-                bundle.retrieval_metadata.surrogate_version = (
-                    index_config.surrogate_version
-                    if index_config.vector_mode == VectorMode.SURROGATE
-                    else None
-                )
-                _attach_index_metadata(
+                return _finalize_context_bundle(
                     bundle,
-                    index_config,
+                    label="cached",
+                    started_at=t0,
+                    timing=timing,
+                    trace=trace,
+                    index_config=index_config,
                     chunk_count=chunk_count,
                     total_repo_tokens=total_repo_tokens,
+                    metadata_timing=metadata_timing,
                 )
-                if timing is not None:
-                    timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
-                bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
-                logger.info("query() [cached] completed in %.0fms", _elapsed_ms(t0))
-                if timing is not None:
-                    timing.total_ms = _elapsed_ms(t0)
-                if trace is not None:
-                    trace.end_ns = time.perf_counter_ns()
-                    trace.log_summary()
-                _attach_refresh_metadata(bundle, metadata_timing)
-                return bundle
             finally:
                 store.close()
 
@@ -2181,33 +2210,21 @@ def query(
                 rerank_candidate_limit=index_config.rerank_candidate_limit,
                 apply_intent_budget=False,
             )
-            bundle.retrieval_metadata.vector_mode = index_config.vector_mode
-            bundle.retrieval_metadata.surrogate_version = (
-                index_config.surrogate_version
-                if index_config.vector_mode == VectorMode.SURROGATE
-                else None
-            )
-            if timing is not None:
-                timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
-            bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
             logger.info("Search + assemble in %.0fms", _elapsed_ms(t6))
         finally:
             store.close()
 
-        logger.info("query() completed in %.0fms", _elapsed_ms(t0))
-        if timing is not None:
-            timing.total_ms = _elapsed_ms(t0)
-        if trace is not None:
-            trace.end_ns = time.perf_counter_ns()
-            trace.log_summary()
-        _attach_index_metadata(
+        return _finalize_context_bundle(
             bundle,
-            index_config,
+            label="",
+            started_at=t0,
+            timing=timing,
+            trace=trace,
+            index_config=index_config,
             chunk_count=len(all_chunks),
             total_repo_tokens=total_repo_tokens,
+            metadata_timing=metadata_timing,
         )
-        _attach_refresh_metadata(bundle, metadata_timing)
-        return bundle
     finally:
         cleanup()
 

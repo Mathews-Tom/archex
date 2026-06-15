@@ -36,7 +36,7 @@
   <rect x="0" y="0" width="1080" height="8" fill="#2dd4bf"></rect>
 
   <!-- ===== HERO ===== -->
-  <text class="eyebrow mono" x="72" y="66">v0.10.1 · APACHE-2.0 · LOCAL-FIRST · NO API KEY · NO TELEMETRY</text>
+  <text class="eyebrow mono" x="72" y="66">v0.10 · APACHE-2.0 · LOCAL-FIRST · NO API KEY · NO TELEMETRY</text>
   <text class="brand" x="68" y="158">archex<tspan fill="#2dd4bf">.</tspan></text>
   <text class="subtitle" x="72" y="200">Local code context for agents.</text>
   <text class="lede" x="72" y="240">Turns a repository into a ranked, token-budgeted context bundle —</text>
