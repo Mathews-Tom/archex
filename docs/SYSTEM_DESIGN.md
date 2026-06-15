@@ -8,7 +8,7 @@
 
 ### 1.1 Pipeline Overview
 
-archex operates as a five-stage pipeline. Each stage is independently composable and produces inspectable intermediate outputs.
+archex operates as a local-first pipeline with explicit operating surfaces. Each stage produces inspectable artifacts under repo-local `.archex/` state when the project is initialized.
 
 ```mermaid
 graph TD
@@ -19,35 +19,49 @@ graph TD
 
     subgraph S2["② Parse"]
         AST["AST Extraction<br/>(tree-sitter)"]
-        Symbols["Symbol Extraction<br/>Functions, classes,<br/>types, exports"]
-        Imports["Import Resolution<br/>Module → File mapping"]
+        Symbols["Symbol Extraction<br/>functions, classes,<br/>types, exports"]
+        Imports["Import Resolution<br/>module → file mapping"]
+        Tiers["Language Tiering<br/>full vs chunk-only"]
     end
 
-    subgraph S3["③ Index"]
-        Chunk["AST-Aware<br/>Chunking"]
-        Graph["Dependency Graph<br/>(NetworkX)"]
+    subgraph S3["③ Index + Freshness"]
+        Chunk["AST-Aware Chunking<br/>default or cAST"]
+        Graph["Dependency Graph<br/>confidence + evidence"]
         BM25["BM25 Index<br/>(SQLite FTS5)"]
-        Vec["Vector Index<br/>(ONNX + Nomic)"]
+        Vec["Optional Local Vectors<br/>(ONNX / FastEmbed / Torch)"]
+        Delta["Working-Tree Delta<br/>query-time refresh"]
     end
 
     subgraph S4["④ Analyze"]
-        Modules["Module Boundary<br/>Detection<br/>(Louvain)"]
-        Patterns["Pattern<br/>Recognition<br/>(Rule-based)"]
-        Interfaces["Interface<br/>Surface<br/>Extraction"]
-        Decisions["Trade-off<br/>Inference<br/>(LLM opt-in)"]
+        Modules["Module Boundary<br/>Detection<br/>(Leiden, Louvain fallback)"]
+        Patterns["Pattern Recognition<br/>(rule-based)"]
+        Interfaces["Interface Surface<br/>Extraction"]
+        Decisions["Structural Trade-off<br/>Inference"]
     end
 
     subgraph S5["⑤ Serve"]
         AP["ArchProfile"]
         CB["ContextBundle"]
+        Scout["Scout Map<br/>+ fetch plan"]
+        GraphQ["Graph Query"]
         Cmp["ComparisonResult"]
     end
 
+    subgraph S6["⑥ Operate + Distribute"]
+        Doctor["archex doctor"]
+        MCP["Warm MCP<br/>optional --watch"]
+        Skill["Claude Code Skill"]
+        Docker["Slim / Full Docker"]
+        Bench["Benchmarks<br/>gates + head-to-head"]
+    end
+
     Clone --> Discover --> AST --> Symbols --> Imports
+    AST --> Tiers
     Imports --> Chunk
     Imports --> Graph
     Chunk --> BM25
     Chunk --> Vec
+    Chunk --> Delta
     Graph --> Modules --> Patterns
     Symbols --> Interfaces
     Patterns --> Decisions
@@ -61,100 +75,155 @@ graph TD
     Vec --> CB
     Graph --> CB
     Interfaces --> CB
+    Graph --> Scout
+    Graph --> GraphQ
 
     AP --> Cmp
     CB --> Cmp
+    CB --> MCP
+    Scout --> Skill
+    Doctor --> Docker
+    Bench --> Cmp
 
     style S1 fill:#e8f0fe,stroke:#1a73e8
     style S2 fill:#e8f5e9,stroke:#34a853
     style S3 fill:#fff8e1,stroke:#f9ab00
     style S4 fill:#fce4ec,stroke:#e91e63
     style S5 fill:#f3e5f5,stroke:#9c27b0
+    style S6 fill:#e0f7fa,stroke:#00838f
 ```
 
 ### 1.2 Package Layout
 
 ```text
 archex/
-├── __init__.py             # Public re-exports: analyze, query, compare
+├── __init__.py             # Public re-exports: analyze, query, compare, scout
 ├── api.py                  # Top-level public API functions
-├── config.py               # Configuration dataclass + defaults
-├── models.py               # All data models (Pydantic)
-├── cache.py                # Index cache management, TTL, cleanup
+├── config.py               # Config loading from user/project/env
+├── models.py               # Shared Pydantic models
 ├── exceptions.py           # Structured exception hierarchy
+├── project.py              # Repo-local .archex project state and paths
+├── status.py               # Index freshness / health inspection
+├── doctor.py               # Trust diagnostics for repo-local installs
+├── onboarding.py           # Getting-started summaries and setup guidance
+├── scout.py                # Structural scout map + fetch-plan protocol
+├── precision.py            # Symbol / batch symbol lookup helpers
+├── cache.py                # Index cache management
+├── graph_query.py          # Graph-backed neighborhood queries
+├── graph_artifact.py       # Saved graph artifact generation
+├── observe.py              # Observability helpers
+├── reporting.py            # Shared CLI/reporting utilities
 │
 ├── acquire/                # ① Source Acquisition
-│   ├── __init__.py
 │   ├── git.py              # clone_repo(), shallow_clone(), sparse_checkout()
 │   ├── local.py            # open_local(), validate_repo_path()
 │   └── discovery.py        # discover_files(), detect_languages(), apply_ignores()
 │
 ├── parse/                  # ② AST Parsing & Symbol Extraction
-│   ├── __init__.py
 │   ├── engine.py           # TreeSitterEngine: parse orchestration
 │   ├── symbols.py          # extract_symbols() → list[Symbol]
 │   ├── imports.py          # parse_imports(), resolve_imports()
-│   └── adapters/           # Language-specific adapters
-│       ├── __init__.py     # Adapter registry
-│       ├── base.py         # LanguageAdapter protocol
-│       ├── python.py       # Python adapter
-│       ├── typescript.py   # TypeScript/JavaScript adapter
-│       ├── go.py           # Go adapter
-│       └── rust.py         # Rust adapter
+│   └── adapters/           # Language-specific adapters + registry
 │
-├── index/                  # ③ Indexing & Chunking
-│   ├── __init__.py
-│   ├── chunker.py          # ASTChunker: syntax-boundary chunking
-│   ├── graph.py            # DependencyGraph: NetworkX wrapper
+├── pipeline/               # ③ Chunking policy and orchestration
+│   ├── chunker.py          # Default and cAST chunkers
+│   ├── service.py          # Chunking pipeline orchestration
+│   └── models.py           # Chunking-specific models
+│
+├── index/                  # ④ Indexing & Retrieval Primitives
 │   ├── bm25.py             # BM25Index: SQLite FTS5 wrapper
-│   ├── vector.py           # VectorIndex: embedding + cosine similarity
-│   ├── store.py            # IndexStore: SQLite persistence for all indexes
-│   └── embeddings/         # Embedding model backends
-│       ├── __init__.py
-│       ├── base.py         # Embedder protocol
-│       ├── nomic.py        # NomicCodeEmbedder (ONNX, default)
-│       ├── sentence_tf.py  # SentenceTransformerEmbedder (torch)
-│       └── api.py          # APIEmbedder (Voyage, OpenAI, etc.)
+│   ├── vector.py           # Optional local embedding index
+│   ├── fusion.py           # BM25/vector fusion
+│   ├── rerank.py           # Optional local reranker
+│   ├── splade.py           # Optional sparse retrieval path
+│   ├── delta.py            # Delta re-indexing
+│   ├── graph.py            # DependencyGraph: NetworkX wrapper
+│   ├── store.py            # SQLite persistence for index artifacts
+│   ├── chunker.py          # Compatibility shim into pipeline chunkers
+│   └── embeddings/         # Local embedding backends
 │
-├── analyze/                # ④ Structural Analysis
-│   ├── __init__.py
-│   ├── modules.py          # detect_modules() via Louvain community detection
+├── analyze/                # ⑤ Structural Analysis
+│   ├── modules.py          # detect_modules() via Leiden with Louvain fallback
 │   ├── patterns.py         # detect_patterns() via rule-based matching
 │   ├── interfaces.py       # extract_interfaces() → public API surface
-│   └── decisions.py        # infer_decisions() → trade-off analysis (LLM opt-in)
+│   └── decisions.py        # infer_decisions() → trade-off analysis
 │
-├── serve/                  # ⑤ Output Assembly
-│   ├── __init__.py
+├── serve/                  # ⑥ Output Assembly
 │   ├── profile.py          # build_profile() → ArchProfile
 │   ├── context.py          # assemble_context() → ContextBundle
-│   ├── compare.py          # compare_repos() → ComparisonResult
-│   └── renderers/          # Output format renderers
-│       ├── __init__.py
-│       ├── xml.py          # XML-tagged prompt format (default)
-│       ├── markdown.py     # Markdown format
-│       └── json.py         # JSON format
+│   ├── intent.py           # Query intent and budget heuristics
+│   ├── compare/            # Dimension-specific comparison renderers
+│   └── renderers/          # XML / Markdown / JSON output renderers
 │
-├── providers/              # LLM Provider Abstraction
-│   ├── __init__.py
-│   ├── base.py             # LLMProvider protocol
-│   ├── anthropic.py        # Anthropic provider
-│   ├── openai.py           # OpenAI provider
-│   └── openrouter.py       # OpenRouter provider
+├── integrations/           # Optional ecosystem integrations
+│   ├── mcp.py              # MCP tool definitions and stdio server
+│   ├── langchain.py        # LangChain retriever
+│   ├── llamaindex.py       # LlamaIndex query engine
+│   └── lsap.py             # LSP-assisted type enrichment
 │
-├── integrations/           # Framework Integrations (optional)
-│   ├── __init__.py
-│   ├── langchain.py        # ArchexRetriever (LangChain compatible)
-│   ├── llamaindex.py       # ArchexQueryEngine (LlamaIndex compatible)
-│   └── mcp.py              # MCP tool definitions
+├── benchmark/              # Retrieval evaluation, gating, and head-to-head runs
+│   ├── runner.py           # Benchmark orchestration
+│   ├── reporter.py         # Human-readable reports
+│   ├── gate.py             # Baseline/regression gates
+│   ├── strategies.py       # Retrieval strategies under test
+│   └── headtohead.py       # archex vs ccc vs raw-grep/read harness
 │
-└── cli/                    # CLI Entry Point
-    ├── __init__.py
-    ├── main.py             # click group definition
-    ├── analyze_cmd.py      # archex analyze
+└── cli/                    # Click entry points
+    ├── main.py             # Root click group definition
+    ├── init_cmd.py         # archex init
+    ├── index_cmd.py        # archex index
+    ├── status_cmd.py       # archex status
+    ├── doctor_cmd.py       # archex doctor
     ├── query_cmd.py        # archex query
+    ├── scout_cmd.py        # archex scout
+    ├── symbol_cmd.py       # archex symbol
+    ├── symbols_cmd.py      # archex symbols
+    ├── analyze_cmd.py      # archex analyze
+    ├── explain_cmd.py      # archex explain
+    ├── impact_cmd.py       # archex impact
+    ├── graph_cmd.py        # archex graph
+    ├── outline_cmd.py      # archex outline
+    ├── tree_cmd.py         # archex tree
     ├── compare_cmd.py      # archex compare
-    └── cache_cmd.py        # archex cache
+    ├── onboard_cmd.py      # archex onboard
+    ├── mcp_cmd.py          # archex mcp
+    ├── cache_cmd.py        # archex cache
+    ├── reset_cmd.py        # archex reset
+    ├── benchmark_cmd.py    # archex benchmark ...
+    └── dogfood_cmd.py      # archex dogfood
 ```
+
+### 1.2.1 Distribution Surfaces
+
+- **CLI:** repo-local workflows run through `archex init/index/status/doctor/query/scout/...`.
+- **MCP server:** `archex mcp` wraps the stdio server implemented in `integrations/mcp.py`.
+- **Claude Code skill:** `skills/archex/` codifies the doctor-first, scout→fetch workflow for agents.
+- **Containers:** `docker/Dockerfile.slim` ships BM25-only onboarding; `docker/Dockerfile.full` ships local FastEmbed with a prewarmed cache.
+
+### 1.2.2 Repo-Local Trust and Freshness
+
+- **Repo-local state:** `archex init` creates `.archex/settings.toml`, `.archex/metadata.json`, `.archex/index.db`, `.archex/vectors/`, and dogfood history under the checked-out repository. `.archex/` is generated state and belongs in `.gitignore`.
+- **Working-tree delta:** query and MCP paths can refresh modified, added, deleted, or renamed files without a full rebuild when the change set is below `delta_threshold`.
+- **Warm MCP:** `archex mcp` keeps the process, index handles, and optional local model state warm across tool calls; `--watch` adds debounced filesystem refresh when the operator opts in.
+- **Doctor:** `archex doctor` reports index health, staleness, local model cache presence, grammar availability by tier, MCP registration, and `.archex/` disk usage in text or JSON.
+
+### 1.2.3 Language Capability Tiers
+
+Language support is declared, not implied. `full` means symbol extraction, import extraction, and graph edges are implemented and tested. `chunk-only` means tree-sitter chunking plus retrieval, with no symbol/import graph claim.
+
+| Tier | Languages |
+| --- | --- |
+| `full` | Python, JavaScript, TypeScript/TSX, Go, Rust, Java, Kotlin, C#, Swift |
+| `chunk-only` | C, C++, PHP, Ruby, Scala, Lua, Bash/Shell, SQL, HTML, CSS, YAML, TOML, JSON, Markdown, Solidity |
+
+Unknown files fall back to line-window chunking so they can still be found by BM25 without pretending to have structural edges.
+
+### 1.2.4 Benchmark and Comparison Evidence
+
+- **Retrieval gate:** product-default changes are gated by recall, F1, token efficiency, median latency, and p95 latency. `docs/RETRIEVAL_DEFAULT_DECISIONS.md` and ADR-001 own the default-strategy verdict.
+- **Head-to-head harness:** `src/archex/benchmark/headtohead.py` and `benchmarks/headtohead/` run the same external-repo tasks through archex, `ccc`, and raw grep/read, then record cold-start, warm latency, recall, precision, F1, token efficiency, and completion-penalty tokens.
+- **Comparison page:** `docs/ARCHEX_VS_COCOINDEX.md` publishes accepted C1 cells and capability evidence without re-measuring inside docs work.
+- **Chunking A/B:** the benchmark runner records the chunker axis (`default` or `cast`) so stores and benchmark outputs built with different chunkers are not compared silently.
 
 ### 1.3 Dependency Architecture
 
@@ -172,6 +241,10 @@ graph BT
     end
 
     subgraph External["External Dependencies"]
+        TSLP["tree-sitter-language-pack"]
+        YAML["pyyaml"]
+        Rich["rich"]
+        Watchdog["watchdog"]
         TS["tree-sitter"]
         TK["tiktoken"]
         PD["pydantic"]
@@ -182,13 +255,19 @@ graph BT
 
     subgraph Optional["Optional Extras"]
         ONNX["onnxruntime<br/>(archex[vector])"]
-        Torch["sentence-transformers<br/>(archex[vector-torch])"]
-        Voyage["voyageai<br/>(archex[voyage])"]
-        OAI["openai<br/>(archex[openai])"]
-        Anth["anthropic<br/>(archex[anthropic])"]
+        Fast["FastEmbed<br/>(archex[vector-fast])"]
+        GraphExtra["python-igraph + leidenalg<br/>(archex[graph])"]
+        Torch["sentence-transformers / torch<br/>(archex[vector-torch])"]
+        SPLADE["SPLADE deps<br/>(archex[splade])"]
+        MCPExtra["MCP SDK<br/>(archex[mcp])"]
+        LSAP["LSP client<br/>(archex[lsap])"]
     end
 
     Parse --> TS
+    Parse --> TSLP
+    CLI --> YAML
+    CLI --> Rich
+    CLI --> Watchdog
     Serve --> TK
     Models --> PD
     IndexMod --> NX
@@ -220,20 +299,28 @@ class Config:
     """Library-level configuration."""
     languages: list[str] | None = None          # Restrict to specific languages
     depth: Literal["shallow", "full"] = "full"  # Analysis depth
-    enrich: bool = False                        # Enable LLM enrichment
-    provider: str | None = None                 # LLM provider name
-    provider_config: dict | None = None         # Provider-specific config
     cache: bool = True                          # Enable index caching
-    cache_dir: Path = Path.home() / ".archex" / "cache"
+    cache_dir: str = "~/.archex/cache"          # User cache unless repo-local overrides it
+    max_file_size: int = 10_000_000
+    parallel: bool = False
+    strict: bool = False
+    delta_threshold: float = 0.5                # Full rebuild threshold for changed files
 
 class IndexConfig:
     """Index construction configuration."""
     bm25: bool = True                           # Enable BM25 keyword index
-    vector: bool = False                        # Enable vector embedding index
-    embedder: Embedder | None = None            # Custom embedding model
-    chunk_max_tokens: int = 500                 # Max tokens per chunk
-    chunk_min_tokens: int = 50                  # Min tokens (merge threshold)
-    token_encoding: str = "cl100k_base"         # tiktoken encoding
+    vector: bool = False                        # Enable local vector embedding index
+    splade: bool = False                        # Enable optional local sparse retrieval
+    module_prefilter: bool = False
+    embedder: str | None = None                 # Registered local embedder name
+    vector_mode: VectorMode = VectorMode.RAW
+    retrieval_policy: RetrievalPolicy = RetrievalPolicy.AUTO
+    rerank: bool = False                        # Optional local cross-encoder rerank
+    rerank_model: str | None = None
+    chunker: Literal["default", "cast"] = "default"
+    chunk_max_tokens: int = 500
+    chunk_min_tokens: int = 50
+    token_encoding: str = "cl100k_base"
 ```
 
 ### 2.2 Intermediate Models (Pipeline Outputs)
@@ -316,11 +403,14 @@ class CodeChunk:
     module: str | None           # Assigned module name
 
 class Edge:
-    """A directed dependency edge."""
-    source: str                  # Qualified symbol name or file path
-    target: str                  # Qualified symbol name or file path
-    kind: EdgeKind               # imports | calls | inherits | implements | uses_type
-    location: str | None         # source_file:line_number
+    """A directed dependency edge with evidence quality."""
+    source: str
+    target: str
+    kind: EdgeKind               # imports | calls | inherits | implements | uses_type | co_directory | exports
+    location: str | None
+    confidence: EdgeConfidence = EdgeConfidence.EXTRACTED
+    confidence_score: float = 1.0
+    evidence: list[str] = []
 
 class EdgeKind(StrEnum):
     IMPORTS = "imports"
@@ -358,7 +448,7 @@ class Module:
     exports: list[SymbolRef]     # References to public symbols
     internal_deps: list[str]     # Dependencies on other detected modules
     external_deps: list[str]     # Third-party package dependencies
-    responsibility: str | None   # LLM-inferred description (opt-in)
+    responsibility: str | None   # Deterministic structural summary when available
     cohesion_score: float        # Intra-module coupling density (0-1)
     file_count: int
     line_count: int
@@ -485,7 +575,7 @@ class ComparisonResult:
     repo_a: RepoMetadata
     repo_b: RepoMetadata
     dimensions: list[DimensionComparison]
-    summary: str                 # LLM-generated summary
+    summary: str                 # Deterministic renderer summary
 
 class DimensionComparison:
     """Comparison along a single architectural dimension."""
@@ -726,7 +816,7 @@ class DependencyGraph:
         return graph
 
     def detect_modules(self, directory_prior: dict[str, str] | None = None) -> list[Module]:
-        """Louvain community detection with directory bias."""
+        """Leiden community detection with directory bias and Louvain fallback."""
         ...
 
     def subgraph_for_files(self, files: list[str]) -> "DependencyGraph":
@@ -844,6 +934,9 @@ CREATE TABLE edges (
     target TEXT NOT NULL,
     kind TEXT NOT NULL,
     location TEXT,
+    confidence TEXT NOT NULL DEFAULT 'extracted',
+    confidence_score REAL NOT NULL DEFAULT 1.0,
+    evidence TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (source, target, kind)
 );
 
@@ -852,7 +945,7 @@ CREATE TABLE metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
--- Keys: commit_hash, indexed_at, config_hash, languages, stats
+-- Keys: commit_hash, indexed_at, config_hash, languages, stats, chunker, chunker_revision
 
 -- FTS5 index (see BM25 section above)
 ```
@@ -868,8 +961,8 @@ graph TD
     FG["File-level<br/>dependency graph"] --> Undirect["Convert to<br/>undirected graph"]
     Undirect --> Weight["Weight edges by<br/>import density"]
     Weight --> DirPrior["Apply directory<br/>structure as prior"]
-    DirPrior --> Louvain["Louvain community<br/>detection"]
-    Louvain --> Communities["Raw communities<br/>(sets of files)"]
+    DirPrior --> Leiden["Leiden community<br/>detection"]
+    Leiden --> Communities["Raw communities<br/>(sets of files)"]
     Communities --> Name["Infer module name<br/>from common path prefix"]
     Name --> Exports["Classify exports<br/>via LanguageAdapter"]
     Exports --> Cohesion["Calculate cohesion<br/>score per module"]
@@ -930,17 +1023,17 @@ class PatternDetector(Protocol):
 
 ### 3.5 Stage ⑤ — Serve
 
-**Responsibility:** Assemble final output objects (ArchProfile, ContextBundle, ComparisonResult), render in requested format.
+**Responsibility:** Assemble `ArchProfile`, `ContextBundle`, `ScoutMap`, graph-query responses, and `ComparisonResult`; render deterministic XML, Markdown, JSON, or table outputs.
 
 #### 3.5.1 ContextBundle Assembly (Token Budget Packing)
 
 ```mermaid
 graph TD
     Q["Query + Budget"]
-    Q --> Retrieve["① RETRIEVE<br/>BM25 top-50<br/>+ Vector top-30<br/>(if enabled)"]
+    Q --> Retrieve["① RETRIEVE<br/>BM25 top-k<br/>+ optional local vector / SPLADE"]
     Retrieve --> Dedup["Deduplicate<br/>candidates"]
-    Dedup --> Expand["② EXPAND<br/>1-hop dependency<br/>neighborhood"]
-    Expand --> Score["③ RANK<br/>final_score =<br/>relevance × 0.6 +<br/>centrality × 0.2 +<br/>type_coverage × 0.2"]
+    Dedup --> Expand["② EXPAND<br/>confidence-aware dependency<br/>neighborhood"]
+    Expand --> Score["③ RANK<br/>intent-routed scoring<br/>+ optional local rerank"]
     Score --> Sort["Sort by<br/>final_score desc"]
     Sort --> Pack["④ PACK<br/>Greedy bin-packing"]
     Pack --> TypeResolve["⑤ RESOLVE TYPES<br/>Add referenced<br/>type definitions"]
@@ -1039,6 +1132,13 @@ External: {comma_separated_external_packages}
 </codebase_context>
 ```
 
+
+#### 3.5.3 Scout and Graph Query Surfaces
+
+`archex scout` and the MCP `scout_repo` flow split exploration from content consumption. The scout response contains a token-light file tree, relevant modules, top symbols, graph-neighborhood hints, and a `fetch_plan` of stable handles. Agents then fetch exact symbols, files, or bundles instead of reading broad files speculatively.
+
+Graph-native commands and MCP tools answer structural questions directly from an exported graph artifact or persisted index: neighbors, shortest path, stats, hubs, and exact node lookup. Output includes edge kind, confidence, score, and evidence so callers can distinguish extracted syntax edges from heuristic relationships.
+
 ---
 
 ## 4. Storage Architecture
@@ -1046,62 +1146,43 @@ External: {comma_separated_external_packages}
 ### 4.1 Cache Layout
 
 ```text
+.archex/                         # repo-local generated state
+├── settings.toml                 # Project settings created by `archex init`
+├── metadata.json                 # archex version and project metadata
+├── index.db                      # SQLite: chunks, symbols, edges, FTS5, metadata
+├── vectors/                      # Optional local embedding artifacts
+└── dogfood/
+    └── history/                  # Local dogfood result history
+
 ~/.archex/
-├── config.toml                # Global configuration
-├── cache/
-│   ├── encode--httpx/         # Repo: github.com/encode/httpx
-│   │   ├── index.db           # SQLite: chunks, symbols, edges, FTS5
-│   │   ├── meta.json          # Commit hash, timestamp, config, stats
-│   │   └── vectors.npy        # Optional: embedding matrix
-│   │
-│   ├── psf--requests/         # Repo: github.com/psf/requests
-│   │   ├── index.db
-│   │   ├── meta.json
-│   │   └── vectors.npy
-│   │
-│   └── local--my-project/     # Local repo: /Users/tom/my-project
-│       ├── index.db
-│       └── meta.json
-│
-└── models/                    # Cached ONNX model files
-    └── nomic-embed-code/
-        ├── model.onnx
-        └── tokenizer.json
+├── config.toml                   # User-level defaults
+├── cache/                        # Remote-repo and non-project cache entries
+└── models/                       # Optional local model caches
+    ├── fastembed/
+    ├── sentence-transformers/
+    └── splade/
 ```
 
 ### 4.2 Cache Invalidation
 
 ```mermaid
 graph TD
-    Request["analyze() or query()"]
-    Request --> CacheExists{"Cache exists<br/>for this repo?"}
-    CacheExists -->|No| FullBuild["Full pipeline:<br/>clone → parse → index"]
-    CacheExists -->|Yes| CheckCommit{"HEAD commit<br/>matches cache?"}
-    CheckCommit -->|Yes| UseCache["Load from cache"]
-    CheckCommit -->|No| Incremental["Incremental update:<br/>git diff → re-parse<br/>changed files only"]
-    Incremental --> UpdateCache["Update index.db<br/>+ meta.json"]
-    FullBuild --> WriteCache["Write cache"]
+    Request["query() / MCP tool / status"]
+    Request --> Project{"Repo-local<br/>.archex exists?"}
+    Project -->|No| FullBuild["Full build<br/>parse → chunk → graph → index"]
+    Project -->|Yes| Fresh{"HEAD + working tree<br/>match metadata?"}
+    Fresh -->|Yes| UseCache["Load index.db<br/>and optional vectors"]
+    Fresh -->|Small delta| Delta["Working-tree delta<br/>modified / added / deleted / renamed"]
+    Fresh -->|Large delta| FullBuild
+    Delta --> UpdateCache["Update changed chunks,<br/>edges, FTS5, vectors"]
+    FullBuild --> WriteCache["Write index.db<br/>+ metadata"]
+    UpdateCache --> UseCache
+    WriteCache --> UseCache
 ```
 
-### 4.3 Cache Key Strategy
+### 4.3 Cache Identity Strategy
 
-```python
-def cache_key(source: RepoSource) -> str:
-    """Deterministic cache key for a repo source."""
-    if source.url:
-        # github.com/encode/httpx → encode--httpx
-        parts = urlparse(source.url).path.strip("/").split("/")
-        key = "--".join(parts[-2:])  # org--repo
-    else:
-        # /Users/tom/projects/my-app → local--my-app
-        key = f"local--{source.local_path.name}"
-
-    if source.target:
-        # Scoped monorepo: encode--next.js--packages--next
-        key += "--" + source.target.replace("/", "--")
-
-    return key
-```
+Repo-local mode uses the repository root plus `.archex/settings.toml` as the durable identity. Benchmark and remote-repo cache identities include the source identity, target path, retrieval strategy, embedder, vector mode, chunker, chunker revision, and config hash. The chunker axis is part of the identity so `default` and `cast` stores are never reused across each other silently.
 
 ---
 
@@ -1138,7 +1219,7 @@ class IndexError(ArchexError):
     """Errors during index construction."""
 
 class ProviderError(ArchexError):
-    """Errors from LLM or embedding providers."""
+    """Errors from optional model providers or legacy provider integrations."""
     provider: str
     status_code: int | None
 
@@ -1148,15 +1229,14 @@ class CacheError(ArchexError):
 
 ### 5.2 Graceful Degradation
 
-| Failure                    | Behavior                                              |
-| -------------------------- | ----------------------------------------------------- |
-| Single file fails to parse | Skip file, log warning, continue with remaining files |
-| Language adapter not found | Skip files of that language, log warning              |
-| Import resolution fails    | Mark edge as unresolved, don't add to graph           |
-| Vector index build fails   | Fall back to BM25-only retrieval, log warning         |
-| LLM provider unreachable   | Skip enrichment, return structural-only results       |
-| Cache corrupted            | Delete cache, rebuild from scratch                    |
-| Token budget too small     | Return what fits, set `truncated=True`                |
+| Failure                    | Behavior                                                       |
+| -------------------------- | -------------------------------------------------------------- |
+| Single file fails to parse | Skip file, log warning, continue with remaining files          |
+| Unknown language           | Use chunk-only or line-window indexing without graph claims    |
+| Import resolution fails    | Mark edge unresolved or omit the graph edge                    |
+| Optional local model build fails | Fail the requested vector/rerank path clearly; BM25-only runs remain available |
+| Cache corrupted            | Report through status/doctor; rebuild only when explicitly run |
+| Token budget too small     | Return what fits, set `truncated=True`                         |
 
 ---
 
@@ -1180,11 +1260,11 @@ _Parse + index is a one-time cost, amortized by caching. Query time is per-reque
 | **Shallow clone** (`--depth 1`) | Acquire: skip git history, clone only HEAD                         |
 | **Sparse checkout**             | Acquire: clone only targeted monorepo sub-package                  |
 | **Parallel file parsing**       | Parse: `concurrent.futures.ProcessPoolExecutor` for AST extraction |
-| **Cached NetworkX graph**       | Index: reconstruct graph once per session, cache in memory         |
-| **FTS5 for BM25**               | Index: SQLite handles ranking natively, no Python-side scoring     |
-| **Batch embedding**             | Index: embed all chunks in a single ONNX inference call            |
-| **Incremental re-indexing**     | Cache: only re-parse files changed since last commit               |
-| **Lazy vector index**           | Query: vector index loaded on first query, not on import           |
+| **Cached graph artifacts**      | Index/Graph: reuse persisted SQLite/graph artifacts and warm MCP state |
+| **FTS5 for BM25**               | Index: SQLite handles lexical ranking natively, no Python-side inverted index |
+| **Batch local embedding**       | Index: optional vector paths batch ONNX/FastEmbed/Torch embedding work |
+| **Working-tree delta**          | Index: re-parse changed files only when the delta is below threshold |
+| **Lazy optional indexes**       | Query: vector/SPLADE/rerank paths load only when explicitly enabled |
 
 ---
 
@@ -1194,7 +1274,7 @@ _Parse + index is a one-time cost, amortized by caching. Query time is per-reque
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Arbitrary repo cloning** | Validate URL format. Only support https:// and git:// protocols. Block file:// and ssh:// by default (configurable).                                                             |
 | **Path traversal**         | All file paths are resolved relative to clone root. Reject paths containing `..`.                                                                                                |
-| **LLM prompt injection**   | No source code content is ever passed to LLMs as instructions. Code appears only in structured data blocks. LLM enrichment prompts use system messages with explicit boundaries. |
-| **API key management**     | Keys stored in `~/.archex/config.toml` with restricted permissions (0600). Never logged. Never included in cache files.                                                          |
+| **Prompt injection boundary** | archex emits structured evidence and never treats repository text as instructions. Downstream agents decide how to consume the bundle. |
+| **Secret posture**           | No hosted inference or API key is required for core, MCP, skill, Docker slim, or benchmark-gate workflows. User config stays local. |
 | **Disk space**             | Default cache TTL of 7 days. `archex cache clean` for manual management. Warning at 5GB total cache size.                                                                        |
 | **No code execution**      | archex never executes cloned code. No `eval()`, no subprocess calls on repo content. Tree-sitter parsing is static analysis only.                                                |
