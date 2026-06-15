@@ -1,6 +1,18 @@
 # Changelog
 
 
+## 0.10.2 (2026-06-15)
+
+### Changed
+
+- Cleaned release documentation authority, removed stale compatibility paths and local-first contradictions, and refreshed release assets to display the `v0.10` series.
+- Consolidated benchmark query strategy execution, isolated MCP tool dispatch, and centralized query bundle finalization without changing public APIs.
+
+### Removed
+
+- Removed the Codecov README badge because coverage is enforced by local/CI pytest gates rather than published through Codecov.
+- Removed obsolete hosted API embedder prototype, stale chunker compatibility shim, old benchmark readiness doc, and unimplemented symbol-lookup benchmark strategy.
+
 ## 0.10.1 (2026-06-15)
 
 ### Fixed

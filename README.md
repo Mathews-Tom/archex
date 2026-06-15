@@ -8,7 +8,6 @@ archex turns a repository into a ranked, token-budgeted context bundle with symb
 [![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Coverage](https://codecov.io/gh/Mathews-Tom/archex/graph/badge.svg)](https://codecov.io/gh/Mathews-Tom/archex)
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [Claude Code / MCP](#mcp-and-claude-code) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
 
