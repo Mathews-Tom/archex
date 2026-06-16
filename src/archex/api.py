@@ -2516,7 +2516,7 @@ def get_symbols_batch(
 # ---------------------------------------------------------------------------
 def record_usage_event(event: UsageEvent, *, db_path: Path | None = None) -> None:
     """Explicitly opt in to local usage recording for Python API callers."""
-    MetricsRecorder(db_path).record(event)
+    MetricsRecorder(db_path).record(event, force=True)
 
 
 # Token efficiency utilities

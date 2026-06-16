@@ -191,7 +191,6 @@ def test_mcp_query_records_counter_and_preserves_response_shape(
     _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-
     with (
         patch("archex.integrations.mcp.query", return_value=FakeBundle()),
         patch("archex.integrations.mcp.render_xml", return_value="<context />"),
@@ -248,7 +247,6 @@ def test_mcp_query_recording_failure_preserves_success_and_health(
     _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-
     with (
         patch("archex.integrations.mcp.query", return_value=FakeBundle()),
         patch("archex.integrations.mcp.render_xml", return_value="<context />"),
@@ -273,7 +271,6 @@ def test_mcp_scout_records_counter_and_preserves_meta(
     _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-
     with (
         patch("archex.integrations.mcp.scout", return_value=_fake_scout_result()),
         patch("archex.integrations.mcp.render_scout", return_value='{"ok": true}'),
@@ -336,7 +333,6 @@ def test_mcp_file_tree_records_structural_tool_counter(
     _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
-
     with (
         patch("archex.integrations.mcp.file_tree", return_value=FakeTree()),
         patch("archex.integrations.mcp.get_repo_total_tokens", return_value=500),
@@ -399,3 +395,27 @@ def test_python_api_explicit_usage_event_records_metrics(
     assert event["tool_name"] == "query"
     assert event["tokens_saved"] == 75
     assert event["whole_repo_tokens_avoided"] == 975
+
+
+def test_python_api_explicit_usage_event_respects_env_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    python_simple_repo: Path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv(METRICS_ENV, "off")
+
+    record_usage_event(
+        UsageEvent(
+            repo_root=python_simple_repo,
+            surface="python_api",
+            tool_name="query",
+            category="context_retrieval",
+            tokens_returned=25,
+            tokens_raw_equivalent=100,
+            whole_repo_tokens=1000,
+            file_count=2,
+        )
+    )
+
+    assert not (tmp_path / ".archex" / "usage.sqlite").exists()
