@@ -52,6 +52,7 @@ def _status_payload(status: ProjectStatus) -> dict[str, object]:
             str(status.dogfood_latest_path) if status.dogfood_latest_path is not None else ""
         ),
         "error": status.error,
+        "metrics_savings": status.metrics_savings,
     }
 
 
@@ -71,6 +72,8 @@ def _render_text(status: ProjectStatus) -> None:
         languages = "none"
     click.echo(f"Languages:          {languages}")
     click.echo(f"Vector index:       {'yes' if status.vector_index_available else 'no'}")
+    if status.metrics_savings is not None and status.metrics_savings["event_count"] > 0:
+        click.echo(f"Metrics saved:      {status.metrics_savings['tokens_saved']} tokens")
     if status.dogfood_latest_path is not None:
         click.echo(f"Dogfood latest:     {status.dogfood_latest_path}")
     if status.error:

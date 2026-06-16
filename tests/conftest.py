@@ -59,10 +59,19 @@ def implementation_gate_paths(args: Sequence[str]) -> bool:
             or path.startswith("tests/index/")
             for path in paths
         )
-    if any(path == "tests/metrics" or path.startswith("tests/metrics/") for path in paths):
-        return all(path == "tests/metrics" or path.startswith("tests/metrics/") for path in paths)
-    if any(path == "tests/cli" or path.startswith("tests/cli/") for path in paths):
-        return all(path == "tests/cli" or path.startswith("tests/cli/") for path in paths)
+    cli_metric_paths = (
+        "tests/metrics",
+        "tests/cli",
+        "tests/test_cli.py",
+    )
+
+    def _is_cli_metric_path(path: str) -> bool:
+        return path == "tests/test_cli.py" or any(
+            path == prefix or path.startswith(f"{prefix}/") for prefix in cli_metric_paths[:-1]
+        )
+
+    if any(_is_cli_metric_path(path) for path in paths):
+        return all(_is_cli_metric_path(path) for path in paths)
     if any(path in {"tests/test_graph_query.py", "tests/test_scout.py"} for path in paths):
         allowed_paths = {
             "tests/test_graph_query.py",

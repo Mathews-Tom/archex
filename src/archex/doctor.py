@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
@@ -17,6 +18,12 @@ from archex.index.model_policy import (
     reranker_security_profile,
 )
 from archex.languages import LANGUAGE_SUPPORT
+from archex.metrics.policy import METRICS_ENV, TRACE_ENV, MetricsPolicy
+from archex.metrics.storage import (
+    DEFAULT_RAW_EVENT_RETENTION_DAYS,
+    DEFAULT_TRACE_RETENTION_DAYS,
+    metrics_db_path,
+)
 from archex.models import LanguageTier
 from archex.parse.engine import TreeSitterEngine
 from archex.project import ProjectState
@@ -80,6 +87,7 @@ def inspect_doctor(source: str | Path, *, security_only: bool = False) -> Doctor
         checks.append(_grammar_check())
         checks.append(_mcp_registration_check(project.repo_root))
         checks.append(_disk_usage_check(project.project_dir))
+        checks.append(_metrics_health_check())
     checks.append(_model_security_check(project.repo_root))
     return DoctorReport(
         repo_root=project.repo_root,
@@ -100,6 +108,12 @@ def render_doctor_text(report: DoctorReport) -> str:
         if check.name == "disk_usage":
             total_bytes = check.details.get("total_bytes", 0)
             lines.append(f"  .archex size: {_format_bytes(_int_value(total_bytes))}")
+        if check.name == "metrics_health":
+            lines.append(f"  db_path: {check.details.get('db_path', '')}")
+            lines.append(f"  recording: {check.details.get('enabled', False)}")
+            lines.append(f"  trace: {check.details.get('trace_enabled', False)}")
+            if check.details.get("latest_failure"):
+                lines.append(f"  latest failure: {check.details.get('latest_failure')}")
         if check.name == "model_security":
             lines.append(f"  allow_remote_code: {check.details.get('allow_remote_code', False)}")
             for label in ("embedding", "reranker", "splade"):
@@ -510,6 +524,124 @@ def _disk_usage_check(project_dir: Path) -> DoctorCheck:
         message=f".archex uses {_format_bytes(total)}",
         details={"path": str(project_dir), "total_bytes": total},
     )
+
+
+def _metrics_health_check() -> DoctorCheck:
+    db_path = metrics_db_path()
+    policy = _default_metrics_policy()
+    latest_failure = ""
+    if db_path.exists():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                settings = {
+                    str(row["key"]): str(row["value"])
+                    for row in conn.execute("SELECT key, value FROM settings")
+                }
+                policy = _metrics_policy_from_settings(settings)
+                health_row = conn.execute(
+                    """
+                    SELECT status, last_failure_operation, last_failure_message
+                    FROM metrics_health
+                    WHERE id = 1
+                    """
+                ).fetchone()
+                latest_failure = _health_warning_from_row(health_row)
+        except sqlite3.Error as exc:
+            latest_failure = f"metrics: {exc}"
+    else:
+        policy = _metrics_policy_from_settings({})
+    details: dict[str, object] = {
+        "db_path": str(db_path),
+        "enabled": policy.metrics_enabled,
+        "trace_enabled": policy.trace_enabled,
+        "raw_event_retention_days": policy.raw_event_retention_days,
+        "trace_retention_days": policy.trace_retention_days,
+        "latest_failure": latest_failure,
+        "default_raw_event_retention_days": DEFAULT_RAW_EVENT_RETENTION_DAYS,
+        "default_trace_retention_days": DEFAULT_TRACE_RETENTION_DAYS,
+    }
+    if latest_failure:
+        return DoctorCheck(
+            name="metrics_health",
+            status="warning",
+            message=f"metrics recording warning: {latest_failure}",
+            details=details,
+        )
+    return DoctorCheck(
+        name="metrics_health",
+        status="ok",
+        message="local metrics storage is available",
+        details=details,
+    )
+
+
+def _default_metrics_policy() -> MetricsPolicy:
+    return MetricsPolicy(
+        metrics_enabled=True,
+        trace_enabled=False,
+        raw_event_retention_days=DEFAULT_RAW_EVENT_RETENTION_DAYS,
+        trace_retention_days=DEFAULT_TRACE_RETENTION_DAYS,
+    )
+
+
+def _metrics_policy_from_settings(settings: dict[str, str]) -> MetricsPolicy:
+    env_metrics = os.environ.get(METRICS_ENV, "").casefold()
+    env_trace = os.environ.get(TRACE_ENV, "").casefold()
+    if env_metrics == "off":
+        return MetricsPolicy(
+            metrics_enabled=False,
+            trace_enabled=False,
+            raw_event_retention_days=DEFAULT_RAW_EVENT_RETENTION_DAYS,
+            trace_retention_days=DEFAULT_TRACE_RETENTION_DAYS,
+        )
+    trace_enabled = _bool_setting(settings.get("trace_enabled"), default=False)
+    if env_trace == "on":
+        trace_enabled = True
+    elif env_trace == "off":
+        trace_enabled = False
+    return MetricsPolicy(
+        metrics_enabled=_bool_setting(settings.get("metrics_enabled"), default=True),
+        trace_enabled=trace_enabled,
+        raw_event_retention_days=_int_setting(
+            settings.get("raw_event_retention_days"),
+            default=DEFAULT_RAW_EVENT_RETENTION_DAYS,
+        ),
+        trace_retention_days=_int_setting(
+            settings.get("trace_retention_days"),
+            default=DEFAULT_TRACE_RETENTION_DAYS,
+        ),
+    )
+
+
+def _health_warning_from_row(row: sqlite3.Row | None) -> str:
+    if row is None:
+        return ""
+    if str(row["status"]) == "ok" or row["last_failure_message"] is None:
+        return ""
+    operation = str(row["last_failure_operation"] or "metrics")
+    return f"{operation}: {row['last_failure_message']}"
+
+
+def _bool_setting(value: str | None, *, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    normalized = value.casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _int_setting(value: str | None, *, default: int) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return parsed if parsed >= 0 else default
 
 
 def _status_details(status: ProjectStatus) -> dict[str, object]:
