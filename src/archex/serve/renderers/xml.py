@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
 
 if TYPE_CHECKING:
-    from archex.models import ContextBundle
+    from archex.models import ContextBundle, ContextReceipt
 
 
-def render_xml(bundle: ContextBundle) -> str:
+def render_xml(bundle: ContextBundle, *, include_receipt: bool = True) -> str:
     """Render a ContextBundle as an XML string suitable for LLM consumption."""
     lines: list[str] = []
     lines.append(f"<context query={_attr(bundle.query)}>")
@@ -63,6 +63,9 @@ def render_xml(bundle: ContextBundle) -> str:
             lines.append(f"    <external>{escape(item)}</external>")
         lines.append("  </dependencies>")
 
+    if include_receipt and bundle.receipt is not None:
+        lines.extend(_render_receipt_xml(bundle.receipt))
+
     lines.append("</context>")
     return "\n".join(lines)
 
@@ -112,6 +115,43 @@ def render_xml_envelope(bundle: ContextBundle) -> str:
 
     lines.append("</context>")
     return "\n".join(lines)
+
+
+def _render_receipt_xml(receipt: ContextReceipt) -> list[str]:
+    lines = [
+        "  <receipt"
+        f" freshness={_attr(receipt.freshness.value)}"
+        f" complete={_attr(receipt.context_complete.value)}"
+        f" reason={_attr(receipt.context_complete_reason.value)}"
+        f" action={_attr(receipt.recommended_next_action.value)}"
+        f" index_revision={_attr(receipt.index_revision)}"
+        f" budget_requested={_attr(str(receipt.token_budget.requested))}"
+        f" budget_consumed={_attr(str(receipt.token_budget.consumed))}"
+        f" returned={_attr(str(len(receipt.returned_context)))}"
+        f" skipped={_attr(str(len(receipt.skipped_candidates)))}"
+        f" omitted_edges={_attr(str(len(receipt.omitted_edges)))}"
+        ">",
+    ]
+    for item in receipt.returned_context[:8]:
+        lines.append(
+            "    <returned"
+            f" handle={_attr(item.handle)}"
+            f" file={_attr(item.file_path)}"
+            f" lines={_attr(f'{item.start_line}-{item.end_line}')}"
+            f" hash={_attr(item.content_hash)}"
+            f" score={_attr(f'{item.score:.4f}')}"
+            " />"
+        )
+    for item in receipt.skipped_candidates[:8]:
+        lines.append(
+            "    <skipped"
+            f" file={_attr(item.file_path)}"
+            f" reason={_attr(item.reason.value)}"
+            f" handle={_attr(item.handle or '')}"
+            " />"
+        )
+    lines.append("  </receipt>")
+    return lines
 
 
 def _attr(value: str) -> str:

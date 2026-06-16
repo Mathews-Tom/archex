@@ -40,6 +40,12 @@ from archex.models import (
     CodeChunk,
     ComparisonResult,
     ContextBundle,
+    ContextCompletenessReason,
+    ContextCompletenessStatus,
+    ContextFreshness,
+    ContextReceipt,
+    ContextReceiptTokenBudget,
+    ContextRecommendedAction,
     EdgeConfidence,
     RankedChunk,
     RepoMetadata,
@@ -59,7 +65,20 @@ def _make_arch_profile(local_path: str = "/fake/repo") -> ArchProfile:
 
 
 def _make_context_bundle(question: str = "how does auth work?") -> ContextBundle:
-    return ContextBundle(query=question, token_count=100, token_budget=8000)
+    return ContextBundle(
+        query=question,
+        token_count=100,
+        token_budget=8000,
+        receipt=ContextReceipt(
+            query=question,
+            token_budget=ContextReceiptTokenBudget(requested=8000, consumed=100),
+            index_revision="rev",
+            freshness=ContextFreshness.CLEAN,
+            context_complete=ContextCompletenessStatus.COMPLETE,
+            context_complete_reason=ContextCompletenessReason.COMPLETE,
+            recommended_next_action=ContextRecommendedAction.USE_BUNDLE,
+        ),
+    )
 
 
 def _make_comparison_result() -> ComparisonResult:
@@ -163,6 +182,9 @@ class TestHandleQueryRepo:
         assert "_meta" in parsed
         assert parsed["_meta"]["tool_name"] == "query_repo"
         assert parsed["_meta"]["strategy"] == "bm25+graph"
+        assert parsed["receipt"]["index_revision"] == "rev"
+        assert parsed["receipt"]["context_complete"] == "complete"
+        assert "<receipt" not in parsed["content"]
 
     def test_uses_adaptive_default_budget_when_omitted(self) -> None:
         bundle = _make_context_bundle()
@@ -296,6 +318,15 @@ class TestHandleScoutRepo:
                     handle=file_handle("src/archex/index/delta.py"),
                 )
             ],
+            receipt=ContextReceipt(
+                query="delta indexing",
+                token_budget=ContextReceiptTokenBudget(requested=120, consumed=80),
+                index_revision="rev",
+                freshness=ContextFreshness.CLEAN,
+                context_complete=ContextCompletenessStatus.COMPLETE,
+                context_complete_reason=ContextCompletenessReason.COMPLETE,
+                recommended_next_action=ContextRecommendedAction.USE_BUNDLE,
+            ),
             budget=ScoutBudget(token_budget=120),
         )
         with (
@@ -315,7 +346,34 @@ class TestHandleScoutRepo:
         assert parsed["_meta"]["tool_name"] == "scout_repo"
         assert parsed["_meta"]["strategy"] == "scout"
         assert scout_mock.call_args.kwargs["token_budget"] == 120
+        assert parsed["receipt"]["index_revision"] == "rev"
 
+
+    def test_returns_scout_json_without_duplicate_receipt(self) -> None:
+        from archex.scout import ScoutBudget, ScoutResult
+
+        result_model = ScoutResult(
+            query="delta indexing",
+            budget=ScoutBudget(token_budget=120),
+            receipt=ContextReceipt(
+                query="delta indexing",
+                token_budget=ContextReceiptTokenBudget(requested=120, consumed=80),
+                index_revision="rev",
+                freshness=ContextFreshness.CLEAN,
+                context_complete=ContextCompletenessStatus.COMPLETE,
+                context_complete_reason=ContextCompletenessReason.COMPLETE,
+                recommended_next_action=ContextRecommendedAction.USE_BUNDLE,
+            ),
+        )
+        with (
+            patch("archex.integrations.mcp.scout", return_value=result_model),
+            patch("archex.integrations.mcp.get_repo_total_tokens", return_value=1000),
+        ):
+            output = handle_scout_repo("/fake/repo", "delta indexing")
+
+        parsed = json.loads(output)
+        assert "receipt" not in parsed["content"]
+        assert parsed["receipt"]["index_revision"] == "rev"
 
 class TestHandleCompareRepos:
     def test_returns_json_with_meta(self) -> None:

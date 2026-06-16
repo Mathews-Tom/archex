@@ -7,6 +7,7 @@ produces valid output in all three formats.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -22,6 +23,7 @@ from archex.models import (
     RepoSource,
     ScoringWeights,
 )
+from archex.scout import render_scout
 from archex.serve.renderers.json import render_json
 from archex.serve.renderers.markdown import render_markdown
 from archex.serve.renderers.xml import render_xml
@@ -55,6 +57,16 @@ class TestQueryPipelineEndToEnd:
         assert meta.candidates_found > 0
         assert meta.chunks_included > 0
 
+    def test_query_renderers_include_receipt(self, python_simple_repo: Path) -> None:
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(cache=False)
+        bundle = query(source, "What models are defined?", config=config)
+
+        parsed = json.loads(render_json(bundle))
+        assert parsed["receipt"]["index_revision"] != "unknown"
+        assert parsed["receipt"]["freshness"] == "clean"
+        assert "<receipt " in render_xml(bundle)
+
     def test_query_receipt_records_unknown_freshness_when_refresh_skipped(
         self, python_simple_repo: Path
     ) -> None:
@@ -79,6 +91,7 @@ class TestQueryPipelineEndToEnd:
         assert result.receipt.returned_context
         assert result.receipt.returned_context[0].handle.startswith("file:")
         assert result.fetch_plan.handles
+        assert "Receipt: freshness=" in render_scout(result)
 
     def test_query_finds_relevant_files(self, python_simple_repo: Path) -> None:
         source = RepoSource(local_path=str(python_simple_repo))

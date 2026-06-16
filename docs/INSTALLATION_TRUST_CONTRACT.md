@@ -37,6 +37,14 @@ uv add archex
 
 Core CLI indexing and BM25 retrieval do not require hosted inference, API keys, vector model downloads, or Hugging Face remote code.
 
+## Context receipt output contract
+
+`archex query --format json` includes a top-level `receipt` object in the serialized `ContextBundle`. `archex query --format xml` includes a compact `<receipt>` block with freshness, index revision, completeness, recommended action, returned handles, skipped candidates, and omitted dependency-edge counts.
+
+`archex scout --format json` includes the same receipt fields on the scout result. `archex scout` markdown prints one compact receipt summary line before ranked files, while preserving fetch handles in the recommended-fetch section.
+
+MCP `query_repo` and `scout_repo` envelopes now include a top-level `receipt` field next to `content` and `_meta`. This is an intentional additive JSON-envelope change so MCP clients can inspect provenance and completeness without parsing prompt text.
+
 ## MCP setup
 
 Install the MCP extra:

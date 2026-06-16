@@ -316,11 +316,22 @@ def enforce_scout_token_budget(result: ScoutResult, *, output_format: ScoutForma
         raise ValueError(msg)
 
 
-def render_scout(result: ScoutResult, *, output_format: ScoutFormat = "markdown") -> str:
+def render_scout(
+    result: ScoutResult,
+    *,
+    output_format: ScoutFormat = "markdown",
+    include_receipt: bool = True,
+) -> str:
     if output_format == "json":
-        return json.dumps(result.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+        exclude = None if include_receipt else {"receipt"}
+        rendered = json.dumps(
+            result.model_dump(mode="json", exclude=exclude),
+            indent=2,
+            sort_keys=True,
+        )
+        return f"{rendered}\n"
     if output_format == "markdown":
-        return _render_markdown(result)
+        return _render_markdown(result, include_receipt=include_receipt)
     raise ValueError(f"Unsupported scout format {output_format!r}")
 
 
@@ -817,15 +828,25 @@ def _visibility_rank(visibility: str | None) -> int:
     return 2
 
 
-def _render_markdown(result: ScoutResult) -> str:
+def _render_markdown(result: ScoutResult, *, include_receipt: bool = True) -> str:
     lines = [
         "# archex scout",
         "",
         f"Query: {result.query}",
         f"Budget: {result.budget.token_count}/{result.budget.token_budget} tokens",
-        "",
-        "## Ranked files",
     ]
+    if include_receipt and result.receipt is not None:
+        receipt = result.receipt
+        lines.append(
+            "Receipt: "
+            f"freshness={receipt.freshness.value}, "
+            f"complete={receipt.context_complete.value}, "
+            f"reason={receipt.context_complete_reason.value}, "
+            f"action={receipt.recommended_next_action.value}, "
+            f"returned={len(receipt.returned_context)}, "
+            f"skipped={len(receipt.skipped_candidates)}"
+        )
+    lines.extend(["", "## Ranked files"])
     if result.ranked_files:
         for item in result.ranked_files:
             lines.append(
