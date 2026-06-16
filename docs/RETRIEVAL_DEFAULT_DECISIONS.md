@@ -10,6 +10,39 @@ Operator evidence from the 2026-06-09 retrieval-default benchmark keeps `archex_
 - Keep `archex_query` as the product default; the 2026-06-09 run did not satisfy the strategy switch rule.
 - Do not refresh `benchmarks/dogfood_baseline.json` without explicit approval after a proven improvement.
 
+
+## Decision rationale
+
+### Why this gate exists
+
+Earlier retrieval-default evaluation mixed embedders and lacked token-efficiency and p95 latency gates. That made recall-only wins unsafe to promote into the product default. The default path has to preserve quality, token economy, and interactive latency together.
+
+### Alternatives considered
+
+#### Switch the product default to `archex_query_fusion_rerank`
+
+- Pros: highest observed MRR on the clean Jina run (`0.938`) and a small F1 lift (`0.594` vs `0.589`).
+- Cons: token efficiency regressed (`0.612` vs `0.701`) and p95 latency rose to `16588 ms`, far above the `3000 ms` budget.
+- Disposition: rejected. It failed every non-F1 switch constraint and did not clear the required `+0.05` mean F1 delta.
+
+#### Switch the benchmark embedder to CodeRankEmbed
+
+- Pros: remains a plausible code-specialized candidate after the query-prefix and repeated-load fixes.
+- Cons: the 2026-06-09 CodeRank run completed only `28/35` tasks due to clone DNS failures and showed an extreme partial-run p95 (`253658 ms` for fusion rerank).
+- Disposition: rejected as decision evidence. The run was not clean full-frontier evidence and underperformed Jina on recall, F1, token efficiency, and p95 even on the partial set.
+
+#### Select MiniLM as the reranker default
+
+- Pros: materially faster than Jina reranker v3 on the same run (`3924 ms` p95 vs `16522 ms` p95).
+- Cons: still misses the `<= 3000 ms` p95 budget and slightly lowers F1 (`0.586` vs `0.594`).
+- Disposition: rejected. The reranker decision rule requires the selected model to stay at or below the p95 budget on the operator hardware.
+
+### Consequences
+
+- Default changes remain evidence-gated across quality, token economy, and latency.
+- `archex_query` stays the product default until a clean warm run clears the whole rule set.
+- Benchmark-only knobs such as `--embedder` and `--rerank-model` do not change shipped product behavior by themselves.
+- CodeRankEmbed and lighter reranker candidates remain valid future experiments, but only after clean reruns.
 ## Embedder decision
 
 Candidate embedders:

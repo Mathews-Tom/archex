@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#08171d"/>
+      <stop offset="100%" stop-color="#10242c"/>
+    </linearGradient>
+    <radialGradient id="logoCore" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#123746"/>
+      <stop offset="100%" stop-color="#0b1d25"/>
+    </radialGradient>
+    <filter id="logoGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0.92  0 0 1 0 1  0 0 0 1 0"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="176" fill="url(#logoBg)"/>
+  <rect width="1024" height="1024" rx="176" fill="none" stroke="#7deeff" stroke-width="3" opacity="0.12"/>
+
+  <g transform="translate(512 512)">
+    <g stroke="#78ebff" stroke-linecap="round" fill="none">
+      <path d="M-328 0 H-154" stroke-width="9"/>
+      <path d="M154 0 H328" stroke-width="9"/>
+      <path d="M0 -328 V-154" stroke-width="9"/>
+      <path d="M0 154 V328" stroke-width="9"/>
+
+      <path d="M-232 -232 L-110 -110" stroke-width="8"/>
+      <path d="M232 -232 L110 -110" stroke-width="8"/>
+      <path d="M-232 232 L-110 110" stroke-width="8"/>
+      <path d="M232 232 L110 110" stroke-width="8"/>
+
+      <path d="M-286 -96 H-164" stroke-width="6" opacity="0.75"/>
+      <path d="M-286 96 H-164" stroke-width="6" opacity="0.75"/>
+      <path d="M164 -96 H286" stroke-width="6" opacity="0.75"/>
+      <path d="M164 96 H286" stroke-width="6" opacity="0.75"/>
+    </g>
+
+    <g fill="#78ebff">
+      <circle cx="-328" cy="0" r="16"/>
+      <circle cx="328" cy="0" r="16"/>
+      <circle cx="0" cy="-328" r="16"/>
+      <circle cx="0" cy="328" r="16"/>
+      <circle cx="-232" cy="-232" r="14"/>
+      <circle cx="232" cy="-232" r="14"/>
+      <circle cx="-232" cy="232" r="14"/>
+      <circle cx="232" cy="232" r="14"/>
+    </g>
+
+    <circle cx="0" cy="0" r="202" fill="#7eeeff" opacity="0.22" filter="url(#logoGlow)"/>
+    <circle cx="0" cy="0" r="184" fill="url(#logoCore)" stroke="#84f2ff" stroke-width="10"/>
+    <circle cx="0" cy="0" r="220" fill="none" stroke="#8ef4ff" stroke-width="5" opacity="0.46"/>
+    <circle cx="0" cy="0" r="252" fill="none" stroke="#8ef4ff" stroke-width="3" opacity="0.18" stroke-dasharray="10 26"/>
+
+    <path d="M-76 2 l52 52 136 -140" stroke="#9ef7ff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>
