@@ -16,6 +16,7 @@ from archex.cli.graph_cmd import graph_cmd
 from archex.cli.impact_cmd import impact_cmd
 from archex.cli.index_cmd import index_cmd
 from archex.cli.init_cmd import init_cmd
+from archex.cli.install_client_cmd import install_client_cmd
 from archex.cli.mcp_cmd import mcp_cmd
 from archex.cli.onboard_cmd import onboard_cmd
 from archex.cli.outline_cmd import outline_cmd
@@ -41,6 +42,7 @@ cli.add_command(compare_cmd)
 cli.add_command(cache_cmd)
 cli.add_command(init_cmd)
 cli.add_command(index_cmd)
+cli.add_command(install_client_cmd)
 cli.add_command(status_cmd)
 cli.add_command(reset_cmd)
 cli.add_command(doctor_cmd)
