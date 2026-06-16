@@ -2,7 +2,7 @@
 
 > Historical execution record from scaffold through the completed 2026-06-12 unified roadmap.
 > Current capability details live in [README](../README.md) and [System Design](SYSTEM_DESIGN.md).
-> Completed-work history is summarized in this roadmap; default-strategy evidence remains authoritative in [Retrieval Default Decisions](RETRIEVAL_DEFAULT_DECISIONS.md) and [ADR-001](adr/001-retrieval-default-evidence-gate.md).
+> Completed-work history is summarized in this roadmap; default-strategy evidence remains authoritative in [Retrieval Default Decisions](RETRIEVAL_DEFAULT_DECISIONS.md).
 
 ---
 
@@ -984,7 +984,7 @@ Build evaluation datasets and assertions using Attest's graduated assertion pipe
 - edge confidence/provenance, graph-native CLI/MCP queries, and token-light scout→fetch protocol
 - expanded language tiers, cAST chunking A/B infrastructure, and distribution parity through doctor/skill/Docker/comparison docs
 
-**Authority chain:** README → `docs/SYSTEM_DESIGN.md` / `docs/ARCHEX_VS_COCOINDEX.md` → this completion record → `docs/RETRIEVAL_DEFAULT_DECISIONS.md` / ADR-001.
+**Authority chain:** README → `docs/SYSTEM_DESIGN.md` / `docs/ARCHEX_VS_COCOINDEX.md` → this completion record → `docs/RETRIEVAL_DEFAULT_DECISIONS.md`.
 
 ## Ongoing Maintenance
 
