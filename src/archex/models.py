@@ -82,6 +82,57 @@ class LanguageTier(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ContextFreshness(StrEnum):
+    CLEAN = "clean"
+    DIRTY = "dirty"
+    WATCH_ACTIVE = "watch_active"
+    WATCH_UNAVAILABLE = "watch_unavailable"
+    UNKNOWN = "unknown"
+
+
+class ContextCompletenessStatus(StrEnum):
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+    UNKNOWN = "unknown"
+
+
+class ContextCompletenessReason(StrEnum):
+    COMPLETE = "complete"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    DEPENDENCY_FRONTIER_CUT = "dependency_frontier_cut"
+    DUPLICATE_SUPPRESSED = "duplicate_suppressed"
+    NO_CANDIDATES = "no_candidates"
+    STALE_INDEX = "stale_index"
+    UNSUPPORTED_GRAMMAR = "unsupported_grammar"
+    UNKNOWN = "unknown"
+
+
+class ContextRecommendedAction(StrEnum):
+    USE_BUNDLE = "use_bundle"
+    NARROW_QUERY = "narrow_query"
+    RAISE_BUDGET = "raise_budget"
+    REFRESH_INDEX = "refresh_index"
+    FETCH_SKIPPED_CANDIDATE = "fetch_skipped_candidate"
+    MANUAL_REVIEW = "manual_review"
+
+
+class ContextSkippedReason(StrEnum):
+    BELOW_THRESHOLD = "below_threshold"
+    DEPENDENCY_FRONTIER_CUT = "dependency_frontier_cut"
+    DUPLICATE = "duplicate"
+    OVER_BUDGET = "over_budget"
+    STALE_INDEX = "stale_index"
+    TEST_DEPRIORITIZED = "test_deprioritized"
+    UNSUPPORTED_GRAMMAR = "unsupported_grammar"
+
+
+class ContextOmittedEdgeReason(StrEnum):
+    OVER_BUDGET = "over_budget"
+    UNSUPPORTED_GRAMMAR = "unsupported_grammar"
+    STALE_INDEX = "stale_index"
+    BELOW_THRESHOLD = "below_threshold"
+
+
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
@@ -638,6 +689,63 @@ class RetrievalMetadata(BaseModel):
     mean_chunk_tokens: float = 0.0
 
 
+class ContextReceiptTokenBudget(BaseModel):
+    requested: int
+    consumed: int
+
+
+class ContextReceiptItem(BaseModel):
+    handle: str
+    file_path: str
+    start_line: int
+    end_line: int
+    content_hash: str
+    symbols: list[str] = []
+    score: float = 0.0
+    reason_codes: list[str] = []
+
+
+class ContextReceiptEdge(BaseModel):
+    source: str
+    target: str
+    kind: EdgeKind
+    source_path: str | None = None
+    target_path: str | None = None
+    confidence: EdgeConfidence | None = None
+    confidence_score: float | None = None
+    evidence: list[str] = []
+    reason: ContextOmittedEdgeReason | None = None
+
+    @model_validator(mode="after")
+    def _validate_confidence_score(self) -> ContextReceiptEdge:
+        if self.confidence_score is not None and not 0.0 <= self.confidence_score <= 1.0:
+            raise ValueError("confidence_score must be between 0.0 and 1.0")
+        return self
+
+
+class ContextSkippedCandidate(BaseModel):
+    file_path: str
+    reason: ContextSkippedReason
+    handle: str | None = None
+    symbol: str | None = None
+    score: float = 0.0
+    detail: str = ""
+
+
+class ContextReceipt(BaseModel):
+    query: str
+    token_budget: ContextReceiptTokenBudget
+    index_revision: str
+    freshness: ContextFreshness = ContextFreshness.UNKNOWN
+    returned_context: list[ContextReceiptItem] = []
+    included_edges: list[ContextReceiptEdge] = []
+    omitted_edges: list[ContextReceiptEdge] = []
+    skipped_candidates: list[ContextSkippedCandidate] = []
+    context_complete: ContextCompletenessStatus = ContextCompletenessStatus.UNKNOWN
+    context_complete_reason: ContextCompletenessReason = ContextCompletenessReason.UNKNOWN
+    recommended_next_action: ContextRecommendedAction = ContextRecommendedAction.MANUAL_REVIEW
+
+
 class ContextBundle(BaseModel):
     query: str
     chunks: list[RankedChunk] = []
@@ -648,6 +756,7 @@ class ContextBundle(BaseModel):
     token_budget: int = 0
     truncated: bool = False
     retrieval_metadata: RetrievalMetadata = RetrievalMetadata()
+    receipt: ContextReceipt | None = None
 
     def to_prompt(self, format: str = "xml") -> str:
         """Render the context bundle as an LLM prompt string."""

@@ -8,6 +8,17 @@ from archex.models import (
     CodeChunk,
     Config,
     ContextBundle,
+    ContextCompletenessReason,
+    ContextCompletenessStatus,
+    ContextFreshness,
+    ContextOmittedEdgeReason,
+    ContextReceipt,
+    ContextReceiptEdge,
+    ContextReceiptItem,
+    ContextReceiptTokenBudget,
+    ContextRecommendedAction,
+    ContextSkippedCandidate,
+    ContextSkippedReason,
     DetectedPattern,
     Edge,
     EdgeConfidence,
@@ -84,6 +95,125 @@ def test_vector_mode_members() -> None:
 def test_retrieval_policy_members() -> None:
     assert RetrievalPolicy.AUTO == "auto"
     assert RetrievalPolicy.CROSS_LAYER == "cross_layer"
+
+
+def test_context_receipt_enum_members() -> None:
+    assert {member.name: member.value for member in ContextFreshness} == {
+        "CLEAN": "clean",
+        "DIRTY": "dirty",
+        "WATCH_ACTIVE": "watch_active",
+        "WATCH_UNAVAILABLE": "watch_unavailable",
+        "UNKNOWN": "unknown",
+    }
+    assert {member.name: member.value for member in ContextCompletenessStatus} == {
+        "COMPLETE": "complete",
+        "INCOMPLETE": "incomplete",
+        "UNKNOWN": "unknown",
+    }
+    assert {member.name: member.value for member in ContextCompletenessReason} == {
+        "COMPLETE": "complete",
+        "BUDGET_EXHAUSTED": "budget_exhausted",
+        "DEPENDENCY_FRONTIER_CUT": "dependency_frontier_cut",
+        "DUPLICATE_SUPPRESSED": "duplicate_suppressed",
+        "NO_CANDIDATES": "no_candidates",
+        "STALE_INDEX": "stale_index",
+        "UNSUPPORTED_GRAMMAR": "unsupported_grammar",
+        "UNKNOWN": "unknown",
+    }
+    assert {member.name: member.value for member in ContextRecommendedAction} == {
+        "USE_BUNDLE": "use_bundle",
+        "NARROW_QUERY": "narrow_query",
+        "RAISE_BUDGET": "raise_budget",
+        "REFRESH_INDEX": "refresh_index",
+        "FETCH_SKIPPED_CANDIDATE": "fetch_skipped_candidate",
+        "MANUAL_REVIEW": "manual_review",
+    }
+    assert {member.name: member.value for member in ContextSkippedReason} == {
+        "BELOW_THRESHOLD": "below_threshold",
+        "DEPENDENCY_FRONTIER_CUT": "dependency_frontier_cut",
+        "DUPLICATE": "duplicate",
+        "OVER_BUDGET": "over_budget",
+        "STALE_INDEX": "stale_index",
+        "TEST_DEPRIORITIZED": "test_deprioritized",
+        "UNSUPPORTED_GRAMMAR": "unsupported_grammar",
+    }
+    assert {member.name: member.value for member in ContextOmittedEdgeReason} == {
+        "OVER_BUDGET": "over_budget",
+        "UNSUPPORTED_GRAMMAR": "unsupported_grammar",
+        "STALE_INDEX": "stale_index",
+        "BELOW_THRESHOLD": "below_threshold",
+    }
+
+
+def test_context_receipt_instantiation_and_dump_are_deterministic() -> None:
+    receipt = ContextReceipt(
+        query="explain retrieval",
+        token_budget=ContextReceiptTokenBudget(requested=1000, consumed=250),
+        index_revision="abc123",
+        freshness=ContextFreshness.CLEAN,
+        returned_context=[
+            ContextReceiptItem(
+                handle="chunk:src/api.py::query",
+                file_path="src/api.py",
+                start_line=10,
+                end_line=20,
+                content_hash="hash-api-query",
+                symbols=["query"],
+                score=0.9,
+                reason_codes=["bm25", "graph_seed"],
+            )
+        ],
+        included_edges=[
+            ContextReceiptEdge(
+                source="src/api.py",
+                target="src/store.py",
+                kind=EdgeKind.IMPORTS,
+                source_path="src/api.py",
+                target_path="src/store.py",
+                confidence=EdgeConfidence.EXTRACTED,
+                confidence_score=1.0,
+                evidence=["import store"],
+            )
+        ],
+        omitted_edges=[
+            ContextReceiptEdge(
+                source="src/api.py",
+                target="src/optional.py",
+                kind=EdgeKind.IMPORTS,
+                reason=ContextOmittedEdgeReason.OVER_BUDGET,
+            )
+        ],
+        skipped_candidates=[
+            ContextSkippedCandidate(
+                file_path="tests/test_api.py",
+                reason=ContextSkippedReason.TEST_DEPRIORITIZED,
+                handle="file:tests/test_api.py",
+                score=0.2,
+                detail="support file without explicit test query",
+            )
+        ],
+        context_complete=ContextCompletenessStatus.INCOMPLETE,
+        context_complete_reason=ContextCompletenessReason.BUDGET_EXHAUSTED,
+        recommended_next_action=ContextRecommendedAction.RAISE_BUDGET,
+    )
+
+    first = receipt.model_dump(mode="json")
+    second = ContextReceipt.model_validate(first).model_dump(mode="json")
+    assert first == second
+    assert first["query"] == "explain retrieval"
+    assert first["token_budget"] == {"requested": 1000, "consumed": 250}
+    assert first["returned_context"][0]["reason_codes"] == ["bm25", "graph_seed"]
+    assert first["skipped_candidates"][0]["reason"] == "test_deprioritized"
+
+
+def test_context_receipt_edge_confidence_score_bounds() -> None:
+    with pytest.raises(ValueError, match="confidence_score must be between"):
+        ContextReceiptEdge(
+            source="src/api.py",
+            target="src/store.py",
+            kind=EdgeKind.IMPORTS,
+            confidence_score=1.1,
+        )
 
 
 def test_pattern_category_members() -> None:
