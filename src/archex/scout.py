@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel
 
 from archex.graph_query import GraphQuery, GraphQueryError
-from archex.models import CodeChunk, Module, RankedChunk, SymbolKind
+from archex.models import CodeChunk, ContextReceipt, Module, RankedChunk, SymbolKind
 from archex.reporting import count_tokens
 from archex.serve.intent import QueryIntent, classify_intent
 
@@ -186,6 +186,7 @@ class ScoutResult(BaseModel):
     graph: list[ScoutGraphEdge] = []
     budget: ScoutBudget
     fetch_plan: ScoutFetchPlan = ScoutFetchPlan()
+    receipt: ContextReceipt | None = None
 
 
 def file_handle(file_path: str) -> str:
