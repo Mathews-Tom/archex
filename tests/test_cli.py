@@ -256,7 +256,8 @@ def test_status_command_reports_metrics_savings(
             tokens_returned=10,
             tokens_raw_equivalent=100,
             whole_repo_tokens=1000,
-        )
+        ),
+        force=True,
     )
 
     result = runner.invoke(cli, ["status", str(python_simple_repo), "--format", "json"])

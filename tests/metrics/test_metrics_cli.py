@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from click.testing import CliRunner
 
 from archex.cli.main import cli
+from archex.metrics.policy import set_metrics_enabled
 from archex.metrics.recorder import MetricsRecorder, TraceDetails, UsageEvent
 from archex.metrics.storage import metrics_db_path
 
@@ -121,6 +122,7 @@ def test_metrics_controls_enable_disable_trace_and_delete(
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     runner = CliRunner()
+    default_summary = runner.invoke(cli, ["metrics", "summary", "--format", "json"])
 
     disable = runner.invoke(cli, ["metrics", "disable"])
     disabled_summary = runner.invoke(cli, ["metrics", "summary", "--format", "json"])
@@ -130,17 +132,21 @@ def test_metrics_controls_enable_disable_trace_and_delete(
     trace_disable = runner.invoke(cli, ["metrics", "trace", "disable"])
     delete = runner.invoke(cli, ["metrics", "delete", "--all"])
 
+    assert json.loads(default_summary.output)["recording_enabled"] is False
     assert disable.exit_code == 0, disable.output
     assert json.loads(disabled_summary.output)["recording_enabled"] is False
     assert enable.exit_code == 0, enable.output
+    traced_payload = json.loads(traced_summary.output)
+    assert traced_payload["recording_enabled"] is True
+    assert traced_payload["trace_enabled"] is True
     assert trace_enable.exit_code == 0, trace_enable.output
-    assert json.loads(traced_summary.output)["trace_enabled"] is True
     assert trace_disable.exit_code == 0, trace_disable.output
     assert delete.exit_code == 0, delete.output
     assert not metrics_db_path(home=tmp_path).exists()
 
 
 def _record(repo_root: Path, tmp_path: Path) -> None:
+    set_metrics_enabled(True, db_path=metrics_db_path(home=tmp_path))
     MetricsRecorder(metrics_db_path(home=tmp_path)).record(
         UsageEvent(
             repo_root=repo_root,

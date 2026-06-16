@@ -17,17 +17,17 @@ from archex.metrics.registry import RepoRegistry
 from archex.metrics.storage import MetricsStore
 
 
-def test_policy_defaults_to_counters_enabled_trace_disabled(tmp_path: Path) -> None:
+def test_policy_defaults_to_counters_disabled_trace_disabled(tmp_path: Path) -> None:
     policy = resolve_metrics_policy(db_path=tmp_path / "usage.sqlite", env={})
 
-    assert policy.metrics_enabled is True
+    assert policy.metrics_enabled is False
     assert policy.trace_enabled is False
     assert policy.raw_event_retention_days == 90
     assert policy.trace_retention_days == 14
     assert policy.hosted_upload_enabled is False
 
 
-def test_policy_env_disables_metrics_and_controls_trace(tmp_path: Path) -> None:
+def test_policy_env_controls_metrics_and_trace(tmp_path: Path) -> None:
     db_path = tmp_path / "usage.sqlite"
     set_trace_enabled(True, db_path=db_path)
     set_metrics_enabled(True, db_path=db_path)
@@ -37,11 +37,13 @@ def test_policy_env_disables_metrics_and_controls_trace(tmp_path: Path) -> None:
         env={METRICS_ENV: "off", TRACE_ENV: "off"},
     )
     traced = resolve_metrics_policy(db_path=db_path, env={TRACE_ENV: "on"})
+    enabled = resolve_metrics_policy(db_path=db_path, env={METRICS_ENV: "on"})
 
     assert disabled.metrics_enabled is False
     assert disabled.trace_enabled is False
     assert traced.metrics_enabled is True
     assert traced.trace_enabled is True
+    assert enabled.metrics_enabled is True
 
 
 @pytest.mark.parametrize(

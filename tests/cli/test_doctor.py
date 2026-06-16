@@ -99,7 +99,7 @@ def test_doctor_json_reports_metrics_health(
     metrics = checks["metrics_health"]
     assert metrics["status"] == "warning"
     assert metrics["details"]["db_path"] == str(metrics_db_path(home=tmp_path))
-    assert metrics["details"]["enabled"] is True
+    assert metrics["details"]["enabled"] is False
     assert metrics["details"]["trace_enabled"] is False
     assert metrics["details"]["raw_event_retention_days"] == 90
     assert metrics["details"]["trace_retention_days"] == 14

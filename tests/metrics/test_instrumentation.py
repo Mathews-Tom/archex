@@ -11,6 +11,8 @@ from click.testing import CliRunner
 from archex.cli.main import cli
 from archex.integrations.mcp import handle_query_repo
 from archex.metrics.health import read_metrics_health
+from archex.metrics.policy import METRICS_ENV, resolve_metrics_policy
+from archex.metrics.recorder import UsageEvent
 from archex.metrics.storage import MetricsStore
 
 if TYPE_CHECKING:
@@ -44,11 +46,16 @@ def _fake_scout_result() -> SimpleNamespace:
         ),
     )
 
+
+def _enable_metrics(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv(METRICS_ENV, "on")
+
 def test_cli_query_records_counter_without_changing_stdout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     runner = CliRunner()
@@ -71,12 +78,11 @@ def test_cli_query_records_counter_without_changing_stdout(
     assert event["whole_repo_tokens_avoided"] == 990
 
 
-def test_cli_query_metrics_off_avoids_metric_work_and_writes(
+def test_cli_query_default_off_avoids_metric_work_and_writes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("ARCHEX_USAGE_METRICS", "off")
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     runner = CliRunner()
@@ -96,11 +102,10 @@ def test_cli_query_timing_savings_stderr_is_preserved(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     runner = CliRunner()
-
     with (
         patch("archex.cli.query_cmd.query", return_value=FakeBundle()),
         patch("archex.cli.query_cmd.get_files_token_count", return_value=100),
@@ -191,3 +196,4 @@ def test_mcp_query_records_counter_and_preserves_response_shape(
     assert event["surface"] == "mcp"
     assert event["tool_name"] == "query_repo"
     assert event["tokens_saved"] == 90
+

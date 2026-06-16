@@ -33,7 +33,9 @@ def resolve_metrics_policy(
 ) -> MetricsPolicy:
     """Resolve persisted settings with environment variable overrides."""
     env_values = os.environ if env is None else env
-    if env_values.get(METRICS_ENV, "").casefold() == "off":
+    metrics_env = env_values.get(METRICS_ENV, "").casefold()
+    trace_override = env_values.get(TRACE_ENV, "").casefold()
+    if metrics_env == "off":
         return MetricsPolicy(
             metrics_enabled=False,
             trace_enabled=False,
@@ -42,13 +44,11 @@ def resolve_metrics_policy(
         )
     values = _settings(db_path)
 
-    metrics_enabled = _bool_setting(values.get("metrics_enabled"), default=True)
+    metrics_enabled = _bool_setting(values.get("metrics_enabled"), default=False)
     trace_enabled = _bool_setting(values.get("trace_enabled"), default=False)
 
-    metrics_env = env_values.get(METRICS_ENV, "").casefold()
-    if metrics_env == "off":
-        metrics_enabled = False
-    trace_override = env_values.get(TRACE_ENV, "").casefold()
+    if metrics_env == "on":
+        metrics_enabled = True
     if trace_override == "on":
         trace_enabled = True
     elif trace_override == "off":
@@ -78,7 +78,10 @@ def set_trace_enabled(enabled: bool, *, db_path: Path | None = None) -> None:
 
 
 def _settings(db_path: Path | None) -> dict[str, str]:
-    with MetricsStore(db_path).connect() as conn:
+    store = MetricsStore(db_path)
+    if not store.db_path.exists():
+        return {}
+    with store.connect() as conn:
         rows = conn.execute("SELECT key, value FROM settings")
         return {str(row["key"]): str(row["value"]) for row in rows}
 
