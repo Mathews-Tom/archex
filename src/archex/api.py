@@ -60,6 +60,7 @@ from archex.index.bm25 import BM25Index
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
 from archex.languages import UNKNOWN_LANGUAGE_ID
+from archex.metrics.recorder import MetricsRecorder, UsageEvent
 from archex.models import (
     ArchProfile,
     ChunkSurrogate,
@@ -2513,6 +2514,11 @@ def get_symbols_batch(
 
 
 # ---------------------------------------------------------------------------
+def record_usage_event(event: UsageEvent, *, db_path: Path | None = None) -> None:
+    """Explicitly opt in to local usage recording for Python API callers."""
+    MetricsRecorder(db_path).record(event)
+
+
 # Token efficiency utilities
 # ---------------------------------------------------------------------------
 

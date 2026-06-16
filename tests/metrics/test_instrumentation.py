@@ -8,12 +8,14 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
+from archex.api import query, record_usage_event
 from archex.cli.main import cli
 from archex.integrations.mcp import handle_get_file_tree, handle_query_repo, handle_scout_repo
 from archex.metrics.categories import category_for_tool
 from archex.metrics.health import read_metrics_health
 from archex.metrics.policy import METRICS_ENV, resolve_metrics_policy
 from archex.metrics.storage import MetricsStore
+from archex.models import Config, RepoSource
 
 if TYPE_CHECKING:
     import pytest
@@ -351,3 +353,49 @@ def test_mcp_file_tree_records_structural_tool_counter(
     assert event["tool_name"] == "get_file_tree"
     assert event["category"] == "structural_tools"
     assert event["tokens_raw_equivalent"] == 500
+
+
+def test_python_api_query_does_not_write_metrics_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    python_simple_repo: Path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    source = RepoSource(local_path=str(python_simple_repo))
+
+    bundle = query(source, "authentication", config=Config(cache=False, languages=["python"]))
+
+    assert bundle.chunks
+    assert not (tmp_path / ".archex" / "usage.sqlite").exists()
+
+
+def test_python_api_explicit_usage_event_records_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    python_simple_repo: Path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    source = RepoSource(local_path=str(python_simple_repo))
+
+    record_usage_event(
+        UsageEvent(
+            repo_root=python_simple_repo,
+            surface="python_api",
+            tool_name="query",
+            category="context_retrieval",
+            tokens_returned=25,
+            tokens_raw_equivalent=100,
+            whole_repo_tokens=1000,
+            file_count=2,
+        )
+    )
+
+    with MetricsStore(tmp_path / ".archex" / "usage.sqlite").connect() as conn:
+        event = conn.execute(
+            "SELECT surface, tool_name, tokens_saved, whole_repo_tokens_avoided FROM usage_events"
+        ).fetchone()
+    assert source.local_path == str(python_simple_repo)
+    assert event["surface"] == "python_api"
+    assert event["tool_name"] == "query"
+    assert event["tokens_saved"] == 75
+    assert event["whole_repo_tokens_avoided"] == 975
