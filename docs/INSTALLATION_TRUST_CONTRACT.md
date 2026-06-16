@@ -45,7 +45,7 @@ Core CLI indexing and BM25 retrieval do not require hosted inference, API keys, 
 
 MCP `query_repo` and `scout_repo` envelopes now include a top-level `receipt` field next to `content` and `_meta`. This is an intentional additive JSON-envelope change so MCP clients can inspect provenance and completeness without parsing prompt text.
 
-The client-by-client tested/unverified matrix and bootstrap paths live in [docs/CLIENT_COMPATIBILITY_MATRIX.md](CLIENT_COMPATIBILITY_MATRIX.md).
+The client-by-client tested/unverified matrix and bootstrap paths live in [CLIENT_COMPATIBILITY_MATRIX](CLIENT_COMPATIBILITY_MATRIX.md).
 
 ## MCP setup
 
@@ -144,6 +144,17 @@ archex reads only paths you point it at or paths implied by the current reposito
 
 archex does not need hosted API keys for core CLI, Python API, MCP, Docker slim, or BM25 retrieval.
 
+Local usage metrics are part of the core local-first contract:
+
+- CLI `query`/`scout` do not record metrics unless the user explicitly enables local metrics.
+- MCP `query_repo`/`scout_repo` do not record metrics unless the user explicitly enables local metrics.
+- Structural CLI/MCP tools do not record metrics unless the user explicitly enables local metrics; when enabled, archex only records tools that already have a cheap returned-token and raw-equivalent baseline.
+- Python API calls do not write the metrics ledger unless the caller explicitly opts in with `record_usage_event(...)`.
+- The local ledger path is `~/.archex/usage.sqlite`.
+- No metrics code path makes LLM calls.
+- No hosted upload exists in v1.
+
+The exact token-savings math and enablement boundary are documented in [LOCAL_METRICS.md](LOCAL_METRICS.md).
 ## What archex writes
 
 Generated local state:
@@ -172,6 +183,56 @@ Do not commit `.archex/`. The project initializer adds `.archex/` to the reposit
 | `archex mcp --watch` | Watches local filesystem events; no network by itself. |
 | Telemetry | No telemetry is sent by core CLI, Python API, MCP, or Docker slim workflows. |
 
+## Local metrics privacy and controls
+
+For exact token-savings formulas, summary-field interpretation, and enablement rules, see [LOCAL_METRICS.md](LOCAL_METRICS.md).
+
+When local metrics are enabled, default metrics rows contain:
+
+- tool name
+- category (`context_retrieval` or `structural_tools`)
+- returned tokens
+- raw-equivalent tokens
+- saved tokens and savings percent
+- optional whole-repo avoided tokens as an upper-bound/context metric
+- file count
+- freshness
+- index revision
+- repo-local random UUID reference
+
+When local metrics are enabled, default metrics rows do not contain:
+
+- query text
+- file paths
+- symbols
+- scout handles
+- source snippets
+- rendered outputs
+- prompt bodies
+- Git remote URLs
+- org names
+- repo names in event rows
+
+Controls:
+
+```bash
+archex metrics enable
+archex metrics disable
+archex metrics export --output usage.json
+archex metrics delete --all
+archex metrics trace enable
+archex metrics trace disable
+ARCHEX_USAGE_METRICS=on
+ARCHEX_USAGE_METRICS=off
+ARCHEX_USAGE_TRACE=on
+ARCHEX_USAGE_TRACE=off
+```
+
+`archex metrics enable` or `ARCHEX_USAGE_METRICS=on` turns on local metrics recording. `ARCHEX_USAGE_METRICS=off` prevents writes. `ARCHEX_USAGE_TRACE=on|off` overrides detailed trace recording. `archex metrics export` redacts local repo paths by default unless `--include-local-paths` is passed. `archex metrics delete --all` removes the local metrics ledger.
+
+Detailed traces are local-only and opt-in. They may store query text, returned file paths, symbols, handles, skipped counts, token math, repo ID, and index revision. They never store source code, rendered output bodies, or prompt bodies.
+
+Headline savings always mean saved tokens versus returned full files. Whole-repo avoided tokens are stored separately and must be treated as an upper-bound/context metric, not the headline savings number.
 Run `archex doctor --security --format json` to inspect selected providers, remote-code policy, revision pins, cache state, offline environment flags, and model-download implications.
 
 ## Remote-code policy
