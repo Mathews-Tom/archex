@@ -115,7 +115,7 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         explicit_token_budget=budget is not None,
     )
 
-    content = render_xml(bundle)
+    content = render_xml(bundle, include_receipt=False)
     metadata = bundle.retrieval_metadata
     raw_file_paths = sorted(
         {
@@ -137,7 +137,14 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         query_time_ms=pt.total_ms,
         delta=pt.delta_meta,
     )
-    return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
+    return json.dumps(
+        {
+            "content": content,
+            "receipt": _receipt_payload(bundle.receipt),
+            "_meta": meta.model_dump(),
+        },
+        indent=2,
+    )
 
 
 def handle_scout_repo(
@@ -158,7 +165,7 @@ def handle_scout_repo(
         output_format=output_format,
         timing=pt,
     )
-    rendered = render_scout(result, output_format=output_format)
+    rendered = render_scout(result, output_format=output_format, include_receipt=False)
     content = json.loads(rendered) if output_format == "json" else rendered
     raw = get_repo_total_tokens(source)
     meta = compute_meta(
@@ -171,7 +178,11 @@ def handle_scout_repo(
         query_time_ms=pt.total_ms,
         delta=pt.delta_meta,
     )
-    return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
+    receipt = _receipt_payload(result.receipt)
+    return json.dumps(
+        {"content": content, "receipt": receipt, "_meta": meta.model_dump()},
+        indent=2,
+    )
 
 
 def handle_compare_repos(
@@ -504,6 +515,12 @@ def _graph_tool_response(
     meta["token_budget"] = token_budget
     meta["token_budget_truncated"] = budget_truncated
     return json.dumps({"content": content, "_meta": meta}, indent=2, sort_keys=True)
+
+
+def _receipt_payload(receipt: Any) -> dict[str, Any] | None:
+    if receipt is None:
+        return None
+    return receipt.model_dump(mode="json")
 
 
 def _validate_output_format(output_format: str) -> None:
