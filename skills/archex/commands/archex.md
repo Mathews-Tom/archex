@@ -6,6 +6,9 @@ Use archex to gather local codebase context before reading files.
 
 `/archex <question>` uses the current repository. `/archex <path> -- <question>` uses an explicit repository path.
 
+
+For install, MCP JSON, Docker, cache, network, freshness, and uninstall semantics, use `docs/INSTALLATION_TRUST_CONTRACT.md`.
+
 ## Procedure
 
 1. Run `archex doctor <path> --format json`.
