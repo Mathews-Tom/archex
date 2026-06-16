@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING
+
 import click
 
 from archex.api import get_files_token_count, query
 from archex.exceptions import ArchexError
+from archex.metrics.capture import record_query_usage
+from archex.metrics.health import record_metrics_failure
+from archex.metrics.policy import resolve_metrics_policy
 from archex.reporting import print_savings, print_timing
 from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 from archex.utils import resolve_source
+
+if TYPE_CHECKING:
+    from archex.models import Config, ContextBundle, RepoSource
+
+logger = logging.getLogger(__name__)
 
 
 @click.command("query")
@@ -114,12 +125,17 @@ def query_cmd(
 
     click.echo(bundle.to_prompt(format=output_format))
 
+    unique_files = list({c.chunk.file_path for c in bundle.chunks})
+    raw_tokens: int | None = None
     if timing and pt is not None:
         print_timing(pt)
-        unique_files = list({c.chunk.file_path for c in bundle.chunks})
-        raw = get_files_token_count(repo_source, unique_files, config)
+        raw_tokens = get_files_token_count(repo_source, unique_files, config)
         print_savings(
-            bundle.token_count, raw, pt.total_ms, budget=token_budget, file_count=len(unique_files)
+            bundle.token_count,
+            raw_tokens,
+            pt.total_ms,
+            budget=token_budget,
+            file_count=len(unique_files),
         )
 
     if metrics and pt is not None:
@@ -132,6 +148,37 @@ def query_cmd(
             dm = metrics_dict["delta_meta"]
             metrics_dict["delta_meta"] = {k: v for k, v in dm.items()}
         click.echo(json.dumps(metrics_dict, indent=2), err=True)
+
+    _record_metrics(repo_source, bundle, raw_tokens, unique_files, config)
+
+
+def _record_metrics(
+    repo_source: RepoSource,
+    bundle: ContextBundle,
+    raw_tokens: int | None,
+    unique_files: list[str],
+    config: Config,
+) -> None:
+    try:
+        policy = resolve_metrics_policy()
+        if not policy.metrics_enabled:
+            return
+        raw = raw_tokens
+        if raw is None:
+            raw = get_files_token_count(repo_source, unique_files, config)
+        record_query_usage(
+            repo_source,
+            bundle,
+            surface="cli",
+            tokens_raw_equivalent=raw,
+            whole_repo_tokens=None,
+        )
+    except Exception as exc:
+        logger.debug("query metrics recording failed", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("query metrics health recording failed", exc_info=True)
 
 
 def _source_and_question(args: tuple[str, ...]) -> tuple[str, str]:

@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+from unittest.mock import patch
+
+from click.testing import CliRunner
+
+from archex.cli.main import cli
+from archex.integrations.mcp import handle_query_repo
+from archex.metrics.storage import MetricsStore
+
+if TYPE_CHECKING:
+    import pytest
+
+
+class FakeBundle:
+    query = "where is auth"
+    token_count = 10
+    chunks: list[object] = []
+    receipt = None
+    retrieval_metadata = SimpleNamespace(seed_file_paths=[], expanded_file_paths=[])
+
+    def to_prompt(self, format: str = "xml") -> str:
+        return "FAKE CONTEXT"
+
+
+def test_cli_query_records_counter_without_changing_stdout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    runner = CliRunner()
+
+    with (
+        patch("archex.cli.query_cmd.query", return_value=FakeBundle()),
+        patch("archex.cli.query_cmd.get_files_token_count", return_value=100),
+    ):
+        result = runner.invoke(cli, ["query", str(repo_root), "where", "is", "auth"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "FAKE CONTEXT\n"
+    with MetricsStore(tmp_path / ".archex" / "usage.sqlite").connect() as conn:
+        event = conn.execute("SELECT surface, tool_name, tokens_saved FROM usage_events").fetchone()
+    assert event["surface"] == "cli"
+    assert event["tool_name"] == "query"
+    assert event["tokens_saved"] == 90
+
+
+def test_cli_query_metrics_off_avoids_metric_work_and_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("ARCHEX_USAGE_METRICS", "off")
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    runner = CliRunner()
+
+    with (
+        patch("archex.cli.query_cmd.query", return_value=FakeBundle()),
+        patch("archex.cli.query_cmd.get_files_token_count", side_effect=AssertionError("raw scan")),
+    ):
+        result = runner.invoke(cli, ["query", str(repo_root), "where", "is", "auth"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "FAKE CONTEXT\n"
+    assert not (tmp_path / ".archex" / "usage.sqlite").exists()
+
+
+def test_mcp_query_records_counter_and_preserves_response_shape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    with (
+        patch("archex.integrations.mcp.query", return_value=FakeBundle()),
+        patch("archex.integrations.mcp.render_xml", return_value="<context />"),
+        patch("archex.integrations.mcp.render_xml_envelope", return_value="<envelope />"),
+        patch("archex.integrations.mcp.get_files_token_count", return_value=100),
+        patch("archex.integrations.mcp.get_repo_total_tokens", return_value=1000),
+    ):
+        payload = json.loads(handle_query_repo(str(repo_root), "where is auth"))
+
+    assert sorted(payload) == ["_meta", "content", "receipt"]
+    assert payload["content"] == "<context />"
+    with MetricsStore(tmp_path / ".archex" / "usage.sqlite").connect() as conn:
+        event = conn.execute("SELECT surface, tool_name, tokens_saved FROM usage_events").fetchone()
+    assert event["surface"] == "mcp"
+    assert event["tool_name"] == "query_repo"
+    assert event["tokens_saved"] == 90
