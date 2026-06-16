@@ -168,7 +168,7 @@ Two local-first images are built in CI:
 # BM25-only, no torch
 docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim archex doctor
 
-# Full local-embedding image with FastEmbed prewarmed
+# Full local-embedding image with FastEmbed runtime
 docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:full archex query "Where is cache invalidation handled?" --strategy hybrid
 ```
 
