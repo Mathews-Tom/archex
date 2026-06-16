@@ -21,10 +21,18 @@ from archex.benchmark.models import (
     BenchmarkRetrievalOptions,
     BenchmarkTask,
     Strategy,
+    TaskCompletionResult,
 )
 from archex.cache import CacheManager
 from archex.exceptions import ArchexError, ConfigError
-from archex.models import ChunkerName, IndexConfig, PipelineTiming, RepoSource
+from archex.models import (
+    ChunkerName,
+    ContextBundle,
+    ContextCompletenessStatus,
+    IndexConfig,
+    PipelineTiming,
+    RepoSource,
+)
 from archex.reporting import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -280,11 +288,51 @@ def compute_bundle_completion_penalty(
     return count_file_tokens(repo_path, missing_files), missing_files
 
 
+def compute_required_file_metrics(
+    result_files: set[str],
+    expected_files: list[str],
+) -> tuple[float, float, bool, list[str], list[str]]:
+    present = [path for path in expected_files if path in result_files]
+    missing = [path for path in expected_files if path not in result_files]
+    recall = len(present) / len(expected_files) if expected_files else 0.0
+    all_present = not missing
+    missed_rate = 0.0 if all_present else 1.0
+    return recall, missed_rate, all_present, present, missing
+
+
+def compute_receipt_accuracy(
+    bundle: ContextBundle | None,
+    *,
+    all_required_files_present: bool,
+) -> bool | None:
+    if bundle is None or bundle.receipt is None:
+        return None
+    status = bundle.receipt.context_complete
+    if status == "unknown":
+        return None
+    predicted_complete = status == ContextCompletenessStatus.COMPLETE
+    return predicted_complete == all_required_files_present
+
+
+def completion_result_from_missing(missing_files: list[str]) -> TaskCompletionResult:
+    return TaskCompletionResult.PASS if not missing_files else TaskCompletionResult.FAIL
+
 def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Baseline strategy: read all expected files, count tokens."""
     t0 = time.perf_counter()
     tokens = count_file_tokens(repo_path, task.expected_files)
     wall_ms = (time.perf_counter() - t0) * 1000
+    required_metrics = compute_required_file_metrics(
+        set(task.expected_files),
+        task.expected_files,
+    )
+    (
+        required_file_recall,
+        missed_required_file_rate,
+        all_required_files_present,
+        present,
+        missing,
+    ) = required_metrics
 
     return BenchmarkResult(
         task_id=task.task_id,
@@ -294,6 +342,15 @@ def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         tokens_output=tokens,
         token_efficiency=compute_token_efficiency(tokens, tokens),
         result_files=list(task.expected_files),
+        required_file_recall=required_file_recall,
+        missed_required_file_rate=missed_required_file_rate,
+        all_required_files_present=all_required_files_present,
+        required_files_present=present,
+        required_files_missing=missing,
+        post_bundle_search_turns=0,
+        post_bundle_read_turns=0,
+        task_completion_result=TaskCompletionResult.PASS,
+        completion_preserved=True,
         token_efficiency_with_completion=compute_token_efficiency(tokens, tokens),
         tokens_raw_baseline=tokens,
         tool_calls=len(task.expected_files),
@@ -343,7 +400,6 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         )
         if result.returncode == 0:
             for line in result.stdout.strip().splitlines():
-                # Strip leading ./ from grep output
                 path = line.lstrip("./")
                 if path and path not in matched_files_seen:
                     matched_files_seen.add(path)
@@ -361,6 +417,17 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     completion_tokens, completion_files = compute_bundle_completion_penalty(
         repo_path, matched_files_seen, task.expected_files
     )
+    required_metrics = compute_required_file_metrics(
+        matched_files_seen,
+        task.expected_files,
+    )
+    (
+        required_file_recall,
+        missed_required_file_rate,
+        all_required_files_present,
+        present,
+        missing,
+    ) = required_metrics
     tokens_with_completion = tokens + completion_tokens
 
     return BenchmarkResult(
@@ -371,6 +438,13 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         tokens_output=tokens,
         token_efficiency=compute_token_efficiency(tokens, tokens),
         result_files=_deduplicate_ranked(matched_files_ordered),
+        required_file_recall=required_file_recall,
+        missed_required_file_rate=missed_required_file_rate,
+        all_required_files_present=all_required_files_present,
+        required_files_present=present,
+        required_files_missing=missing,
+        post_bundle_read_turns=len(missing),
+        task_completion_result=completion_result_from_missing(missing),
         bundle_completion_tokens=completion_tokens,
         bundle_completion_files=completion_files,
         token_efficiency_with_completion=compute_token_efficiency(
@@ -385,7 +459,7 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         mrr=mrr_val,
         ndcg=ndcg_val,
         map_score=map_val,
-        savings_vs_raw=0.0,  # backfilled by runner
+        savings_vs_raw=0.0,
         wall_time_ms=wall_ms,
         cached=False,
         timestamp=now_iso(),
@@ -762,10 +836,11 @@ def _freshness_target(task: BenchmarkTask, repo_path: Path) -> Path | None:
         candidate = repo_path / expected
         if candidate.is_file():
             return candidate
-    for candidate in repo_path.rglob("*"):
-        if candidate.is_file() and candidate.suffix.lower() in {".py", ".js", ".ts", ".go", ".rs"}:
-            return candidate
     return None
+
+
+
+
 
 
 def measure_archex_freshness(task: BenchmarkTask, repo_path: Path) -> tuple[float, bool]:
@@ -813,7 +888,7 @@ def _run_query_strategy(
     strategy: Strategy,
     index_config: IndexConfig,
     cache: bool,
-    include_completion: bool = False,
+    include_completion: bool = True,
     measure_freshness: bool = False,
 ) -> BenchmarkResult:
     from archex.api import query
@@ -847,6 +922,17 @@ def _run_query_strategy(
     )
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
+    required_metrics = compute_required_file_metrics(
+        result_files,
+        task.expected_files,
+    )
+    (
+        required_file_recall,
+        missed_required_file_rate,
+        all_required_files_present,
+        present,
+        missing,
+    ) = required_metrics
     af = _archex_fields(bundle, task, repo_path)
     result_fields: dict[str, Any] = {
         "task_id": task.task_id,
@@ -885,6 +971,16 @@ def _run_query_strategy(
         "expansion_zero_candidate_reason": af.expansion_zero_candidate_reason,
         "expansion_reason_counts": af.expansion_reason_counts,
         "expanded_file_reasons": af.expanded_file_reasons,
+        "result_files": unique_ranked,
+        "required_file_recall": required_file_recall,
+        "missed_required_file_rate": missed_required_file_rate,
+        "all_required_files_present": all_required_files_present,
+        "required_files_present": present,
+        "required_files_missing": missing,
+        "receipt_accuracy": compute_receipt_accuracy(
+            bundle,
+            all_required_files_present=all_required_files_present,
+        ),
         "chunker": af.chunker,
         "index_chunk_count": af.index_chunk_count,
         "mean_chunk_tokens": af.mean_chunk_tokens,
@@ -899,7 +995,8 @@ def _run_query_strategy(
         )
         result_fields.update(
             {
-                "result_files": unique_ranked,
+                "post_bundle_read_turns": len(completion_files),
+                "task_completion_result": completion_result_from_missing(completion_files),
                 "bundle_completion_tokens": completion_tokens,
                 "bundle_completion_files": completion_files,
                 "token_efficiency_with_completion": compute_token_efficiency(
@@ -996,6 +1093,17 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
     wall_ms = (time.perf_counter() - t0) * 1000
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
+    required_metrics = compute_required_file_metrics(
+        result_files,
+        task.expected_files,
+    )
+    (
+        required_file_recall,
+        missed_required_file_rate,
+        all_required_files_present,
+        present,
+        missing,
+    ) = required_metrics
     f1 = compute_f1(recall, precision)
     mrr_val = compute_mrr(ranked_files, task.expected_files)
     ndcg_val = compute_ndcg(ranked_files, task.expected_files)
@@ -1034,6 +1142,17 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         tokens_output=tokens_total,
         token_efficiency=compute_token_efficiency(tokens_total, tokens_input),
         result_files=unique_ranked,
+        required_file_recall=required_file_recall,
+        missed_required_file_rate=missed_required_file_rate,
+        all_required_files_present=all_required_files_present,
+        required_files_present=present,
+        required_files_missing=missing,
+        post_bundle_read_turns=len(completion_files),
+        task_completion_result=completion_result_from_missing(completion_files),
+        receipt_accuracy=compute_receipt_accuracy(
+            bundle,
+            all_required_files_present=all_required_files_present,
+        ),
         bundle_completion_tokens=completion_tokens,
         bundle_completion_files=completion_files,
         token_efficiency_with_completion=compute_token_efficiency(

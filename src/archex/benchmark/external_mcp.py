@@ -20,6 +20,7 @@ from archex.benchmark.models import (
     Strategy,
 )
 from archex.benchmark.strategies import (
+    completion_result_from_missing,
     compute_bundle_completion_penalty,
     compute_f1,
     compute_map,
@@ -27,6 +28,7 @@ from archex.benchmark.strategies import (
     compute_ndcg,
     compute_precision,
     compute_recall,
+    compute_required_file_metrics,
     compute_token_efficiency,
     count_file_tokens,
     now_iso,
@@ -288,6 +290,17 @@ def run_external_mcp(
     completion_tokens, completion_files = compute_bundle_completion_penalty(
         repo_path, result_files, task.expected_files
     )
+    required_metrics = compute_required_file_metrics(
+        result_files,
+        task.expected_files,
+    )
+    (
+        required_file_recall,
+        missed_required_file_rate,
+        all_required_files_present,
+        present,
+        missing,
+    ) = required_metrics
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
     wall_ms = (time.perf_counter() - total_started) * 1000
@@ -300,6 +313,14 @@ def run_external_mcp(
         tokens_input=tokens_input,
         tokens_output=tokens_output,
         token_efficiency=compute_token_efficiency(tokens_output, tokens_input),
+        result_files=unique_files,
+        required_file_recall=required_file_recall,
+        missed_required_file_rate=missed_required_file_rate,
+        all_required_files_present=all_required_files_present,
+        required_files_present=present,
+        required_files_missing=missing,
+        post_bundle_read_turns=len(completion_files),
+        task_completion_result=completion_result_from_missing(completion_files),
         bundle_completion_tokens=completion_tokens,
         bundle_completion_files=completion_files,
         token_efficiency_with_completion=compute_token_efficiency(
@@ -320,7 +341,6 @@ def run_external_mcp(
         timestamp=now_iso(),
         unique_ranked_files=len(unique_files),
         seed_files=unique_files,
-        result_files=unique_files,
         cold_start_ms=cold_start_ms,
         warm_latency_ms=warm_latency_ms,
         cache_state="cold" if config.bootstrap_commands else "warm",

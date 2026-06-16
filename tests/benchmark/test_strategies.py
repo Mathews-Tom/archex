@@ -13,12 +13,14 @@ from archex.benchmark.strategies import (
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
     benchmark_index_config,
     benchmark_repo_source,
+    completion_result_from_missing,
     compute_bundle_completion_penalty,
     compute_map,
     compute_mrr,
     compute_ndcg,
     compute_precision,
     compute_recall,
+    compute_required_file_metrics,
     compute_symbol_recall,
     compute_token_efficiency,
     count_file_tokens,
@@ -228,6 +230,24 @@ class TestBundleCompletionPenalty:
 
         assert tokens == count_file_tokens(tmp_path, ["missing.py"])
         assert files == ["missing.py"]
+
+
+class TestRequiredFileMetrics:
+    def test_metrics_capture_missing_required_files(self) -> None:
+        recall, missed_rate, all_present, present, missing = compute_required_file_metrics(
+            {"a.py"},
+            ["a.py", "b.py"],
+        )
+
+        assert recall == 0.5
+        assert missed_rate == 1.0
+        assert all_present is False
+        assert present == ["a.py"]
+        assert missing == ["b.py"]
+
+    def test_completion_result_from_missing_files(self) -> None:
+        assert completion_result_from_missing([]).value == "pass"
+        assert completion_result_from_missing(["b.py"]).value == "fail"
 
 
 class TestExtractKeywords:
@@ -451,6 +471,9 @@ class TestRunArchexQuery:
         assert result.tokens_input >= 0
         assert result.tokens_output >= 0
         assert result.tokens_raw_baseline >= 0
+        assert result.required_file_recall == 1.0
+        assert result.all_required_files_present is True
+        assert result.task_completion_result.value == "pass"
 
     def test_archex_query_reports_configured_chunker_metadata(
         self,
@@ -577,6 +600,8 @@ class TestRunArchexQuery:
         assert result.tool_calls == 2
         assert result.result_files == ["main.py"]
         assert result.provenance["scout_token_budget"] == "1000"
+        assert result.required_file_recall == 1.0
+        assert result.task_completion_result.value == "pass"
         assert result.provenance["fetch_mode"] == "chunk_first"
         assert result.provenance["missing_from_scout_map"] == "none"
         assert result.provenance["projected_coverage"] == "0.000"

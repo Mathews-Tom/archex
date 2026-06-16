@@ -190,6 +190,12 @@ class HeadToHeadManifest(BenchmarkSpecModel):
     raw_read_strategy: Strategy = Strategy.RAW_GREPPED
 
 
+
+class TaskCompletionResult(StrEnum):
+    PASS = "pass"
+    FAIL = "fail"
+    UNKNOWN = "unknown"
+
 class BenchmarkResult(BaseModel):
     task_id: str
     strategy: Strategy
@@ -234,6 +240,16 @@ class BenchmarkResult(BaseModel):
     expansion_reason_counts: dict[str, int] = {}
     expanded_file_reasons: dict[str, list[str]] = {}
     result_files: list[str] = []
+    required_file_recall: float = 0.0
+    missed_required_file_rate: float = 0.0
+    all_required_files_present: bool = False
+    required_files_present: list[str] = []
+    required_files_missing: list[str] = []
+    post_bundle_search_turns: int | None = None
+    post_bundle_read_turns: int | None = None
+    task_completion_result: TaskCompletionResult = TaskCompletionResult.UNKNOWN
+    completion_preserved: bool | None = None
+    receipt_accuracy: bool | None = None
     bundle_completion_tokens: int = 0
     bundle_completion_files: list[str] = []
     token_efficiency_with_completion: float = 0.0
