@@ -9,7 +9,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from archex.cli.main import cli
-from archex.integrations.mcp import handle_query_repo
+from archex.integrations.mcp import handle_query_repo, handle_scout_repo
 from archex.metrics.health import read_metrics_health
 from archex.metrics.policy import METRICS_ENV
 from archex.metrics.storage import MetricsStore
@@ -193,7 +193,92 @@ def test_mcp_query_records_counter_and_preserves_response_shape(
     assert sorted(payload) == ["_meta", "content", "receipt"]
     assert payload["content"] == "<context />"
     with MetricsStore(tmp_path / ".archex" / "usage.sqlite").connect() as conn:
-        event = conn.execute("SELECT surface, tool_name, tokens_saved FROM usage_events").fetchone()
+        event = conn.execute(
+            "SELECT surface, tool_name, tokens_saved, whole_repo_tokens_avoided FROM usage_events"
+        ).fetchone()
     assert event["surface"] == "mcp"
     assert event["tool_name"] == "query_repo"
     assert event["tokens_saved"] == 90
+    assert event["whole_repo_tokens_avoided"] == 990
+    assert payload["_meta"]["tokens_raw_equivalent"] == 100
+    assert "upload" not in payload["_meta"]
+    policy = resolve_metrics_policy(db_path=tmp_path / ".archex" / "usage.sqlite")
+    assert not policy.hosted_upload_enabled
+
+
+def test_mcp_query_default_off_prevents_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    with (
+        patch("archex.integrations.mcp.query", return_value=FakeBundle()),
+        patch("archex.integrations.mcp.render_xml", return_value="<context />"),
+        patch("archex.integrations.mcp.render_xml_envelope", return_value="<envelope />"),
+        patch("archex.integrations.mcp.get_files_token_count", return_value=100),
+        patch(
+            "archex.integrations.mcp.get_repo_total_tokens",
+            side_effect=AssertionError("repo scan"),
+        ),
+    ):
+        payload = json.loads(handle_query_repo(str(repo_root), "where is auth"))
+
+    assert payload["content"] == "<context />"
+    assert not (tmp_path / ".archex" / "usage.sqlite").exists()
+
+
+def test_mcp_query_recording_failure_preserves_success_and_health(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_metrics(monkeypatch, tmp_path)
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    with (
+        patch("archex.integrations.mcp.query", return_value=FakeBundle()),
+        patch("archex.integrations.mcp.render_xml", return_value="<context />"),
+        patch("archex.integrations.mcp.render_xml_envelope", return_value="<envelope />"),
+        patch("archex.integrations.mcp.get_files_token_count", return_value=100),
+        patch("archex.integrations.mcp.get_repo_total_tokens", return_value=1000),
+        patch("archex.integrations.mcp.record_query_usage", side_effect=RuntimeError("boom")),
+    ):
+        payload = json.loads(handle_query_repo(str(repo_root), "where is auth"))
+
+    assert payload["content"] == "<context />"
+    health = read_metrics_health(db_path=tmp_path / ".archex" / "usage.sqlite")
+    assert health.status == "warning"
+    assert health.last_failure_operation == "record"
+    assert health.last_failure_message == "boom"
+
+
+def test_mcp_scout_records_counter_and_preserves_meta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_metrics(monkeypatch, tmp_path)
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    with (
+        patch("archex.integrations.mcp.scout", return_value=_fake_scout_result()),
+        patch("archex.integrations.mcp.render_scout", return_value='{"ok": true}'),
+        patch("archex.integrations.mcp.get_repo_total_tokens", return_value=1000),
+        patch("archex.integrations.mcp.get_files_token_count", return_value=120),
+    ):
+        payload = json.loads(handle_scout_repo(str(repo_root), "where is auth"))
+
+    assert sorted(payload) == ["_meta", "content", "receipt"]
+    assert payload["content"] == {"ok": True}
+    assert payload["_meta"]["tokens_raw_equivalent"] == 1000
+    with MetricsStore(tmp_path / ".archex" / "usage.sqlite").connect() as conn:
+        event = conn.execute(
+            "SELECT surface, tool_name, tokens_raw_equivalent, whole_repo_tokens FROM usage_events"
+        ).fetchone()
+    assert event["surface"] == "mcp"
+    assert event["tool_name"] == "scout_repo"
+    assert event["tokens_raw_equivalent"] == 120
+    assert event["whole_repo_tokens"] == 1000
