@@ -5,7 +5,7 @@
 archex turns a repository into a ranked, token-budgeted context bundle plus a context receipt with freshness, index revision, skipped candidates, omitted dependency edges, and a recommended next action. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key.
 
 [![CI](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
+[![PyPI](https://img.shields.io/pypi/v/archex?cacheSeconds=300)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
