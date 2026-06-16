@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.11.0] - 2026-06-16
+
+### Added
+
+- **Context receipts:** Added first-class deterministic receipts for query and scout flows, including query inputs, token budgets, index revision, freshness state, returned context, included and omitted dependency edges, skipped candidate reason codes, completeness status, completeness reason, and recommended next action.
+- **Retrieval provenance:** Threaded receipt construction through retrieval and scout assembly without extra model calls, with returned file handles, line ranges, content hashes, symbols, scores, duplicate suppression, unsupported-grammar skips, stale-index detection, budget exhaustion, and dependency-frontier cuts.
+- **Output surfaces:** Exposed receipts through `archex query --format json`, compact receipt metadata in `archex query --format xml`, scout summaries and fetch handles, and the MCP query/scout tool responses.
+- **Benchmark proof metrics:** Added required-file recall, missed-required-file rate, all-required-files-present, post-bundle search/read turn counts when observable, task completion result, completion preservation, receipt accuracy where ground truth exists, and a per-task missed-required-file appendix.
+- **Compatibility and install paths:** Added `docs/CLIENT_COMPATIBILITY_MATRIX.md` and first-party `archex install-client` support for Claude Code, Codex headless, Pi/OMP, OpenCode, and Cursor, with preview-before-write behavior and client-shaped config snippets.
+- **Enterprise installation trust:** Added `SECURITY.md`, `docs/INSTALLATION_TRUST_CONTRACT.md`, model security reporting in `archex doctor`, and remote-code model loading gates for safer local deployment.
+- **Brand assets:** Added the verified-context banner and standalone logo assets under `assets/` for README and project surfaces.
+
+### Changed
+
+- **README messaging:** Reframed the public pitch around verified, provenance-backed code context instead of token savings alone, with links to receipt docs, benchmark evidence, compatibility, security, install trust, and client setup surfaces.
+- **Benchmark reporting:** Updated benchmark reports and fixtures so public proof waits for computed required-file metrics instead of implying safe-to-act confidence from token efficiency alone.
+- **Client documentation:** Marked compatibility rows by tested status, setup command/config, watch support, freshness semantics, known limitations, and last verified date; untested clients remain explicitly unverified.
+- **Docker full image:** Stopped downloading the FastEmbed model during image build; the full image now keeps runtime local-FastEmbed support without making CI depend on model registry availability.
+- **Retrieval defaults docs:** Folded the retrieval-default evidence-gate rationale into `docs/RETRIEVAL_DEFAULT_DECISIONS.md`.
+- **Changelog format:** Adopted the grouped release-entry style used by the referenced OMP changelog for new release entries while leaving older historical entries intact.
+
+### Fixed
+
+- **Docker publishing path:** Fixed the release-blocking full-image build failure caused by build-time FastEmbed prewarm.
+- **README assets:** Deduplicated overlapping Start and Quick links, switched README visuals to Markdown image syntax, and placed the banner at the top of the project page.
+- **Security diagnostics:** Made `archex doctor` surface model-cache trust state instead of leaving remote-code posture implicit.
+
+### Removed
+
+- **Obsolete planning docs:** Removed the temporary brand asset design spec and the standalone retrieval-default ADR after moving durable content into maintained docs.
 
 ## 0.10.2 (2026-06-15)
 
