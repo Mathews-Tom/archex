@@ -1,17 +1,17 @@
 # archex
 
-**Local code context for agents.**
+**Verified local code context for agents.**
 
-archex turns a repository into a ranked, token-budgeted context bundle with symbols, dependencies, graph context, and provenance. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key.
+archex turns a repository into a ranked, token-budgeted context bundle plus a context receipt with freshness, index revision, skipped candidates, omitted dependency edges, and a recommended next action. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key.
 
 [![CI](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Start:** [30-second quickstart](#30-second-quickstart) · [Claude Code / MCP](#mcp-and-claude-code) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
+**Start:** [30-second quickstart](#30-second-quickstart) · [Context receipts](docs/CONTEXT_RECEIPTS.md) · [Claude Code / MCP](#mcp-and-claude-code) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
 
-**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [Quickstart](#30-second-quickstart) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md)
+**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [Quickstart](#30-second-quickstart) · [What archex returns](#what-archex-returns) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development)
 
 <p align="center">
   <a href="assets/archex-explainer.mp4">
@@ -27,19 +27,21 @@ archex turns a repository into a ranked, token-budgeted context bundle with symb
 
 ## Proof bar
 
-| Local-first | Interfaces | Language coverage | Public comparison |
+| Safe-to-act signals | Surfaces | Language coverage | Public evidence |
 | --- | --- | --- | --- |
-| No hosted inference, no API key for core/MCP/Docker slim | CLI, MCP, Python API, Docker, Claude Code skill | 25 declared language IDs with explicit `full` vs `chunk-only` tiers | C1 head-to-head: archex / `ccc` / raw grep-read on the same tasks |
+| Query/scout receipts expose freshness, index revision, skipped candidates, omitted edges, completeness, and next action | CLI, MCP, Python API, Docker, Claude Code skill | 25 declared language IDs with explicit `full` vs `chunk-only` tiers | C1 public comparison plus benchmark outputs that now emit required-file recall and missed-required-file rate |
+
+archex does not ask the downstream agent to trust ranking alone. Every query/scout receipt explains what was returned, what was skipped, whether freshness was current, and whether the bundle is complete enough to act on.
 
 ## Fast paths
 
 | If you are evaluating... | Start here | Why |
 | --- | --- | --- |
-| Agent workflows | `archex doctor`, then `archex scout "question" --budget 1000 --format json` | Checks local trust first, then returns a compact map plus exact fetch handles. |
-| Claude Code or MCP | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, and an in-repo skill that teaches doctor → scout → fetch. |
-| Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and retriever integrations. |
-| Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, retrieval gates, and default-strategy decisions. |
-| Architecture understanding | [System Design](docs/SYSTEM_DESIGN.md) | Current pipeline, graph query, scout, language tiers, and distribution surfaces. |
+| Agent workflows | `archex doctor`, then `archex scout "question" --budget 1000 --format json` | Checks local trust first, then returns a compact map, a receipt summary, and exact fetch handles. |
+| Claude Code or MCP | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts, and an in-repo skill that teaches doctor → scout → fetch. |
+| Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
+| Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report plus harness-emitted required-file recall, missed-required-file rate, and receipt-accuracy fields. |
+| Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Preview-first client bootstrap paths for Claude Code, Codex, Pi, OpenCode, and Cursor. |
 
 ## 30-second quickstart
 
@@ -59,7 +61,7 @@ archex query "How does authentication work?" --format xml
 
 ## What archex returns
 
-archex returns a **context bundle**, not an answer. The downstream agent or model still does the reasoning; archex decides which code, symbols, dependencies, and type context belong in the prompt.
+archex returns a **context bundle plus receipt**, not an answer. The downstream agent or model still does the reasoning; archex decides which code, symbols, dependencies, and type context belong in the prompt, then records why that bundle is safe or incomplete.
 
 ```xml
 <context query="How does authentication work?">
@@ -96,6 +98,35 @@ class User: ...
 ```
 
 The bundle carries ranked chunks, import context, referenced type definitions, dependency edges, token counts, and provenance. Use `--format json` or `--format markdown` when XML is not the right downstream envelope.
+
+Small receipt example:
+
+```json
+{
+  "receipt": {
+    "freshness": "clean",
+    "index_revision": "3d8b0c…",
+    "context_complete": "incomplete",
+    "context_complete_reason": "dependency_frontier_cut",
+    "recommended_next_action": "fetch_skipped_candidate",
+    "returned_context": [
+      {
+        "handle": "chunk:src/auth/middleware.py::authenticate#function",
+        "file_path": "src/auth/middleware.py",
+        "start_line": 42,
+        "end_line": 78,
+        "score": 0.9312
+      }
+    ],
+    "skipped_candidates": [
+      { "file_path": "src/auth/session.py", "reason": "below_threshold" }
+    ]
+  }
+}
+```
+
+Use [docs/CONTEXT_RECEIPTS.md](docs/CONTEXT_RECEIPTS.md) for the full field contract.
+
 
 ## Why archex is different
 
@@ -135,6 +166,13 @@ uv tool install "archex[mcp]"
 }
 ```
 
+Preview the exact client config before writing it:
+
+```bash
+archex install-client claude-code .
+archex install-client claude-code . --write
+```
+
 For warm local sessions, keep the MCP process alive and optionally watch the repo:
 
 ```bash
@@ -143,7 +181,7 @@ archex mcp --watch --watch-path .
 
 The in-repo Claude Code skill lives at [`skills/archex/`](skills/archex/). Its `/archex` command runs `archex doctor`, initializes/indexes when needed, scouts first for broad questions, then fetches exact `symbol:` or `chunk:` handles before a larger bundle query.
 
-Exact install, MCP, Docker, cache, network, uninstall, and trust semantics are documented in the [installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md).
+Exact install, MCP, Docker, cache, uninstall, and trust semantics are documented in the [installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md). Client-specific config targets and preview-first bootstrap paths live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md).
 
 ### Python API
 
@@ -199,24 +237,24 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 | Surface | Contract |
 | --- | --- |
 | Security policy | Supported versions, disclosure workflow, no-telemetry posture, secret-handling guidance, and model remote-code policy live in [SECURITY.md](SECURITY.md). |
+| Context receipts | Field contract, freshness/completeness semantics, output surfaces, and benchmark linkage live in [docs/CONTEXT_RECEIPTS.md](docs/CONTEXT_RECEIPTS.md). |
+| Compatibility matrix | Tested vs unverified clients, exact config shapes, preview-first bootstrap commands, and verification steps live in [docs/CLIENT_COMPATIBILITY_MATRIX.md](docs/CLIENT_COMPATIBILITY_MATRIX.md). |
 | Installation trust contract | Exact CLI, MCP, Docker, skill, cache, network, freshness, benchmark, and uninstall semantics live in [docs/INSTALLATION_TRUST_CONTRACT.md](docs/INSTALLATION_TRUST_CONTRACT.md). |
+| `archex install-client` | Preview-first client config writer for Claude Code, Codex, Pi, OpenCode, and Cursor. |
 | `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, model security, and `.archex/` disk usage. |
 | Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
-| Freshness | Query and MCP paths can apply small working-tree deltas; `archex mcp --watch` keeps a warm process current when enabled. |
-| Default strategy | `archex_query` remains the product default until a full evidence gate beats it on F1, recall, token efficiency, and p95. |
-| Distribution | Core CLI, MCP, skill, slim Docker, and benchmark gates work without hosted inference or API keys. |
 
 ## Measured results
 
-The public C1 harness runs the same external-repo tasks through archex, cocoindex-code (`ccc`), and a raw grep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, and bundle-completion penalty tokens. See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for methodology and evidence sources.
+The public C1 harness still publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw grep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, and bundle-completion penalty tokens. The benchmark harness now also emits required-file recall, missed-required-file rate, all-required-files-present, task-completion result, completion-preserved, and receipt-accuracy fields in report outputs. This README does not claim new public values for those fields until a published run lands.
+
+See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the current published comparison and [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) for the decision trail.
 
 | Lane | Recall | F1 | Token efficiency | Warm latency ms |
 | --- | ---: | ---: | ---: | ---: |
 | `archex` | 0.95 | 0.66 | 0.76 | 408 |
 | `ccc` | 0.32 | 0.31 | 0.48 | 521 |
 | `raw-grep/read` | 1.00 | 0.38 | 0.00 | 155 |
-
-The local 35-task retrieval benchmark still governs default-strategy decisions. The accepted decision record keeps `archex_query` as the product default: [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) and [ADR-001](docs/adr/001-retrieval-default-evidence-gate.md).
 
 ## Advanced workflows
 
