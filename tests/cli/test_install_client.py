@@ -19,7 +19,7 @@ def test_install_client_preview_claude_code_project(tmp_path: Path) -> None:
     assert f"Target: {tmp_path / '.mcp.json'}" in result.output
     assert '"mcpServers"' in result.output
     assert '"command": "archex"' in result.output
-    assert 'Preview only.' in result.output
+    assert "Preview only." in result.output
 
 
 def test_install_client_write_claude_code_project(tmp_path: Path) -> None:
@@ -54,7 +54,7 @@ def test_install_client_writes_codex_project_toml(tmp_path: Path) -> None:
     codex_dir = tmp_path / ".codex"
     codex_dir.mkdir(parents=True)
     config_path = codex_dir / "config.toml"
-    config_path.write_text("default_model = \"gpt-5\"\n", encoding="utf-8")
+    config_path.write_text('default_model = "gpt-5"\n', encoding="utf-8")
 
     result = CliRunner().invoke(
         cli,
@@ -63,7 +63,7 @@ def test_install_client_writes_codex_project_toml(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     content = config_path.read_text(encoding="utf-8")
-    assert "default_model = \"gpt-5\"" in content
+    assert 'default_model = "gpt-5"' in content
     assert "[mcp_servers.archex]" in content
     assert 'args = ["mcp"]' in content
 
