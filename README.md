@@ -9,21 +9,15 @@ archex turns a repository into a ranked, token-budgeted context bundle plus a co
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Start:** [30-second quickstart](#30-second-quickstart) · [Context receipts](docs/CONTEXT_RECEIPTS.md) · [Claude Code / MCP](#mcp-and-claude-code) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
+**Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
-**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [Quickstart](#30-second-quickstart) · [What archex returns](#what-archex-returns) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development)
+**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development) · [Documentation map](#documentation-map)
 
-<p align="center">
-  <a href="assets/archex-explainer.mp4">
-    <img src="assets/archex-infographic-landscape.png" alt="archex local code context workflow infographic" width="820">
-  </a>
-</p>
+[![archex banner](assets/archex-banner.png)](assets/archex-banner.svg)
 
-<p align="center">
-  <a href="assets/archex-explainer.mp4">Watch the explainer</a> ·
-  <a href="assets/archex-infographic-landscape.svg">Open SVG infographic</a> ·
-  <a href="docs/ARCHEX_VS_COCOINDEX.md">Read the measured comparison</a>
-</p>
+[![archex infographic](assets/archex-infographic-landscape.png)](assets/archex-infographic-landscape.svg)
+
+[Watch the explainer](assets/archex-explainer.mp4) · [Open banner SVG](assets/archex-banner.svg) · [Open infographic SVG](assets/archex-infographic-landscape.svg) · [Read the measured comparison](docs/ARCHEX_VS_COCOINDEX.md)
 
 ## Proof bar
 
