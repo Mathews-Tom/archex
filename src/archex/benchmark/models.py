@@ -141,6 +141,7 @@ class BenchmarkRetrievalOptions(BaseModel):
     module_prefilter: bool = False
     embedder: str = "jina-v2"
     rerank_model: str | None = None
+    allow_remote_code: bool = False
     freshness: bool = False
     chunker: ChunkerName = "default"
     bm25_chunker: ChunkerName | None = None

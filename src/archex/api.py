@@ -624,6 +624,7 @@ def _maybe_reranker(index_config: IndexConfig) -> CrossEncoderReranker | None:
     if index_config.rerank:
         return CrossEncoderReranker(
             model_name=index_config.rerank_model or DEFAULT_MODEL,
+            allow_remote_code=index_config.allow_remote_code,
         )
 
     return None

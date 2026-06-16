@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from archex.exceptions import ConfigError
 from archex.index import rerank as rerank_module
 from archex.index.rerank import (
     DEFAULT_MODEL,
@@ -142,6 +143,33 @@ class TestCrossEncoderReranker:
         reranker = CrossEncoderReranker(model_name="custom/model")
         assert reranker.rerank("query", []) == []
 
+    def test_default_load_requires_remote_code_opt_in(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+
+        with pytest.raises(ConfigError, match="Remote code is disabled.*jina-reranker-v3"):
+            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    def test_default_load_enforces_remote_code_opt_in_before_cache(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        chunk = _make_chunk("a")
+        fake_model = MagicMock()
+        fake_model.rerank.return_value = [{"index": 0, "relevance_score": 1.0}]
+
+        with (
+            patch("archex.index.rerank._best_device", return_value="cpu"),
+            patch("transformers.AutoModel") as auto_model,
+        ):
+            auto_model.from_pretrained.return_value = fake_model
+            CrossEncoderReranker(allow_remote_code=True).rerank("query", [(chunk, 0.0)])
+
+        with pytest.raises(ConfigError, match="Remote code is disabled.*jina-reranker-v3"):
+            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
     def test_default_load_passes_pinned_jina_revision(self) -> None:
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
         chunk = _make_chunk("a")
@@ -153,7 +181,7 @@ class TestCrossEncoderReranker:
             patch("transformers.AutoModel") as auto_model,
         ):
             auto_model.from_pretrained.return_value = fake_model
-            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+            CrossEncoderReranker(allow_remote_code=True).rerank("query", [(chunk, 0.0)])
 
         auto_model.from_pretrained.assert_called_once_with(
             JINA_RERANKER_MODEL,
@@ -178,7 +206,7 @@ class TestCrossEncoderReranker:
 
         cross_encoder.assert_called_once_with(
             "/cache/custom--model",
-            trust_remote_code=True,
+            trust_remote_code=False,
             device="cpu",
         )
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
@@ -194,7 +222,7 @@ class TestCrossEncoderReranker:
             patch("transformers.AutoModel") as auto_model,
         ):
             auto_model.from_pretrained.return_value = fake_model
-            CrossEncoderReranker().rerank("query", [(chunk, 0.0)])
+            CrossEncoderReranker(allow_remote_code=True).rerank("query", [(chunk, 0.0)])
 
         fake_model.to.assert_called_once_with("mps")
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]

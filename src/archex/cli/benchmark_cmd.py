@@ -66,6 +66,7 @@ from archex.benchmark.triage import (
     load_benchmark_tasks,
     triage_failures,
 )
+from archex.exceptions import ArchexError
 
 if TYPE_CHECKING:
     from archex.models import ChunkerName
@@ -138,6 +139,12 @@ def benchmark_cmd() -> None:
     help="Enable the opt-in module responsibility prefilter for BM25-backed archex strategies.",
 )
 @click.option(
+    "--allow-remote-code",
+    is_flag=True,
+    default=False,
+    help="Allow explicitly selected pinned model paths that require Hugging Face remote code.",
+)
+@click.option(
     "--embedder",
     default="jina-v2",
     show_default=True,
@@ -196,6 +203,7 @@ def run_cmd(
     rerank: bool,
     splade: bool,
     module_prefilter: bool,
+    allow_remote_code: bool,
     embedder: str,
     chunker: ChunkerName,
     bm25_chunker: ChunkerName | None,
@@ -227,13 +235,17 @@ def run_cmd(
         splade=splade,
         module_prefilter=module_prefilter,
         embedder=embedder,
+        allow_remote_code=allow_remote_code,
         rerank_model=rerank_model,
         chunker=chunker,
         bm25_chunker=bm25_chunker,
         vector_chunker=vector_chunker,
         rerank_candidate_limit=rerank_candidate_limit,
     )
-    warmed_models = warm_benchmark_models(strategies, retrieval_options)
+    try:
+        warmed_models = warm_benchmark_models(strategies, retrieval_options)
+    except ArchexError as exc:
+        raise click.ClickException(str(exc)) from exc
     if warmed_models:
         click.echo(
             f"Benchmark model preflight loaded {len(warmed_models)} model(s).",
@@ -242,17 +254,20 @@ def run_cmd(
 
     tasks_path = Path(tasks_dir)
     tasks = load_selected_tasks(tasks_path, task_filter=task_id, self_only=self_only)
-    with BenchmarkProgress(tasks, force_disable=no_progress) as progress:
-        reports = run_all(
-            tasks_dir=tasks_path,
-            output_dir=Path(output_dir),
-            strategies=strategies,
-            task_filter=task_id,
-            self_only=self_only,
-            progress=progress,
-            tasks=tasks,
-            retrieval_options=retrieval_options,
-        )
+    try:
+        with BenchmarkProgress(tasks, force_disable=no_progress) as progress:
+            reports = run_all(
+                tasks_dir=tasks_path,
+                output_dir=Path(output_dir),
+                strategies=strategies,
+                task_filter=task_id,
+                self_only=self_only,
+                progress=progress,
+                tasks=tasks,
+                retrieval_options=retrieval_options,
+            )
+    except ArchexError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     click.echo(f"\nCompleted {len(reports)} benchmark(s).", err=True)
 

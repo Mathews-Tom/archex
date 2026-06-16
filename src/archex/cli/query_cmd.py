@@ -44,6 +44,12 @@ from archex.utils import resolve_source
     help="Use opt-in module responsibility prefiltering.",
 )
 @click.option(
+    "--allow-remote-code",
+    is_flag=True,
+    default=False,
+    help="Allow explicitly selected pinned model paths that require Hugging Face remote code.",
+)
+@click.option(
     "--no-refresh",
     is_flag=True,
     default=False,
@@ -65,6 +71,7 @@ def query_cmd(
     metrics: bool,
     splade: bool,
     module_prefilter: bool,
+    allow_remote_code: bool,
     no_refresh: bool,
     refresh_threshold: float | None,
 ) -> None:
@@ -82,6 +89,8 @@ def query_cmd(
     index_config = load_index_config(repo_source)
     if strategy is not None:
         index_config = index_config.model_copy(update={"vector": strategy == "hybrid"})
+    if allow_remote_code:
+        index_config = index_config.model_copy(update={"allow_remote_code": True})
     if splade:
         index_config = index_config.model_copy(update={"splade": True})
     if module_prefilter:

@@ -19,7 +19,7 @@ from archex.index.embeddings.base import Embedder
 from archex.models import IndexConfig
 
 
-def _fake_factory() -> Embedder:
+def _fake_factory(_index_config: IndexConfig) -> Embedder:
     mock = MagicMock(spec=Embedder)
     mock.dimension = 384
     return mock
@@ -37,10 +37,10 @@ class TestEmbedderRegistry:
     def test_create_reuses_embedder_instance(self) -> None:
         call_count = 0
 
-        def factory() -> Embedder:
+        def factory(_index_config: IndexConfig) -> Embedder:
             nonlocal call_count
             call_count += 1
-            return _fake_factory()
+            return _fake_factory(_index_config)
 
         reg = EmbedderRegistry()
         reg.register("test_emb", factory)
@@ -74,16 +74,32 @@ class TestEmbedderRegistry:
         config = IndexConfig(vector=False, embedder="")
         assert reg.create(config) is None
 
+    def test_create_supports_zero_arg_embedder_factory(self) -> None:
+        def factory() -> Embedder:
+            return _fake_factory(IndexConfig(vector=True, embedder="test_emb"))
+
+        reg = EmbedderRegistry()
+        reg.register("test_emb", factory)
+
+        assert reg.create(IndexConfig(vector=True, embedder="test_emb")) is not None
+
     def test_default_registry_has_builtin_embedders(self) -> None:
         assert default_embedder_registry.get("nomic") is not None
         assert default_embedder_registry.get("sentence_transformers") is not None
         assert default_embedder_registry.get("jina-v2") is not None
         assert default_embedder_registry.get("coderank") is not None
 
-    def test_jina_v2_factory_pins_model_and_code_revisions(self) -> None:
+    def test_remote_code_embedder_requires_opt_in(self) -> None:
+        config = IndexConfig(vector=True, embedder="jina-v2")
+        with pytest.raises(ConfigError, match="Remote code is disabled.*jina-embeddings"):
+            default_embedder_registry.create(config)
+
+    def test_jina_v2_factory_pins_model_and_code_revisions_when_opted_in(self) -> None:
         from archex.index.embeddings.sentence_tf import SentenceTransformerEmbedder
 
-        embedder = default_embedder_registry.create(IndexConfig(vector=True, embedder="jina-v2"))
+        embedder = default_embedder_registry.create(
+            IndexConfig(vector=True, embedder="jina-v2", allow_remote_code=True)
+        )
         assert isinstance(embedder, SentenceTransformerEmbedder)
         assert embedder._model_name == JINA_V2_MODEL_ID  # pyright: ignore[reportPrivateUsage]
         assert embedder._revision == JINA_V2_MODEL_REVISION  # pyright: ignore[reportPrivateUsage]

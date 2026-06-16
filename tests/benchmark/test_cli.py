@@ -345,6 +345,7 @@ class TestRunCommand:
         assert "--rerank" in result.output
         assert "--splade" in result.output
         assert "--module-prefilter" in result.output
+        assert "--allow-remote-code" in result.output
         assert "--self-only" in result.output
         assert "--no-progress" in result.output
         assert "--embedder" in result.output
@@ -509,12 +510,26 @@ class TestRunCommand:
 
         monkeypatch.setattr("archex.cli.benchmark_cmd.load_selected_tasks", _empty_tasks)
         monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
-        result = runner.invoke(benchmark_cmd, ["run", "--splade", "--module-prefilter"])
+        result = runner.invoke(
+            benchmark_cmd,
+            ["run", "--splade", "--module-prefilter", "--allow-remote-code"],
+        )
         assert result.exit_code == 0
         assert captured["retrieval_options"] == BenchmarkRetrievalOptions(
             splade=True,
             module_prefilter=True,
+            allow_remote_code=True,
         )
+
+    def test_run_reports_remote_code_preflight_error(
+        self,
+        runner: CliRunner,
+    ) -> None:
+        result = runner.invoke(benchmark_cmd, ["run", "--query-fusion"])
+
+        assert result.exit_code != 0
+        assert "Remote code is disabled" in result.output
+        assert "Traceback" not in result.output
 
     def test_run_passes_embedder_flag(
         self,

@@ -113,6 +113,7 @@ def test_index_command_uses_project_config(python_simple_repo: Path) -> None:
     assert index_config.vector is False
     assert index_config.splade is False
     assert index_config.module_prefilter is False
+    assert index_config.allow_remote_code is False
     assert store.closed is True
 
 
@@ -140,6 +141,20 @@ def test_index_command_module_prefilter_flag_enables_prefilter(
     assert result.exit_code == 0, result.output
     index_config = index_mock.call_args.kwargs["index_config"]
     assert index_config.module_prefilter is True
+
+
+def test_index_command_allow_remote_code_flag_enables_policy(
+    python_simple_repo: Path,
+) -> None:
+    store = FakeIndexStore()
+    runner = CliRunner()
+
+    with patch("archex.cli.index_cmd.index_repository", return_value=store) as index_mock:
+        result = runner.invoke(cli, ["index", str(python_simple_repo), "--allow-remote-code"])
+
+    assert result.exit_code == 0, result.output
+    index_config = index_mock.call_args.kwargs["index_config"]
+    assert index_config.allow_remote_code is True
 
 
 def test_index_command_json_output(python_simple_repo: Path) -> None:
@@ -335,6 +350,7 @@ def test_query_command_defaults_source_to_cwd(
     assert query_mock.call_args.args[0].local_path == "."
     assert query_mock.call_args.args[1] == "How does the query pipeline work?"
     assert query_mock.call_args.kwargs["refresh"] is True
+    assert query_mock.call_args.kwargs["index_config"].allow_remote_code is False
 
 
 def test_query_command_no_refresh_disables_inline_refresh(
@@ -357,6 +373,33 @@ def test_query_command_no_refresh_disables_inline_refresh(
 
     assert result.exit_code == 0, result.output
     assert query_mock.call_args.kwargs["refresh"] is False
+
+
+def test_query_command_allow_remote_code_flag_enables_policy(
+    python_simple_repo: Path,
+) -> None:
+    class FakeBundle:
+        chunks: list[object] = []
+        token_count = 0
+
+        def to_prompt(self, *, format: str) -> str:
+            return f"format={format}"
+
+    runner = CliRunner()
+
+    with patch("archex.cli.query_cmd.query", return_value=FakeBundle()) as query_mock:
+        result = runner.invoke(
+            cli,
+            [
+                "query",
+                str(python_simple_repo),
+                "How does search work?",
+                "--allow-remote-code",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert query_mock.call_args.kwargs["index_config"].allow_remote_code is True
 
 
 def test_analyze_tree_and_symbols_default_source_to_cwd(

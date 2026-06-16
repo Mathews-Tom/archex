@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import Any
 
 from archex.exceptions import ArchexIndexError
+from archex.index.model_policy import custom_remote_code_profile, remote_code_trust_value
 
 
 class SentenceTransformerEmbedder:
@@ -20,6 +21,7 @@ class SentenceTransformerEmbedder:
         model_name: str = "all-MiniLM-L6-v2",
         batch_size: int = 32,
         trust_remote_code: bool = False,
+        allow_remote_code: bool = False,
         revision: str | None = None,
         local_files_only: bool = False,
         model_kwargs: Mapping[str, object] = MappingProxyType({}),
@@ -34,6 +36,18 @@ class SentenceTransformerEmbedder:
                 "Install with: uv add 'archex[vector-torch]'"
             ) from e
 
+        if trust_remote_code:
+            code_revision = config_kwargs.get("code_revision")
+            trust_remote_code = remote_code_trust_value(
+                custom_remote_code_profile(
+                    component="embedder",
+                    provider="sentence-transformers",
+                    model_name=model_name,
+                    model_revision=revision,
+                    code_revision=str(code_revision) if code_revision is not None else None,
+                ),
+                allow_remote_code=allow_remote_code,
+            )
         self._model_name = model_name
         self._batch_size = batch_size
         self._trust_remote_code = trust_remote_code

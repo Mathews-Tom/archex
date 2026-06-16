@@ -7,10 +7,14 @@ import sys
 from typing import Any
 
 from archex.exceptions import ArchexIndexError
+from archex.index.model_policy import (
+    NOMIC_CODE_MODEL_ID,
+    NOMIC_CODE_MODEL_REVISION,
+    embedder_security_profile,
+    remote_code_trust_value,
+)
 
 logger = logging.getLogger(__name__)
-
-_HF_MODEL_ID = "nomic-ai/nomic-embed-code"
 
 
 def _best_device() -> str:
@@ -37,11 +41,15 @@ class NomicCodeEmbedder:
 
     def __init__(
         self,
-        model_name: str = _HF_MODEL_ID,
+        model_name: str = NOMIC_CODE_MODEL_ID,
         batch_size: int = 32,
+        allow_remote_code: bool = False,
+        revision: str | None = NOMIC_CODE_MODEL_REVISION,
     ) -> None:
         self._model_name = model_name
         self._batch_size = batch_size
+        self._allow_remote_code = allow_remote_code
+        self._revision = revision
         self._model: Any = None
         self._dimension: int | None = None
         self._backend: str | None = None
@@ -51,6 +59,11 @@ class NomicCodeEmbedder:
         if self._model is not None:
             return
 
+        profile = embedder_security_profile("nomic")
+        trust_remote_code = remote_code_trust_value(
+            profile,
+            allow_remote_code=self._allow_remote_code,
+        )
         try:
             from sentence_transformers import SentenceTransformer
 
@@ -62,7 +75,10 @@ class NomicCodeEmbedder:
                 flush=True,
             )
             self._model = SentenceTransformer(
-                self._model_name, trust_remote_code=True, device=device
+                self._model_name,
+                trust_remote_code=trust_remote_code,
+                revision=self._revision,
+                device=device,
             )
             self._dimension = self._model.get_sentence_embedding_dimension()
             self._backend = "sentence-transformers"

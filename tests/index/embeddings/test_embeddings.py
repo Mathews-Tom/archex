@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from archex.exceptions import ArchexIndexError
+from archex.exceptions import ArchexIndexError, ConfigError
 from archex.index.embeddings.base import Embedder
 
 
@@ -91,11 +91,18 @@ class TestNomicCodeEmbedder:
 
         from archex.index.embeddings.nomic import NomicCodeEmbedder
 
-        embedder = NomicCodeEmbedder()
+        embedder = NomicCodeEmbedder(allow_remote_code=True)
         with (
             patch("builtins.__import__", side_effect=mock_import),
             pytest.raises(ArchexIndexError, match="sentence-transformers"),
         ):
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
+    def test_nomic_requires_remote_code_opt_in(self) -> None:
+        from archex.index.embeddings.nomic import NomicCodeEmbedder
+
+        embedder = NomicCodeEmbedder()
+        with pytest.raises(ConfigError, match="Remote code is disabled.*nomic-embed-code"):
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
     def test_load_model_success(self) -> None:
@@ -113,11 +120,17 @@ class TestNomicCodeEmbedder:
         with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
             from archex.index.embeddings.nomic import NomicCodeEmbedder
 
-            embedder = NomicCodeEmbedder()
+            embedder = NomicCodeEmbedder(allow_remote_code=True)
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
         assert embedder._model is not None  # pyright: ignore[reportPrivateUsage]
         assert embedder._backend == "sentence-transformers"  # pyright: ignore[reportPrivateUsage]
+        mock_st_module.SentenceTransformer.assert_called_once_with(
+            "nomic-ai/nomic-embed-code",
+            trust_remote_code=True,
+            revision="11114029805cee545ef111d5144b623787462a52",
+            device=mock_st_module.SentenceTransformer.call_args.kwargs["device"],
+        )
 
     def test_default_model_name(self) -> None:
         """Default model name is nomic-ai/nomic-embed-code."""
@@ -237,6 +250,7 @@ class TestSentenceTransformerEmbedder:
             embedder = SentenceTransformerEmbedder(
                 model_name="test-model",
                 trust_remote_code=True,
+                allow_remote_code=True,
                 revision="model-revision",
                 local_files_only=True,
                 model_kwargs={"code_revision": "code-revision"},
@@ -357,6 +371,13 @@ class TestCodeRankEmbedder:
         assert embedder._model_name == HF_MODEL_ID  # pyright: ignore[reportPrivateUsage]
         assert embedder._model_name == "nomic-ai/CodeRankEmbed"  # pyright: ignore[reportPrivateUsage]
 
+    def test_coderank_requires_remote_code_opt_in(self) -> None:
+        from archex.index.embeddings.coderank import CodeRankEmbedder
+
+        embedder = CodeRankEmbedder()
+        with pytest.raises(ConfigError, match="Remote code is disabled.*CodeRankEmbed"):
+            embedder._load_model()  # pyright: ignore[reportPrivateUsage]
+
     def test_coderank_query_prefix_prepended(self) -> None:
         """encode_queries prepends the required prefix before calling encode."""
         from unittest.mock import MagicMock, patch
@@ -380,7 +401,7 @@ class TestCodeRankEmbedder:
             patch.dict("sys.modules", {"sentence_transformers": mock_st_module}),
             patch("archex.index.embeddings.coderank._best_device", return_value="cpu"),
         ):
-            embedder = CodeRankEmbedder()
+            embedder = CodeRankEmbedder(allow_remote_code=True)
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
         mock_st_module.SentenceTransformer.assert_called_once_with(
@@ -411,7 +432,7 @@ class TestCodeRankEmbedder:
         mock_st_module.SentenceTransformer.return_value = mock_model
 
         with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
-            embedder = CodeRankEmbedder()
+            embedder = CodeRankEmbedder(allow_remote_code=True)
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
         queries = ["foo", "bar"]
@@ -432,10 +453,11 @@ class TestCodeRankEmbedder:
         """The coderank factory produces a CodeRankEmbedder instance."""
         from archex.index.embeddings import default_embedder_registry
         from archex.index.embeddings.coderank import CodeRankEmbedder
+        from archex.models import IndexConfig
 
-        factory = default_embedder_registry.get("coderank")
-        assert factory is not None
-        embedder = factory()
+        embedder = default_embedder_registry.create(
+            IndexConfig(vector=True, embedder="coderank", allow_remote_code=True)
+        )
         assert isinstance(embedder, CodeRankEmbedder)
 
     def test_coderank_import_error_raises_archex_index_error(self) -> None:
@@ -451,7 +473,7 @@ class TestCodeRankEmbedder:
 
         from archex.index.embeddings.coderank import CodeRankEmbedder
 
-        embedder = CodeRankEmbedder()
+        embedder = CodeRankEmbedder(allow_remote_code=True)
         with (
             patch("builtins.__import__", side_effect=mock_import),
             pytest.raises(ArchexIndexError, match="sentence-transformers"),
@@ -470,7 +492,7 @@ class TestCodeRankEmbedder:
         mock_st_module.SentenceTransformer.return_value = mock_model
 
         with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
-            embedder = CodeRankEmbedder()
+            embedder = CodeRankEmbedder(allow_remote_code=True)
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 
         assert embedder.dimension == 768
@@ -487,7 +509,7 @@ class TestCodeRankEmbedder:
         mock_st_module.SentenceTransformer.return_value = mock_model
 
         with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
-            embedder = CodeRankEmbedder()
+            embedder = CodeRankEmbedder(allow_remote_code=True)
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
             embedder._load_model()  # pyright: ignore[reportPrivateUsage]
 

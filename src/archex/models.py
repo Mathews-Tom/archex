@@ -167,6 +167,7 @@ class IndexConfig(BaseModel):
     chunk_max_tokens: int = 500
     chunk_min_tokens: int = 50
     token_encoding: str = "cl100k_base"
+    allow_remote_code: bool = False
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
