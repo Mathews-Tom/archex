@@ -956,7 +956,7 @@ Build evaluation datasets and assertions using Attest's graduated assertion pipe
 - `archex doctor` with text/JSON checks for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, and `.archex/` disk usage
 - `skills/archex/SKILL.md` plus `/archex` command asset teaching doctor-first, scout→fetch usage
 - `docker/Dockerfile.slim` for BM25-only/no-torch onboarding
-- `docker/Dockerfile.full` for local FastEmbed with prewarmed model cache
+- `docker/Dockerfile.full` for local FastEmbed without build-time model prewarm
 - `.github/workflows/docker.yml` building both images and publishing GHCR tags on pushes to `main`
 - `docs/ARCHEX_VS_COCOINDEX.md` with C1-backed measured-results and capability tables
 - README Docker usage and comparison summary pointer

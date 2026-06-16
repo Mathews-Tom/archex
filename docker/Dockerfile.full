@@ -19,7 +19,6 @@ COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 
 RUN uv sync --frozen --no-dev --no-editable --extra mcp --extra vector-fast
-RUN uv run python -c "from fastembed import TextEmbedding; next(TextEmbedding(model_name='BAAI/bge-small-en-v1.5').embed(['archex warmup']))"
 
 ENV PATH="/app/.venv/bin:$PATH"
 WORKDIR /workspace

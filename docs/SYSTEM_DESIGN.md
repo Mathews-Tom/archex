@@ -198,7 +198,7 @@ archex/
 - **CLI:** repo-local workflows run through `archex init/index/status/doctor/query/scout/...`.
 - **MCP server:** `archex mcp` wraps the stdio server implemented in `integrations/mcp.py`.
 - **Claude Code skill:** `skills/archex/` codifies the doctor-first, scout→fetch workflow for agents.
-- **Containers:** `docker/Dockerfile.slim` ships BM25-only onboarding; `docker/Dockerfile.full` ships local FastEmbed with a prewarmed cache.
+- **Containers:** `docker/Dockerfile.slim` ships BM25-only onboarding; `docker/Dockerfile.full` ships local FastEmbed without requiring a build-time model download.
 
 ### 1.2.2 Repo-Local Trust and Freshness
 
