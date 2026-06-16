@@ -19,10 +19,16 @@ from archex.doctor import inspect_doctor, render_doctor_text
     type=click.Choice(["text", "json"]),
     help="Output format.",
 )
-def doctor_cmd(source: str, output_format: str) -> None:
+@click.option(
+    "--security",
+    is_flag=True,
+    default=False,
+    help="Show only model-loading security diagnostics.",
+)
+def doctor_cmd(source: str, output_format: str, security: bool) -> None:
     """Run read-only diagnostics for an archex repo-local project."""
     try:
-        report = inspect_doctor(Path(source))
+        report = inspect_doctor(Path(source), security_only=security)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
