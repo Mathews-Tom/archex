@@ -77,11 +77,10 @@ class TestFormatMarkdown:
     def test_contains_table_header(self) -> None:
         md = format_markdown(_make_report())
         assert "| Strategy |" in md
-        assert "Tokens In" in md
-        assert "Tokens Out" in md
-        assert "Efficiency" in md
-        assert "nDCG" in md
-        assert "MAP" in md
+        assert "Required Recall" in md
+        assert "Missed Task Rate" in md
+        assert "Completion" in md
+        assert "Receipt Accuracy" in md
 
     def test_contains_strategy_rows(self) -> None:
         md = format_markdown(_make_report())
@@ -124,8 +123,8 @@ class TestFormatSummary:
         assert "raw_files" in summary
         assert "archex_query" in summary
         assert "Avg Efficiency" in summary
-        assert "Avg nDCG" in summary
-        assert "Avg MAP" in summary
+        assert "Avg Required Recall" in summary
+        assert "Missed Task Rate" in summary
 
     def test_multi_report_aggregation(self) -> None:
         r1 = _make_report(
@@ -156,8 +155,21 @@ class TestFormatStrategyComparison:
         assert "raw_files" in result
         assert "archex_query" in result
         assert "Tokens Total" in result
-        assert "Token Efficiency" in result
-        assert "Savings vs Raw" in result
+        assert "Required Recall" in result
+        assert "Receipt Accuracy" in result
+
+    def test_includes_missing_required_file_appendix(self) -> None:
+        report = _make_report(
+            [
+                _make_result(Strategy.ARCHEX_QUERY),
+                _make_result(Strategy.ARCHEX_SCOUT_FETCH),
+            ]
+        )
+        report.results[0].required_files_missing = ["missing.py"]
+        report.results[0].missed_required_file_rate = 1.0
+        result = format_strategy_comparison([report])
+        assert "Missing required files appendix" in result
+        assert "missing.py" in result
 
     def test_contains_head_to_head(self) -> None:
         report = _make_report()

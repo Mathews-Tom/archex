@@ -14,6 +14,8 @@ _SUMMARY_FIELDS = (
     "savings_vs_raw",
     "token_efficiency",
     "recall",
+    "required_file_recall",
+    "missed_required_file_rate",
     "f1_score",
     "mrr",
     "ndcg",
@@ -22,6 +24,8 @@ _SUMMARY_FIELDS = (
 _BUCKET_FIELDS = (
     "recall",
     "precision",
+    "required_file_recall",
+    "missed_required_file_rate",
     "f1_score",
     "mrr",
     "ndcg",
@@ -32,6 +36,7 @@ _BUCKET_FIELDS = (
 _COMPARISON_METRICS = (
     "recall",
     "precision",
+    "required_file_recall",
     "f1_score",
     "mrr",
     "ndcg",
@@ -41,6 +46,7 @@ _COMPARISON_METRICS = (
 _COMPARISON_LABELS = {
     "recall": "Recall",
     "precision": "Precision",
+    "required_file_recall": "Required Recall",
     "f1_score": "F1",
     "mrr": "MRR",
     "ndcg": "nDCG",
@@ -64,6 +70,16 @@ def _percentile(values: list[float], quantile: float) -> float:
     upper = min(lower + 1, len(ordered) - 1)
     fraction = position - lower
     return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
+def _receipt_accuracy_label(value: bool | None) -> str:
+    if value is None:
+        return "unknown"
+    return "yes" if value else "no"
+
+
+def _all_required_label(value: bool) -> str:
+    return "yes" if value else "no"
 
 
 def _aggregate_strategy_metrics(
@@ -103,23 +119,25 @@ def format_markdown(report: BenchmarkReport) -> str:
     lines.append(f"**Baseline tokens:** {report.baseline_tokens:,}")
     lines.append("")
     header = (
-        "| Strategy | Tokens | Tokens In | Tokens Out | Efficiency | Savings "
-        "| Recall | Precision | F1 | MRR | nDCG | MAP | Files | Time (ms) |"
+        "| Strategy | Tokens | Required Recall | Missed Task Rate | All Required | "
+        "Post Reads | Completion | Receipt Accuracy | Recall | Precision | F1 | Time (ms) |"
     )
     lines.append(header)
     lines.append(
-        "|----------|--------|-----------|------------|------------|--------"
-        "|--------|-----------|------|------|------|------|-------|-----------|"
+        "|----------|--------|-----------------|------------------|--------------|"
+        "------------|------------|------------------|--------|-----------|------|-----------|"
     )
     for r in report.results:
+        receipt_accuracy = _receipt_accuracy_label(r.receipt_accuracy)
+        all_required = _all_required_label(r.all_required_files_present)
+        post_reads = r.post_bundle_read_turns if r.post_bundle_read_turns is not None else "—"
         lines.append(
-            f"| {r.strategy.value} | {r.tokens_total:,} "
-            f"| {r.tokens_input:,} | {r.tokens_output:,} | {r.token_efficiency:.2f} "
-            f"| {r.savings_vs_raw:.1f}% "
-            f"| {r.recall:.2f} | {r.precision:.2f} | {r.f1_score:.2f} | {r.mrr:.2f} "
-            f"| {r.ndcg:.2f} | {r.map_score:.2f} "
-            f"| {r.files_accessed} | {r.wall_time_ms:.0f} |"
+            f"| {r.strategy.value} | {r.tokens_total:,} | {r.required_file_recall:.2f} "
+            f"| {r.missed_required_file_rate:.2f} | {all_required} | {post_reads} "
+            f"| {r.task_completion_result.value} | {receipt_accuracy} | {r.recall:.2f} "
+            f"| {r.precision:.2f} | {r.f1_score:.2f} | {r.wall_time_ms:.0f} |"
         )
+    lines.extend(_missing_required_file_appendix(report))
     lines.append("")
     return "\n".join(lines)
 
@@ -142,12 +160,12 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
     strategy_metrics = _aggregate_strategy_metrics(reports, _SUMMARY_FIELDS)
 
     lines.append(
-        "| Strategy | Avg Tokens | Avg Savings | Avg Efficiency | Avg Recall | Avg F1 "
-        "| Avg MRR | Avg nDCG | Avg MAP | Tasks |"
+        "| Strategy | Avg Tokens | Avg Savings | Avg Efficiency | Avg Recall | "
+        "Avg Required Recall | Missed Task Rate | Avg F1 | Avg MRR | Avg nDCG | Avg MAP | Tasks |"
     )
     lines.append(
-        "|----------|------------|-------------|----------------|------------|--------"
-        "|---------|----------|---------|-------|"
+        "|----------|------------|-------------|----------------|------------|"
+        "---------------------|------------------|--------|---------|----------|---------|-------|"
     )
 
     for name in sorted(strategy_metrics):
@@ -156,10 +174,11 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
         lines.append(
             f"| {name} | {_mean(metrics['tokens_total']):,.0f} "
             f"| {_mean(metrics['savings_vs_raw']):.1f}% "
-            f"| {_mean(metrics['token_efficiency']):.2f} "
-            f"| {_mean(metrics['recall']):.2f} | {_mean(metrics['f1_score']):.2f} "
-            f"| {_mean(metrics['mrr']):.2f} | {_mean(metrics['ndcg']):.2f} "
-            f"| {_mean(metrics['map_score']):.2f} | {count} |"
+            f"| {_mean(metrics['token_efficiency']):.2f} | {_mean(metrics['recall']):.2f} "
+            f"| {_mean(metrics['required_file_recall']):.2f} "
+            f"| {_mean(metrics['missed_required_file_rate']):.2f} "
+            f"| {_mean(metrics['f1_score']):.2f} | {_mean(metrics['mrr']):.2f} "
+            f"| {_mean(metrics['ndcg']):.2f} | {_mean(metrics['map_score']):.2f} | {count} |"
         )
 
     lines.append("")
@@ -247,20 +266,24 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
         lines.append(f"## {report.task_id}")
         lines.append("")
         lines.append(
-            "| Strategy | Recall | Precision | F1 | MRR | nDCG | MAP | Tokens Total "
-            "| Token Efficiency | Savings vs Raw |"
+            "| Strategy | Required Recall | Missed Task Rate | All Required | "
+            "Completion | Receipt Accuracy | Recall | Precision | F1 | Tokens Total |"
         )
         lines.append(
-            "|----------|--------|-----------|------|------|------|------|-------------"
-            "|------------------|---------------|"
+            "|----------|-----------------|------------------|--------------|"
+            "------------|------------------|--------|-----------|------|-------------|"
         )
         for r in report.results:
+            receipt_accuracy = _receipt_accuracy_label(r.receipt_accuracy)
+            all_required = _all_required_label(r.all_required_files_present)
             lines.append(
-                f"| {r.strategy.value} | {r.recall:.2f} | {r.precision:.2f} "
-                f"| {r.f1_score:.2f} | {r.mrr:.2f} | {r.ndcg:.2f} "
-                f"| {r.map_score:.2f} | {r.tokens_total:,} "
-                f"| {r.token_efficiency:.2f} | {r.savings_vs_raw:.1f}% |"
+                f"| {r.strategy.value} | {r.required_file_recall:.2f} "
+                f"| {r.missed_required_file_rate:.2f} | {all_required} "
+                f"| {r.task_completion_result.value} | {receipt_accuracy} "
+                f"| {r.recall:.2f} | {r.precision:.2f} | {r.f1_score:.2f} "
+                f"| {r.tokens_total:,} |"
             )
+        lines.extend(_missing_required_file_appendix(report))
         lines.append("")
 
     # Head-to-head wins
@@ -297,6 +320,19 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
     lines.append("")
 
     return "\n".join(lines)
+
+
+def _missing_required_file_appendix(report: BenchmarkReport) -> list[str]:
+    lines: list[str] = []
+    failures = [result for result in report.results if result.required_files_missing]
+    if not failures:
+        return lines
+    lines.extend(["", "### Missing required files appendix"])
+    for result in failures:
+        lines.append(
+            f"- {result.strategy.value}: missing {', '.join(result.required_files_missing)}"
+        )
+    return lines
 
 
 def format_chunker_frontier_table(

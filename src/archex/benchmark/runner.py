@@ -17,6 +17,7 @@ from archex.benchmark.models import (
     BenchmarkRetrievalOptions,
     BenchmarkTask,
     Strategy,
+    TaskCompletionResult,
 )
 from archex.benchmark.strategies import (
     benchmark_index_config,
@@ -238,6 +239,16 @@ def run_benchmark(
                     result.savings_vs_raw = round(
                         (1 - result.tokens_total / baseline_tokens) * 100,
                         1,
+                    )
+        if raw_result is not None:
+            baseline_completion = raw_result.task_completion_result
+            for result in results:
+                if (
+                    baseline_completion != TaskCompletionResult.UNKNOWN
+                    and result.task_completion_result != TaskCompletionResult.UNKNOWN
+                ):
+                    result.completion_preserved = (
+                        result.task_completion_result == baseline_completion
                     )
 
         return BenchmarkReport(
