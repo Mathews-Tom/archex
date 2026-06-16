@@ -27,6 +27,8 @@ archex index .
 
 If `index_staleness` is `warning`, run `archex index .` before relying on results. If diagnostics still fail, stop and report the exact `archex doctor` check and message.
 
+For exact install, MCP JSON, Docker, cache, network, freshness, and uninstall semantics, read `docs/INSTALLATION_TRUST_CONTRACT.md`.
+
 ## Scout → Fetch Protocol
 
 Use this for broad or architectural questions.
@@ -87,6 +89,8 @@ uv tool install "archex[mcp]"
   }
 }
 ```
+
+The full installation and trust contract is in `docs/INSTALLATION_TRUST_CONTRACT.md`.
 
 Optional warm-container or long-running local sessions can keep the MCP server alive with watch mode:
 

@@ -9,9 +9,9 @@ archex turns a repository into a ranked, token-budgeted context bundle with symb
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Start:** [30-second quickstart](#30-second-quickstart) · [Claude Code / MCP](#mcp-and-claude-code) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
+**Start:** [30-second quickstart](#30-second-quickstart) · [Claude Code / MCP](#mcp-and-claude-code) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Measured results](docs/ARCHEX_VS_COCOINDEX.md)
 
-**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [Quickstart](#30-second-quickstart) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development)
+**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [Quickstart](#30-second-quickstart) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md)
 
 <p align="center">
   <a href="assets/archex-explainer.mp4">
@@ -143,6 +143,8 @@ archex mcp --watch --watch-path .
 
 The in-repo Claude Code skill lives at [`skills/archex/`](skills/archex/). Its `/archex` command runs `archex doctor`, initializes/indexes when needed, scouts first for broad questions, then fetches exact `symbol:` or `chunk:` handles before a larger bundle query.
 
+Exact install, MCP, Docker, cache, network, uninstall, and trust semantics are documented in the [installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md).
+
 ### Python API
 
 ```python
@@ -197,7 +199,8 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 | Surface | Contract |
 | --- | --- |
 | Security policy | Supported versions, disclosure workflow, no-telemetry posture, secret-handling guidance, and model remote-code policy live in [SECURITY.md](SECURITY.md). |
-| `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, and `.archex/` disk usage. |
+| Installation trust contract | Exact CLI, MCP, Docker, skill, cache, network, freshness, benchmark, and uninstall semantics live in [docs/INSTALLATION_TRUST_CONTRACT.md](docs/INSTALLATION_TRUST_CONTRACT.md). |
+| `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, model security, and `.archex/` disk usage. |
 | Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
 | Freshness | Query and MCP paths can apply small working-tree deltas; `archex mcp --watch` keeps a warm process current when enabled. |
 | Default strategy | `archex_query` remains the product default until a full evidence gate beats it on F1, recall, token efficiency, and p95. |
@@ -258,6 +261,8 @@ uv add "archex[graph]"                    # Leiden graph clustering
 # Core extras bundle: vector, graph, MCP, LangChain, LlamaIndex
 uv add "archex[all]"
 ```
+
+For the full trust contract, including exact MCP JSON, Docker commands, cache locations, network behavior, and uninstall steps, see [Installation and Trust Contract](docs/INSTALLATION_TRUST_CONTRACT.md).
 
 ## Language support
 
