@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from archex.cache import CacheManager
 from archex.config import load_config
 from archex.index.delta import compute_working_tree_signature
 from archex.index.store import IndexStore
+from archex.metrics.storage import metrics_db_path
 from archex.project import ProjectState
 
 
@@ -27,6 +29,7 @@ class ProjectStatus:
     vector_index_available: bool
     dogfood_latest_path: Path | None
     error: str = ""
+    metrics_savings: dict[str, int | float] | None = None
 
 
 def inspect_project_status(source: str | Path) -> ProjectStatus:
@@ -138,7 +141,48 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
         languages=languages,
         vector_index_available=_vector_index_available(project),
         dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
+        metrics_savings=_metrics_savings(project.repo_root),
     )
+
+
+def _metrics_savings(repo_root: Path) -> dict[str, int | float] | None:
+    db_path = metrics_db_path()
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            repo = conn.execute(
+                "SELECT repo_id FROM repos WHERE repo_root = ?",
+                (str(repo_root.resolve()),),
+            ).fetchone()
+            if repo is None:
+                return None
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS event_count,
+                    COALESCE(SUM(tokens_saved), 0) AS tokens_saved,
+                    COALESCE(SUM(tokens_returned), 0) AS tokens_returned,
+                    COALESCE(SUM(tokens_raw_equivalent), 0) AS tokens_raw_equivalent
+                FROM usage_events
+                WHERE repo_id = ?
+                """,
+                (str(repo["repo_id"]),),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    raw = int(row["tokens_raw_equivalent"])
+    saved = int(row["tokens_saved"])
+    return {
+        "event_count": int(row["event_count"]),
+        "tokens_saved": saved,
+        "tokens_returned": int(row["tokens_returned"]),
+        "tokens_raw_equivalent": raw,
+        "savings_pct": (saved / raw * 100.0) if raw > 0 else 0.0,
+    }
 
 
 def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int]:

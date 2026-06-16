@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+import pytest
 from click.testing import CliRunner
 
 from archex.cli.main import cli
+from archex.metrics.health import record_metrics_failure
+from archex.metrics.storage import metrics_db_path
 from archex.project import init_project
 
-if TYPE_CHECKING:
-    import pytest
+
+@pytest.fixture(autouse=True)
+def _isolated_metrics_home(  # pyright: ignore[reportUnusedFunction]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 def test_doctor_json_reports_healthy_project(python_simple_repo: Path) -> None:
@@ -70,6 +77,33 @@ def test_doctor_text_includes_required_sections(python_simple_repo: Path) -> Non
     assert "disk_usage" in result.output
     assert "model_security" in result.output
     assert "allow_remote_code: False" in result.output
+
+
+def test_doctor_json_reports_metrics_health(
+    python_simple_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    init_project(python_simple_repo)
+    record_metrics_failure("record", "disk full", db_path=metrics_db_path(home=tmp_path))
+    runner = CliRunner()
+    indexed = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+    assert indexed.exit_code == 0, indexed.output
+
+    result = runner.invoke(cli, ["doctor", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    checks = {check["name"]: check for check in payload["checks"]}
+    metrics = checks["metrics_health"]
+    assert metrics["status"] == "warning"
+    assert metrics["details"]["db_path"] == str(metrics_db_path(home=tmp_path))
+    assert metrics["details"]["enabled"] is True
+    assert metrics["details"]["trace_enabled"] is False
+    assert metrics["details"]["raw_event_retention_days"] == 90
+    assert metrics["details"]["trace_retention_days"] == 14
+    assert metrics["details"]["latest_failure"] == "record: disk full"
 
 
 def test_doctor_security_reports_remote_code_block(

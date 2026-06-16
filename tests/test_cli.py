@@ -233,6 +233,41 @@ def test_status_command_reports_fresh_index(python_simple_repo: Path) -> None:
     assert data["languages"]["python"] > 0
 
 
+def test_status_command_reports_metrics_savings(
+    python_simple_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from archex.metrics.recorder import MetricsRecorder, UsageEvent
+    from archex.metrics.storage import metrics_db_path
+    from archex.project import init_project
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    init_project(python_simple_repo)
+    runner = CliRunner()
+    indexed = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+    assert indexed.exit_code == 0, indexed.output
+    MetricsRecorder(metrics_db_path(home=tmp_path)).record(
+        UsageEvent(
+            repo_root=python_simple_repo,
+            surface="cli",
+            tool_name="query",
+            category="context_retrieval",
+            tokens_returned=10,
+            tokens_raw_equivalent=100,
+            whole_repo_tokens=1000,
+        )
+    )
+
+    result = runner.invoke(cli, ["status", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    metrics = json.loads(result.output)["metrics_savings"]
+    assert metrics["event_count"] == 1
+    assert metrics["tokens_saved"] == 90
+    assert metrics["savings_pct"] == 90.0
+
+
 def test_status_command_strict_fails_on_dirty_index(python_simple_repo: Path) -> None:
     from archex.project import init_project
 
