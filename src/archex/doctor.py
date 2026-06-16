@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import Literal, cast
 
 from archex.config import load_index_config
+from archex.index.model_policy import (
+    JINA_RERANKER_MODEL,
+    ModelSecurityProfile,
+    embedder_security_profile,
+    reranker_security_profile,
+)
 from archex.languages import LANGUAGE_SUPPORT
 from archex.models import LanguageTier
 from archex.parse.engine import TreeSitterEngine
@@ -18,16 +24,14 @@ from archex.status import ProjectStatus, inspect_project_status
 
 CheckStatus = Literal["ok", "warning", "error"]
 
-_JINA_V2_MODEL_ID = "jinaai/jina-embeddings-v2-base-code"
-_DEFAULT_RERANK_MODEL = "jinaai/jina-reranker-v3"
 _DEFAULT_SPLADE_MODEL = "naver/splade-cocondenser-ensembledistil"
 
 _HF_EMBEDDER_MODELS: dict[str, str] = {
-    "fastembed": "BAAI/bge-small-en-v1.5",
-    "jina-v2": _JINA_V2_MODEL_ID,
-    "sentence_transformers": _JINA_V2_MODEL_ID,
-    "nomic": "nomic-ai/nomic-embed-code",
-    "coderank": "nomic-ai/CodeRankEmbed",
+    "fastembed": embedder_security_profile("fastembed").model_name,
+    "jina-v2": embedder_security_profile("jina-v2").model_name,
+    "sentence_transformers": embedder_security_profile("sentence_transformers").model_name,
+    "nomic": embedder_security_profile("nomic").model_name,
+    "coderank": embedder_security_profile("coderank").model_name,
 }
 
 
@@ -64,17 +68,19 @@ class DoctorReport:
         }
 
 
-def inspect_doctor(source: str | Path) -> DoctorReport:
+def inspect_doctor(source: str | Path, *, security_only: bool = False) -> DoctorReport:
     """Run read-only health diagnostics for a repo-local archex project."""
     project = ProjectState.resolve(source)
     checks: list[DoctorCheck] = []
-    status = inspect_project_status(project.repo_root)
-    checks.append(_index_health_check(status))
-    checks.append(_index_staleness_check(status))
-    checks.append(_model_cache_check(project.repo_root))
-    checks.append(_grammar_check())
-    checks.append(_mcp_registration_check(project.repo_root))
-    checks.append(_disk_usage_check(project.project_dir))
+    if not security_only:
+        status = inspect_project_status(project.repo_root)
+        checks.append(_index_health_check(status))
+        checks.append(_index_staleness_check(status))
+        checks.append(_model_cache_check(project.repo_root))
+        checks.append(_grammar_check())
+        checks.append(_mcp_registration_check(project.repo_root))
+        checks.append(_disk_usage_check(project.project_dir))
+    checks.append(_model_security_check(project.repo_root))
     return DoctorReport(
         repo_root=project.repo_root,
         status=_overall_status(checks),
@@ -94,6 +100,20 @@ def render_doctor_text(report: DoctorReport) -> str:
         if check.name == "disk_usage":
             total_bytes = check.details.get("total_bytes", 0)
             lines.append(f"  .archex size: {_format_bytes(_int_value(total_bytes))}")
+        if check.name == "model_security":
+            lines.append(f"  allow_remote_code: {check.details.get('allow_remote_code', False)}")
+            for label in ("embedding", "reranker", "splade"):
+                value = check.details.get(label, {})
+                if isinstance(value, dict):
+                    entry = cast("dict[str, object]", value)
+                    lines.append(
+                        "  "
+                        f"{label}: provider={entry.get('provider')} "
+                        f"model={entry.get('model')} "
+                        f"remote_code={entry.get('requires_remote_code')} "
+                        f"cache_present={entry.get('cache_present')}"
+                    )
+            lines.append(f"  network: {check.details.get('network_implications', '')}")
         if check.name == "grammars":
             full_value = check.details.get("full", {})
             chunk_value = check.details.get("chunk_only", {})
@@ -179,7 +199,7 @@ def _model_cache_check(repo_root: Path) -> DoctorCheck:
     if index_config.splade:
         required_models.append(_DEFAULT_SPLADE_MODEL)
     if index_config.rerank:
-        required_models.append(index_config.rerank_model or _DEFAULT_RERANK_MODEL)
+        required_models.append(index_config.rerank_model or JINA_RERANKER_MODEL)
 
     cache_dirs = _model_cache_dirs()
     model_paths = {model: _cached_model_paths(model, cache_dirs) for model in required_models}
@@ -215,6 +235,162 @@ def _model_cache_check(repo_root: Path) -> DoctorCheck:
         message="enabled local models are present in the cache",
         details=details,
     )
+
+
+def _model_security_check(repo_root: Path) -> DoctorCheck:
+    index_config = load_index_config(repo_root)
+    cache_dirs = _model_cache_dirs()
+    if index_config.embedder is None:
+        embedding = _disabled_model_entry(
+            provider="none",
+            vector_requested=index_config.vector,
+        )
+    else:
+        embedder_profile = embedder_security_profile(index_config.embedder)
+        embedding = _model_security_entry(
+            enabled=index_config.vector,
+            provider=index_config.embedder,
+            profile=embedder_profile,
+            allow_remote_code=index_config.allow_remote_code,
+            cache_dirs=cache_dirs,
+        )
+    rerank_model = index_config.rerank_model or JINA_RERANKER_MODEL
+    reranker_profile = reranker_security_profile(rerank_model)
+
+    reranker = _model_security_entry(
+        enabled=index_config.rerank,
+        provider=rerank_model,
+        profile=reranker_profile,
+        allow_remote_code=index_config.allow_remote_code,
+        cache_dirs=cache_dirs,
+    )
+    splade = _download_entry(
+        enabled=index_config.splade,
+        provider="splade",
+        model_name=_DEFAULT_SPLADE_MODEL,
+        cache_dirs=cache_dirs,
+    )
+
+    blocked = [
+        entry["provider"]
+        for entry in (embedding, reranker)
+        if entry["enabled"] and entry["requires_remote_code"] and not index_config.allow_remote_code
+    ]
+    downloads = [
+        entry["provider"]
+        for entry in (embedding, reranker, splade)
+        if entry["enabled"] and not entry["cache_present"]
+    ]
+    details: dict[str, object] = {
+        "allow_remote_code": index_config.allow_remote_code,
+        "offline": _offline_status(),
+        "embedding": embedding,
+        "reranker": reranker,
+        "splade": splade,
+        "cache_dirs": [str(path) for path in cache_dirs],
+        "network_downloads_required": downloads,
+        "network_implications": _network_implications(downloads),
+    }
+    if blocked:
+        return DoctorCheck(
+            name="model_security",
+            status="error",
+            message="remote-code model selected without allow_remote_code opt-in",
+            details=details,
+        )
+    if downloads:
+        return DoctorCheck(
+            name="model_security",
+            status="warning",
+            message="one or more selected local models may download before first use",
+            details=details,
+        )
+    return DoctorCheck(
+        name="model_security",
+        status="ok",
+        message="selected model-loading paths satisfy the remote-code policy",
+        details=details,
+    )
+
+
+def _disabled_model_entry(*, provider: str, vector_requested: bool) -> dict[str, object]:
+    return {
+        "enabled": False,
+        "provider": provider,
+        "model": None,
+        "requires_remote_code": False,
+        "allow_remote_code": False,
+        "remote_code_allowed": False,
+        "model_revision": None,
+        "code_revision": None,
+        "cache_present": False,
+        "cache_paths": [],
+        "network_download_required": False,
+        "vector_requested": vector_requested,
+    }
+
+
+def _model_security_entry(
+    *,
+    enabled: bool,
+    provider: str,
+    profile: ModelSecurityProfile,
+    allow_remote_code: bool,
+    cache_dirs: list[Path],
+) -> dict[str, object]:
+    cache_paths = _cached_model_paths(profile.model_name, cache_dirs)
+    cache_present = any(path.exists() for path in cache_paths)
+    return {
+        "enabled": enabled,
+        "provider": provider,
+        "model": profile.model_name,
+        "requires_remote_code": profile.requires_remote_code,
+        "allow_remote_code": allow_remote_code,
+        "remote_code_allowed": profile.requires_remote_code and allow_remote_code,
+        "model_revision": profile.model_revision,
+        "code_revision": profile.code_revision,
+        "cache_present": cache_present,
+        "cache_paths": [str(path) for path in cache_paths],
+        "network_download_required": enabled and not cache_present,
+    }
+
+
+def _download_entry(
+    *,
+    enabled: bool,
+    provider: str,
+    model_name: str,
+    cache_dirs: list[Path],
+) -> dict[str, object]:
+    cache_paths = _cached_model_paths(model_name, cache_dirs)
+    cache_present = any(path.exists() for path in cache_paths)
+    return {
+        "enabled": enabled,
+        "provider": provider,
+        "model": model_name,
+        "requires_remote_code": False,
+        "cache_present": cache_present,
+        "cache_paths": [str(path) for path in cache_paths],
+        "network_download_required": enabled and not cache_present,
+    }
+
+
+def _offline_status() -> dict[str, bool]:
+    return {
+        "HF_HUB_OFFLINE": os.environ.get("HF_HUB_OFFLINE", "").lower()
+        in {"1", "true", "yes", "on"},
+        "TRANSFORMERS_OFFLINE": os.environ.get("TRANSFORMERS_OFFLINE", "").lower()
+        in {"1", "true", "yes", "on"},
+    }
+
+
+def _network_implications(downloads: list[object]) -> str:
+    if downloads:
+        return (
+            "selected model-backed features may contact Hugging Face or provider caches "
+            "before first use"
+        )
+    return "no selected model-backed feature requires a model download from the current cache state"
 
 
 def _grammar_check() -> DoctorCheck:
