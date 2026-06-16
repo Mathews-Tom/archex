@@ -317,6 +317,7 @@ def compute_receipt_accuracy(
 def completion_result_from_missing(missing_files: list[str]) -> TaskCompletionResult:
     return TaskCompletionResult.PASS if not missing_files else TaskCompletionResult.FAIL
 
+
 def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Baseline strategy: read all expected files, count tokens."""
     t0 = time.perf_counter()
@@ -837,10 +838,6 @@ def _freshness_target(task: BenchmarkTask, repo_path: Path) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
-
-
-
-
 
 
 def measure_archex_freshness(task: BenchmarkTask, repo_path: Path) -> tuple[float, bool]:

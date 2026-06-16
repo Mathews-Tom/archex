@@ -190,11 +190,11 @@ class HeadToHeadManifest(BenchmarkSpecModel):
     raw_read_strategy: Strategy = Strategy.RAW_GREPPED
 
 
-
 class TaskCompletionResult(StrEnum):
     PASS = "pass"
     FAIL = "fail"
     UNKNOWN = "unknown"
+
 
 class BenchmarkResult(BaseModel):
     task_id: str
