@@ -59,6 +59,8 @@ def implementation_gate_paths(args: Sequence[str]) -> bool:
             or path.startswith("tests/index/")
             for path in paths
         )
+    if any(path == "tests/metrics" or path.startswith("tests/metrics/") for path in paths):
+        return all(path == "tests/metrics" or path.startswith("tests/metrics/") for path in paths)
     if any(path == "tests/cli" or path.startswith("tests/cli/") for path in paths):
         return all(path == "tests/cli" or path.startswith("tests/cli/") for path in paths)
     if any(path in {"tests/test_graph_query.py", "tests/test_scout.py"} for path in paths):
