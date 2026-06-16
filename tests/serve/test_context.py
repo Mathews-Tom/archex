@@ -7,7 +7,13 @@ import xml.etree.ElementTree as ET
 
 from archex.index.graph import DependencyGraph
 from archex.index.rerank import DEFAULT_TOP_K, RERANK_CANDIDATE_LIMIT, CrossEncoderReranker
-from archex.models import CodeChunk, ContextBundle, Module, SymbolKind
+from archex.models import (
+    CodeChunk,
+    ContextCompletenessReason,
+    ContextBundle,
+    Module,
+    SymbolKind,
+)
 from archex.serve.context import assemble_context
 from archex.serve.intent import INTENT_TOKEN_BUDGETS, QueryIntent
 from archex.serve.renderers.json import render_json
@@ -758,6 +764,69 @@ def test_expansion_metadata_records_seed_and_expanded_file_paths() -> None:
     assert meta.expansion_candidates_found == 1
     assert meta.expansion_import_neighbor_edges == 1
     assert meta.expansion_zero_candidate_reason == ""
+
+
+def test_receipt_records_budget_exhausted_skipped_candidates() -> None:
+    graph = DependencyGraph()
+    first = make_chunk("first", "first.py", token_count=60)
+    second = make_chunk("second", "second.py", token_count=60)
+    graph.add_file_node("first.py")
+    graph.add_file_node("second.py")
+
+    bundle = assemble_context(
+        [(first, 5.0), (second, 4.0)],
+        graph,
+        [first, second],
+        "budget test",
+        token_budget=70,
+    )
+
+    assert bundle.receipt is not None
+    assert bundle.receipt.context_complete_reason == ContextCompletenessReason.BUDGET_EXHAUSTED
+    assert any(item.reason == "over_budget" for item in bundle.receipt.skipped_candidates)
+
+
+def test_receipt_records_duplicate_suppression() -> None:
+    graph = DependencyGraph()
+    parent = make_chunk("parent", "service.py", token_count=10, start_line=1, end_line=20)
+    child = make_chunk("child", "service.py", token_count=10, start_line=5, end_line=8)
+    graph.add_file_node("service.py")
+
+    bundle = assemble_context(
+        [(parent, 5.0), (child, 4.0)],
+        graph,
+        [parent, child],
+        "service",
+        token_budget=1000,
+    )
+
+    assert bundle.receipt is not None
+    assert any(item.reason == "duplicate" for item in bundle.receipt.skipped_candidates)
+
+
+def test_receipt_records_dependency_frontier_cut() -> None:
+    graph = DependencyGraph()
+    seed = make_chunk("seed", "seed.py", token_count=60)
+    dep = make_chunk("dep", "dep.py", token_count=60)
+    graph.add_file_node("seed.py")
+    graph.add_file_node("dep.py")
+    graph.add_file_edge("seed.py", "dep.py", kind="imports")
+
+    bundle = assemble_context(
+        [(seed, 5.0)],
+        graph,
+        [seed, dep],
+        "dependency frontier",
+        token_budget=70,
+    )
+
+    assert bundle.receipt is not None
+    assert (
+        bundle.receipt.context_complete_reason
+        == ContextCompletenessReason.DEPENDENCY_FRONTIER_CUT
+    )
+    assert bundle.receipt.omitted_edges[0].source == "seed.py"
+    assert bundle.receipt.omitted_edges[0].target == "dep.py"
 
 
 def test_expansion_metadata_records_file_reasons_without_changing_output() -> None:

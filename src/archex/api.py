@@ -66,6 +66,7 @@ from archex.models import (
     CodeChunk,
     Config,
     ContextBundle,
+    ContextFreshness,
     FileOutline,
     FileTree,
     IndexConfig,
@@ -92,6 +93,14 @@ from archex.parse.adapters import LanguageAdapter, default_adapter_registry
 from archex.pipeline.chunker import Chunker, chunker_revision, create_chunker
 from archex.pipeline.service import build_chunk_surrogates
 from archex.project import uses_project_cache_layout
+from archex.receipt import (
+    build_context_receipt,
+    build_scout_receipt,
+    index_revision_from_store,
+    skipped_candidates_for_ranked,
+    stale_index_skipped_candidate,
+    unsupported_grammar_skipped_candidate,
+)
 from archex.scout import (
     DEFAULT_SCOUT_TOKEN_BUDGET,
     ScoutFormat,
@@ -1375,6 +1384,35 @@ def _attach_vector_metadata(bundle: ContextBundle, index_config: IndexConfig) ->
     )
 
 
+def _freshness_for_query(refresh: bool) -> ContextFreshness:
+    return ContextFreshness.CLEAN if refresh else ContextFreshness.UNKNOWN
+
+
+def _refresh_receipt(
+    bundle: ContextBundle,
+    *,
+    index_revision: str,
+    freshness: ContextFreshness,
+    metadata_timing: PipelineTiming | None,
+) -> None:
+    skipped = list(bundle.receipt.skipped_candidates) if bundle.receipt is not None else []
+    if freshness != ContextFreshness.CLEAN:
+        skipped.append(stale_index_skipped_candidate())
+    if metadata_timing is not None and metadata_timing.parse_failure_count > 0:
+        skipped.append(unsupported_grammar_skipped_candidate(metadata_timing.parse_failure_count))
+    included_edges = list(bundle.receipt.included_edges) if bundle.receipt is not None else []
+    omitted_edges = list(bundle.receipt.omitted_edges) if bundle.receipt is not None else []
+    bundle.receipt = build_context_receipt(
+        bundle,
+        index_revision=index_revision,
+        freshness=freshness,
+        included_edges=included_edges,
+        omitted_edges=omitted_edges,
+        skipped_candidates=skipped,
+    )
+
+
+
 def _finalize_context_bundle(
     bundle: ContextBundle,
     *,
@@ -1386,6 +1424,8 @@ def _finalize_context_bundle(
     chunk_count: int,
     total_repo_tokens: int,
     metadata_timing: PipelineTiming | None,
+    index_revision: str,
+    freshness: ContextFreshness,
 ) -> ContextBundle:
     _attach_vector_metadata(bundle, index_config)
     _attach_index_metadata(
@@ -1406,6 +1446,12 @@ def _finalize_context_bundle(
         trace.end_ns = time.perf_counter_ns()
         trace.log_summary()
     _attach_refresh_metadata(bundle, metadata_timing)
+    _refresh_receipt(
+        bundle,
+        index_revision=index_revision,
+        freshness=freshness,
+        metadata_timing=metadata_timing,
+    )
     return bundle
 
 
@@ -1434,6 +1480,7 @@ def _query_by_scout_handles(
         )
         stored_count = store.get_metadata("chunk_count")
         chunk_count = int(stored_count) if stored_count is not None else len(store.get_chunks())
+        index_revision = index_revision_from_store(store)
     finally:
         store.close()
     bundle = _context_bundle_for_handle_chunks(question, chunks, token_budget)
@@ -1442,6 +1489,12 @@ def _query_by_scout_handles(
         index_config,
         chunk_count=chunk_count,
         total_repo_tokens=total_repo_tokens,
+    )
+    _refresh_receipt(
+        bundle,
+        index_revision=index_revision,
+        freshness=ContextFreshness.CLEAN,
+        metadata_timing=timing,
     )
     bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
     if timing is not None:
@@ -1495,7 +1548,7 @@ def _context_bundle_for_handle_chunks(
             continue
         included.append(RankedChunk(chunk=chunk, relevance_score=1.0, final_score=1.0))
         total_tokens += tokens
-    return ContextBundle(
+    bundle = ContextBundle(
         query=question,
         chunks=included,
         token_count=total_tokens,
@@ -1510,6 +1563,18 @@ def _context_bundle_for_handle_chunks(
             assembly_time_ms=_elapsed_ms(t0),
         ),
     )
+    bundle.receipt = build_context_receipt(
+        bundle,
+        index_revision="unknown",
+        freshness=ContextFreshness.UNKNOWN,
+        skipped_candidates=skipped_candidates_for_ranked(
+            [RankedChunk(chunk=chunk, relevance_score=1.0, final_score=1.0) for chunk in chunks],
+            included,
+            token_budget=token_budget,
+            total_tokens=total_tokens,
+        ),
+    )
+    return bundle
 
 
 def _chunk_token_count(chunk: CodeChunk) -> int:
@@ -1561,6 +1626,7 @@ def scout_with_bundle(
             direct_query_tokens=bundle.token_count,
             direct_query_file_paths=bundle_file_paths,
         )
+        scout_result.receipt = build_scout_receipt(scout_result, bundle.receipt)
     finally:
         store.close()
     return scout_result, bundle
@@ -1678,6 +1744,7 @@ def query(
                 chunk_count = (
                     int(stored_count) if stored_count is not None else len(store.get_chunks())
                 )
+                index_revision = index_revision_from_store(store)
                 effective_budget = _compute_dynamic_budget(
                     total_repo_tokens,
                     token_budget,
@@ -1706,6 +1773,12 @@ def query(
                         total_repo_tokens=total_repo_tokens,
                     )
                     _attach_refresh_metadata(pt, metadata_timing)
+                    _refresh_receipt(
+                        pt,
+                        index_revision=index_revision,
+                        freshness=_freshness_for_query(refresh),
+                        metadata_timing=metadata_timing,
+                    )
                     return pt
 
                 bm25 = BM25Index(store)
@@ -1863,6 +1936,8 @@ def query(
                     chunk_count=chunk_count,
                     total_repo_tokens=total_repo_tokens,
                     metadata_timing=metadata_timing,
+                    index_revision=index_revision,
+                    freshness=_freshness_for_query(refresh),
                 )
             finally:
                 store.close()
@@ -2072,6 +2147,7 @@ def query(
                     source_identity=identity,
                 )
 
+            index_revision = index_revision_from_store(store)
             # Passthrough: entire repo fits within budget
             if effective_budget >= total_repo_tokens:
                 pt = passthrough_context(all_chunks, question, effective_budget)
@@ -2091,6 +2167,12 @@ def query(
                     total_repo_tokens=total_repo_tokens,
                 )
                 _attach_refresh_metadata(pt, metadata_timing)
+                _refresh_receipt(
+                    pt,
+                    index_revision=index_revision,
+                    freshness=_freshness_for_query(refresh),
+                    metadata_timing=metadata_timing,
+                )
                 return pt
 
             t6 = time.perf_counter()
@@ -2225,6 +2307,8 @@ def query(
             chunk_count=len(all_chunks),
             total_repo_tokens=total_repo_tokens,
             metadata_timing=metadata_timing,
+            index_revision=index_revision,
+            freshness=_freshness_for_query(refresh),
         )
     finally:
         cleanup()

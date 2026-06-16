@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from archex.models import (
     CodeChunk,
     ContextBundle,
+    ContextFreshness,
     Module,
     RankedChunk,
     RetrievalMetadata,
@@ -19,6 +20,11 @@ from archex.models import (
     TypeDefinition,
 )
 from archex.observe import PipelineTrace, StepTiming
+from archex.receipt import (
+    build_context_receipt,
+    receipt_edges_for_graph,
+    skipped_candidates_for_ranked,
+)
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
@@ -157,7 +163,7 @@ def passthrough_context(
         assembly_time_ms=assembly_ms,
     )
 
-    return ContextBundle(
+    bundle = ContextBundle(
         query=question,
         chunks=included,
         structural_context=structural_context,
@@ -167,6 +173,12 @@ def passthrough_context(
         truncated=False,
         retrieval_metadata=meta,
     )
+    bundle.receipt = build_context_receipt(
+        bundle,
+        index_revision="unknown",
+        freshness=ContextFreshness.UNKNOWN,
+    )
+    return bundle
 
 
 _QUERY_STOP = frozenset(
@@ -936,11 +948,17 @@ def assemble_context(
         strategy = "hybrid+splade+graph" if vector_results else "bm25+splade+graph"
 
     if not search_results and not vector_results and not splade_results:
-        return ContextBundle(
+        bundle = ContextBundle(
             query=question,
             token_budget=token_budget,
             retrieval_metadata=RetrievalMetadata(strategy=strategy),
         )
+        bundle.receipt = build_context_receipt(
+            bundle,
+            index_revision="unknown",
+            freshness=ContextFreshness.UNKNOWN,
+        )
+        return bundle
 
     # Merge BM25 + vector via confidence-weighted RRF when both are available
     fusion_bm25_weight: float | None = None
@@ -1583,7 +1601,7 @@ def assemble_context(
         splade_fusion_skip_reason=splade_fusion_skip_reason,
     )
 
-    return ContextBundle(
+    bundle = ContextBundle(
         query=question,
         chunks=included,
         structural_context=structural_context,
@@ -1593,3 +1611,27 @@ def assemble_context(
         truncated=truncated,
         retrieval_metadata=meta,
     )
+    skipped_receipt_candidates = skipped_candidates_for_ranked(
+        ranked,
+        included,
+        token_budget=token_budget,
+        total_tokens=total_tokens,
+    )
+    included_receipt_edges, omitted_receipt_edges = receipt_edges_for_graph(
+        graph,
+        set(included_files),
+        {
+            item.file_path: item.reason
+            for item in skipped_receipt_candidates
+            if item.file_path
+        },
+    )
+    bundle.receipt = build_context_receipt(
+        bundle,
+        index_revision="unknown",
+        freshness=ContextFreshness.UNKNOWN,
+        included_edges=included_receipt_edges,
+        omitted_edges=omitted_receipt_edges,
+        skipped_candidates=skipped_receipt_candidates,
+    )
+    return bundle

@@ -11,10 +11,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from archex.api import query
+from archex.api import query, scout
 from archex.models import (
     Config,
     ContextBundle,
+    ContextFreshness,
+    ContextSkippedReason,
     IndexConfig,
     PipelineTiming,
     RepoSource,
@@ -52,6 +54,31 @@ class TestQueryPipelineEndToEnd:
         assert meta.retrieval_time_ms > 0
         assert meta.candidates_found > 0
         assert meta.chunks_included > 0
+
+    def test_query_receipt_records_unknown_freshness_when_refresh_skipped(
+        self, python_simple_repo: Path
+    ) -> None:
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(cache=False)
+        bundle = query(source, "What models are defined?", config=config, refresh=False)
+
+        assert bundle.receipt is not None
+        assert bundle.receipt.freshness == ContextFreshness.UNKNOWN
+        assert any(
+            item.reason == ContextSkippedReason.STALE_INDEX
+            for item in bundle.receipt.skipped_candidates
+        )
+        assert bundle.receipt.index_revision != "unknown"
+
+    def test_scout_receipt_exposes_fetch_handles(self, python_simple_repo: Path) -> None:
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(cache=False)
+        result = scout(source, "What models are defined?", config=config, output_format="json")
+
+        assert result.receipt is not None
+        assert result.receipt.returned_context
+        assert result.receipt.returned_context[0].handle.startswith("file:")
+        assert result.fetch_plan.handles
 
     def test_query_finds_relevant_files(self, python_simple_repo: Path) -> None:
         source = RepoSource(local_path=str(python_simple_repo))
