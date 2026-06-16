@@ -45,6 +45,8 @@ Core CLI indexing and BM25 retrieval do not require hosted inference, API keys, 
 
 MCP `query_repo` and `scout_repo` envelopes now include a top-level `receipt` field next to `content` and `_meta`. This is an intentional additive JSON-envelope change so MCP clients can inspect provenance and completeness without parsing prompt text.
 
+The client-by-client tested/unverified matrix and bootstrap paths live in [docs/CLIENT_COMPATIBILITY_MATRIX.md](CLIENT_COMPATIBILITY_MATRIX.md).
+
 ## MCP setup
 
 Install the MCP extra:
@@ -114,6 +116,13 @@ mkdir -p ~/.claude/skills
 ln -s "$PWD/skills/archex" ~/.claude/skills/archex
 ```
 
+
+Preview or write a client config with:
+
+```bash
+archex install-client claude-code .
+archex install-client claude-code . --write
+```
 Then use:
 
 ```text
