@@ -39,9 +39,12 @@ from archex.graph_query import (
     GraphQueryError,
     GraphStatsResult,
 )
-from archex.models import PipelineTiming, RepoSource
+from archex.metrics.capture import record_query_usage, record_scout_usage
+from archex.metrics.health import record_metrics_failure
+from archex.metrics.policy import resolve_metrics_policy
+from archex.models import ContextBundle, PipelineTiming, RepoSource
 from archex.reporting import compute_meta, count_tokens
-from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, render_scout
+from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, ScoutResult, render_scout
 from archex.serve.compare import validate_dimensions
 from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 from archex.serve.renderers.xml import render_xml, render_xml_envelope
@@ -137,6 +140,7 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         query_time_ms=pt.total_ms,
         delta=pt.delta_meta,
     )
+    _record_query_metrics(source, bundle, raw_tokens)
     return json.dumps(
         {
             "content": content,
@@ -179,10 +183,59 @@ def handle_scout_repo(
         delta=pt.delta_meta,
     )
     receipt = _receipt_payload(result.receipt)
+    _record_scout_metrics(source, result, rendered, raw)
     return json.dumps(
         {"content": content, "receipt": receipt, "_meta": meta.model_dump()},
         indent=2,
     )
+
+
+def _record_query_metrics(source: RepoSource, bundle: ContextBundle, raw_tokens: int) -> None:
+    try:
+        policy = resolve_metrics_policy()
+        if not policy.metrics_enabled:
+            return
+        record_query_usage(
+            source,
+            bundle,
+            surface="mcp",
+            tool_name="query_repo",
+            tokens_raw_equivalent=raw_tokens,
+            whole_repo_tokens=None,
+        )
+    except Exception as exc:
+        logger.debug("MCP query metrics recording failed", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("MCP query metrics health recording failed", exc_info=True)
+
+
+def _record_scout_metrics(
+    source: RepoSource,
+    result: ScoutResult,
+    rendered: str,
+    raw_tokens: int,
+) -> None:
+    try:
+        policy = resolve_metrics_policy()
+        if not policy.metrics_enabled:
+            return
+        record_scout_usage(
+            source,
+            result,
+            surface="mcp",
+            tool_name="scout_repo",
+            tokens_returned=count_tokens(rendered),
+            tokens_raw_equivalent=raw_tokens,
+            whole_repo_tokens=raw_tokens,
+        )
+    except Exception as exc:
+        logger.debug("MCP scout metrics recording failed", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("MCP scout metrics health recording failed", exc_info=True)
 
 
 def handle_compare_repos(

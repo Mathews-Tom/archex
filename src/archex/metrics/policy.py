@@ -32,13 +32,21 @@ def resolve_metrics_policy(
     env: Mapping[str, str] | None = None,
 ) -> MetricsPolicy:
     """Resolve persisted settings with environment variable overrides."""
-    values = _settings(db_path)
     env_values = os.environ if env is None else env
+    if env_values.get(METRICS_ENV, "").casefold() == "off":
+        return MetricsPolicy(
+            metrics_enabled=False,
+            trace_enabled=False,
+            raw_event_retention_days=DEFAULT_RAW_EVENT_RETENTION_DAYS,
+            trace_retention_days=DEFAULT_TRACE_RETENTION_DAYS,
+        )
+    values = _settings(db_path)
 
     metrics_enabled = _bool_setting(values.get("metrics_enabled"), default=True)
     trace_enabled = _bool_setting(values.get("trace_enabled"), default=False)
 
-    if env_values.get(METRICS_ENV, "").casefold() == "off":
+    metrics_env = env_values.get(METRICS_ENV, "").casefold()
+    if metrics_env == "off":
         metrics_enabled = False
     trace_override = env_values.get(TRACE_ENV, "").casefold()
     if trace_override == "on":
