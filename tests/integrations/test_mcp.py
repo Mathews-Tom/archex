@@ -348,7 +348,6 @@ class TestHandleScoutRepo:
         assert scout_mock.call_args.kwargs["token_budget"] == 120
         assert parsed["receipt"]["index_revision"] == "rev"
 
-
     def test_returns_scout_json_without_duplicate_receipt(self) -> None:
         from archex.scout import ScoutBudget, ScoutResult
 
@@ -374,6 +373,7 @@ class TestHandleScoutRepo:
         parsed = json.loads(output)
         assert "receipt" not in parsed["content"]
         assert parsed["receipt"]["index_revision"] == "rev"
+
 
 class TestHandleCompareRepos:
     def test_returns_json_with_meta(self) -> None:
