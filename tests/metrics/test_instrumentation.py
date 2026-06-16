@@ -9,7 +9,8 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from archex.cli.main import cli
-from archex.integrations.mcp import handle_query_repo, handle_scout_repo
+from archex.integrations.mcp import handle_get_file_tree, handle_query_repo, handle_scout_repo
+from archex.metrics.categories import category_for_tool
 from archex.metrics.health import read_metrics_health
 from archex.metrics.policy import METRICS_ENV, resolve_metrics_policy
 from archex.metrics.storage import MetricsStore
@@ -29,6 +30,12 @@ class FakeBundle:
         return "FAKE CONTEXT"
 
 
+class FakeTree:
+    root = "repo"
+    entries: list[object] = []
+
+    def model_dump_json(self, indent: int | None = None) -> str:
+        return '{\n  "root": "repo",\n  "entries": []\n}'
 def _fake_scout_result() -> SimpleNamespace:
     return SimpleNamespace(
         query="where is auth",
@@ -282,3 +289,63 @@ def test_mcp_scout_records_counter_and_preserves_meta(
     assert event["tool_name"] == "scout_repo"
     assert event["tokens_raw_equivalent"] == 120
     assert event["whole_repo_tokens"] == 1000
+
+
+def test_metrics_category_mapping_is_centralized() -> None:
+    assert category_for_tool("query") == "context_retrieval"
+    assert category_for_tool("scout_repo") == "context_retrieval"
+    assert category_for_tool("tree") == "structural_tools"
+    assert category_for_tool("get_file_tree") == "structural_tools"
+
+
+def test_cli_tree_records_structural_tool_counter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    runner = CliRunner()
+
+    with (
+        patch("archex.cli.tree_cmd.file_tree", return_value=FakeTree()),
+        patch("archex.cli.tree_cmd.get_repo_total_tokens", return_value=500),
+    ):
+        result = runner.invoke(cli, ["tree", str(repo_root)])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "repo\n"
+    with MetricsStore(tmp_path / ".archex" / "usage.sqlite").connect() as conn:
+        event = conn.execute(
+            "SELECT surface, tool_name, category, tokens_raw_equivalent FROM usage_events"
+        ).fetchone()
+    assert event["surface"] == "cli"
+    assert event["tool_name"] == "tree"
+    assert event["category"] == "structural_tools"
+    assert event["tokens_raw_equivalent"] == 500
+
+
+def test_mcp_file_tree_records_structural_tool_counter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    with (
+        patch("archex.integrations.mcp.file_tree", return_value=FakeTree()),
+        patch("archex.integrations.mcp.get_repo_total_tokens", return_value=500),
+    ):
+        payload = json.loads(handle_get_file_tree(str(repo_root)))
+
+    assert payload["content"] == {"root": "repo", "entries": []}
+    assert payload["_meta"]["tool_name"] == "get_file_tree"
+    with MetricsStore(tmp_path / ".archex" / "usage.sqlite").connect() as conn:
+        event = conn.execute(
+            "SELECT surface, tool_name, category, tokens_raw_equivalent FROM usage_events"
+        ).fetchone()
+    assert event["surface"] == "mcp"
+    assert event["tool_name"] == "get_file_tree"
+    assert event["category"] == "structural_tools"
+    assert event["tokens_raw_equivalent"] == 500

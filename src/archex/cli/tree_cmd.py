@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import click
 
 from archex.api import file_tree, get_repo_total_tokens
 from archex.exceptions import ArchexError
-from archex.models import PipelineTiming
+from archex.metrics.capture import record_structural_usage
+from archex.metrics.health import record_metrics_failure
+from archex.metrics.policy import resolve_metrics_policy
+from archex.models import PipelineTiming, RepoSource
 from archex.reporting import count_tokens, print_savings, print_timing
 from archex.utils import resolve_source
 
 if TYPE_CHECKING:
     from archex.models import FileTreeEntry
+
+logger = logging.getLogger(__name__)
 
 
 def _render_tree(
@@ -55,18 +61,37 @@ def tree_cmd(
         raise click.ClickException(str(exc)) from exc
 
     if output_json:
-        click.echo(result.model_dump_json(indent=2))
+        output = result.model_dump_json(indent=2)
     else:
-        click.echo(result.root)
-        for line in _render_tree(result.entries):
-            click.echo(line)
+        output = "\n".join([result.root, *_render_tree(result.entries)])
+    click.echo(output)
 
+    raw_tokens: int | None = None
     if timing and pt is not None:
         print_timing(pt)
-        if output_json:
-            output = result.model_dump_json(indent=2)
-        else:
-            output = "\n".join([result.root, *_render_tree(result.entries)])
         returned = count_tokens(output)
-        raw = get_repo_total_tokens(source_obj)
-        print_savings(returned, raw, pt.total_ms)
+        raw_tokens = get_repo_total_tokens(source_obj)
+        print_savings(returned, raw_tokens, pt.total_ms)
+    _record_metrics(source_obj, output, raw_tokens)
+
+
+def _record_metrics(source: RepoSource, output: str, raw_tokens: int | None) -> None:
+    try:
+        policy = resolve_metrics_policy()
+        if not policy.metrics_enabled:
+            return
+        raw = raw_tokens if raw_tokens is not None else get_repo_total_tokens(source)
+        record_structural_usage(
+            source,
+            surface="cli",
+            tool_name="tree",
+            tokens_returned=count_tokens(output),
+            tokens_raw_equivalent=raw,
+            whole_repo_tokens=raw,
+        )
+    except Exception as exc:
+        logger.debug("tree metrics recording failed", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("tree metrics health recording failed", exc_info=True)

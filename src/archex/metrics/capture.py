@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from archex.metrics.categories import category_for_tool
 from archex.metrics.recorder import MetricsRecorder, Surface, TraceDetails, UsageEvent
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ def record_query_usage(
             repo_root=repo_root,
             surface=surface,
             tool_name=tool_name,
-            category="context_retrieval",
+            category=category_for_tool(tool_name),
             tokens_returned=bundle.token_count,
             tokens_raw_equivalent=tokens_raw_equivalent,
             whole_repo_tokens=whole_repo_tokens,
@@ -72,7 +73,7 @@ def record_scout_usage(
             repo_root=repo_root,
             surface=surface,
             tool_name=tool_name,
-            category="context_retrieval",
+            category=category_for_tool(tool_name),
             tokens_returned=tokens_returned,
             tokens_raw_equivalent=tokens_raw_equivalent,
             whole_repo_tokens=whole_repo_tokens,
@@ -91,6 +92,34 @@ def record_scout_usage(
                     "omitted_graph_edges": result.budget.omitted_graph_edges,
                 },
             ),
+        )
+    )
+
+
+def record_structural_usage(
+    source: RepoSource,
+    *,
+    surface: Surface,
+    tool_name: str,
+    tokens_returned: int,
+    tokens_raw_equivalent: int,
+    whole_repo_tokens: int | None = None,
+    file_count: int = 0,
+    db_path: Path | None = None,
+) -> None:
+    repo_root = _local_repo_root(source)
+    if repo_root is None:
+        return
+    MetricsRecorder(db_path).record(
+        UsageEvent(
+            repo_root=repo_root,
+            surface=surface,
+            tool_name=tool_name,
+            category=category_for_tool(tool_name),
+            tokens_returned=tokens_returned,
+            tokens_raw_equivalent=tokens_raw_equivalent,
+            whole_repo_tokens=whole_repo_tokens,
+            file_count=file_count,
         )
     )
 
