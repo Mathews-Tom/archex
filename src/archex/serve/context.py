@@ -1620,11 +1620,7 @@ def assemble_context(
     included_receipt_edges, omitted_receipt_edges = receipt_edges_for_graph(
         graph,
         set(included_files),
-        {
-            item.file_path: item.reason
-            for item in skipped_receipt_candidates
-            if item.file_path
-        },
+        {item.file_path: item.reason for item in skipped_receipt_candidates if item.file_path},
     )
     bundle.receipt = build_context_receipt(
         bundle,

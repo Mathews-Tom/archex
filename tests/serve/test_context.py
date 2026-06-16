@@ -822,8 +822,7 @@ def test_receipt_records_dependency_frontier_cut() -> None:
 
     assert bundle.receipt is not None
     assert (
-        bundle.receipt.context_complete_reason
-        == ContextCompletenessReason.DEPENDENCY_FRONTIER_CUT
+        bundle.receipt.context_complete_reason == ContextCompletenessReason.DEPENDENCY_FRONTIER_CUT
     )
     assert bundle.receipt.omitted_edges[0].source == "seed.py"
     assert bundle.receipt.omitted_edges[0].target == "dep.py"

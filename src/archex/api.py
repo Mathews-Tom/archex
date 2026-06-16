@@ -1412,7 +1412,6 @@ def _refresh_receipt(
     )
 
 
-
 def _finalize_context_bundle(
     bundle: ContextBundle,
     *,

@@ -149,9 +149,7 @@ def build_scout_receipt(
     completion_reason = _reason_from_skipped(merged_skipped)
     action = _action_from_reason(completion_reason, has_skipped=bool(merged_skipped))
     status = (
-        ContextCompletenessStatus.INCOMPLETE
-        if merged_skipped
-        else direct_receipt.context_complete
+        ContextCompletenessStatus.INCOMPLETE if merged_skipped else direct_receipt.context_complete
     )
     return direct_receipt.model_copy(
         update={
