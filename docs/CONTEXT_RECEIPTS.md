@@ -7,13 +7,13 @@ Context receipts are the machine-readable provenance block attached to `query`, 
 Every receipt includes:
 
 - `query`
-- `token_budget.requested` and `token_budget.consumed`
+- `token_budget.requested` and `token_budget.consumed`; scout receipts use the scout map budget and rendered scout token count
 - `index_revision`
 - `freshness`
-- `returned_context`
-- `included_edges`
-- `omitted_edges`
-- `skipped_candidates`
+- `freshness_checked_at`, `index_fresh_at`, and `watch_fresh_at` when available; non-watch paths keep unavailable timestamps as `null`
+- bounded `returned_context`, `included_edges`, `omitted_edges`, and `skipped_candidates` lists
+- `returned_total`, `included_edges_total`, `omitted_edges_total`, and `skipped_total` counts before receipt or renderer caps
+- stable `content_hash` values for returned context; scout rows use indexed file hashes when present and do not read files solely to compute hashes
 - `context_complete`
 - `context_complete_reason`
 - `recommended_next_action`
@@ -61,9 +61,10 @@ Current query/scout receipts emit `clean` for the normal refresh path and `unkno
 ## Output surfaces
 
 - `archex query --format json` includes `receipt` in the serialized bundle.
-- `archex query --format xml` includes a compact `<receipt>` block.
+- `archex query --format xml` includes a compact `<receipt>` block with shown/total counts.
+- `archex query --format markdown` includes a `## Receipt` block with freshness, budget, completeness, shown/total counts, skipped candidates, and omitted dependency edges.
 - `archex scout --format json` includes `receipt` in the scout result.
-- `archex scout` markdown prints a one-line receipt summary before ranked files.
+- `archex scout` markdown includes the same compact receipt summary and actionable skipped/frontier details before ranked files.
 - MCP `query_repo` and `scout_repo` return `receipt` as a top-level envelope field next to `content` and `_meta`.
 
 ## Determinism
