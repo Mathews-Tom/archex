@@ -102,6 +102,11 @@ Small receipt example:
   "receipt": {
     "freshness": "clean",
     "index_revision": "3d8b0c…",
+    "token_budget": { "requested": 12000, "consumed": 6132 },
+    "returned_total": 12,
+    "skipped_total": 23,
+    "included_edges_total": 9,
+    "omitted_edges_total": 17,
     "context_complete": "incomplete",
     "context_complete_reason": "dependency_frontier_cut",
     "recommended_next_action": "fetch_skipped_candidate",
