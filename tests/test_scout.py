@@ -138,7 +138,6 @@ def test_scout_truncates_deterministically_under_cap(tmp_path: Path) -> None:
     assert first.budget.token_count == count_tokens(render_scout(first))
 
 
-
 def test_scout_markdown_receipt_shows_actionable_details() -> None:
     receipt = ContextReceipt(
         query="models",

@@ -335,9 +335,9 @@ def _failure_bucket(
     return "semantic_gap"
 
 
-
 def _find_raw_read_result(report: BenchmarkReport) -> BenchmarkResult | None:
     return _find_result(report, Strategy.RAW_RIPGREP) or _find_result(report, Strategy.RAW_GREPPED)
+
 
 def _raw_grepped_gap(
     result: BenchmarkResult,
