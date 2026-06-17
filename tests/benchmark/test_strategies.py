@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -361,9 +362,53 @@ def test_raw_ripgrep_missing_executable_fails(
         run_raw_ripgrep(sample_task, python_simple_repo)
 
 
+def test_raw_ripgrep_timeout_fails_loudly(
+    sample_task: BenchmarkTask,
+    python_simple_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def present_executable(_name: str) -> str:
+        return "rg"
+
+    monkeypatch.setattr("archex.benchmark.strategies.shutil.which", present_executable)
+    with (
+        patch(
+            "archex.benchmark.strategies.subprocess.run",
+            side_effect=[
+                subprocess.CompletedProcess(["rg", "--version"], 0, stdout="ripgrep 15.1.0\n"),
+                subprocess.TimeoutExpired(["rg"], timeout=30),
+            ],
+        ),
+        pytest.raises(RuntimeError, match="timed out after 30s"),
+    ):
+        run_raw_ripgrep(sample_task, python_simple_repo)
+
+
+def test_raw_ripgrep_error_fails_loudly(
+    sample_task: BenchmarkTask,
+    python_simple_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def present_executable(_name: str) -> str:
+        return "rg"
+
+    monkeypatch.setattr("archex.benchmark.strategies.shutil.which", present_executable)
+    with (
+        patch(
+            "archex.benchmark.strategies.subprocess.run",
+            side_effect=[
+                subprocess.CompletedProcess(["rg", "--version"], 0, stdout="ripgrep 15.1.0\n"),
+                subprocess.CompletedProcess(["rg"], 2, stderr="invalid regex\n"),
+            ],
+        ),
+        pytest.raises(RuntimeError, match="raw_ripgrep failed for keyword"),
+    ):
+        run_raw_ripgrep(sample_task, python_simple_repo)
+
+
 @REQUIRES_RG
-class TestRunRawGrepped:
-    def test_grep_finds_files(self, python_simple_repo: Path) -> None:
+class TestRunRawRipgrep:
+    def test_ripgrep_finds_files(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
             task_id="test",
             repo="test/repo",
@@ -378,7 +423,7 @@ class TestRunRawGrepped:
         assert 0.0 <= result.recall <= 1.0
         assert 0.0 <= result.precision <= 1.0
 
-    def test_grep_no_matches(self, python_simple_repo: Path) -> None:
+    def test_ripgrep_no_matches(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
             task_id="test",
             repo="test/repo",
@@ -393,7 +438,7 @@ class TestRunRawGrepped:
         assert result.files_accessed == 0
         assert result.recall == 0.0
 
-    def test_grep_result_fields(self, python_simple_repo: Path) -> None:
+    def test_ripgrep_result_fields_and_provenance(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
             task_id="test",
             repo="test/repo",
@@ -412,6 +457,11 @@ class TestRunRawGrepped:
         assert result.tokens_output >= 0
         assert result.tokens_raw_baseline >= 0
         assert isinstance(result.mrr, float)
+        assert result.provenance["rg_version"].startswith("ripgrep ")
+        assert result.provenance["keyword_count"] == str(result.tool_calls)
+        assert "*.py" in result.provenance["include_globs"]
+        assert result.provenance["timeout_seconds"] == "30"
+        assert result.provenance["matched_file_count"] == str(result.files_accessed)
 
 
 class TestRunArchexQuery:
