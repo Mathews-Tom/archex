@@ -1,15 +1,17 @@
 # archex
 
-**Verified local code context for agents.**
-
-archex turns a repository into a ranked, token-budgeted context bundle plus a context receipt with freshness, index revision, skipped candidates, omitted dependency edges, and a recommended next action. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key.
-
 [![CI](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/archex?cacheSeconds=300)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 [![archex banner](assets/archex-banner.png)](assets/archex-banner.svg)
+
+---
+
+**Verified local code context for agents.**
+
+archex turns a repository into a ranked, token-budgeted context bundle plus a context receipt with freshness, index revision, skipped candidates, omitted dependency edges, and a recommended next action. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key.
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Local metrics](docs/LOCAL_METRICS.md) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
