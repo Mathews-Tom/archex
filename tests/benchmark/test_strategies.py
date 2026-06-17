@@ -34,7 +34,7 @@ from archex.benchmark.strategies import (
     run_archex_scout_fetch,
     run_cross_layer_fusion,
     run_raw_files,
-    run_raw_grepped,
+    run_raw_ripgrep,
     run_surrogate_vector,
     set_benchmark_retrieval_options,
 )
@@ -240,7 +240,7 @@ class TestRequiredFileMetrics:
         )
 
         assert recall == 0.5
-        assert missed_rate == 1.0
+        assert missed_rate == 0.5
         assert all_present is False
         assert present == ["a.py"]
         assert missing == ["b.py"]
@@ -351,8 +351,8 @@ class TestRunRawGrepped:
             expected_files=["services/auth.py"],
             keywords=["authenticate"],
         )
-        result = run_raw_grepped(task, python_simple_repo)
-        assert result.strategy == Strategy.RAW_GREPPED
+        result = run_raw_ripgrep(task, python_simple_repo)
+        assert result.strategy == Strategy.RAW_RIPGREP
         assert result.files_accessed >= 0
         assert 0.0 <= result.recall <= 1.0
         assert 0.0 <= result.precision <= 1.0
@@ -366,8 +366,8 @@ class TestRunRawGrepped:
             expected_files=["main.py"],
             keywords=["zzz_unique_nonexistent_term_xyz"],
         )
-        result = run_raw_grepped(task, python_simple_repo)
-        assert result.strategy == Strategy.RAW_GREPPED
+        result = run_raw_ripgrep(task, python_simple_repo)
+        assert result.strategy == Strategy.RAW_RIPGREP
         assert result.tokens_total == 0
         assert result.files_accessed == 0
         assert result.recall == 0.0
@@ -381,7 +381,7 @@ class TestRunRawGrepped:
             expected_files=["main.py", "utils.py"],
             keywords=["import"],
         )
-        result = run_raw_grepped(task, python_simple_repo)
+        result = run_raw_ripgrep(task, python_simple_repo)
         assert result.wall_time_ms >= 0
         assert result.cached is False
         assert result.savings_vs_raw == 0.0  # Not yet backfilled

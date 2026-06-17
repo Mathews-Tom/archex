@@ -31,7 +31,7 @@ class TestAvailableStrategies:
     def test_default_strategies(self) -> None:
         assert DEFAULT_STRATEGIES == [
             Strategy.RAW_FILES,
-            Strategy.RAW_GREPPED,
+            Strategy.RAW_RIPGREP,
             Strategy.ARCHEX_QUERY,
         ]
         assert Strategy.ARCHEX_QUERY_FUSION not in DEFAULT_STRATEGIES
@@ -112,7 +112,7 @@ class TestRunBenchmark:
         task, repo_path = fixture_task
         report = run_benchmark(
             task,
-            strategies=[Strategy.RAW_FILES, Strategy.RAW_GREPPED],
+            strategies=[Strategy.RAW_FILES, Strategy.RAW_RIPGREP],
             repo_path=repo_path,
         )
         assert report.task_id == "fixture_test"
@@ -128,7 +128,7 @@ class TestRunBenchmark:
         task, repo_path = fixture_task
         report = run_benchmark(
             task,
-            strategies=[Strategy.RAW_FILES, Strategy.RAW_GREPPED],
+            strategies=[Strategy.RAW_FILES, Strategy.RAW_RIPGREP],
             repo_path=repo_path,
         )
         assert report.baseline_tokens > 0
@@ -324,7 +324,7 @@ class TestRunBenchmark:
 
         run_benchmark(
             task,
-            strategies=[Strategy.RAW_FILES, Strategy.RAW_GREPPED],
+            strategies=[Strategy.RAW_FILES, Strategy.RAW_RIPGREP],
             repo_path=repo_path,
         )
         assert warmed == []
@@ -339,7 +339,7 @@ class TestRunBenchmark:
         strategy_names = {r.strategy for r in report.results}
         # Only baseline/default strategies should run
         assert Strategy.RAW_FILES in strategy_names
-        assert Strategy.RAW_GREPPED in strategy_names
+        assert Strategy.RAW_RIPGREP in strategy_names
         assert Strategy.ARCHEX_QUERY in strategy_names
         assert Strategy.ARCHEX_QUERY_FUSION not in strategy_names
         assert Strategy.CROSS_LAYER_FUSION not in strategy_names
@@ -352,7 +352,7 @@ class TestRunBenchmark:
         task, repo_path = fixture_task
         report = run_benchmark(
             task,
-            strategies=[Strategy.RAW_GREPPED],
+            strategies=[Strategy.RAW_RIPGREP],
             repo_path=repo_path,
         )
         assert report.baseline_tokens == 0
@@ -366,12 +366,12 @@ class TestRunBenchmark:
         from archex.benchmark.strategies import default_strategy_registry
 
         task, repo_path = fixture_task
-        key = Strategy.RAW_GREPPED.value
+        key = Strategy.RAW_RIPGREP.value
         removed = default_strategy_registry._runners.pop(key)  # pyright: ignore[reportPrivateUsage]
         try:
             report = run_benchmark(
                 task,
-                strategies=[Strategy.RAW_FILES, Strategy.RAW_GREPPED],
+                strategies=[Strategy.RAW_FILES, Strategy.RAW_RIPGREP],
                 repo_path=repo_path,
             )
         finally:
@@ -399,7 +399,7 @@ class TestRunBenchmark:
             captured.append(current_benchmark_retrieval_options())
             return BenchmarkResult(
                 task_id=task.task_id,
-                strategy=Strategy.RAW_GREPPED,
+                strategy=Strategy.RAW_RIPGREP,
                 tokens_total=1,
                 tool_calls=1,
                 files_accessed=1,
@@ -411,12 +411,12 @@ class TestRunBenchmark:
                 timestamp="2026-01-01T00:00:00Z",
             )
 
-        key = Strategy.RAW_GREPPED.value
+        key = Strategy.RAW_RIPGREP.value
         monkeypatch.setitem(default_strategy_registry._runners, key, _record_options)  # pyright: ignore[reportPrivateUsage]
 
         run_benchmark(
             task,
-            strategies=[Strategy.RAW_GREPPED],
+            strategies=[Strategy.RAW_RIPGREP],
             repo_path=repo_path,
             retrieval_options=BenchmarkRetrievalOptions(splade=True, module_prefilter=True),
         )

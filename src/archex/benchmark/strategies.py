@@ -296,7 +296,7 @@ def compute_required_file_metrics(
     missing = [path for path in expected_files if path not in result_files]
     recall = len(present) / len(expected_files) if expected_files else 0.0
     all_present = not missing
-    missed_rate = 0.0 if all_present else 1.0
+    missed_rate = (len(missing) / len(expected_files)) if expected_files else 0.0
     return recall, missed_rate, all_present, present, missing
 
 
@@ -345,6 +345,7 @@ def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         result_files=list(task.expected_files),
         required_file_recall=required_file_recall,
         missed_required_file_rate=missed_required_file_rate,
+        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
         all_required_files_present=all_required_files_present,
         required_files_present=present,
         required_files_missing=missing,
@@ -441,6 +442,7 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         result_files=_deduplicate_ranked(matched_files_ordered),
         required_file_recall=required_file_recall,
         missed_required_file_rate=missed_required_file_rate,
+        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
         all_required_files_present=all_required_files_present,
         required_files_present=present,
         required_files_missing=missing,
@@ -464,6 +466,123 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         wall_time_ms=wall_ms,
         cached=False,
         timestamp=now_iso(),
+    )
+
+
+_RIPGREP_INCLUDE_GLOBS = (
+    "*.py",
+    "*.ts",
+    "*.js",
+    "*.go",
+    "*.rs",
+    "*.java",
+    "*.kt",
+    "*.cs",
+    "*.swift",
+)
+
+
+def run_raw_ripgrep(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Ripgrep/read baseline: search keywords with rg, then read matched files."""
+    t0 = time.perf_counter()
+    rg_path = shutil.which("rg")
+    if rg_path is None:
+        raise RuntimeError("raw_ripgrep strategy requires ripgrep executable 'rg' on PATH")
+    version = subprocess.run(
+        [rg_path, "--version"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=True,
+    ).stdout.splitlines()[0]
+    keywords = extract_keywords(task.question, task.keywords)
+    matched_files_seen: set[str] = set()
+    matched_files_ordered: list[str] = []
+    for keyword in keywords:
+        command = [
+            rg_path,
+            "--files-with-matches",
+            "--ignore-case",
+            *[flag for glob in _RIPGREP_INCLUDE_GLOBS for flag in ("--glob", glob)],
+            keyword,
+            ".",
+        ]
+        result = subprocess.run(
+            command,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 1:
+            continue
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"raw_ripgrep failed for keyword {keyword!r}: {result.stderr.strip()}"
+            )
+        for line in result.stdout.splitlines():
+            path = line.lstrip("./")
+            if path and path not in matched_files_seen:
+                matched_files_seen.add(path)
+                matched_files_ordered.append(path)
+    tokens = count_file_tokens(repo_path, matched_files_ordered)
+    tokens_raw_baseline = count_file_tokens(repo_path, task.expected_files)
+    wall_ms = (time.perf_counter() - t0) * 1000
+    recall = compute_recall(matched_files_seen, task.expected_files)
+    precision = compute_precision(matched_files_seen, task.expected_files)
+    completion_tokens, completion_files = compute_bundle_completion_penalty(
+        repo_path, matched_files_seen, task.expected_files
+    )
+    (
+        required_file_recall,
+        missed_required_file_rate,
+        all_required_files_present,
+        present,
+        missing,
+    ) = compute_required_file_metrics(matched_files_seen, task.expected_files)
+    tokens_with_completion = tokens + completion_tokens
+    return BenchmarkResult(
+        task_id=task.task_id,
+        strategy=Strategy.RAW_RIPGREP,
+        strategy_label="raw-ripgrep/read",
+        tokens_total=tokens,
+        tokens_input=tokens,
+        tokens_output=tokens,
+        token_efficiency=compute_token_efficiency(tokens, tokens),
+        result_files=_deduplicate_ranked(matched_files_ordered),
+        required_file_recall=required_file_recall,
+        missed_required_file_rate=missed_required_file_rate,
+        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
+        all_required_files_present=all_required_files_present,
+        required_files_present=present,
+        required_files_missing=missing,
+        post_bundle_read_turns=len(missing),
+        task_completion_result=completion_result_from_missing(missing),
+        bundle_completion_tokens=completion_tokens,
+        bundle_completion_files=completion_files,
+        token_efficiency_with_completion=compute_token_efficiency(
+            tokens_with_completion, tokens + completion_tokens
+        ),
+        tokens_raw_baseline=tokens_raw_baseline,
+        tool_calls=len(keywords),
+        files_accessed=len(matched_files_seen),
+        recall=recall,
+        precision=precision,
+        f1_score=compute_f1(recall, precision),
+        mrr=compute_mrr(matched_files_ordered, task.expected_files),
+        ndcg=compute_ndcg(matched_files_ordered, task.expected_files),
+        map_score=compute_map(matched_files_ordered, task.expected_files),
+        savings_vs_raw=0.0,
+        wall_time_ms=wall_ms,
+        cached=False,
+        timestamp=now_iso(),
+        provenance={
+            "rg_version": version,
+            "keyword_count": str(len(keywords)),
+            "include_globs": ",".join(_RIPGREP_INCLUDE_GLOBS),
+            "timeout_seconds": "30",
+            "matched_file_count": str(len(matched_files_seen)),
+        },
     )
 
 
@@ -972,6 +1091,7 @@ def _run_query_strategy(
         "required_file_recall": required_file_recall,
         "missed_required_file_rate": missed_required_file_rate,
         "all_required_files_present": all_required_files_present,
+        "missed_required_task_rate": 0.0 if all_required_files_present else 1.0,
         "required_files_present": present,
         "required_files_missing": missing,
         "receipt_accuracy": compute_receipt_accuracy(
@@ -1141,6 +1261,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         result_files=unique_ranked,
         required_file_recall=required_file_recall,
         missed_required_file_rate=missed_required_file_rate,
+        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
         all_required_files_present=all_required_files_present,
         required_files_present=present,
         required_files_missing=missing,
@@ -1335,6 +1456,7 @@ def _run_external_mcp_strategy(task: BenchmarkTask, repo_path: Path) -> Benchmar
 default_strategy_registry = StrategyRegistry()
 default_strategy_registry.register(Strategy.RAW_FILES.value, run_raw_files)
 default_strategy_registry.register(Strategy.RAW_GREPPED.value, run_raw_grepped)
+default_strategy_registry.register(Strategy.RAW_RIPGREP.value, run_raw_ripgrep)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY.value, run_archex_query)
 default_strategy_registry.register(Strategy.ARCHEX_SCOUT_FETCH.value, run_archex_scout_fetch)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_VECTOR.value, run_archex_query_vector)

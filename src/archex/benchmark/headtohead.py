@@ -99,9 +99,9 @@ def _validate_manifest_shape(path: Path, manifest: HeadToHeadManifest) -> None:
         raise HeadToHeadManifestError(
             f"Invalid head-to-head manifest in {path}: archex.strategy must be archex_query"
         )
-    if manifest.raw_read_strategy is not Strategy.RAW_GREPPED:
+    if manifest.raw_read_strategy is not Strategy.RAW_RIPGREP:
         raise HeadToHeadManifestError(
-            f"Invalid head-to-head manifest in {path}: raw_read_strategy must be raw_grepped"
+            f"Invalid head-to-head manifest in {path}: raw_read_strategy must be raw_ripgrep"
         )
     if not manifest.external_tools:
         raise HeadToHeadManifestError(
@@ -161,7 +161,7 @@ def load_headtohead_tasks(
 HEADTOHEAD_REPORT_STRATEGIES: tuple[Strategy, ...] = (
     Strategy.ARCHEX_QUERY,
     Strategy.EXTERNAL_MCP,
-    Strategy.RAW_GREPPED,
+    Strategy.RAW_RIPGREP,
 )
 
 
@@ -215,8 +215,8 @@ def load_headtohead_results(input_dir: Path) -> list[BenchmarkReport]:
 def _lane_label(result: BenchmarkResult) -> str:
     if result.strategy is Strategy.ARCHEX_QUERY:
         return "archex"
-    if result.strategy is Strategy.RAW_GREPPED:
-        return "raw-grep/read"
+    if result.strategy is Strategy.RAW_RIPGREP:
+        return "raw-ripgrep/read"
     if result.strategy is Strategy.EXTERNAL_MCP:
         return result.strategy_label or result.provenance.get("external_tool", "external")
     return result.strategy.value
@@ -225,8 +225,9 @@ def _lane_label(result: BenchmarkResult) -> str:
 def _result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> str:
     if result.strategy is Strategy.ARCHEX_QUERY:
         return f"manifest={manifest.name}; lane=archex; embedder={manifest.archex.embedder}"
-    if result.strategy is Strategy.RAW_GREPPED:
-        return f"manifest={manifest.name}; lane=raw-grep/read; source=repo files"
+    if result.strategy is Strategy.RAW_RIPGREP:
+        version = result.provenance.get("rg_version", "")
+        return f"manifest={manifest.name}; lane=raw-ripgrep/read; rg={version}"
     tool = result.provenance.get("external_tool", result.strategy_label or "external")
     version = result.provenance.get("external_tool_version", "")
     embedder = result.provenance.get("external_tool_embedder", "")
@@ -277,7 +278,7 @@ def format_headtohead_markdown(
         return "No head-to-head benchmark results."
 
     lanes = _results_by_lane(reports)
-    required_lanes = {"archex", manifest.external_tools[0].name, "raw-grep/read"}
+    required_lanes = {"archex", manifest.external_tools[0].name, "raw-ripgrep/read"}
     missing_lanes = sorted(required_lanes.difference(lanes))
     if missing_lanes:
         raise HeadToHeadManifestError(
@@ -292,10 +293,12 @@ def format_headtohead_markdown(
         "",
         "Every metric cell includes its provenance. No winner filtering is applied.",
         "",
-        "| Lane | Recall | Precision | F1 | Token efficiency | Completion penalty tokens "
-        "| Efficiency after completion | Warm latency ms | Cold-start ms | Edit-to-correct ms "
-        "| Freshness correct |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Lane | Recall | Required-file recall | Missed file rate | Missed task rate | "
+        "All required present | Receipt accuracy | Precision | F1 | Token efficiency | "
+        "Completion penalty tokens | Efficiency after completion | Warm latency ms | "
+        "Cold-start ms | Edit-to-correct ms | Freshness correct |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | "
+        "--- | --- | --- | --- |",
     ]
 
     for lane in sorted(lanes):
@@ -307,6 +310,39 @@ def format_headtohead_markdown(
                 [
                     lane,
                     _metric_cell(_mean([r.recall for r in results]), provenance, "recall"),
+                    _metric_cell(
+                        _mean([r.required_file_recall for r in results]),
+                        provenance,
+                        "required_file_recall",
+                    ),
+                    _metric_cell(
+                        _mean([r.missed_required_file_rate for r in results]),
+                        provenance,
+                        "missed_required_file_rate",
+                    ),
+                    _metric_cell(
+                        _mean([r.missed_required_task_rate for r in results]),
+                        provenance,
+                        "missed_required_task_rate",
+                    ),
+                    _metric_cell(
+                        _mean([1.0 if r.all_required_files_present else 0.0 for r in results]),
+                        provenance,
+                        "all_required_files_present",
+                    ),
+                    _optional_metric_cell(
+                        _mean(
+                            [
+                                1.0 if r.receipt_accuracy else 0.0
+                                for r in results
+                                if r.receipt_accuracy is not None
+                            ]
+                        )
+                        if any(r.receipt_accuracy is not None for r in results)
+                        else None,
+                        provenance,
+                        "receipt_accuracy",
+                    ),
                     _metric_cell(_mean([r.precision for r in results]), provenance, "precision"),
                     _metric_cell(_mean([r.f1_score for r in results]), provenance, "f1_score"),
                     _metric_cell(
@@ -359,6 +395,16 @@ def format_headtohead_markdown(
             )
             + " |"
         )
+
+    missing_rows: list[str] = []
+    for lane in sorted(lanes):
+        for result in lanes[lane]:
+            if result.required_files_missing:
+                missing_rows.append(
+                    f"- {lane} `{result.task_id}`: {', '.join(result.required_files_missing)}"
+                )
+    if missing_rows:
+        lines.extend(["", "## Missing required files", *missing_rows])
 
     lines.extend(
         [

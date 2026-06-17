@@ -6,7 +6,7 @@ This page compares archex with cocoindex-code for local agent code-context workf
 
 | Source | What it supports |
 | --- | --- |
-| `uv run archex benchmark headtohead report --input .archex/headtohead --format markdown` | C1 aggregate cells recorded in the operator report: `archex` vs `ccc` vs `raw-grep/read`, manifest `archex-vs-ccc-c1-public`, 19 external-repo tasks. |
+| `uv run archex benchmark headtohead report --input .archex/headtohead --format markdown` | C1 aggregate cells recorded in the operator report: `archex` vs `ccc` vs `raw-ripgrep/read`, manifest `archex-vs-ccc-c1-public`, 19 external-repo tasks. |
 | `benchmarks/headtohead/results/manifest.yaml` | Same-task manifest, local-only archex lane, ccc `0.2.35` lane, and ccc bootstrap commands `ccc init -f` plus `ccc index`. |
 | `archex doctor . --format json` | Local trust checks for index health, staleness, local model cache presence, grammar availability, MCP registration, and `.archex/` disk usage. |
 | `docker build -f docker/Dockerfile.slim .` and `docker build -f docker/Dockerfile.full .` | Slim BM25-only image and full local-embedding image definitions. |
@@ -20,7 +20,7 @@ Every metric below is copied from the accepted C1 report for manifest `archex-vs
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | archex | 0.95 | 0.51 | 0.66 | 0.76 | 922 | 0.74 | 408 | 0 |
 | ccc | 0.32 | 0.36 | 0.31 | 0.48 | 11,188 | 0.41 | 521 | 4,721 |
-| raw-grep/read | 1.00 | 0.25 | 0.38 | 0.00 | 0 | 0.00 | 155 | 0 |
+| raw-ripgrep/read | 1.00 | 0.25 | 0.38 | 0.00 | 0 | 0.00 | 155 | 0 |
 
 Citations: each cell above is the corresponding C1 report cell emitted by `uv run archex benchmark headtohead report --input .archex/headtohead --format markdown`; the raw per-task artifacts are tracked in `benchmarks/headtohead/results/*.json`.
 
@@ -28,9 +28,9 @@ Citations: each cell above is the corresponding C1 report cell emitted by `uv ru
 
 | Losing cell | Current result | Roadmap item that addresses it | Evidence |
 | --- | --- | --- | --- |
-| Recall vs raw-grep/read | archex `0.95`; raw-grep/read `1.00` | C5 scout protocol and the retrieval evidence gate keep improving recall without copying whole files into context. | C1 recall cells; scout command `archex scout . "question" --budget 1000 --format json`. |
-| Warm latency vs raw-grep/read | archex `408 ms`; raw-grep/read `155 ms` | C2 freshness/warm-MCP work narrows warm-path latency while preserving indexed retrieval quality. | C1 warm-latency cells; MCP warm command `archex mcp --watch --watch-path .`. |
-| Completion penalty vs raw-grep/read | archex `922`; raw-grep/read `0` | Raw-grep/read pays by reading broad context up front; archex tracks completion penalty so missing context remains visible. C5 handle fetch reduces second-pass misses. | C1 completion-penalty cells; scout `fetch_plan` handles. |
+| Recall vs raw-ripgrep/read | archex `0.95`; raw-ripgrep/read `1.00` | C5 scout protocol and the retrieval evidence gate keep improving recall without copying whole files into context. | C1 recall cells; scout command `archex scout . "question" --budget 1000 --format json`. |
+| Warm latency vs raw-ripgrep/read | archex `408 ms`; raw-ripgrep/read `155 ms` | C2 freshness/warm-MCP work narrows warm-path latency while preserving indexed retrieval quality. | C1 warm-latency cells; MCP warm command `archex mcp --watch --watch-path .`. |
+| Completion penalty vs raw-ripgrep/read | archex `922`; raw-ripgrep/read `0` | Raw-ripgrep/read pays by reading broad context up front; archex tracks completion penalty so missing context remains visible. C5 handle fetch reduces second-pass misses. | C1 completion-penalty cells; scout `fetch_plan` handles. |
 
 ## Capability matrix
 

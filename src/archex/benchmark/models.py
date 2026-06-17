@@ -18,6 +18,7 @@ from archex.models import (  # noqa: TCH001 — Pydantic needs at runtime
 class Strategy(StrEnum):
     RAW_FILES = "raw_files"
     RAW_GREPPED = "raw_grepped"
+    RAW_RIPGREP = "raw_ripgrep"
     ARCHEX_QUERY = "archex_query"
     ARCHEX_SCOUT_FETCH = "archex_scout_fetch"
     ARCHEX_QUERY_VECTOR = "archex_query_vector"
@@ -186,8 +187,8 @@ class HeadToHeadManifest(BenchmarkSpecModel):
     hardware_notes: str
     task_subset: list[str]
     archex: HeadToHeadArchexConfig = Field(default_factory=HeadToHeadArchexConfig)
+    raw_read_strategy: Strategy = Strategy.RAW_RIPGREP
     external_tools: list[ExternalToolBenchmarkConfig]
-    raw_read_strategy: Strategy = Strategy.RAW_GREPPED
 
 
 class TaskCompletionResult(StrEnum):
@@ -242,6 +243,7 @@ class BenchmarkResult(BaseModel):
     result_files: list[str] = []
     required_file_recall: float = 0.0
     missed_required_file_rate: float = 0.0
+    missed_required_task_rate: float = 0.0
     all_required_files_present: bool = False
     required_files_present: list[str] = []
     required_files_missing: list[str] = []

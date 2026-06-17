@@ -51,7 +51,7 @@ external_tools:
         args: [init, -f]
       - command: ccc
         args: [index]
-raw_read_strategy: raw_grepped
+raw_read_strategy: raw_ripgrep
 """
 
 

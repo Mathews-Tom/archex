@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_STRATEGIES: list[Strategy] = [
     Strategy.RAW_FILES,
-    Strategy.RAW_GREPPED,
+    Strategy.RAW_RIPGREP,
     Strategy.ARCHEX_QUERY,
 ]
 

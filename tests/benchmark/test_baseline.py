@@ -155,14 +155,14 @@ def test_compare_baseline_excludes_diagnostic_strategies() -> None:
         ]
     )
     reports = [
-        _make_report(strategy=Strategy.RAW_GREPPED, recall=0.0),
+        _make_report(strategy=Strategy.RAW_RIPGREP, recall=0.0),
         _make_report(strategy=Strategy.ARCHEX_QUERY, recall=0.85),
     ]
 
     comparisons = compare_baseline(
         reports,
         baseline,
-        excluded_strategies={Strategy.RAW_GREPPED.value},
+        excluded_strategies={Strategy.RAW_RIPGREP.value},
     )
 
     assert {comparison.strategy for comparison in comparisons} == {Strategy.ARCHEX_QUERY.value}

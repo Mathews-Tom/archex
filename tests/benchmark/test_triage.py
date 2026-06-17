@@ -131,7 +131,7 @@ def test_triage_detects_raw_grepped_gap() -> None:
         seed_files=["src/task.py"],
     )
     raw_grepped = _result(
-        Strategy.RAW_GREPPED,
+        Strategy.RAW_RIPGREP,
         recall=0.9,
         precision=0.1,
         f1_score=0.18,
