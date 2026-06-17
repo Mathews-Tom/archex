@@ -11,7 +11,7 @@ archex turns a repository into a ranked, token-budgeted context bundle plus a co
 
 [![archex banner](assets/archex-banner.png)](assets/archex-banner.svg)
 
-**Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
+**Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Local metrics](docs/LOCAL_METRICS.md) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
 **Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development) · [Documentation map](#documentation-map)
 
@@ -119,7 +119,7 @@ Small receipt example:
 }
 ```
 
-Use [docs/CONTEXT_RECEIPTS.md](docs/CONTEXT_RECEIPTS.md) for the full field contract.
+Use [CONTEXT_RECEIPTS](docs/CONTEXT_RECEIPTS.md) for the full field contract.
 
 
 ## Why archex is different
@@ -177,6 +177,22 @@ The in-repo Claude Code skill lives at [`skills/archex/`](skills/archex/). Its `
 
 Exact install, MCP, Docker, cache, uninstall, and trust semantics are documented in the [installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md). Client-specific config targets and preview-first bootstrap paths live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md).
 
+Local usage metrics are off by default. If a user explicitly enables them with `archex metrics enable`, `ARCHEX_USAGE_METRICS=on`, or the persisted metrics setting, archex writes a machine-local ledger at `~/.archex/usage.sqlite`. That ledger records anonymous counters only: tool name, category, token counts, file count, repo-local random ID, freshness, and index revision. It does not store query text, file paths, symbols, handles, rendered outputs, prompt bodies, remote URLs, org names, or repo names in event rows. Headline savings are always `tokens_saved = max(returned full-file baseline - returned tokens, 0)`. Whole-repo avoided tokens are tracked separately as an upper-bound/context metric when the indexed repo total is available.
+
+Important boundary: archex ships with no telemetry by default. Optional local metrics are separate from telemetry, stay on the machine, and require explicit enablement. Detailed traces remain a second explicit opt-in on top of metrics enablement. The exact calculation rules, privacy boundary, and controls live in [LOCAL_METRICS](docs/LOCAL_METRICS.md).
+
+`archex metrics` is the control surface:
+
+```bash
+archex metrics enable
+archex metrics
+archex metrics export --output usage.json
+archex metrics delete --all
+archex metrics trace enable
+ARCHEX_USAGE_METRICS=on archex query "Where is auth handled?"
+```
+
+Detailed traces stay opt-in via `archex metrics trace enable` or `ARCHEX_USAGE_TRACE=on`. Traces remain local-only and still never store source code or rendered outputs. Metrics code paths make no LLM calls, no hosted upload calls, and no background network calls in v1.
 ### Python API
 
 ```python
@@ -230,13 +246,14 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 
 | Surface | Contract |
 | --- | --- |
-| Security policy | Supported versions, disclosure workflow, no-telemetry posture, secret-handling guidance, and model remote-code policy live in [SECURITY.md](SECURITY.md). |
-| Context receipts | Field contract, freshness/completeness semantics, output surfaces, and benchmark linkage live in [docs/CONTEXT_RECEIPTS.md](docs/CONTEXT_RECEIPTS.md). |
-| Compatibility matrix | Tested vs unverified clients, exact config shapes, preview-first bootstrap commands, and verification steps live in [docs/CLIENT_COMPATIBILITY_MATRIX.md](docs/CLIENT_COMPATIBILITY_MATRIX.md). |
-| Installation trust contract | Exact CLI, MCP, Docker, skill, cache, network, freshness, benchmark, and uninstall semantics live in [docs/INSTALLATION_TRUST_CONTRACT.md](docs/INSTALLATION_TRUST_CONTRACT.md). |
+| Security policy | Supported versions, disclosure workflow, no-telemetry posture, secret-handling guidance, and model remote-code policy live in [SECURITY](SECURITY.md). |
+| Context receipts | Field contract, freshness/completeness semantics, output surfaces, and benchmark linkage live in [CONTEXT_RECEIPTS](docs/CONTEXT_RECEIPTS.md). |
+| Compatibility matrix | Tested vs unverified clients, exact config shapes, preview-first bootstrap commands, and verification steps live in [CLIENT_COMPATIBILITY_MATRIX](docs/CLIENT_COMPATIBILITY_MATRIX.md). |
+| Installation trust contract | Exact CLI, MCP, Docker, skill, cache, network, freshness, benchmark, and uninstall semantics live in [INSTALLATION_TRUST_CONTRACT](docs/INSTALLATION_TRUST_CONTRACT.md). |
 | `archex install-client` | Preview-first client config writer for Claude Code, Codex, Pi, OpenCode, and Cursor. |
 | `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, model security, and `.archex/` disk usage. |
 | Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
+| Local usage metrics | Calculation rules, privacy boundaries, default-off versus opt-in behavior, export/delete controls, and retention live in [LOCAL_METRICS](docs/LOCAL_METRICS.md). |
 
 ## Measured results
 
@@ -335,6 +352,7 @@ Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs.
 - [System Design](docs/SYSTEM_DESIGN.md) — shipped architecture, graph query, scout, language tiers, and distribution surfaces
 - [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) — evidence-backed C1 comparison
 - [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) — default-strategy evidence gate
+- [Local Metrics](docs/LOCAL_METRICS.md) — token-savings math, privacy boundary, and default-off versus opt-in behavior
 - [Roadmap](docs/ROADMAP.md) — historical execution record
 
 ## License
