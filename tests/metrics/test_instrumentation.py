@@ -123,7 +123,7 @@ def test_cli_query_recording_failure_is_non_fatal_and_visible_in_health(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     runner = CliRunner()
@@ -148,7 +148,7 @@ def test_cli_scout_records_counter_without_changing_stdout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     runner = CliRunner()
@@ -177,7 +177,7 @@ def test_mcp_query_records_counter_and_preserves_response_shape(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _enable_metrics(monkeypatch, tmp_path)
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
 
