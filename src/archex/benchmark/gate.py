@@ -26,6 +26,11 @@ class QualityThresholds(BaseModel):
     min_token_efficiency: float = 0.0
     product_default_strategy: str = PRODUCT_DEFAULT_STRATEGY
     product_default_min_token_efficiency: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR
+    min_required_file_recall: float = 0.0
+    max_missed_required_task_rate: float = 1.0
+    min_receipt_accuracy: float = 0.0
+    min_token_efficiency_with_completion: float = 0.0
+    max_completion_efficiency_regression: float = 0.0
     # Latency: warn-only, does not fail the gate
     warn_latency_ms: float = 5000.0
     # Strategies exempt from gate checks (results are informational only)
@@ -62,7 +67,7 @@ class LatencyWarning(BaseModel):
     actual_ms: float
 
 
-def _gate_checks(t: QualityThresholds, strategy: str) -> list[tuple[str, float]]:
+def _minimum_gate_checks(t: QualityThresholds, strategy: str) -> list[tuple[str, float]]:
     token_efficiency_floor = (
         t.product_default_min_token_efficiency
         if strategy == t.product_default_strategy
@@ -76,7 +81,17 @@ def _gate_checks(t: QualityThresholds, strategy: str) -> list[tuple[str, float]]
         ("ndcg", t.min_ndcg),
         ("map_score", t.min_map),
         ("token_efficiency", token_efficiency_floor),
+        ("required_file_recall", t.min_required_file_recall),
+        ("token_efficiency_with_completion", t.min_token_efficiency_with_completion),
     ]
+
+
+def _maximum_gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
+    return [("missed_required_task_rate", t.max_missed_required_task_rate)]
+
+
+def _receipt_accuracy_score(value: bool | None) -> float:
+    return 0.0 if value is None else 1.0 if value else 0.0
 
 
 def check_gate(
@@ -100,7 +115,7 @@ def check_gate(
             if strategy_val in thresholds.gate_exempt_strategies:
                 continue
             effective = thresholds.strategy_thresholds.get(strategy_val, thresholds)
-            for metric_name, threshold_val in _gate_checks(effective, strategy_val):
+            for metric_name, threshold_val in _minimum_gate_checks(effective, strategy_val):
                 actual = getattr(r, metric_name)
                 if actual < threshold_val:
                     violations.append(
@@ -112,6 +127,29 @@ def check_gate(
                             actual=actual,
                         )
                     )
+            for metric_name, threshold_val in _maximum_gate_checks(effective):
+                actual = getattr(r, metric_name)
+                if actual > threshold_val:
+                    violations.append(
+                        GateViolation(
+                            task_id=r.task_id,
+                            strategy=strategy_val,
+                            metric=metric_name,
+                            threshold=threshold_val,
+                            actual=actual,
+                        )
+                    )
+            actual = _receipt_accuracy_score(r.receipt_accuracy)
+            if actual < effective.min_receipt_accuracy:
+                violations.append(
+                    GateViolation(
+                        task_id=r.task_id,
+                        strategy=strategy_val,
+                        metric="receipt_accuracy",
+                        threshold=effective.min_receipt_accuracy,
+                        actual=actual,
+                    )
+                )
     return violations
 
 
@@ -159,6 +197,20 @@ def check_recall_regressions(
                         metric="recall",
                         baseline=baseline.recall,
                         actual=result.recall,
+                    )
+                )
+            completion_efficiency_floor = (
+                baseline.token_efficiency_with_completion
+                - thresholds.max_completion_efficiency_regression
+            )
+            if result.token_efficiency_with_completion < completion_efficiency_floor:
+                violations.append(
+                    BaselineGateViolation(
+                        task_id=report.task_id,
+                        strategy=strategy_val,
+                        metric="token_efficiency_with_completion",
+                        baseline=completion_efficiency_floor,
+                        actual=result.token_efficiency_with_completion,
                     )
                 )
     return violations

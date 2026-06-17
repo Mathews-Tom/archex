@@ -27,6 +27,9 @@ def _make_result(
     tokens_input: int = 2000,
     tokens_output: int = 1000,
     token_efficiency: float = 0.5,
+    required_file_recall: float = 1.0,
+    missed_required_file_rate: float = 0.0,
+    missed_required_task_rate: float = 0.0,
     chunker: ChunkerName = "default",
     index_chunk_count: int = 10,
     mean_chunk_tokens: float = 50.0,
@@ -39,6 +42,9 @@ def _make_result(
         tokens_input=tokens_input,
         tokens_output=tokens_output,
         token_efficiency=token_efficiency,
+        required_file_recall=required_file_recall,
+        missed_required_file_rate=missed_required_file_rate,
+        missed_required_task_rate=missed_required_task_rate,
         tool_calls=1,
         files_accessed=3,
         recall=recall,
@@ -124,6 +130,7 @@ class TestFormatSummary:
         assert "archex_query" in summary
         assert "Avg Efficiency" in summary
         assert "Avg Required Recall" in summary
+        assert "Missed File Rate" in summary
         assert "Missed Task Rate" in summary
 
     def test_multi_report_aggregation(self) -> None:
@@ -214,6 +221,9 @@ class TestFormatBucketedSummary:
         assert "external-framework (1 tasks)" in output
         assert "All Tasks (2 tasks)" in output
         assert "Seed Recall" in output
+        assert "Required Recall" in output
+        assert "Missed File Rate" in output
+        assert "Missed Task Rate" in output
 
 
 class TestFormatChunkerFrontierTable:
