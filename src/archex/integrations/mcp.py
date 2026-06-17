@@ -39,7 +39,7 @@ from archex.graph_query import (
     GraphQueryError,
     GraphStatsResult,
 )
-from archex.metrics.capture import record_query_usage, record_scout_usage
+from archex.metrics.capture import record_query_usage, record_scout_usage, record_structural_usage
 from archex.metrics.health import record_metrics_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.models import ContextBundle, PipelineTiming, RepoSource
@@ -86,6 +86,13 @@ def handle_analyze_repo(repo_url: str, output_format: str = "json") -> str:
         cached=pt.cached,
         index_time_ms=pt.index_ms,
         query_time_ms=pt.total_ms,
+    )
+    _record_structural_metrics(
+        source,
+        "analyze_repo",
+        content,
+        raw_tokens,
+        whole_repo_tokens=raw_tokens,
     )
     return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
 
@@ -269,6 +276,36 @@ def _scout_file_paths(result: ScoutResult) -> list[str]:
     return sorted(paths)
 
 
+def _record_structural_metrics(
+    source: RepoSource,
+    tool_name: str,
+    response_text: str,
+    raw_tokens: int,
+    *,
+    whole_repo_tokens: int | None = None,
+    file_count: int = 0,
+) -> None:
+    try:
+        policy = resolve_metrics_policy()
+        if not policy.metrics_enabled:
+            return
+        record_structural_usage(
+            source,
+            surface="mcp",
+            tool_name=tool_name,
+            tokens_returned=count_tokens(response_text),
+            tokens_raw_equivalent=raw_tokens,
+            whole_repo_tokens=whole_repo_tokens,
+            file_count=file_count,
+        )
+    except Exception as exc:
+        logger.debug("MCP structural metrics recording failed", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("MCP structural metrics health recording failed", exc_info=True)
+
+
 def handle_compare_repos(
     repo_a: str,
     repo_b: str,
@@ -301,12 +338,20 @@ def handle_compare_repos(
     content = result.model_dump_json(indent=2)
     raw_a = get_repo_total_tokens(source_a)
     raw_b = get_repo_total_tokens(source_b)
+    raw_tokens = raw_a + raw_b
     meta = compute_meta(
         tool_name="compare_repos",
         response_text=content,
-        raw_file_tokens=max(raw_a + raw_b, 1),
+        raw_file_tokens=max(raw_tokens, 1),
         strategy="full_comparison",
         query_time_ms=elapsed_ms,
+    )
+    _record_structural_metrics(
+        source_a,
+        "compare_repos",
+        content,
+        raw_tokens,
+        whole_repo_tokens=raw_tokens,
     )
     return json.dumps({"content": json.loads(content), "_meta": meta.model_dump()}, indent=2)
 
@@ -326,6 +371,13 @@ def handle_get_file_tree(repo_url: str, max_depth: int = 5, language: str | None
         index_time_ms=pt.index_ms,
         query_time_ms=pt.total_ms,
     )
+    _record_structural_metrics(
+        source,
+        "get_file_tree",
+        content,
+        raw_tokens,
+        whole_repo_tokens=raw_tokens,
+    )
     return json.dumps({"content": json.loads(content), "_meta": meta.model_dump()}, indent=2)
 
 
@@ -342,6 +394,13 @@ def handle_get_file_outline(repo_url: str, file_path: str) -> str:
         cached=pt.cached,
         index_time_ms=pt.index_ms,
         query_time_ms=pt.total_ms,
+    )
+    _record_structural_metrics(
+        source,
+        "get_file_outline",
+        content,
+        result.token_count_raw,
+        file_count=1,
     )
     return json.dumps({"content": json.loads(content), "_meta": meta.model_dump()}, indent=2)
 
@@ -371,6 +430,13 @@ def handle_search_symbols(
         index_time_ms=pt.index_ms,
         query_time_ms=pt.total_ms,
     )
+    _record_structural_metrics(
+        source,
+        "search_symbols",
+        content,
+        raw_tokens,
+        file_count=len(unique_files),
+    )
     return json.dumps({"content": match_data, "_meta": meta.model_dump()}, indent=2)
 
 
@@ -390,6 +456,13 @@ def handle_get_symbol(repo_url: str, symbol_id: str) -> str:
         cached=pt.cached,
         index_time_ms=pt.index_ms,
         query_time_ms=pt.total_ms,
+    )
+    _record_structural_metrics(
+        source,
+        "get_symbol",
+        content,
+        raw_tokens,
+        file_count=1,
     )
     return json.dumps({"content": json.loads(content), "_meta": meta.model_dump()}, indent=2)
 
@@ -412,6 +485,13 @@ def handle_get_symbols_batch(repo_url: str, symbol_ids: list[str]) -> str:
         cached=pt.cached,
         index_time_ms=pt.index_ms,
         query_time_ms=pt.total_ms,
+    )
+    _record_structural_metrics(
+        source,
+        "get_symbols_batch",
+        content,
+        raw_tokens,
+        file_count=len(unique_files),
     )
     return json.dumps({"content": result_data, "_meta": meta.model_dump()}, indent=2)
 

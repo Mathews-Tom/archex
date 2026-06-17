@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import click
 
 from archex.api import file_outline
 from archex.exceptions import ArchexError
-from archex.models import PipelineTiming
+from archex.metrics.capture import record_structural_usage
+from archex.metrics.health import record_metrics_failure
+from archex.metrics.policy import resolve_metrics_policy
+from archex.models import PipelineTiming, RepoSource
 from archex.reporting import count_tokens, print_savings, print_timing
 from archex.utils import resolve_source
 
 if TYPE_CHECKING:
     from archex.models import SymbolOutline
+
+logger = logging.getLogger(__name__)
 
 
 def _render_symbols(symbols: list[SymbolOutline], indent: int = 0) -> list[str]:
@@ -42,25 +48,40 @@ def outline_cmd(source: str, file_path: str, output_json: bool, timing: bool) ->
         raise click.ClickException(str(exc)) from exc
 
     if output_json:
-        click.echo(result.model_dump_json(indent=2))
+        output = result.model_dump_json(indent=2)
     else:
-        click.echo(f"file: {result.file_path}")
-        click.echo(f"language: {result.language}")
-        click.echo(f"lines: {result.lines}")
-        for line in _render_symbols(result.symbols):
-            click.echo(line)
+        lines = [
+            f"file: {result.file_path}",
+            f"language: {result.language}",
+            f"lines: {result.lines}",
+        ]
+        lines.extend(_render_symbols(result.symbols))
+        output = "\n".join(lines)
+    click.echo(output)
 
     if timing and pt is not None:
         print_timing(pt)
-        if output_json:
-            output = result.model_dump_json(indent=2)
-        else:
-            lines = [
-                f"file: {result.file_path}",
-                f"language: {result.language}",
-                f"lines: {result.lines}",
-            ]
-            lines.extend(_render_symbols(result.symbols))
-            output = "\n".join(lines)
         returned = count_tokens(output)
         print_savings(returned, result.token_count_raw, pt.total_ms)
+    _record_metrics(source_obj, output, result.token_count_raw)
+
+
+def _record_metrics(source: RepoSource, output: str, raw_tokens: int) -> None:
+    try:
+        policy = resolve_metrics_policy()
+        if not policy.metrics_enabled:
+            return
+        record_structural_usage(
+            source,
+            surface="cli",
+            tool_name="outline",
+            tokens_returned=count_tokens(output),
+            tokens_raw_equivalent=raw_tokens,
+            file_count=1,
+        )
+    except Exception as exc:
+        logger.debug("outline metrics recording failed", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("outline metrics health recording failed", exc_info=True)

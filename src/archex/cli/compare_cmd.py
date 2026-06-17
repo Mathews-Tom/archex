@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 import click
 
 from archex.api import compare, get_repo_total_tokens
 from archex.exceptions import ArchexError
-from archex.models import Config
+from archex.metrics.capture import record_structural_usage
+from archex.metrics.health import record_metrics_failure
+from archex.metrics.policy import resolve_metrics_policy
+from archex.models import Config, RepoSource
 from archex.reporting import count_tokens, print_savings
 from archex.serve.compare import SUPPORTED_DIMENSIONS
 from archex.utils import resolve_source
+
+logger = logging.getLogger(__name__)
 
 
 def render_comparison_markdown(result: object) -> str:
@@ -132,9 +138,41 @@ def compare_cmd(
         output = render_comparison_markdown(result)
         click.echo(output)
 
+    raw_tokens: int | None = None
     if timing:
         returned = count_tokens(output)
-        raw = get_repo_total_tokens(source_a_obj, config) + get_repo_total_tokens(
+        raw_tokens = get_repo_total_tokens(source_a_obj, config) + get_repo_total_tokens(
             source_b_obj, config
         )
-        print_savings(returned, raw, elapsed_ms)
+        print_savings(returned, raw_tokens, elapsed_ms)
+    _record_metrics(source_a_obj, source_b_obj, output, raw_tokens, config)
+
+
+def _record_metrics(
+    source_a: RepoSource,
+    source_b: RepoSource,
+    output: str,
+    raw_tokens: int | None,
+    config: Config,
+) -> None:
+    try:
+        policy = resolve_metrics_policy()
+        if not policy.metrics_enabled:
+            return
+        raw = raw_tokens
+        if raw is None:
+            raw = get_repo_total_tokens(source_a, config) + get_repo_total_tokens(source_b, config)
+        record_structural_usage(
+            source_a,
+            surface="cli",
+            tool_name="compare",
+            tokens_returned=count_tokens(output),
+            tokens_raw_equivalent=raw,
+            whole_repo_tokens=raw,
+        )
+    except Exception as exc:
+        logger.debug("compare metrics recording failed", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("compare metrics health recording failed", exc_info=True)
