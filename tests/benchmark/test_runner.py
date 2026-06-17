@@ -387,7 +387,7 @@ class TestRunBenchmark:
         finally:
             default_strategy_registry._runners[key] = removed  # pyright: ignore[reportPrivateUsage]
 
-        # RAW_GREPPED was skipped; only RAW_FILES ran
+        # RAW_RIPGREP was skipped; only RAW_FILES ran
         assert len(report.results) == 1
         assert report.results[0].strategy == Strategy.RAW_FILES
 
