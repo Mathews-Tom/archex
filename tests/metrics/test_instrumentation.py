@@ -28,6 +28,7 @@ class FakeBundle:
     def to_prompt(self, format: str = "xml") -> str:
         return "FAKE CONTEXT"
 
+
 def _fake_scout_result() -> SimpleNamespace:
     return SimpleNamespace(
         query="where is auth",
@@ -49,6 +50,7 @@ def _fake_scout_result() -> SimpleNamespace:
 def _enable_metrics(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv(METRICS_ENV, "on")
+
 
 def test_cli_query_records_counter_without_changing_stdout(
     tmp_path: Path,
@@ -195,4 +197,3 @@ def test_mcp_query_records_counter_and_preserves_response_shape(
     assert event["surface"] == "mcp"
     assert event["tool_name"] == "query_repo"
     assert event["tokens_saved"] == 90
-
