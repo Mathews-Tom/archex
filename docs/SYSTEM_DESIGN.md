@@ -254,7 +254,6 @@ graph BT
     end
 
     subgraph Optional["Optional Extras"]
-        ONNX["onnxruntime<br/>(archex[vector])"]
         Fast["FastEmbed<br/>(archex[vector-fast])"]
         GraphExtra["python-igraph + leidenalg<br/>(archex[graph])"]
         Torch["sentence-transformers / torch<br/>(archex[vector-torch])"]

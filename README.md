@@ -304,12 +304,11 @@ uv add "archex[llamaindex]"               # LlamaIndex retriever
 uv add "archex[lsap]"                     # LSP type enrichment
 
 # Local retrieval extras
-uv add "archex[vector]"                   # ONNX local embeddings
-uv add "archex[vector-fast]"              # FastEmbed
+uv add "archex[vector-fast]"              # FastEmbed (ONNX-backed, ~50MB)
 uv add "archex[vector-torch]"             # sentence-transformers / torch
 uv add "archex[splade]"                   # SPLADE sparse retrieval
 uv add "archex[graph]"                    # Leiden graph clustering
-# Core extras bundle: vector, graph, MCP, LangChain, LlamaIndex
+# Core extras bundle: graph, MCP, LangChain, LlamaIndex
 uv add "archex[all]"
 ```
 

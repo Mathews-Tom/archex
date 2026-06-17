@@ -353,8 +353,8 @@ Adapters are extensible via Python entry points — add a new language without m
 # Core (BM25 retrieval, no embeddings)
 uv add archex
 
-# With local vector embeddings (Nomic Code via ONNX, ~50MB)
-uv add "archex[vector]"
+# With local vector embeddings (FastEmbed via ONNX, ~50MB)
+uv add "archex[vector-fast]"
 
 # With MCP server for Claude Code / Claude Desktop
 uv add "archex[mcp]"
