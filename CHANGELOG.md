@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-17
+
+### Added
+
+- **Local metrics foundation:** Added the machine-local SQLite usage ledger, repo registry, metrics policy controls, metrics health reporting, and the `archex metrics` CLI for summary, inspect, export, delete, and trace management.
+- **CLI and MCP usage accounting:** Added anonymous token-savings accounting for `query`, `scout`, and the eligible structural CLI/MCP surfaces without changing their public output contracts.
+- **Python API opt-in:** Added explicit `record_usage_event(...)` for Python callers that want local usage recording without making normal API calls write to disk.
+- **Trust documentation:** Added `docs/LOCAL_METRICS.md` with the exact savings formulas, privacy boundary, default-off behavior, and operator controls.
+
+### Changed
+
+- **Telemetry contract:** Flipped local metrics from default-on to default-off so archex ships with no telemetry by default; users must explicitly enable local metrics before any ledger writes occur.
+- **README and trust surfaces:** Updated the README and installation trust contract to describe optional local metrics, detailed trace opt-in, local-only storage, and the distinction between headline savings and whole-repo upper-bound context metrics.
+- **Operational visibility:** Extended `status` and `doctor` to surface metrics health and recorder state alongside the new local metrics control plane.
+
+### Fixed
+
+- **Metrics release hardening:** Fixed branch-specific test enablement, import drift, and Ruff formatting mismatches discovered while landing the metrics stack so the release line is green across all Python CI variants and Docker checks.
+
 ## [0.11.0] - 2026-06-16
 
 ### Added
