@@ -6,6 +6,10 @@
 
 - **Missing numpy dependency:** `numpy` was absent from `[project.dependencies]`, causing `ModuleNotFoundError: No module named 'numpy'` when `archex query` ran on a plain `uv tool install archex` or `archex[mcp]` install. networkx ≥ 3.3 routes `nx.pagerank()` through its scipy implementation, which does a bare `import numpy` at call time; numpy is also a direct runtime dependency in `index/fusion.py`, `index/quantize.py`, `index/vector.py`, and `index/splade.py`. Promoted `numpy>=1.24` to a declared core dependency and removed the redundant entry from dev deps. Fixes #266.
 
+### Removed
+
+- **einops phantom dependency:** `einops` was declared as a core dependency since 007c00e but was never imported by archex at any point in its history. It arrives transitively via `sentence-transformers` when Jina reranker models are loaded; archex itself has no direct use of it. Removed from `[project.dependencies]` and dropped from the lockfile.
+
 ## [0.12.0] - 2026-06-17
 
 ### Added
