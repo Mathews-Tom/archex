@@ -480,6 +480,7 @@ _RIPGREP_INCLUDE_GLOBS = (
     "*.cs",
     "*.swift",
 )
+_RIPGREP_TIMEOUT_SECONDS = 30
 
 
 def run_raw_ripgrep(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
@@ -488,13 +489,19 @@ def run_raw_ripgrep(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     rg_path = shutil.which("rg")
     if rg_path is None:
         raise RuntimeError("raw_ripgrep strategy requires ripgrep executable 'rg' on PATH")
-    version = subprocess.run(
-        [rg_path, "--version"],
-        capture_output=True,
-        text=True,
-        timeout=5,
-        check=True,
-    ).stdout.splitlines()[0]
+    try:
+        version = subprocess.run(
+            [rg_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.splitlines()[0]
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("raw_ripgrep timed out while reading rg --version") from exc
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        raise RuntimeError(f"raw_ripgrep failed to read rg --version: {message}") from exc
     keywords = extract_keywords(task.question, task.keywords)
     matched_files_seen: set[str] = set()
     matched_files_ordered: list[str] = []
@@ -507,13 +514,18 @@ def run_raw_ripgrep(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
             keyword,
             ".",
         ]
-        result = subprocess.run(
-            command,
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        try:
+            result = subprocess.run(
+                command,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=_RIPGREP_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"raw_ripgrep timed out after {_RIPGREP_TIMEOUT_SECONDS}s for keyword {keyword!r}"
+            ) from exc
         if result.returncode == 1:
             continue
         if result.returncode != 0:
@@ -580,7 +592,7 @@ def run_raw_ripgrep(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
             "rg_version": version,
             "keyword_count": str(len(keywords)),
             "include_globs": ",".join(_RIPGREP_INCLUDE_GLOBS),
-            "timeout_seconds": "30",
+            "timeout_seconds": str(_RIPGREP_TIMEOUT_SECONDS),
             "matched_file_count": str(len(matched_files_seen)),
         },
     )
