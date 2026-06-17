@@ -9,6 +9,7 @@
 ### Removed
 
 - **einops phantom dependency:** `einops` was declared as a core dependency since 007c00e but was never imported by archex at any point in its history. It arrives transitively via `sentence-transformers` when Jina reranker models are loaded; archex itself has no direct use of it. Removed from `[project.dependencies]` and dropped from the lockfile.
+- **`vector` optional extra:** The `archex[vector]` extra (`onnxruntime>=1.17, tokenizers>=0.15`) had no backing code — the ONNX embedder it was built for was removed in a prior cleanup and never replaced. Local ONNX-backed embedding is provided by `archex[vector-fast]` (FastEmbed). Removed the extra from `[project.optional-dependencies]` and from the `all` bundle; updated README, OVERVIEW, SYSTEM_DESIGN, and WHY_ARCHEX docs to reference `vector-fast` instead.
 
 ## [0.12.0] - 2026-06-17
 
