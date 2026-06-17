@@ -205,10 +205,8 @@ all = [
     { name = "llama-index-core" },
     { name = "lsp-client", marker = "python_full_version >= '3.12'" },
     { name = "mcp" },
-    { name = "onnxruntime" },
     { name = "python-igraph" },
     { name = "sentence-transformers" },
-    { name = "tokenizers" },
     { name = "torch" },
     { name = "transformers" },
 ]
@@ -231,10 +229,6 @@ mcp = [
 splade = [
     { name = "torch" },
     { name = "transformers" },
-]
-vector = [
-    { name = "onnxruntime" },
-    { name = "tokenizers" },
 ]
 vector-fast = [
     { name = "fastembed" },
@@ -261,7 +255,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "archex", extras = ["vector", "vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap"], marker = "extra == 'all'" },
+    { name = "archex", extras = ["vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap"], marker = "extra == 'all'" },
     { name = "click", specifier = ">=8.1" },
     { name = "fastembed", marker = "extra == 'vector-fast'", specifier = ">=0.4" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.2" },
@@ -271,14 +265,12 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
     { name = "networkx", specifier = ">=3.3" },
     { name = "numpy", specifier = ">=1.24" },
-    { name = "onnxruntime", marker = "extra == 'vector'", specifier = ">=1.17" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "python-igraph", marker = "extra == 'graph'", specifier = ">=0.11" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = "==14.3.3" },
     { name = "sentence-transformers", marker = "extra == 'vector-torch'", specifier = ">=5.2,<6" },
     { name = "tiktoken", specifier = ">=0.7" },
-    { name = "tokenizers", marker = "extra == 'vector'", specifier = ">=0.15" },
     { name = "torch", marker = "extra == 'splade'", specifier = ">=2.0" },
     { name = "transformers", marker = "extra == 'splade'", specifier = ">=4.41,<5" },
     { name = "transformers", marker = "extra == 'vector-torch'", specifier = ">=4.41,<5" },
@@ -294,7 +286,7 @@ requires-dist = [
     { name = "tree-sitter-typescript", specifier = ">=0.23" },
     { name = "watchdog", specifier = ">=6.0.0" },
 ]
-provides-extras = ["vector", "vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap", "all"]
+provides-extras = ["vector-fast", "graph", "vector-torch", "splade", "mcp", "langchain", "llamaindex", "lsap", "all"]
 
 [package.metadata.requires-dev]
 dev = [

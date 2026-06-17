@@ -38,7 +38,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-vector = ["onnxruntime>=1.17", "tokenizers>=0.15"]
 vector-fast = [
     "fastembed>=0.4",
 ]
@@ -58,7 +57,7 @@ mcp = ["mcp>=1.0"]
 langchain = ["langchain-core>=0.2"]
 llamaindex = ["llama-index-core>=0.10"]
 lsap = ["lsp-client>=0.3; python_version >= '3.12'"]
-all = ["archex[vector,vector-fast,graph,vector-torch,splade,mcp,langchain,llamaindex,lsap]"]
+all = ["archex[vector-fast,graph,vector-torch,splade,mcp,langchain,llamaindex,lsap]"]
 
 [project.scripts]
 archex = "archex.cli.main:cli"
