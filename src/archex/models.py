@@ -737,10 +737,17 @@ class ContextReceipt(BaseModel):
     token_budget: ContextReceiptTokenBudget
     index_revision: str
     freshness: ContextFreshness = ContextFreshness.UNKNOWN
+    freshness_checked_at: str | None = None
+    index_fresh_at: str | None = None
+    watch_fresh_at: str | None = None
     returned_context: list[ContextReceiptItem] = []
     included_edges: list[ContextReceiptEdge] = []
     omitted_edges: list[ContextReceiptEdge] = []
     skipped_candidates: list[ContextSkippedCandidate] = []
+    returned_total: int = 0
+    skipped_total: int = 0
+    included_edges_total: int = 0
+    omitted_edges_total: int = 0
     context_complete: ContextCompletenessStatus = ContextCompletenessStatus.UNKNOWN
     context_complete_reason: ContextCompletenessReason = ContextCompletenessReason.UNKNOWN
     recommended_next_action: ContextRecommendedAction = ContextRecommendedAction.MANUAL_REVIEW
