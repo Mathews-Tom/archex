@@ -151,9 +151,6 @@ def test_context_receipt_instantiation_and_dump_are_deterministic() -> None:
         token_budget=ContextReceiptTokenBudget(requested=1000, consumed=250),
         index_revision="abc123",
         freshness=ContextFreshness.CLEAN,
-        freshness_checked_at="2026-06-17T00:00:00Z",
-        index_fresh_at="2026-06-17T00:00:00Z",
-        watch_fresh_at=None,
         returned_context=[
             ContextReceiptItem(
                 handle="chunk:src/api.py::query",
@@ -195,10 +192,6 @@ def test_context_receipt_instantiation_and_dump_are_deterministic() -> None:
                 detail="support file without explicit test query",
             )
         ],
-        returned_total=1,
-        skipped_total=1,
-        included_edges_total=1,
-        omitted_edges_total=1,
         context_complete=ContextCompletenessStatus.INCOMPLETE,
         context_complete_reason=ContextCompletenessReason.BUDGET_EXHAUSTED,
         recommended_next_action=ContextRecommendedAction.RAISE_BUDGET,
@@ -211,11 +204,6 @@ def test_context_receipt_instantiation_and_dump_are_deterministic() -> None:
     assert first["token_budget"] == {"requested": 1000, "consumed": 250}
     assert first["returned_context"][0]["reason_codes"] == ["bm25", "graph_seed"]
     assert first["skipped_candidates"][0]["reason"] == "test_deprioritized"
-    assert first["returned_total"] == 1
-    assert first["skipped_total"] == 1
-    assert first["included_edges_total"] == 1
-    assert first["omitted_edges_total"] == 1
-    assert first["freshness_checked_at"] == "2026-06-17T00:00:00Z"
 
 
 def test_context_receipt_edge_confidence_score_bounds() -> None:

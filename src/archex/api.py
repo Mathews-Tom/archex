@@ -1626,15 +1626,7 @@ def scout_with_bundle(
             direct_query_tokens=bundle.token_count,
             direct_query_file_paths=bundle_file_paths,
         )
-        file_hashes = {
-            path: str(state.get("sha256", ""))
-            for path, state in store.get_file_states().items()
-        }
-        scout_result.receipt = build_scout_receipt(
-            scout_result,
-            bundle.receipt,
-            file_hashes=file_hashes,
-        )
+        scout_result.receipt = build_scout_receipt(scout_result, bundle.receipt)
     finally:
         store.close()
     return scout_result, bundle

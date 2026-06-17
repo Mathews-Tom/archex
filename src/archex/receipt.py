@@ -23,7 +23,7 @@ from archex.models import (
     Edge,
     RankedChunk,
 )
-from archex.scout import ScoutResult, chunk_handle, file_handle, parse_scout_handle
+from archex.scout import ScoutResult, chunk_handle, file_handle
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
@@ -67,20 +67,13 @@ def build_context_receipt(
     *,
     index_revision: str,
     freshness: ContextFreshness,
-    freshness_checked_at: str | None = None,
-    index_fresh_at: str | None = None,
-    watch_fresh_at: str | None = None,
     included_edges: Iterable[ContextReceiptEdge] = (),
     omitted_edges: Iterable[ContextReceiptEdge] = (),
     skipped_candidates: Iterable[ContextSkippedCandidate] = (),
 ) -> ContextReceipt:
-    returned = _returned_context(bundle)
-    skipped_all = list(skipped_candidates)
-    omitted_all = list(omitted_edges)
-    included_all = list(included_edges)
-    skipped = sorted(skipped_all, key=_skipped_sort_key)[:_MAX_RECEIPT_SKIPPED]
+    skipped = sorted(skipped_candidates, key=_skipped_sort_key)[:_MAX_RECEIPT_SKIPPED]
     omitted = sorted(
-        omitted_all,
+        omitted_edges,
         key=lambda item: (
             item.reason.value if item.reason else "",
             item.source,
@@ -89,7 +82,7 @@ def build_context_receipt(
         ),
     )[:_MAX_RECEIPT_OMITTED_EDGES]
     included = sorted(
-        included_all,
+        included_edges,
         key=lambda item: (item.source, item.target, item.kind.value),
     )[:_MAX_RECEIPT_INCLUDED_EDGES]
     return ContextReceipt(
@@ -100,17 +93,10 @@ def build_context_receipt(
         ),
         index_revision=index_revision,
         freshness=freshness,
-        freshness_checked_at=freshness_checked_at,
-        index_fresh_at=index_fresh_at,
-        watch_fresh_at=watch_fresh_at,
-        returned_context=returned,
+        returned_context=_returned_context(bundle),
         included_edges=included,
         omitted_edges=omitted,
         skipped_candidates=skipped,
-        returned_total=len(returned),
-        skipped_total=len(skipped_all),
-        included_edges_total=len(included_all),
-        omitted_edges_total=len(omitted_all),
         context_complete=_completion_status(bundle, freshness, omitted, skipped),
         context_complete_reason=_completion_reason(bundle, freshness, omitted, skipped),
         recommended_next_action=_recommended_action(bundle, freshness, omitted, skipped),
@@ -120,37 +106,28 @@ def build_context_receipt(
 def build_scout_receipt(
     result: ScoutResult,
     direct_receipt: ContextReceipt | None,
-    *,
-    file_hashes: dict[str, str] | None = None,
 ) -> ContextReceipt | None:
     if direct_receipt is None:
         return None
-    file_hashes = file_hashes or {}
-    selected_handles = set(result.fetch_plan.handles)
-    selected_file_paths = _selected_scout_file_paths(result)
     returned = [
         ContextReceiptItem(
             handle=item.handle,
             file_path=item.path,
             start_line=1,
             end_line=item.lines,
-            content_hash=file_hashes.get(item.path, ""),
+            content_hash="",
             symbols=[symbol.name for symbol in result.symbols if symbol.file_path == item.path],
             score=item.score,
             reason_codes=[item.reason],
         )
         for item in sorted(result.ranked_files, key=lambda file: file.path)
     ]
-    skipped = [
-        item
-        for item in direct_receipt.skipped_candidates
-        if item.file_path not in selected_file_paths
-        and (item.handle is None or item.handle not in selected_handles)
-    ]
+    skipped = list(direct_receipt.skipped_candidates)
+    selected_handles = set(result.fetch_plan.handles)
     for file_path, reason in sorted(result.fetch_plan.file_reasons.items()):
         if reason.startswith("selected"):
             continue
-        if file_path in selected_file_paths or file_handle(file_path) in selected_handles:
+        if file_handle(file_path) in selected_handles:
             continue
         if reason.startswith("duplicate_handle"):
             code = ContextSkippedReason.DUPLICATE
@@ -176,14 +153,8 @@ def build_scout_receipt(
     )
     return direct_receipt.model_copy(
         update={
-            "token_budget": ContextReceiptTokenBudget(
-                requested=result.budget.token_budget,
-                consumed=result.budget.token_count,
-            ),
             "returned_context": returned,
             "skipped_candidates": merged_skipped,
-            "returned_total": len(returned),
-            "skipped_total": len(skipped),
             "context_complete": status,
             "context_complete_reason": (
                 completion_reason or direct_receipt.context_complete_reason
@@ -191,23 +162,6 @@ def build_scout_receipt(
             "recommended_next_action": action or direct_receipt.recommended_next_action,
         }
     )
-
-
-def _selected_scout_file_paths(result: ScoutResult) -> set[str]:
-    paths = {
-        file_path
-        for file_path, reason in result.fetch_plan.file_reasons.items()
-        if reason.startswith("selected")
-    }
-    for handle_value in result.fetch_plan.handles:
-        handle = parse_scout_handle(handle_value)
-        if handle is None:
-            continue
-        if handle.kind == "file":
-            paths.add(handle.value)
-        elif handle.kind in {"chunk", "symbol"} and "::" in handle.value:
-            paths.add(handle.value.split("::", 1)[0])
-    return paths
 
 
 def receipt_edges_for_graph(
