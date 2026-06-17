@@ -837,15 +837,46 @@ def _render_markdown(result: ScoutResult, *, include_receipt: bool = True) -> st
     ]
     if include_receipt and result.receipt is not None:
         receipt = result.receipt
-        lines.append(
-            "Receipt: "
-            f"freshness={receipt.freshness.value}, "
-            f"complete={receipt.context_complete.value}, "
-            f"reason={receipt.context_complete_reason.value}, "
-            f"action={receipt.recommended_next_action.value}, "
-            f"returned={len(receipt.returned_context)}, "
-            f"skipped={len(receipt.skipped_candidates)}"
+        lines.extend(
+            [
+                "",
+                "## Receipt",
+                f"- Freshness: {receipt.freshness.value}",
+                f"- Index revision: {receipt.index_revision}",
+                (
+                    f"- Budget: {receipt.token_budget.consumed} / "
+                    f"{receipt.token_budget.requested} tokens"
+                ),
+                f"- Context complete: {receipt.context_complete.value}",
+                f"- Reason: {receipt.context_complete_reason.value}",
+                f"- Recommended action: {receipt.recommended_next_action.value}",
+                (
+                    f"- Returned: {len(receipt.returned_context)} shown / "
+                    f"{receipt.returned_total} total"
+                ),
+                (
+                    f"- Skipped: {len(receipt.skipped_candidates)} shown / "
+                    f"{receipt.skipped_total} total"
+                ),
+                (
+                    f"- Omitted dependency edges: {len(receipt.omitted_edges)} shown / "
+                    f"{receipt.omitted_edges_total} total"
+                ),
+            ]
         )
+        if receipt.skipped_candidates:
+            lines.extend(["", "### Skipped candidates"])
+            for item in receipt.skipped_candidates[:8]:
+                handle = f" `{item.handle}`" if item.handle else ""
+                lines.append(
+                    f"- {item.file_path or '(index)'}{handle}: "
+                    f"{item.reason.value}, score={item.score:.3f}"
+                )
+        if receipt.omitted_edges:
+            lines.extend(["", "### Omitted dependency edges"])
+            for edge in receipt.omitted_edges[:8]:
+                reason = edge.reason.value if edge.reason else "unknown"
+                lines.append(f"- {edge.source} --{edge.kind.value}--> {edge.target}: {reason}")
     lines.extend(["", "## Ranked files"])
     if result.ranked_files:
         for item in result.ranked_files:

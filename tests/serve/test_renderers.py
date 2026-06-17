@@ -5,7 +5,18 @@ from __future__ import annotations
 from archex.models import (
     CodeChunk,
     ContextBundle,
+    ContextCompletenessReason,
+    ContextCompletenessStatus,
+    ContextFreshness,
+    ContextOmittedEdgeReason,
+    ContextReceipt,
+    ContextReceiptEdge,
+    ContextReceiptTokenBudget,
+    ContextRecommendedAction,
+    ContextSkippedCandidate,
+    ContextSkippedReason,
     DependencySummary,
+    EdgeKind,
     RankedChunk,
     StructuralContext,
     SymbolKind,
@@ -73,6 +84,39 @@ def _base_bundle(**overrides: object) -> ContextBundle:
     return ContextBundle(**defaults)  # type: ignore[arg-type]
 
 
+def _receipt() -> ContextReceipt:
+    return ContextReceipt(
+        query="how does auth work?",
+        token_budget=ContextReceiptTokenBudget(requested=1000, consumed=250),
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+        skipped_candidates=[
+            ContextSkippedCandidate(
+                file_path="src/extra.py",
+                reason=ContextSkippedReason.BELOW_THRESHOLD,
+                handle="file:src/extra.py",
+                score=0.25,
+            )
+        ],
+        omitted_edges=[
+            ContextReceiptEdge(
+                source="src/app.py",
+                target="src/db.py",
+                kind=EdgeKind.IMPORTS,
+                reason=ContextOmittedEdgeReason.OVER_BUDGET,
+                confidence_score=0.8,
+            )
+        ],
+        returned_total=3,
+        skipped_total=5,
+        omitted_edges_total=4,
+        context_complete=ContextCompletenessStatus.INCOMPLETE,
+        context_complete_reason=ContextCompletenessReason.DEPENDENCY_FRONTIER_CUT,
+        recommended_next_action=ContextRecommendedAction.FETCH_SKIPPED_CANDIDATE,
+    )
+
+
+
 # ---------------------------------------------------------------------------
 # Markdown renderer tests
 # ---------------------------------------------------------------------------
@@ -131,6 +175,18 @@ def test_markdown_both_internal_and_external_deps() -> None:
     assert "- httpx" in md
 
 
+def test_markdown_receipt_block_shows_totals_and_next_action() -> None:
+    md = render_markdown(_base_bundle(receipt=_receipt()))
+    assert "## Receipt" in md
+    assert "- Budget: 250 / 1000 tokens" in md
+    assert "- Recommended action: fetch_skipped_candidate" in md
+    assert "- Returned: 0 shown / 3 total" in md
+    assert "- Skipped: 1 shown / 5 total" in md
+    assert "- Omitted dependency edges: 1 shown / 4 total" in md
+    assert "src/extra.py" in md
+    assert "src/app.py --imports--> src/db.py" in md
+
+
 def test_markdown_no_file_tree_when_empty() -> None:
     bundle = _base_bundle(structural_context=StructuralContext(file_tree=""))
     md = render_markdown(bundle)
@@ -180,6 +236,16 @@ def test_xml_dependencies_block_rendered() -> None:
     assert "<internal>src/db.py</internal>" in xml
     assert "<external>sqlalchemy</external>" in xml
     assert "</dependencies>" in xml
+
+
+def test_xml_receipt_uses_shown_and_total_counts() -> None:
+    xml = render_xml(_base_bundle(receipt=_receipt()))
+    assert 'returned_shown="0"' in xml
+    assert 'returned_total="3"' in xml
+    assert 'skipped_shown="1"' in xml
+    assert 'skipped_total="5"' in xml
+    assert 'omitted_edges_shown="1"' in xml
+    assert 'omitted_edges_total="4"' in xml
 
 
 def test_xml_no_type_defs_or_deps_tags_when_empty() -> None:

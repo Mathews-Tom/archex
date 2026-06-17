@@ -94,7 +94,7 @@ class TestQueryPipelineEndToEnd:
         assert result.receipt.token_budget.consumed == result.budget.token_count
         assert result.receipt.returned_context[0].content_hash
         assert result.fetch_plan.handles
-        assert "Receipt: freshness=" in render_scout(result)
+        assert "## Receipt" in render_scout(result)
 
     def test_query_finds_relevant_files(self, python_simple_repo: Path) -> None:
         source = RepoSource(local_path=str(python_simple_repo))

@@ -127,9 +127,12 @@ def _render_receipt_xml(receipt: ContextReceipt) -> list[str]:
         f" index_revision={_attr(receipt.index_revision)}"
         f" budget_requested={_attr(str(receipt.token_budget.requested))}"
         f" budget_consumed={_attr(str(receipt.token_budget.consumed))}"
-        f" returned={_attr(str(len(receipt.returned_context)))}"
-        f" skipped={_attr(str(len(receipt.skipped_candidates)))}"
-        f" omitted_edges={_attr(str(len(receipt.omitted_edges)))}"
+        f" returned_shown={_attr(str(len(receipt.returned_context)))}"
+        f" returned_total={_attr(str(receipt.returned_total))}"
+        f" skipped_shown={_attr(str(len(receipt.skipped_candidates)))}"
+        f" skipped_total={_attr(str(receipt.skipped_total))}"
+        f" omitted_edges_shown={_attr(str(len(receipt.omitted_edges)))}"
+        f" omitted_edges_total={_attr(str(receipt.omitted_edges_total))}"
         ">",
     ]
     for item in receipt.returned_context[:8]:
