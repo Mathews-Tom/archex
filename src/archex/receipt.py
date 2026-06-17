@@ -67,20 +67,13 @@ def build_context_receipt(
     *,
     index_revision: str,
     freshness: ContextFreshness,
-    freshness_checked_at: str | None = None,
-    index_fresh_at: str | None = None,
-    watch_fresh_at: str | None = None,
     included_edges: Iterable[ContextReceiptEdge] = (),
     omitted_edges: Iterable[ContextReceiptEdge] = (),
     skipped_candidates: Iterable[ContextSkippedCandidate] = (),
 ) -> ContextReceipt:
-    returned = _returned_context(bundle)
-    skipped_all = list(skipped_candidates)
-    omitted_all = list(omitted_edges)
-    included_all = list(included_edges)
-    skipped = sorted(skipped_all, key=_skipped_sort_key)[:_MAX_RECEIPT_SKIPPED]
+    skipped = sorted(skipped_candidates, key=_skipped_sort_key)[:_MAX_RECEIPT_SKIPPED]
     omitted = sorted(
-        omitted_all,
+        omitted_edges,
         key=lambda item: (
             item.reason.value if item.reason else "",
             item.source,
@@ -89,7 +82,7 @@ def build_context_receipt(
         ),
     )[:_MAX_RECEIPT_OMITTED_EDGES]
     included = sorted(
-        included_all,
+        included_edges,
         key=lambda item: (item.source, item.target, item.kind.value),
     )[:_MAX_RECEIPT_INCLUDED_EDGES]
     return ContextReceipt(
@@ -100,17 +93,10 @@ def build_context_receipt(
         ),
         index_revision=index_revision,
         freshness=freshness,
-        freshness_checked_at=freshness_checked_at,
-        index_fresh_at=index_fresh_at,
-        watch_fresh_at=watch_fresh_at,
-        returned_context=returned,
+        returned_context=_returned_context(bundle),
         included_edges=included,
         omitted_edges=omitted,
         skipped_candidates=skipped,
-        returned_total=len(returned),
-        skipped_total=len(skipped_all),
-        included_edges_total=len(included_all),
-        omitted_edges_total=len(omitted_all),
         context_complete=_completion_status(bundle, freshness, omitted, skipped),
         context_complete_reason=_completion_reason(bundle, freshness, omitted, skipped),
         recommended_next_action=_recommended_action(bundle, freshness, omitted, skipped),
