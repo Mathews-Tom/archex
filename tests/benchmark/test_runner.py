@@ -14,6 +14,11 @@ from archex.benchmark.runner import AVAILABLE_STRATEGIES, DEFAULT_STRATEGIES, ru
 if TYPE_CHECKING:
     from pathlib import Path
 
+REQUIRES_RG = pytest.mark.skipif(
+    shutil.which("rg") is None,
+    reason="ripgrep executable required",
+)
+
 
 @pytest.fixture
 def fixture_task(python_simple_repo: Path) -> tuple[BenchmarkTask, Path]:
@@ -105,6 +110,7 @@ class TestBenchmarkPreflight:
 
 
 class TestRunBenchmark:
+    @REQUIRES_RG
     def test_run_with_fixture_repo(
         self,
         fixture_task: tuple[BenchmarkTask, Path],
@@ -121,6 +127,7 @@ class TestRunBenchmark:
         assert report.median_latency_ms > 0
         assert report.p95_latency_ms >= report.median_latency_ms
 
+    @REQUIRES_RG
     def test_baseline_tokens_from_raw_files(
         self,
         fixture_task: tuple[BenchmarkTask, Path],
@@ -306,6 +313,7 @@ class TestRunBenchmark:
             ("coderank", True, "cross-encoder/ms-marco-MiniLM-L-6-v2", "cast", 3),
         ]
 
+    @REQUIRES_RG
     def test_skips_warmup_for_raw_only_strategies(
         self,
         fixture_task: tuple[BenchmarkTask, Path],
@@ -329,6 +337,7 @@ class TestRunBenchmark:
         )
         assert warmed == []
 
+    @REQUIRES_RG
     def test_default_strategies_used_when_none(
         self,
         fixture_task: tuple[BenchmarkTask, Path],
@@ -344,6 +353,7 @@ class TestRunBenchmark:
         assert Strategy.ARCHEX_QUERY_FUSION not in strategy_names
         assert Strategy.CROSS_LAYER_FUSION not in strategy_names
 
+    @REQUIRES_RG
     def test_no_baseline_when_raw_files_omitted(
         self,
         fixture_task: tuple[BenchmarkTask, Path],
