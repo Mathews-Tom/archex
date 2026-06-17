@@ -14,6 +14,7 @@ from archex.integrations.mcp import handle_get_file_tree, handle_query_repo, han
 from archex.metrics.categories import category_for_tool
 from archex.metrics.health import read_metrics_health
 from archex.metrics.policy import METRICS_ENV, resolve_metrics_policy
+from archex.metrics.recorder import UsageEvent
 from archex.metrics.storage import MetricsStore
 from archex.models import Config, RepoSource
 
