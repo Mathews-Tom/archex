@@ -43,7 +43,7 @@ class TestStrategyRegistry:
     def test_default_registry_has_builtin_strategies(self) -> None:
         names = default_strategy_registry.strategy_names
         assert Strategy.RAW_FILES.value in names
-        assert Strategy.RAW_GREPPED.value in names
+        assert Strategy.RAW_RIPGREP.value in names
         assert Strategy.ARCHEX_QUERY.value in names
         assert Strategy.ARCHEX_SCOUT_FETCH.value in names
         assert Strategy.ARCHEX_QUERY_VECTOR.value in names

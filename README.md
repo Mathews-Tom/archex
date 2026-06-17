@@ -272,7 +272,7 @@ See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the current pub
 | --- | ---: | ---: | ---: | ---: |
 | `archex` | 0.95 | 0.66 | 0.76 | 408 |
 | `ccc` | 0.32 | 0.31 | 0.48 | 521 |
-| `raw-grep/read` | 1.00 | 0.38 | 0.00 | 155 |
+| `raw-ripgrep/read` | 1.00 | 0.38 | 0.00 | 155 |
 
 ## Advanced workflows
 

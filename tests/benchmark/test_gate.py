@@ -197,7 +197,7 @@ def test_check_gate_exempt_strategies_skipped() -> None:
     """Strategies in gate_exempt_strategies produce no violations even when below threshold."""
     for strategy in (
         Strategy.RAW_FILES,
-        Strategy.RAW_GREPPED,
+        Strategy.RAW_RIPGREP,
         Strategy.ARCHEX_QUERY_VECTOR,
     ):
         reports = [_make_report_for_strategy(strategy, recall=0.0)]

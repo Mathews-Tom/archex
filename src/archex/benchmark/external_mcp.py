@@ -316,6 +316,7 @@ def run_external_mcp(
         result_files=unique_files,
         required_file_recall=required_file_recall,
         missed_required_file_rate=missed_required_file_rate,
+        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
         all_required_files_present=all_required_files_present,
         required_files_present=present,
         required_files_missing=missing,

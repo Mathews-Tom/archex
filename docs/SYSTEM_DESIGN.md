@@ -166,7 +166,7 @@ archex/
 │   ├── reporter.py         # Human-readable reports
 │   ├── gate.py             # Baseline/regression gates
 │   ├── strategies.py       # Retrieval strategies under test
-│   └── headtohead.py       # archex vs ccc vs raw-grep/read harness
+│   └── headtohead.py       # archex vs ccc vs raw-ripgrep/read harness
 │
 └── cli/                    # Click entry points
     ├── main.py             # Root click group definition

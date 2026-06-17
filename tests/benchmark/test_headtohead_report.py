@@ -73,7 +73,7 @@ def test_format_headtohead_markdown_keeps_all_lanes_and_provenance() -> None:
         results=[
             _result(Strategy.ARCHEX_QUERY),
             _result(Strategy.EXTERNAL_MCP, label="ccc"),
-            _result(Strategy.RAW_GREPPED),
+            _result(Strategy.RAW_RIPGREP),
         ],
     )
 
@@ -81,7 +81,7 @@ def test_format_headtohead_markdown_keeps_all_lanes_and_provenance() -> None:
 
     assert "| archex |" in output
     assert "| ccc |" in output
-    assert "| raw-grep/read |" in output
+    assert "| raw-ripgrep/read |" in output
     assert "prov: manifest=comparison" in output
     assert "field=freshness_latency_ms" in output
     assert "field=freshness_correct" in output
@@ -137,7 +137,7 @@ external_tools:
     assert (tmp_path / "out" / "manifest.yaml").is_file()
     assert captured["strategies"] == [
         Strategy.RAW_FILES,
-        Strategy.RAW_GREPPED,
+        Strategy.RAW_RIPGREP,
         Strategy.ARCHEX_QUERY,
         Strategy.EXTERNAL_MCP,
     ]

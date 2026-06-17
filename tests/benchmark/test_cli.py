@@ -381,7 +381,7 @@ class TestRunCommand:
         assert captured["output_dir"] == Path(".archex/benchmark-results")
         assert captured["strategies"] == [
             Strategy.RAW_FILES,
-            Strategy.RAW_GREPPED,
+            Strategy.RAW_RIPGREP,
             Strategy.ARCHEX_QUERY,
         ]
         assert captured["retrieval_options"] == BenchmarkRetrievalOptions()
@@ -413,7 +413,7 @@ class TestRunCommand:
         assert result.exit_code == 0
         assert captured["strategies"] == [
             Strategy.RAW_FILES,
-            Strategy.RAW_GREPPED,
+            Strategy.RAW_RIPGREP,
             Strategy.ARCHEX_QUERY,
             Strategy.ARCHEX_SCOUT_FETCH,
         ]
@@ -448,7 +448,7 @@ class TestRunCommand:
         assert result.exit_code == 0
         assert captured["strategies"] == [
             Strategy.RAW_FILES,
-            Strategy.RAW_GREPPED,
+            Strategy.RAW_RIPGREP,
             Strategy.ARCHEX_QUERY,
             Strategy.ARCHEX_QUERY_FUSION,
             Strategy.CROSS_LAYER_FUSION,
@@ -481,7 +481,7 @@ class TestRunCommand:
         assert result.exit_code == 0
         assert captured["strategies"] == [
             Strategy.RAW_FILES,
-            Strategy.RAW_GREPPED,
+            Strategy.RAW_RIPGREP,
             Strategy.ARCHEX_QUERY,
             Strategy.ARCHEX_QUERY_FUSION,
             Strategy.ARCHEX_QUERY_FUSION_RERANK,

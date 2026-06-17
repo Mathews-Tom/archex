@@ -22,6 +22,7 @@ class TestStrategy:
     def test_enum_values(self) -> None:
         assert Strategy.RAW_FILES == "raw_files"
         assert Strategy.RAW_GREPPED == "raw_grepped"
+        assert Strategy.RAW_RIPGREP == "raw_ripgrep"
         assert Strategy.ARCHEX_QUERY == "archex_query"
         assert Strategy.ARCHEX_SCOUT_FETCH == "archex_scout_fetch"
         assert Strategy.ARCHEX_QUERY_VECTOR == "archex_query_vector"

@@ -16,6 +16,7 @@ _SUMMARY_FIELDS = (
     "recall",
     "required_file_recall",
     "missed_required_file_rate",
+    "missed_required_task_rate",
     "f1_score",
     "mrr",
     "ndcg",
@@ -26,6 +27,7 @@ _BUCKET_FIELDS = (
     "precision",
     "required_file_recall",
     "missed_required_file_rate",
+    "missed_required_task_rate",
     "f1_score",
     "mrr",
     "ndcg",
@@ -119,13 +121,15 @@ def format_markdown(report: BenchmarkReport) -> str:
     lines.append(f"**Baseline tokens:** {report.baseline_tokens:,}")
     lines.append("")
     header = (
-        "| Strategy | Tokens | Required Recall | Missed Task Rate | All Required | "
-        "Post Reads | Completion | Receipt Accuracy | Recall | Precision | F1 | Time (ms) |"
+        "| Strategy | Tokens | Required Recall | Missed File Rate | Missed Task Rate | "
+        "All Required | Post Reads | Completion | Receipt Accuracy | Recall | Precision | "
+        "F1 | Time (ms) |"
     )
     lines.append(header)
     lines.append(
-        "|----------|--------|-----------------|------------------|--------------|"
-        "------------|------------|------------------|--------|-----------|------|-----------|"
+        "|----------|--------|-----------------|------------------|------------------|"
+        "--------------|------------|------------|------------------|--------|-----------|"
+        "------|-----------|"
     )
     for r in report.results:
         receipt_accuracy = _receipt_accuracy_label(r.receipt_accuracy)
@@ -133,9 +137,10 @@ def format_markdown(report: BenchmarkReport) -> str:
         post_reads = r.post_bundle_read_turns if r.post_bundle_read_turns is not None else "—"
         lines.append(
             f"| {r.strategy.value} | {r.tokens_total:,} | {r.required_file_recall:.2f} "
-            f"| {r.missed_required_file_rate:.2f} | {all_required} | {post_reads} "
-            f"| {r.task_completion_result.value} | {receipt_accuracy} | {r.recall:.2f} "
-            f"| {r.precision:.2f} | {r.f1_score:.2f} | {r.wall_time_ms:.0f} |"
+            f"| {r.missed_required_file_rate:.2f} | {r.missed_required_task_rate:.2f} "
+            f"| {all_required} | {post_reads} | {r.task_completion_result.value} "
+            f"| {receipt_accuracy} | {r.recall:.2f} | {r.precision:.2f} "
+            f"| {r.f1_score:.2f} | {r.wall_time_ms:.0f} |"
         )
     lines.extend(_missing_required_file_appendix(report))
     lines.append("")
@@ -266,20 +271,22 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
         lines.append(f"## {report.task_id}")
         lines.append("")
         lines.append(
-            "| Strategy | Required Recall | Missed Task Rate | All Required | "
-            "Completion | Receipt Accuracy | Recall | Precision | F1 | Tokens Total |"
+            "| Strategy | Required Recall | Missed File Rate | Missed Task Rate | "
+            "All Required | Completion | Receipt Accuracy | Recall | Precision | F1 | "
+            "Tokens Total |"
         )
         lines.append(
-            "|----------|-----------------|------------------|--------------|"
-            "------------|------------------|--------|-----------|------|-------------|"
+            "|----------|-----------------|------------------|------------------|"
+            "--------------|------------|------------------|--------|-----------|------|"
+            "-------------|"
         )
         for r in report.results:
             receipt_accuracy = _receipt_accuracy_label(r.receipt_accuracy)
             all_required = _all_required_label(r.all_required_files_present)
             lines.append(
                 f"| {r.strategy.value} | {r.required_file_recall:.2f} "
-                f"| {r.missed_required_file_rate:.2f} | {all_required} "
-                f"| {r.task_completion_result.value} | {receipt_accuracy} "
+                f"| {r.missed_required_file_rate:.2f} | {r.missed_required_task_rate:.2f} "
+                f"| {all_required} | {r.task_completion_result.value} | {receipt_accuracy} "
                 f"| {r.recall:.2f} | {r.precision:.2f} | {r.f1_score:.2f} "
                 f"| {r.tokens_total:,} |"
             )

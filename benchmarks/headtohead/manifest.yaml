@@ -46,4 +46,4 @@ external_tools:
       - command: ccc
         args: [index]
         timeout_seconds: 900
-raw_read_strategy: raw_grepped
+raw_read_strategy: raw_ripgrep

@@ -87,7 +87,7 @@ def _write_baseline(
                 ),
                 BaselineEntry(
                     task_id="archex_query_pipeline",
-                    strategy=Strategy.RAW_GREPPED.value,
+                    strategy=Strategy.RAW_RIPGREP.value,
                     recall=1.0,
                     precision=1.0,
                     f1_score=1.0,
@@ -157,7 +157,7 @@ def _diagnostic_regressing_report(
     report = _report(task)
     diagnostic_result = report.results[0].model_copy(
         update={
-            "strategy": Strategy.RAW_GREPPED,
+            "strategy": Strategy.RAW_RIPGREP,
             "recall": 0.0,
             "precision": 0.0,
             "f1_score": 0.0,
@@ -185,7 +185,7 @@ def test_dogfood_runs_self_tasks_and_writes_reports(
     ) -> BenchmarkReport:
         captured.append(task.task_id)
         assert repo_path == tmp_path
-        assert strategies == [Strategy.RAW_FILES, Strategy.RAW_GREPPED, Strategy.ARCHEX_QUERY]
+        assert strategies == [Strategy.RAW_FILES, Strategy.RAW_RIPGREP, Strategy.ARCHEX_QUERY]
         return _report(task)
 
     monkeypatch.setattr("archex.dogfood.run_benchmark", fake_run_benchmark)
