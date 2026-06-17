@@ -4,9 +4,29 @@ from pathlib import Path
 from unittest.mock import patch
 
 from archex.index.store import IndexStore
-from archex.models import CodeChunk, Edge, EdgeConfidence, EdgeKind, Module, RankedChunk, SymbolKind
+from archex.models import (
+    CodeChunk,
+    ContextCompletenessReason,
+    ContextCompletenessStatus,
+    ContextFreshness,
+    ContextOmittedEdgeReason,
+    ContextReceipt,
+    ContextReceiptEdge,
+    ContextReceiptTokenBudget,
+    ContextRecommendedAction,
+    ContextSkippedCandidate,
+    ContextSkippedReason,
+    Edge,
+    EdgeConfidence,
+    EdgeKind,
+    Module,
+    RankedChunk,
+    SymbolKind,
+)
 from archex.reporting import count_tokens
 from archex.scout import (
+    ScoutBudget,
+    ScoutResult,
     assemble_scout_from_store,
     chunk_handle,
     file_handle,
@@ -116,6 +136,53 @@ def test_scout_truncates_deterministically_under_cap(tmp_path: Path) -> None:
     assert first.budget.truncated is True
     assert count_tokens(render_scout(first)) <= 140
     assert first.budget.token_count == count_tokens(render_scout(first))
+
+
+
+def test_scout_markdown_receipt_shows_actionable_details() -> None:
+    receipt = ContextReceipt(
+        query="models",
+        token_budget=ContextReceiptTokenBudget(requested=120, consumed=80),
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+        skipped_candidates=[
+            ContextSkippedCandidate(
+                file_path="pkg/extra.py",
+                reason=ContextSkippedReason.BELOW_THRESHOLD,
+                handle=file_handle("pkg/extra.py"),
+                score=0.45,
+            )
+        ],
+        omitted_edges=[
+            ContextReceiptEdge(
+                source="pkg/app.py",
+                target="pkg/extra.py",
+                kind=EdgeKind.IMPORTS,
+                reason=ContextOmittedEdgeReason.BELOW_THRESHOLD,
+            )
+        ],
+        returned_total=2,
+        skipped_total=7,
+        omitted_edges_total=3,
+        context_complete=ContextCompletenessStatus.INCOMPLETE,
+        context_complete_reason=ContextCompletenessReason.DEPENDENCY_FRONTIER_CUT,
+        recommended_next_action=ContextRecommendedAction.FETCH_SKIPPED_CANDIDATE,
+    )
+    scout_result = ScoutResult(
+        query="models",
+        budget=ScoutBudget(token_budget=120, token_count=80),
+        receipt=receipt,
+    )
+
+    rendered = render_scout(scout_result)
+
+    assert "## Receipt" in rendered
+    assert "- Budget: 80 / 120 tokens" in rendered
+    assert "- Returned: 0 shown / 2 total" in rendered
+    assert "- Skipped: 1 shown / 7 total" in rendered
+    assert "- Omitted dependency edges: 1 shown / 3 total" in rendered
+    assert "pkg/extra.py `file:pkg/extra.py`: below_threshold, score=0.450" in rendered
+    assert "pkg/app.py --imports--> pkg/extra.py: below_threshold" in rendered
 
 
 def test_scout_guardrail_prefers_direct_query_when_fetch_is_not_cheaper(tmp_path: Path) -> None:
