@@ -297,7 +297,6 @@ archex follows a minimal-dependency strategy:
 
 | Extra                   | Dependencies                | Purpose                                      |
 | ----------------------- | --------------------------- | -------------------------------------------- |
-| `archex[vector]`        | `onnxruntime`, `tokenizers` | Local ONNX/tokenizer-backed embeddings       |
 | `archex[vector-fast]`   | `fastembed`                 | Fast local embedding runtime                 |
 | `archex[vector-torch]`  | `sentence-transformers`     | Full torch-backed local embeddings           |
 | `archex[splade]`        | `transformers`, `torch`     | Optional SPLADE sparse retrieval leg         |
