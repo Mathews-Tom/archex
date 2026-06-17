@@ -36,6 +36,8 @@ class FakeTree:
 
     def model_dump_json(self, indent: int | None = None) -> str:
         return '{\n  "root": "repo",\n  "entries": []\n}'
+
+
 def _fake_scout_result() -> SimpleNamespace:
     return SimpleNamespace(
         query="where is auth",
