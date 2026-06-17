@@ -264,7 +264,7 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 
 ## Measured results
 
-The public C1 harness still publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw grep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, and bundle-completion penalty tokens. The benchmark harness now also emits required-file recall, missed-required-file rate, all-required-files-present, task-completion result, completion-preserved, and receipt-accuracy fields in report outputs. This README does not claim new public values for those fields until a published run lands.
+The public C1 harness publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw-ripgrep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, and bundle-completion penalty tokens. The benchmark harness now also emits required-file recall, missed-required-file rate, all-required-files-present, task-completion result, completion-preserved, and receipt-accuracy fields in report outputs. This README does not claim new public values for those fields until a published run lands.
 
 See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the current published comparison and [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) for the decision trail.
 

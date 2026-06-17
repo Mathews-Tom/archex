@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -341,6 +342,26 @@ class TestRunRawFiles:
         assert result.tokens_raw_baseline == result.tokens_total
 
 
+REQUIRES_RG = pytest.mark.skipif(
+    shutil.which("rg") is None,
+    reason="ripgrep executable required",
+)
+
+
+def test_raw_ripgrep_missing_executable_fails(
+    sample_task: BenchmarkTask,
+    python_simple_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing_executable(_name: str) -> str | None:
+        return None
+
+    monkeypatch.setattr("archex.benchmark.strategies.shutil.which", missing_executable)
+    with pytest.raises(RuntimeError, match="requires ripgrep executable"):
+        run_raw_ripgrep(sample_task, python_simple_repo)
+
+
+@REQUIRES_RG
 class TestRunRawGrepped:
     def test_grep_finds_files(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(

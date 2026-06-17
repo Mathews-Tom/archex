@@ -122,7 +122,7 @@ def triage_failures(
         result = _find_result(report, strategy)
         if result is None:
             continue
-        raw_grepped = _find_result(report, Strategy.RAW_GREPPED)
+        raw_grepped = _find_raw_read_result(report)
         task = tasks_by_id.get(report.task_id)
         expected_files = task.expected_files if task is not None else []
         category = _category(result, task)
@@ -333,6 +333,10 @@ def _failure_bucket(
     if result.precision < LOW_PRECISION_THRESHOLD:
         return "low_precision"
     return "semantic_gap"
+
+
+def _find_raw_read_result(report: BenchmarkReport) -> BenchmarkResult | None:
+    return _find_result(report, Strategy.RAW_RIPGREP) or _find_result(report, Strategy.RAW_GREPPED)
 
 
 def _raw_grepped_gap(

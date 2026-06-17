@@ -82,10 +82,7 @@ def _receipt_lines(receipt: ContextReceipt) -> list[str]:
         "",
         f"- Freshness: {receipt.freshness.value}",
         f"- Index revision: {receipt.index_revision}",
-        (
-            f"- Budget: {receipt.token_budget.consumed} / "
-            f"{receipt.token_budget.requested} tokens"
-        ),
+        (f"- Budget: {receipt.token_budget.consumed} / {receipt.token_budget.requested} tokens"),
         f"- Context complete: {receipt.context_complete.value}",
         f"- Reason: {receipt.context_complete_reason.value}",
         f"- Recommended action: {receipt.recommended_next_action.value}",
