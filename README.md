@@ -264,15 +264,15 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 
 ## Measured results
 
-The public C1 harness publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw-ripgrep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, and bundle-completion penalty tokens. The benchmark harness now also emits required-file recall, missed-required-file rate, all-required-files-present, task-completion result, completion-preserved, and receipt-accuracy fields in report outputs. This README does not claim new public values for those fields until a published run lands.
+The public C1 harness publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw-ripgrep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, required-file recall, missed-required-file rate, missed-required-task rate, all-required-present rate, receipt accuracy, and bundle-completion penalty tokens. The checked-in artifacts now include those trust fields; receipt accuracy is `n/a` for the historical C1 run because those artifacts predate query receipt capture.
 
 See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the current published comparison and [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) for the decision trail.
 
-| Lane | Recall | F1 | Token efficiency | Warm latency ms |
-| --- | ---: | ---: | ---: | ---: |
-| `archex` | 0.95 | 0.66 | 0.76 | 408 |
-| `ccc` | 0.32 | 0.31 | 0.48 | 521 |
-| `raw-ripgrep/read` | 1.00 | 0.38 | 0.00 | 155 |
+| Lane | Recall | Required recall | Missed task rate | F1 | Token efficiency | Efficiency after completion | Warm latency ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `archex` | 0.95 | 0.95 | 0.16 | 0.66 | 0.76 | 0.74 | 408 |
+| `ccc` | 0.32 | 0.32 | 0.79 | 0.31 | 0.48 | 0.41 | 521 |
+| `raw-ripgrep/read` | 1.00 | 1.00 | 0.00 | 0.05 | 0.00 | 0.00 | 773 |
 
 ## Advanced workflows
 
