@@ -979,7 +979,7 @@ Build evaluation datasets and assertions using Attest's graduated assertion pipe
 
 **Delivered surfaces:**
 
-- strict benchmark task validation, public head-to-head harness, and evidence-gated comparison against `ccc` and raw grep/read
+- strict benchmark task validation, public head-to-head harness, and evidence-gated comparison against `ccc` and raw-ripgrep/read
 - working-tree delta refresh, query-time auto-refresh, and optional warm MCP watch mode
 - edge confidence/provenance, graph-native CLI/MCP queries, and token-light scout→fetch protocol
 - expanded language tiers, cAST chunking A/B infrastructure, and distribution parity through doctor/skill/Docker/comparison docs

@@ -51,4 +51,4 @@ archex decides what context to retrieve: files, symbols, chunks, dependency neig
 
 ## Practical choice
 
-Use archex when the task needs a local, inspectable, token-budgeted bundle with provenance and architecture context. Use cocoindex-code when its broader language coverage or existing marketplace distribution matters more than measured bundle quality. Use raw grep/read when exhaustive recall is worth reading substantially more context by hand.
+Use archex when the task needs a local, inspectable, token-budgeted bundle with provenance and architecture context. Use cocoindex-code when its broader language coverage or existing marketplace distribution matters more than measured bundle quality. Use raw-ripgrep/read when exhaustive recall is worth reading substantially more context by hand.
