@@ -90,6 +90,9 @@ class TestQueryPipelineEndToEnd:
         assert result.receipt is not None
         assert result.receipt.returned_context
         assert result.receipt.returned_context[0].handle.startswith("file:")
+        assert result.receipt.token_budget.requested == result.budget.token_budget
+        assert result.receipt.token_budget.consumed == result.budget.token_count
+        assert result.receipt.returned_context[0].content_hash
         assert result.fetch_plan.handles
         assert "Receipt: freshness=" in render_scout(result)
 
