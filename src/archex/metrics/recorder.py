@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, cast
@@ -13,7 +14,7 @@ from uuid import uuid4
 
 from archex.metrics.health import record_metrics_failure
 from archex.metrics.math import TokenSavings, compute_token_savings
-from archex.metrics.policy import MetricsPolicy, resolve_metrics_policy
+from archex.metrics.policy import METRICS_ENV, MetricsPolicy, resolve_metrics_policy
 from archex.metrics.registry import RepoRegistry
 from archex.metrics.storage import MetricsStore
 
@@ -79,12 +80,16 @@ class MetricsRecorder:
         self._store = MetricsStore(db_path)
         self._registry = RepoRegistry(db_path)
 
-    def record(self, event: UsageEvent) -> None:
+    def record(self, event: UsageEvent, *, force: bool = False) -> None:
         """Record an event without raising into query/scout/MCP call paths."""
         try:
+            if os.environ.get(METRICS_ENV, "").casefold() == "off":
+                return
             policy = resolve_metrics_policy(db_path=self._db_path)
             if not policy.metrics_enabled:
-                return
+                if not force:
+                    return
+                policy = replace(policy, metrics_enabled=True)
             self._record(event, policy)
         except Exception as exc:  # pragma: no cover - defensive non-fatal boundary
             logger.debug("metrics recording failed", exc_info=True)

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from archex.metrics.health import read_metrics_health
-from archex.metrics.policy import METRICS_ENV, TRACE_ENV
+from archex.metrics.policy import METRICS_ENV, TRACE_ENV, set_metrics_enabled
 from archex.metrics.recorder import MetricsRecorder, TraceDetails, UsageEvent
 from archex.metrics.registry import RepoRegistry
 from archex.metrics.storage import MetricsStore
@@ -15,6 +15,7 @@ from archex.metrics.storage import MetricsStore
 def test_record_writes_anonymous_event_and_daily_aggregate(tmp_path: Path) -> None:
     db_path = tmp_path / "usage.sqlite"
     repo_root = _repo(tmp_path)
+    set_metrics_enabled(True, db_path=db_path)
 
     MetricsRecorder(db_path).record(_event(repo_root))
 
@@ -52,6 +53,7 @@ def test_trace_rows_exist_only_after_explicit_trace_enable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_path = tmp_path / "usage.sqlite"
+    set_metrics_enabled(True, db_path=db_path)
     repo_root = _repo(tmp_path)
     event = _event(
         repo_root,
@@ -90,6 +92,7 @@ def test_retention_prunes_raw_events_and_traces_but_keeps_daily(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_path = tmp_path / "usage.sqlite"
+    set_metrics_enabled(True, db_path=db_path)
     repo_root = _repo(tmp_path)
     recorder = MetricsRecorder(db_path)
     monkeypatch.setenv(TRACE_ENV, "on")
@@ -114,6 +117,7 @@ def test_recorder_failures_are_non_fatal_and_record_health(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_path = tmp_path / "usage.sqlite"
+    set_metrics_enabled(True, db_path=db_path)
 
     def fail_get_or_create(self: RepoRegistry, repo_root: str | Path) -> object:
         raise RuntimeError("registry unavailable")

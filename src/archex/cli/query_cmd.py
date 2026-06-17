@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from archex.api import get_files_token_count, query
+from archex.api import get_files_token_count, get_repo_total_tokens, query
 from archex.exceptions import ArchexError
 from archex.metrics.capture import record_query_usage
 from archex.metrics.health import record_metrics_failure
@@ -166,12 +166,13 @@ def _record_metrics(
         raw = raw_tokens
         if raw is None:
             raw = get_files_token_count(repo_source, unique_files, config)
+        whole_repo_tokens = _repo_total_tokens(repo_source, config)
         record_query_usage(
             repo_source,
             bundle,
             surface="cli",
             tokens_raw_equivalent=raw,
-            whole_repo_tokens=None,
+            whole_repo_tokens=whole_repo_tokens,
         )
     except Exception as exc:
         logger.debug("query metrics recording failed", exc_info=True)
@@ -179,6 +180,18 @@ def _record_metrics(
             record_metrics_failure("record", str(exc))
         except Exception:
             logger.debug("query metrics health recording failed", exc_info=True)
+
+
+def _repo_total_tokens(repo_source: RepoSource, config: Config) -> int | None:
+    try:
+        return get_repo_total_tokens(repo_source, config)
+    except Exception as exc:
+        logger.debug("query metrics whole-repo tokens unavailable", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("query metrics health recording failed", exc_info=True)
+        return None
 
 
 def _source_and_question(args: tuple[str, ...]) -> tuple[str, str]:

@@ -154,7 +154,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
 
 def _seed_settings(conn: sqlite3.Connection) -> None:
     settings = {
-        "metrics_enabled": "true",
+        "metrics_enabled": "false",
         "trace_enabled": "false",
         "raw_event_retention_days": str(DEFAULT_RAW_EVENT_RETENTION_DAYS),
         "trace_retention_days": str(DEFAULT_TRACE_RETENTION_DAYS),

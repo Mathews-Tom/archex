@@ -38,7 +38,7 @@ def test_bootstrap_creates_schema_and_default_settings(tmp_path: Path) -> None:
         "settings",
         "metrics_health",
     }.issubset(table_names)
-    assert settings["metrics_enabled"] == "true"
+    assert settings["metrics_enabled"] == "false"
     assert settings["trace_enabled"] == "false"
     assert settings["raw_event_retention_days"] == str(DEFAULT_RAW_EVENT_RETENTION_DAYS)
     assert settings["trace_retention_days"] == str(DEFAULT_TRACE_RETENTION_DAYS)
