@@ -190,18 +190,23 @@ def handle_scout_repo(
     )
 
 
-def _record_query_metrics(source: RepoSource, bundle: ContextBundle, raw_tokens: int) -> None:
+def _record_query_metrics(
+    source: RepoSource,
+    bundle: ContextBundle,
+    raw_tokens: int,
+) -> None:
     try:
         policy = resolve_metrics_policy()
         if not policy.metrics_enabled:
             return
+        whole_repo_tokens = _whole_repo_tokens(source)
         record_query_usage(
             source,
             bundle,
             surface="mcp",
             tool_name="query_repo",
             tokens_raw_equivalent=raw_tokens,
-            whole_repo_tokens=None,
+            whole_repo_tokens=whole_repo_tokens,
         )
     except Exception as exc:
         logger.debug("MCP query metrics recording failed", exc_info=True)
@@ -215,12 +220,13 @@ def _record_scout_metrics(
     source: RepoSource,
     result: ScoutResult,
     rendered: str,
-    raw_tokens: int,
+    whole_repo_tokens: int | None,
 ) -> None:
     try:
         policy = resolve_metrics_policy()
         if not policy.metrics_enabled:
             return
+        raw_tokens = get_files_token_count(source, _scout_file_paths(result))
         record_scout_usage(
             source,
             result,
@@ -228,7 +234,7 @@ def _record_scout_metrics(
             tool_name="scout_repo",
             tokens_returned=count_tokens(rendered),
             tokens_raw_equivalent=raw_tokens,
-            whole_repo_tokens=raw_tokens,
+            whole_repo_tokens=whole_repo_tokens,
         )
     except Exception as exc:
         logger.debug("MCP scout metrics recording failed", exc_info=True)
@@ -236,6 +242,31 @@ def _record_scout_metrics(
             record_metrics_failure("record", str(exc))
         except Exception:
             logger.debug("MCP scout metrics health recording failed", exc_info=True)
+
+
+def _whole_repo_tokens(source: RepoSource) -> int | None:
+    try:
+        return get_repo_total_tokens(source)
+    except Exception as exc:
+        logger.debug("MCP metrics whole-repo tokens unavailable", exc_info=True)
+        try:
+            record_metrics_failure("record", str(exc))
+        except Exception:
+            logger.debug("MCP metrics health recording failed", exc_info=True)
+        return None
+
+
+def _scout_file_paths(result: ScoutResult) -> list[str]:
+    paths = {item.path for item in result.ranked_files}
+    paths.update(symbol.file_path for symbol in result.symbols)
+    for module in result.modules:
+        paths.update(module.relevant_files)
+    for edge in result.graph:
+        if edge.source_path is not None:
+            paths.add(edge.source_path)
+        if edge.target_path is not None:
+            paths.add(edge.target_path)
+    return sorted(paths)
 
 
 def handle_compare_repos(
