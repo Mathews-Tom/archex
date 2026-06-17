@@ -19,7 +19,6 @@ from archex.utils import resolve_source
 logger = logging.getLogger(__name__)
 
 
-
 @click.command("analyze")
 @click.argument("source", required=False, default=".")
 @click.option(

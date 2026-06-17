@@ -18,7 +18,6 @@ from archex.utils import resolve_source
 logger = logging.getLogger(__name__)
 
 
-
 @click.command("symbol")
 @click.argument("args", nargs=-1, required=True)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")

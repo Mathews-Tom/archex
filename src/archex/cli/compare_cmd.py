@@ -20,7 +20,6 @@ from archex.utils import resolve_source
 logger = logging.getLogger(__name__)
 
 
-
 def render_comparison_markdown(result: object) -> str:
     """Render a ComparisonResult as markdown."""
     from archex.models import ComparisonResult

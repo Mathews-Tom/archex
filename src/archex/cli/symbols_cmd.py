@@ -19,7 +19,6 @@ from archex.utils import resolve_source
 logger = logging.getLogger(__name__)
 
 
-
 @click.command("symbols")
 @click.argument("args", nargs=-1, required=True)
 @click.option("--kind", default=None, help="Filter by kind: function, class, method, etc.")
@@ -73,9 +72,7 @@ def _render_symbols(results: list[SymbolMatch]) -> str:
     lines = [hdr, "-" * len(hdr)]
     for m in results:
         lines.append(
-            f"{m.kind:<{ck}}  {m.name:<{cn}}  "
-            f"{m.file_path:<{cf}}  {m.start_line:<6}  "
-            f"{m.symbol_id}"
+            f"{m.kind:<{ck}}  {m.name:<{cn}}  {m.file_path:<{cf}}  {m.start_line:<6}  {m.symbol_id}"
         )
     return "\n".join(lines)
 
