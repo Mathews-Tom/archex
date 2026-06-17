@@ -361,4 +361,4 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&legend=top-left&cache=v0.11.0)](https://www.star-history.com/?repos=Mathews-Tom%2Farchex&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&legend=top-left&cache=v0.12.0)](https://www.star-history.com/?repos=Mathews-Tom%2Farchex&type=date&legend=top-left)
