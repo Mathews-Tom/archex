@@ -23,7 +23,7 @@ from archex.models import (
     Edge,
     RankedChunk,
 )
-from archex.scout import ScoutResult, chunk_handle, file_handle, parse_scout_handle
+from archex.scout import ScoutResult, chunk_handle, file_handle
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
@@ -120,37 +120,28 @@ def build_context_receipt(
 def build_scout_receipt(
     result: ScoutResult,
     direct_receipt: ContextReceipt | None,
-    *,
-    file_hashes: dict[str, str] | None = None,
 ) -> ContextReceipt | None:
     if direct_receipt is None:
         return None
-    file_hashes = file_hashes or {}
-    selected_handles = set(result.fetch_plan.handles)
-    selected_file_paths = _selected_scout_file_paths(result)
     returned = [
         ContextReceiptItem(
             handle=item.handle,
             file_path=item.path,
             start_line=1,
             end_line=item.lines,
-            content_hash=file_hashes.get(item.path, ""),
+            content_hash="",
             symbols=[symbol.name for symbol in result.symbols if symbol.file_path == item.path],
             score=item.score,
             reason_codes=[item.reason],
         )
         for item in sorted(result.ranked_files, key=lambda file: file.path)
     ]
-    skipped = [
-        item
-        for item in direct_receipt.skipped_candidates
-        if item.file_path not in selected_file_paths
-        and (item.handle is None or item.handle not in selected_handles)
-    ]
+    skipped = list(direct_receipt.skipped_candidates)
+    selected_handles = set(result.fetch_plan.handles)
     for file_path, reason in sorted(result.fetch_plan.file_reasons.items()):
         if reason.startswith("selected"):
             continue
-        if file_path in selected_file_paths or file_handle(file_path) in selected_handles:
+        if file_handle(file_path) in selected_handles:
             continue
         if reason.startswith("duplicate_handle"):
             code = ContextSkippedReason.DUPLICATE
@@ -176,14 +167,8 @@ def build_scout_receipt(
     )
     return direct_receipt.model_copy(
         update={
-            "token_budget": ContextReceiptTokenBudget(
-                requested=result.budget.token_budget,
-                consumed=result.budget.token_count,
-            ),
             "returned_context": returned,
             "skipped_candidates": merged_skipped,
-            "returned_total": len(returned),
-            "skipped_total": len(skipped),
             "context_complete": status,
             "context_complete_reason": (
                 completion_reason or direct_receipt.context_complete_reason
@@ -191,23 +176,6 @@ def build_scout_receipt(
             "recommended_next_action": action or direct_receipt.recommended_next_action,
         }
     )
-
-
-def _selected_scout_file_paths(result: ScoutResult) -> set[str]:
-    paths = {
-        file_path
-        for file_path, reason in result.fetch_plan.file_reasons.items()
-        if reason.startswith("selected")
-    }
-    for handle_value in result.fetch_plan.handles:
-        handle = parse_scout_handle(handle_value)
-        if handle is None:
-            continue
-        if handle.kind == "file":
-            paths.add(handle.value)
-        elif handle.kind in {"chunk", "symbol"} and "::" in handle.value:
-            paths.add(handle.value.split("::", 1)[0])
-    return paths
 
 
 def receipt_edges_for_graph(

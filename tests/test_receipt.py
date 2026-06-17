@@ -6,8 +6,8 @@ from archex.models import (
     ContextCompletenessStatus,
     ContextFreshness,
     ContextReceipt,
-    ContextReceiptEdge,
     ContextReceiptTokenBudget,
+    ContextReceiptEdge,
     ContextRecommendedAction,
     ContextSkippedCandidate,
     ContextSkippedReason,
@@ -95,20 +95,12 @@ def test_context_receipt_totals_preserve_uncapped_counts() -> None:
 def test_scout_receipt_does_not_mark_selected_handle_files_as_skipped() -> None:
     direct_receipt = ContextReceipt(
         query="q",
-        token_budget=ContextReceiptTokenBudget(requested=500, consumed=250),
+        token_budget=ContextReceiptTokenBudget(requested=100, consumed=20),
         index_revision="rev",
         freshness=ContextFreshness.CLEAN,
         context_complete=ContextCompletenessStatus.COMPLETE,
         context_complete_reason=ContextCompletenessReason.COMPLETE,
         recommended_next_action=ContextRecommendedAction.USE_BUNDLE,
-        skipped_candidates=[
-            ContextSkippedCandidate(
-                file_path="src/service.py",
-                reason=ContextSkippedReason.BELOW_THRESHOLD,
-                handle=file_handle("src/service.py"),
-            )
-        ],
-        skipped_total=1,
     )
     scout = ScoutResult(
         query="q",
@@ -122,7 +114,7 @@ def test_scout_receipt_does_not_mark_selected_handle_files_as_skipped() -> None:
                 score=1.0,
             )
         ],
-        budget=ScoutBudget(token_budget=100, token_count=64),
+        budget=ScoutBudget(token_budget=100),
         fetch_plan=ScoutFetchPlan(
             handles=[symbol_handle("src/service.py::Service#class")],
             file_reasons={
@@ -134,19 +126,10 @@ def test_scout_receipt_does_not_mark_selected_handle_files_as_skipped() -> None:
         ),
     )
 
-    receipt = build_scout_receipt(
-        scout,
-        direct_receipt,
-        file_hashes={"src/service.py": "sha256-service"},
-    )
+    receipt = build_scout_receipt(scout, direct_receipt)
 
     assert receipt is not None
     assert receipt.skipped_candidates == []
-    assert receipt.token_budget.requested == 100
-    assert receipt.token_budget.consumed == 64
-    assert receipt.returned_context[0].content_hash == "sha256-service"
-    assert receipt.returned_total == 1
-    assert receipt.skipped_total == 0
     assert receipt.context_complete == ContextCompletenessStatus.COMPLETE
     assert receipt.context_complete_reason == ContextCompletenessReason.COMPLETE
     assert receipt.recommended_next_action == ContextRecommendedAction.USE_BUNDLE
