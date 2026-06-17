@@ -11,8 +11,7 @@ from click.testing import CliRunner
 from archex.cli.main import cli
 from archex.integrations.mcp import handle_query_repo
 from archex.metrics.health import read_metrics_health
-from archex.metrics.policy import METRICS_ENV, resolve_metrics_policy
-from archex.metrics.recorder import UsageEvent
+from archex.metrics.policy import METRICS_ENV
 from archex.metrics.storage import MetricsStore
 
 if TYPE_CHECKING:
