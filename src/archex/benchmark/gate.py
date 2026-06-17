@@ -32,6 +32,7 @@ class QualityThresholds(BaseModel):
     gate_exempt_strategies: set[str] = {
         "raw_files",
         "raw_grepped",
+        "raw_ripgrep",
         "archex_query_vector",
     }
     # Per-strategy threshold overrides; keyed by strategy value string

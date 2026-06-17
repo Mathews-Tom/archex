@@ -26,7 +26,9 @@ DOGFOOD_BASELINE_PATH = Path("benchmarks/dogfood_baseline.json")
 DEFAULT_TASKS_DIR = Path("benchmarks/tasks")
 DEFAULT_OUTPUT_DIR = Path(".archex/dogfood")
 DEFAULT_TASK_PREFIX = "archex_"
-DOGFOOD_DIAGNOSTIC_STRATEGIES = frozenset({Strategy.RAW_FILES.value, Strategy.RAW_GREPPED.value})
+DOGFOOD_DIAGNOSTIC_STRATEGIES = frozenset(
+    {Strategy.RAW_FILES.value, Strategy.RAW_GREPPED.value, Strategy.RAW_RIPGREP.value}
+)
 DOGFOOD_PRODUCT_DEFAULT_STRATEGY = Strategy.ARCHEX_QUERY.value
 
 
