@@ -280,7 +280,7 @@ requires-dist = [
     { name = "tree-sitter-java", specifier = ">=0.23" },
     { name = "tree-sitter-javascript", specifier = ">=0.23" },
     { name = "tree-sitter-kotlin", specifier = ">=1.1" },
-    { name = "tree-sitter-language-pack", specifier = ">=0.13" },
+    { name = "tree-sitter-language-pack", specifier = ">=0.13,<1.0" },
     { name = "tree-sitter-python", specifier = ">=0.23" },
     { name = "tree-sitter-rust", specifier = ">=0.23" },
     { name = "tree-sitter-typescript", specifier = ">=0.23" },
