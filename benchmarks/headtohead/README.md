@@ -1,6 +1,6 @@
 # Head-to-head benchmark harness
 
-This directory contains the pinned C1 public comparison manifest for running the same external-repo tasks across archex, cocoindex-code (`ccc`), and the raw grep/read baseline. The harness records cold-start timing, warm query latency, recall, precision, token efficiency, and bundle-completion penalty tokens for every lane.
+This directory contains the pinned C1 public comparison manifest for running the same external-repo tasks across archex, cocoindex-code (`ccc`), and the raw-ripgrep/read baseline. The harness records cold-start timing, warm query latency, recall, precision, token efficiency, required-file coverage, receipt accuracy, and bundle-completion penalty tokens for every lane.
 
 Run only by an operator outside this implementation session:
 
