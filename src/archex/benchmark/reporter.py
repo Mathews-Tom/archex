@@ -143,6 +143,7 @@ def format_markdown(report: BenchmarkReport) -> str:
             f"| {r.f1_score:.2f} | {r.wall_time_ms:.0f} |"
         )
     lines.extend(_missing_required_file_appendix(report))
+    lines.extend(_bundle_only_eval_appendix(report))
     lines.append("")
     return "\n".join(lines)
 
@@ -297,6 +298,7 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
                 f"| {r.tokens_total:,} |"
             )
         lines.extend(_missing_required_file_appendix(report))
+        lines.extend(_bundle_only_eval_appendix(report))
         lines.append("")
 
     # Head-to-head wins
@@ -344,6 +346,38 @@ def _missing_required_file_appendix(report: BenchmarkReport) -> list[str]:
     for result in failures:
         lines.append(
             f"- {result.strategy.value}: missing {', '.join(result.required_files_missing)}"
+        )
+    return lines
+
+
+def _bundle_only_eval_appendix(report: BenchmarkReport) -> list[str]:
+    evaluated = [result for result in report.results if result.bundle_only_success is not None]
+    if not evaluated:
+        return []
+
+    header = (
+        "| Strategy | Success | Outside returned | In frontier cut | "
+        "In top candidates | Safe-to-act false positive | Post reads |"
+    )
+    separator = (
+        "|----------|---------|------------------|-----------------|"
+        "-------------------|----------------------------|------------|"
+    )
+    lines = ["", "### Bundle-only evaluation", header, separator]
+    for result in evaluated:
+        outside = ", ".join(result.needed_files_outside_returned or []) or "none"
+        frontier = ", ".join(result.needed_files_in_frontier_cut or []) or "none"
+        top_candidates = ", ".join(result.needed_files_in_top_candidates or []) or "none"
+        false_positive = _receipt_accuracy_label(result.safe_to_act_false_positive)
+        post_reads = result.post_bundle_read_turns
+        if post_reads is None:
+            post_reads = "—"
+        if result.bundle_only_success is None:
+            continue
+        success = result.bundle_only_success.value
+        lines.append(
+            f"| {result.strategy.value} | {success} | {outside} | {frontier} | "
+            f"{top_candidates} | {false_positive} | {post_reads} |"
         )
     return lines
 

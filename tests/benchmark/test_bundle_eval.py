@@ -9,7 +9,9 @@ import pytest
 
 from archex.benchmark.bundle_eval import (
     BundleOnlyEvaluatorError,
+    BundleOnlyEvaluatorOutput,
     build_bundle_only_evaluator_input,
+    bundle_only_result_fields,
     parse_bundle_only_evaluator_output,
     run_bundle_only_evaluator,
 )
@@ -24,7 +26,12 @@ from archex.models import (
     ContextBundle,
     ContextCompletenessStatus,
     ContextReceipt,
+    ContextReceiptEdge,
+    ContextReceiptItem,
     ContextReceiptTokenBudget,
+    ContextSkippedCandidate,
+    ContextSkippedReason,
+    EdgeKind,
 )
 
 
@@ -80,6 +87,71 @@ def test_build_evaluator_input_contains_bundle_receipt_and_policy() -> None:
         "needed_files",
         "attempted_more_context",
     ]
+
+
+def test_result_fields_attribute_needed_files_and_false_positive() -> None:
+    receipt = ContextReceipt(
+        query="Can the bundle answer this?",
+        token_budget=ContextReceiptTokenBudget(requested=1000, consumed=20),
+        index_revision="sha256:test",
+        context_complete=ContextCompletenessStatus.COMPLETE,
+        returned_context=[
+            ContextReceiptItem(
+                handle="src/main.py#1-10",
+                file_path="src/main.py",
+                start_line=1,
+                end_line=10,
+                content_hash="sha256:main",
+            )
+        ],
+        omitted_edges=[
+            ContextReceiptEdge(
+                source="src/main.py",
+                target="src/frontier.py",
+                kind=EdgeKind.IMPORTS,
+                target_path="src/frontier.py",
+            )
+        ],
+        skipped_candidates=[
+            ContextSkippedCandidate(
+                file_path="src/frontier.py",
+                reason=ContextSkippedReason.DEPENDENCY_FRONTIER_CUT,
+            ),
+            ContextSkippedCandidate(
+                file_path="src/skipped.py",
+                reason=ContextSkippedReason.BELOW_THRESHOLD,
+            ),
+        ],
+    )
+    output = BundleOnlyEvaluatorOutput(
+        answer="bundle contains receipt",
+        confidence=1.0,
+        needed_files=[
+            "src/main.py",
+            "src/frontier.py",
+            "src/skipped.py",
+            "src/absent.py",
+        ],
+        attempted_more_context=True,
+        post_bundle_read_turns=3,
+        bundle_only_success=TaskCompletionResult.FAIL,
+    )
+
+    fields = bundle_only_result_fields(
+        ContextBundle(query="q", token_count=20, token_budget=1000, receipt=receipt),
+        output,
+    )
+
+    assert fields["bundle_only_success"] is TaskCompletionResult.FAIL
+    assert fields["needed_files_outside_returned"] == [
+        "src/frontier.py",
+        "src/skipped.py",
+        "src/absent.py",
+    ]
+    assert fields["needed_files_in_frontier_cut"] == ["src/frontier.py"]
+    assert fields["needed_files_in_top_candidates"] == ["src/frontier.py", "src/skipped.py"]
+    assert fields["safe_to_act_false_positive"] is True
+    assert fields["post_bundle_read_turns"] == 3
 
 
 def test_run_evaluator_command_returns_structured_output(tmp_path: Path) -> None:
