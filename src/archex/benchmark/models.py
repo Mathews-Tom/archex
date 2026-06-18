@@ -84,6 +84,63 @@ class BundleOnlyEvaluation(BenchmarkSpecModel):
         return self
 
 
+class RegionGranularity(StrEnum):
+    FILE = "file"
+    SYMBOL = "symbol"
+    BLOCK = "block"
+    LINE_RANGE = "line_range"
+
+
+class ExpectedRegion(BenchmarkSpecModel):
+    """Optional ground-truth code region for region/line-level retrieval scoring.
+
+    A region is either a path plus an inclusive line range (``line_range``
+    granularity) or a path plus a symbol/block handle (``symbol``/``block``
+    granularity). ``file`` granularity scores at whole-file level only.
+    """
+
+    path: str
+    granularity: RegionGranularity = RegionGranularity.LINE_RANGE
+    start_line: int | None = Field(default=None, ge=1)
+    end_line: int | None = Field(default=None, ge=1)
+    symbol: str | None = None
+    notes: str | None = None
+    weight: float = Field(default=1.0, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_region(self) -> ExpectedRegion:
+        if not self.path or self.path.startswith("/") or ".." in self.path.split("/"):
+            msg = f"expected_regions path must be a relative repo path: {self.path!r}"
+            raise ValueError(msg)
+        if (self.start_line is None) != (self.end_line is None):
+            msg = "expected_regions line range requires both start_line and end_line"
+            raise ValueError(msg)
+        if (
+            self.start_line is not None
+            and self.end_line is not None
+            and self.end_line < self.start_line
+        ):
+            msg = (
+                f"expected_regions end_line ({self.end_line}) must be "
+                f">= start_line ({self.start_line})"
+            )
+            raise ValueError(msg)
+        has_range = self.start_line is not None
+        has_symbol = self.symbol is not None and bool(self.symbol.strip())
+        granularity = self.granularity
+        needs_symbol = granularity in (RegionGranularity.SYMBOL, RegionGranularity.BLOCK)
+        if granularity is RegionGranularity.LINE_RANGE and not has_range:
+            msg = "line_range regions require start_line and end_line"
+            raise ValueError(msg)
+        if needs_symbol and not has_symbol:
+            msg = f"{granularity.value} regions require a symbol handle"
+            raise ValueError(msg)
+        if granularity is RegionGranularity.FILE and (has_range or has_symbol):
+            msg = "file regions must not declare a line range or symbol handle"
+            raise ValueError(msg)
+        return self
+
+
 class BenchmarkTask(BenchmarkSpecModel):
     task_id: str
     repo: str
@@ -97,6 +154,7 @@ class BenchmarkTask(BenchmarkSpecModel):
     include_paths: list[str] = []
     category: TaskCategory | None = None
     bundle_only_eval: BundleOnlyEvaluation | None = None
+    expected_regions: list[ExpectedRegion] = []
 
     @model_validator(mode="after")
     def _validate_include_paths(self) -> BenchmarkTask:

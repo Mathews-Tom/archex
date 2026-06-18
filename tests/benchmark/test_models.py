@@ -17,6 +17,8 @@ from archex.benchmark.models import (
     BundleOnlyAllowedContext,
     BundleOnlyEvaluation,
     BundleOnlyEvaluatorCommand,
+    ExpectedRegion,
+    RegionGranularity,
     Strategy,
     TaskCompletionResult,
 )
@@ -149,6 +151,110 @@ class TestBenchmarkTask:
             token_budget=4096,
         )
         assert task.token_budget == 4096
+
+
+class TestExpectedRegion:
+    def test_legacy_task_has_empty_regions(self) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="owner/repo",
+            commit="abc",
+            question="test",
+            expected_files=["src/main.py"],
+        )
+        assert task.expected_regions == []
+
+    def test_line_range_region_defaults(self) -> None:
+        region = ExpectedRegion(path="src/main.py", start_line=10, end_line=40)
+        assert region.granularity is RegionGranularity.LINE_RANGE
+        assert region.weight == 1.0
+        assert region.notes is None
+        assert region.symbol is None
+
+    def test_symbol_region(self) -> None:
+        region = ExpectedRegion(
+            path="src/main.py",
+            granularity=RegionGranularity.SYMBOL,
+            symbol="Cli.run",
+            notes="entry point",
+            weight=2.5,
+        )
+        assert region.symbol == "Cli.run"
+        assert region.weight == 2.5
+
+    def test_block_region(self) -> None:
+        region = ExpectedRegion(
+            path="src/main.py",
+            granularity=RegionGranularity.BLOCK,
+            symbol="parse_loop",
+        )
+        assert region.granularity is RegionGranularity.BLOCK
+
+    def test_file_region(self) -> None:
+        region = ExpectedRegion(path="src/main.py", granularity=RegionGranularity.FILE)
+        assert region.start_line is None
+        assert region.symbol is None
+
+    def test_task_with_regions_preserves_required_files(self) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="owner/repo",
+            commit="abc",
+            question="test",
+            expected_files=["src/main.py"],
+            expected_regions=[
+                ExpectedRegion(path="src/main.py", start_line=1, end_line=5),
+            ],
+        )
+        assert task.expected_files == ["src/main.py"]
+        assert len(task.expected_regions) == 1
+
+    def test_rejects_absolute_path(self) -> None:
+        with pytest.raises(ValidationError, match="relative repo path"):
+            ExpectedRegion(path="/etc/passwd", start_line=1, end_line=2)
+
+    def test_rejects_parent_traversal_path(self) -> None:
+        with pytest.raises(ValidationError, match="relative repo path"):
+            ExpectedRegion(path="../secret.py", start_line=1, end_line=2)
+
+    def test_rejects_inverted_line_range(self) -> None:
+        with pytest.raises(ValidationError, match="must be >= start_line"):
+            ExpectedRegion(path="src/main.py", start_line=40, end_line=10)
+
+    def test_rejects_partial_line_range(self) -> None:
+        with pytest.raises(ValidationError, match="both start_line and end_line"):
+            ExpectedRegion(path="src/main.py", start_line=10)
+
+    def test_rejects_zero_start_line(self) -> None:
+        with pytest.raises(ValidationError):
+            ExpectedRegion(path="src/main.py", start_line=0, end_line=2)
+
+    def test_rejects_non_positive_weight(self) -> None:
+        with pytest.raises(ValidationError):
+            ExpectedRegion(path="src/main.py", start_line=1, end_line=2, weight=0.0)
+
+    def test_rejects_line_range_without_lines(self) -> None:
+        with pytest.raises(ValidationError, match="line_range regions require"):
+            ExpectedRegion(path="src/main.py", granularity=RegionGranularity.LINE_RANGE)
+
+    def test_rejects_symbol_region_without_handle(self) -> None:
+        with pytest.raises(ValidationError, match="require a symbol handle"):
+            ExpectedRegion(path="src/main.py", granularity=RegionGranularity.SYMBOL)
+
+    def test_rejects_file_region_with_lines(self) -> None:
+        with pytest.raises(ValidationError, match="must not declare"):
+            ExpectedRegion(
+                path="src/main.py",
+                granularity=RegionGranularity.FILE,
+                start_line=1,
+                end_line=2,
+            )
+
+    def test_rejects_invalid_granularity(self) -> None:
+        with pytest.raises(ValidationError):
+            ExpectedRegion.model_validate(
+                {"path": "src/main.py", "granularity": "bogus", "start_line": 1, "end_line": 2}
+            )
 
 
 class TestArchitectureBenchmarkTask:
