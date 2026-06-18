@@ -138,14 +138,24 @@ def _cache_manager_for_source(source: RepoSource, config: Config) -> CacheManage
 
 
 def _index_config_metadata_matches(store: IndexStore, index_config: IndexConfig) -> bool:
-    return store.get_metadata("chunker") == index_config.chunker and store.get_metadata(
+    if store.get_metadata("chunker") != index_config.chunker or store.get_metadata(
         "chunker_revision"
-    ) == chunker_revision(index_config.chunker)
+    ) != chunker_revision(index_config.chunker):
+        return False
+    stored_quantize = store.get_metadata("quantize_vectors")
+    stored_quantize_enabled = stored_quantize == "True" if stored_quantize is not None else False
+    if stored_quantize_enabled != index_config.quantize_vectors:
+        return False
+    if index_config.quantize_vectors:
+        return store.get_metadata("quantize_bits") == str(index_config.quantize_bits)
+    return True
 
 
 def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> None:
     store.set_metadata("chunker", index_config.chunker)
     store.set_metadata("chunker_revision", chunker_revision(index_config.chunker))
+    store.set_metadata("quantize_vectors", str(index_config.quantize_vectors))
+    store.set_metadata("quantize_bits", str(index_config.quantize_bits))
 
 
 def _full_index(
@@ -227,7 +237,10 @@ def _full_index(
                     else None
                 )
                 vector_chunks = embedding_eligible_chunks(all_chunks)
-                vec_idx = VectorIndex()
+                vec_idx = VectorIndex(
+                    quantize=effective_index_config.quantize_vectors,
+                    quantize_bits=effective_index_config.quantize_bits,
+                )
                 cache_hits, cache_misses = vec_idx.build(
                     vector_chunks,
                     embedder,
@@ -488,7 +501,10 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                     index_config,
                     embedder,
                 )
-                vec_idx = VectorIndex()
+                vec_idx = VectorIndex(
+                    quantize=index_config.quantize_vectors,
+                    quantize_bits=index_config.quantize_bits,
+                )
                 cache_hits, cache_misses = vec_idx.build(
                     vector_chunks,
                     embedder,
@@ -1136,7 +1152,10 @@ def _cached_vectors_by_content_hash(
         return {}
     from archex.index.vector import VectorIndex
 
-    vec_idx = VectorIndex()
+    vec_idx = VectorIndex(
+        quantize=index_config.quantize_vectors,
+        quantize_bits=index_config.quantize_bits,
+    )
     try:
         vec_idx.load(
             npz_path,
@@ -1172,7 +1191,10 @@ def _vector_search_precomputed(
         return None
     from archex.index.vector import VectorIndex
 
-    vec_idx = VectorIndex()
+    vec_idx = VectorIndex(
+        quantize=index_config.quantize_vectors,
+        quantize_bits=index_config.quantize_bits,
+    )
     try:
         vec_idx.load(
             npz_path,
@@ -2067,7 +2089,10 @@ def query(
 
                     t_vec_build = time.perf_counter()
                     vector_chunks = embedding_eligible_chunks(all_chunks)
-                    vec_idx = VectorIndex()
+                    vec_idx = VectorIndex(
+                        quantize=index_config.quantize_vectors,
+                        quantize_bits=index_config.quantize_bits,
+                    )
                     cache_hits, cache_misses = vec_idx.build(
                         vector_chunks,
                         embedder,
@@ -2385,7 +2410,10 @@ def _vector_search_in_memory(
     from archex.index.vector import VectorIndex
 
     t_vec = time.perf_counter()
-    vec_idx = VectorIndex()
+    vec_idx = VectorIndex(
+        quantize=index_config.quantize_vectors,
+        quantize_bits=index_config.quantize_bits,
+    )
     vec_idx.build(
         eligible_chunks,
         embedder,  # type: ignore[arg-type]

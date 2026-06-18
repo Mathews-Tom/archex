@@ -10,7 +10,7 @@ import click
 
 from archex.api import index_repository
 from archex.cache import CacheManager
-from archex.config import load_config, load_index_config
+from archex.config import load_config, load_index_config, persist_project_index_settings
 from archex.exceptions import ArchexError
 from archex.models import PipelineTiming, RepoSource
 from archex.project import uses_project_cache_layout
@@ -46,12 +46,25 @@ def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int
     default=False,
     help="Allow explicitly selected pinned model paths that require Hugging Face remote code.",
 )
+@click.option(
+    "--quantize-vectors/--no-quantize-vectors",
+    default=None,
+    help="Build vector indexes with TurboQuant compression.",
+)
+@click.option(
+    "--quantize-bits",
+    default=None,
+    type=click.Choice(["2", "4"]),
+    help="TurboQuant bit-width for vector indexes.",
+)
 def index_cmd(
     source: str,
     output_format: str,
     splade: bool,
     module_prefilter: bool,
     allow_remote_code: bool,
+    quantize_vectors: bool | None,
+    quantize_bits: str | None,
 ) -> None:
     """Build or refresh the index for SOURCE without running a query."""
     repo_source = RepoSource(local_path=source)
@@ -64,6 +77,18 @@ def index_cmd(
         index_config = index_config.model_copy(update={"splade": True})
     if module_prefilter:
         index_config = index_config.model_copy(update={"module_prefilter": True})
+    index_updates: dict[str, bool | int | str] = {}
+    if quantize_vectors is not None:
+        index_updates["quantize_vectors"] = quantize_vectors
+        if quantize_vectors:
+            index_updates["vector"] = True
+            if index_config.embedder is None:
+                index_updates["embedder"] = "jina-v2"
+    if quantize_bits is not None:
+        index_updates["quantize_bits"] = int(quantize_bits)
+    if index_updates:
+        index_config = index_config.model_copy(update=index_updates)
+        persist_project_index_settings(repo_source, index_updates)
     timing = PipelineTiming()
     started = time.perf_counter()
     try:
