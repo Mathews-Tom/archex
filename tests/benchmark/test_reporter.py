@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy, TaskCategory
+from archex.benchmark.models import (
+    BenchmarkReport,
+    BenchmarkResult,
+    Strategy,
+    TaskCategory,
+    TaskCompletionResult,
+)
 from archex.benchmark.reporter import (
     format_bucketed_summary,
     format_chunker_frontier_table,
@@ -102,6 +108,25 @@ class TestFormatMarkdown:
         md = format_markdown(_make_report())
         assert "2,000" in md
 
+    def test_contains_bundle_only_eval_section_when_present(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
+        result = report.results[0]
+        result.bundle_only_success = TaskCompletionResult.FAIL
+        result.needed_files_outside_returned = ["src/frontier.py", "src/absent.py"]
+        result.needed_files_in_frontier_cut = ["src/frontier.py"]
+        result.needed_files_in_top_candidates = ["src/frontier.py"]
+        result.safe_to_act_false_positive = True
+        result.post_bundle_read_turns = 2
+
+        md = format_markdown(report)
+
+        assert "Bundle-only evaluation" in md
+        assert "src/frontier.py, src/absent.py" in md
+        assert "Safe-to-act false positive" in md
+        assert "| archex_query | fail |" in md
+        assert "All Required | Post Reads | Completion" not in md
+        assert "Safe-to-act false positive | Post reads" in md
+
 
 class TestFormatJson:
     def test_valid_json(self) -> None:
@@ -177,6 +202,16 @@ class TestFormatStrategyComparison:
         result = format_strategy_comparison([report])
         assert "Missing required files appendix" in result
         assert "missing.py" in result
+
+    def test_strategy_comparison_includes_bundle_only_eval_section(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
+        report.results[0].bundle_only_success = TaskCompletionResult.PASS
+        report.results[0].needed_files_outside_returned = ["src/absent.py"]
+
+        result = format_strategy_comparison([report])
+
+        assert "Bundle-only evaluation" in result
+        assert "src/absent.py" in result
 
     def test_contains_head_to_head(self) -> None:
         report = _make_report()

@@ -105,6 +105,61 @@ def parse_bundle_only_evaluator_output(stdout: str) -> BundleOnlyEvaluatorOutput
         raise BundleOnlyEvaluatorError(msg) from exc
 
 
+def _returned_files(bundle: ContextBundle) -> set[str]:
+    if bundle.receipt is not None and bundle.receipt.returned_context:
+        return {item.file_path for item in bundle.receipt.returned_context if item.file_path}
+    return {chunk.chunk.file_path for chunk in bundle.chunks if chunk.chunk.file_path}
+
+
+def _frontier_files(bundle: ContextBundle) -> set[str]:
+    if bundle.receipt is None:
+        return set()
+    files = {
+        edge.target_path for edge in bundle.receipt.omitted_edges if edge.target_path is not None
+    }
+    files.update(
+        candidate.file_path
+        for candidate in bundle.receipt.skipped_candidates
+        if candidate.reason == "dependency_frontier_cut" and candidate.file_path
+    )
+    return files
+
+
+def _top_candidate_files(bundle: ContextBundle) -> set[str]:
+    if bundle.receipt is None:
+        return set()
+    return {
+        candidate.file_path
+        for candidate in bundle.receipt.skipped_candidates
+        if candidate.file_path
+    }
+
+
+def bundle_only_result_fields(
+    bundle: ContextBundle,
+    output: BundleOnlyEvaluatorOutput,
+) -> dict[str, object]:
+    """Derive benchmark result fields from evaluator output and receipt metadata."""
+    needed_files = list(dict.fromkeys(output.needed_files))
+    returned_files = _returned_files(bundle)
+    frontier_files = _frontier_files(bundle)
+    top_candidate_files = _top_candidate_files(bundle)
+    outside_returned = [path for path in needed_files if path not in returned_files]
+    in_frontier = [path for path in outside_returned if path in frontier_files]
+    in_top_candidates = [path for path in outside_returned if path in top_candidate_files]
+    receipt_claims_complete = (
+        bundle.receipt is not None and bundle.receipt.context_complete == "complete"
+    )
+    return {
+        "bundle_only_success": output.bundle_only_success or TaskCompletionResult.UNKNOWN,
+        "needed_files_outside_returned": outside_returned,
+        "needed_files_in_frontier_cut": in_frontier,
+        "needed_files_in_top_candidates": in_top_candidates,
+        "safe_to_act_false_positive": bool(receipt_claims_complete and outside_returned),
+        "post_bundle_read_turns": output.post_bundle_read_turns,
+    }
+
+
 def _with_expected_answer_success(
     task: BenchmarkTask,
     output: BundleOnlyEvaluatorOutput,
