@@ -16,6 +16,7 @@ from archex.benchmark.arch_quality import (
     run_architecture_all,
 )
 from archex.benchmark.baseline import compare_baseline, load_baseline, save_baseline
+from archex.benchmark.bundle_eval import BundleOnlyEvaluatorError, run_bundle_only_eval_all
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.gate import (
     DeltaQualityThresholds,
@@ -40,6 +41,7 @@ from archex.benchmark.models import (
     ArchitectureBenchmarkResult,
     BenchmarkReport,
     BenchmarkRetrievalOptions,
+    BundleOnlyEvaluatorCommand,
     DeltaBenchmarkResult,
     Strategy,
 )
@@ -270,6 +272,82 @@ def run_cmd(
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"\nCompleted {len(reports)} benchmark(s).", err=True)
+
+
+@benchmark_cmd.command("bundle-eval")
+@click.option(
+    "--output",
+    "output_dir",
+    default=".archex/bundle-eval-results",
+    type=click.Path(),
+    help="Directory for bundle-only eval result JSON files.",
+)
+@click.option("--task", "task_id", default=None, help="Run a single task by task_id.")
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/tasks",
+    type=click.Path(exists=True),
+    help="Directory containing task YAML files.",
+)
+@click.option(
+    "--evaluator-command",
+    required=True,
+    help="Local evaluator executable. The command receives one JSON object on stdin.",
+)
+@click.option(
+    "--evaluator-arg",
+    "evaluator_args",
+    multiple=True,
+    help="Argument passed to the local evaluator command; repeat for multiple args.",
+)
+@click.option(
+    "--timeout-seconds",
+    default=600.0,
+    show_default=True,
+    type=float,
+    help="Per-task evaluator command timeout.",
+)
+@click.option(
+    "--bundle-format",
+    default="markdown",
+    show_default=True,
+    type=click.Choice(["markdown", "json", "xml"]),
+    help="Rendered bundle format passed to the evaluator command.",
+)
+@click.option(
+    "--self-only",
+    is_flag=True,
+    default=False,
+    help='Run only benchmark tasks whose repo is ".".',
+)
+def bundle_eval_cmd(
+    output_dir: str,
+    task_id: str | None,
+    tasks_dir: str,
+    evaluator_command: str,
+    evaluator_args: tuple[str, ...],
+    timeout_seconds: float,
+    bundle_format: str,
+    self_only: bool,
+) -> None:
+    """Run the explicit opt-in local bundle-only evaluator lane."""
+    tasks_path = Path(tasks_dir)
+    tasks = load_selected_tasks(tasks_path, task_filter=task_id, self_only=self_only)
+    command = BundleOnlyEvaluatorCommand(
+        command=evaluator_command,
+        args=list(evaluator_args),
+        timeout_seconds=timeout_seconds,
+    )
+    try:
+        reports = run_bundle_only_eval_all(
+            tasks,
+            Path(output_dir),
+            command=command,
+            bundle_format=bundle_format,
+        )
+    except (ArchexError, BundleOnlyEvaluatorError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Completed {len(reports)} bundle-only eval(s).", err=True)
 
 
 @benchmark_cmd.command("report")
