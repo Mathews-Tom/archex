@@ -77,6 +77,49 @@ expected_files:
         task = load_task(p)
         assert task.include_paths == ["src/pkg"]
 
+    def test_load_bundle_only_eval_fields(self, tmp_path: Path) -> None:
+        p = tmp_path / "bundle_eval.yaml"
+        p.write_text("""\
+task_id: bundle_eval
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/pkg/main.py
+bundle_only_eval:
+  expected_answer: "It calls the renderer."
+  allowed_context_policy: bundle-plus-frontier
+  evaluator_command:
+    command: python
+    args:
+      - tests/fixtures/bundle_eval.py
+    timeout_seconds: 30
+""")
+
+        task = load_task(p)
+
+        assert task.bundle_only_eval is not None
+        assert task.bundle_only_eval.expected_answer == "It calls the renderer."
+        assert task.bundle_only_eval.allowed_context_policy == "bundle-plus-frontier"
+        assert task.bundle_only_eval.evaluator_command is not None
+        assert task.bundle_only_eval.evaluator_command.command == "python"
+
+    def test_load_rejects_bundle_eval_without_grader(self, tmp_path: Path) -> None:
+        p = tmp_path / "bundle_eval_without_grader.yaml"
+        p.write_text("""\
+task_id: bundle_eval_without_grader
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/pkg/main.py
+bundle_only_eval:
+  allowed_context_policy: bundle-only
+""")
+
+        with pytest.raises(ValueError, match=r"bundle_eval_without_grader\.yaml.*bundle_only_eval"):
+            load_task(p)
+
     def test_load_missing_file(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             load_task(tmp_path / "nonexistent.yaml")
