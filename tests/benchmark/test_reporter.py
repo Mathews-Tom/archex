@@ -124,6 +124,8 @@ class TestFormatMarkdown:
         assert "src/frontier.py, src/absent.py" in md
         assert "Safe-to-act false positive" in md
         assert "| archex_query | fail |" in md
+        assert "All Required | Post Reads | Completion" not in md
+        assert "Safe-to-act false positive | Post reads" in md
 
 
 class TestFormatJson:
