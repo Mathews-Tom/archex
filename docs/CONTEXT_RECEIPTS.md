@@ -78,4 +78,4 @@ Receipt construction is deterministic for the same repository state and query co
 
 ## Benchmark relationship
 
-The benchmark harness compares receipt completeness claims against required-file ground truth through `receipt_accuracy`. It also records `required_file_recall`, `missed_required_file_rate`, `all_required_files_present`, `task_completion_result`, and `completion_preserved` in benchmark outputs.
+The benchmark harness compares receipt completeness claims against required-file ground truth through `receipt_accuracy`. It also records `required_file_recall`, per-file `missed_required_file_rate`, task-level `missed_required_task_rate`, `all_required_files_present`, `task_completion_result`, `completion_preserved`, `bundle_completion_tokens`, and `token_efficiency_with_completion` in benchmark outputs.

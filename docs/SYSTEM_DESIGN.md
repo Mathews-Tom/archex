@@ -220,8 +220,8 @@ Unknown files fall back to line-window chunking so they can still be found by BM
 
 ### 1.2.4 Benchmark and Comparison Evidence
 
-- **Retrieval gate:** product-default changes are gated by recall, F1, token efficiency, median latency, and p95 latency. `docs/RETRIEVAL_DEFAULT_DECISIONS.md` owns the default-strategy verdict and rationale.
-- **Head-to-head harness:** `src/archex/benchmark/headtohead.py` and `benchmarks/headtohead/` run the same external-repo tasks through archex, `ccc`, and raw-ripgrep/read, then record cold-start, warm latency, recall, precision, F1, token efficiency, and completion-penalty tokens.
+- **Retrieval gate:** product-default changes are gated by recall, required-file recall, missed-required-task rate, receipt accuracy when available, token efficiency after completion, F1, median latency, and p95 latency. `docs/RETRIEVAL_DEFAULT_DECISIONS.md` owns the default-strategy verdict and rationale.
+- **Head-to-head harness:** `src/archex/benchmark/headtohead.py` and `benchmarks/headtohead/` run the same external-repo tasks through archex, `ccc`, and raw-ripgrep/read, then record cold-start, warm latency, recall, precision, F1, token efficiency, required-file recall, missed-file/task rates, receipt accuracy, completion-penalty tokens, and token efficiency after completion.
 - **Comparison page:** `docs/ARCHEX_VS_COCOINDEX.md` publishes accepted C1 cells and capability evidence without re-measuring inside docs work.
 - **Chunking A/B:** the benchmark runner records the chunker axis (`default` or `cast`) so stores and benchmark outputs built with different chunkers are not compared silently.
 
