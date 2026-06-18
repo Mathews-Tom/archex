@@ -255,12 +255,12 @@ def _unique_ranked_files(bundle: ContextBundle) -> list[str]:
     return files
 
 
-def _repo_path_for_task(task: BenchmarkTask) -> tuple[Path, bool]:
-    from archex.benchmark.runner import clone_at_commit
+def _repo_path_for_task(task: BenchmarkTask) -> tuple[Path, list[Path]]:
+    from archex.benchmark.runner import repo_path_for_task
 
-    if task.repo == ".":
-        return Path.cwd(), False
-    return clone_at_commit(task.repo, task.commit)
+    cleanup_paths: list[Path] = []
+    repo_path = repo_path_for_task(task, {}, cleanup_paths)
+    return repo_path, cleanup_paths
 
 
 def run_bundle_only_eval_task(
@@ -281,7 +281,7 @@ def run_bundle_only_eval_task(
     )
     from archex.models import Config, IndexConfig
 
-    repo_path, needs_cleanup = _repo_path_for_task(task)
+    repo_path, cleanup_paths = _repo_path_for_task(task)
     try:
         t0 = time.perf_counter()
         source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY)
@@ -359,8 +359,8 @@ def run_bundle_only_eval_task(
             p95_latency_ms=wall_ms,
         )
     finally:
-        if needs_cleanup:
-            shutil.rmtree(repo_path, ignore_errors=True)
+        for path in cleanup_paths:
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def run_bundle_only_eval_all(

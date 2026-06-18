@@ -827,7 +827,7 @@ expected_files:
         )
         cleanup_paths: list[Path] = []
 
-        sliced = runner_mod._repo_path_for_task(  # pyright: ignore[reportPrivateUsage]
+        sliced = runner_mod.repo_path_for_task(
             task,
             {},
             cleanup_paths,
