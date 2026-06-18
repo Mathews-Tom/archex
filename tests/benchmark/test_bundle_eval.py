@@ -90,6 +90,20 @@ def test_build_evaluator_input_contains_bundle_receipt_and_policy() -> None:
     ]
 
 
+def test_build_evaluator_input_defaults_to_bundle_only_policy_without_task_config() -> None:
+    task = BenchmarkTask(
+        task_id="plain_task",
+        repo="owner/repo",
+        commit="abc123",
+        question="Can the bundle answer this?",
+        expected_files=["src/main.py"],
+    )
+
+    evaluator_input = build_bundle_only_evaluator_input(task, _bundle())
+
+    assert evaluator_input.allowed_context_policy == "bundle-only"
+
+
 def test_result_fields_attribute_needed_files_and_false_positive() -> None:
     receipt = ContextReceipt(
         query="Can the bundle answer this?",

@@ -90,9 +90,9 @@ def build_bundle_only_evaluator_input(
     *,
     bundle_format: str = "markdown",
 ) -> BundleOnlyEvaluatorInput:
-    if task.bundle_only_eval is None:
-        msg = "bundle-only evaluation is not configured for this task"
-        raise BundleOnlyEvaluatorError(msg)
+    allowed_context_policy = "bundle-only"
+    if task.bundle_only_eval is not None:
+        allowed_context_policy = task.bundle_only_eval.allowed_context_policy.value
     receipt_json = "null"
     if bundle.receipt is not None:
         receipt_json = bundle.receipt.model_dump_json()
@@ -101,7 +101,7 @@ def build_bundle_only_evaluator_input(
         question=task.question,
         rendered_bundle=bundle.to_prompt(format=bundle_format),
         receipt_json=receipt_json,
-        allowed_context_policy=task.bundle_only_eval.allowed_context_policy.value,
+        allowed_context_policy=allowed_context_policy,
         output_schema=bundle_only_output_schema(),
     )
 
