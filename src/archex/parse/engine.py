@@ -25,6 +25,26 @@ _PREFERRED_LANGUAGE_LOADERS: dict[str, tuple[str, str]] = {
 }
 
 
+def _coerce_tree_sitter_language(language_id: str, value: object, source: str) -> Language:
+    if isinstance(value, Language):
+        return value
+
+    try:
+        return Language(value)  # pyright: ignore[reportDeprecated]
+    except TypeError as exc:
+        value_type = type(value)
+        install_hint = (
+            "; install tree-sitter-language-pack<1.0"
+            if source == "tree-sitter-language-pack"
+            else ""
+        )
+        raise ParseError(
+            f"incompatible {source} grammar for {language_id!r}: expected a "
+            f"tree_sitter.Language-compatible value, got "
+            f"{value_type.__module__}.{value_type.__qualname__}{install_hint}"
+        ) from exc
+
+
 class TreeSitterEngine:
     """Manages tree-sitter Language and Parser instances with per-language caching."""
 
@@ -59,7 +79,9 @@ class TreeSitterEngine:
 
         try:
             func = getattr(module, func_name)
-            return Language(func())  # pyright: ignore[reportDeprecated]
+            return _coerce_tree_sitter_language(language_id, func(), module_name)
+        except ParseError:
+            raise
         except Exception as exc:
             raise ParseError(f"Failed to load tree-sitter language {language_id!r}: {exc}") from exc
 
@@ -71,12 +93,15 @@ class TreeSitterEngine:
                 get_language as _pack_get_language,  # type: ignore[import-untyped]
             )
 
-            return _pack_get_language(pack_name)  # pyright: ignore[reportUnknownVariableType,reportArgumentType]
+            lang = _pack_get_language(pack_name)  # pyright: ignore[reportUnknownVariableType,reportArgumentType]
+            return _coerce_tree_sitter_language(language_id, lang, "tree-sitter-language-pack")
         except ImportError as exc:
             raise ParseError(
                 f"tree-sitter grammar for {language_id!r} not installed "
                 f"(tried standalone package and tree-sitter-language-pack): {exc}"
             ) from exc
+        except ParseError:
+            raise
         except Exception as exc:
             raise ParseError(
                 f"Failed to load tree-sitter language {language_id!r} from language-pack: {exc}"

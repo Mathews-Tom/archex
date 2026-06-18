@@ -129,6 +129,26 @@ def test_language_constructor_failure_raises_parse_error() -> None:
         engine.get_language("python")
 
 
+def test_language_pack_incompatible_language_raises_parse_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    class Language:
+        pass
+
+    def get_language(_name: str) -> object:
+        return Language()
+
+    mock_pack = SimpleNamespace(get_language=get_language)
+    monkeypatch.setitem(sys.modules, "tree_sitter_language_pack", mock_pack)
+
+    engine = TreeSitterEngine()
+    with pytest.raises(ParseError, match="incompatible tree-sitter-language-pack"):
+        engine.get_parser("c")
+
+
 def test_parse_file_read_error_raises_parse_error(tmp_path: Path) -> None:
     from unittest.mock import patch
 
