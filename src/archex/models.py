@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, model_validator
 
+from archex.index.quantize import SUPPORTED_BITS
 from archex.integrations.lsap_models import LSAPEnrichment  # noqa: TCH001
 
 # ---------------------------------------------------------------------------
@@ -219,6 +220,8 @@ class IndexConfig(BaseModel):
     chunk_min_tokens: int = 50
     token_encoding: str = "cl100k_base"
     allow_remote_code: bool = False
+    quantize_vectors: bool = False
+    quantize_bits: int = 4
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
@@ -236,6 +239,8 @@ class IndexConfig(BaseModel):
             raise ValueError("surrogate_version must not be empty")
         if self.rerank_candidate_limit < 1:
             raise ValueError("rerank_candidate_limit must be at least 1")
+        if self.quantize_bits not in SUPPORTED_BITS:
+            raise ValueError(f"quantize_bits must be one of {SUPPORTED_BITS}")
         return self
 
 

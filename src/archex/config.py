@@ -150,3 +150,70 @@ def load_index_config(source: RepoSource | str | Path | None = None) -> IndexCon
     overrides.update(_env_overrides(IndexConfig.model_fields))
 
     return IndexConfig(**overrides) if overrides else IndexConfig()
+
+
+def _format_toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    if isinstance(value, list):
+        items = cast("list[Any]", value)
+        return "[" + ", ".join(_format_toml_value(item) for item in items) + "]"
+    raise TypeError(f"Unsupported TOML value type for project index settings: {type(value)!r}")
+
+
+def persist_project_index_settings(
+    source: RepoSource | str | Path,
+    updates: dict[str, Any],
+) -> Path | None:
+    """Persist supported IndexConfig keys into repo-local `.archex/settings.toml`."""
+    state = _project_state(source)
+    if state is None:
+        return None
+    filtered = {key: value for key, value in updates.items() if key in IndexConfig.model_fields}
+    if not filtered:
+        return state.settings_path
+
+    # Validate existing settings and the merged index config before writing.
+    _state, index_settings = _project_index_settings(source) or (state, {})
+    IndexConfig(**(index_settings | filtered))
+
+    lines = state.settings_path.read_text(encoding="utf-8").splitlines()
+    section_start: int | None = None
+    section_end = len(lines)
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "[index]":
+            section_start = idx
+            continue
+        if section_start is not None and idx > section_start and stripped.startswith("["):
+            section_end = idx
+            break
+
+    if section_start is None:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append("[index]")
+        section_start = len(lines) - 1
+        section_end = len(lines)
+
+    remaining = dict(filtered)
+    for idx in range(section_start + 1, section_end):
+        stripped = lines[idx].strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key in remaining:
+            lines[idx] = f"{key} = {_format_toml_value(remaining.pop(key))}"
+
+    insert_at = section_end
+    for key, value in remaining.items():
+        lines.insert(insert_at, f"{key} = {_format_toml_value(value)}")
+        insert_at += 1
+
+    state.settings_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return state.settings_path

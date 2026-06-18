@@ -24,7 +24,7 @@ from archex.index.quantize import (
     unpack_codes,
 )
 from archex.index.vector import VectorIndex
-from archex.models import CodeChunk, SymbolKind
+from archex.models import CodeChunk, IndexConfig, SymbolKind
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -478,6 +478,38 @@ class TestVectorIndexQuantized:
         assert idx2.is_quantized
         results = idx2.search(SAMPLE_CHUNKS[0].content, embedder, top_k=5)
         assert len(results) > 0
+
+
+def test_index_config_metadata_tracks_quantization(tmp_path: Path) -> None:
+    from archex.api import (
+        _index_config_metadata_matches,  # pyright: ignore[reportPrivateUsage]
+        _set_index_config_metadata,  # pyright: ignore[reportPrivateUsage]
+    )
+    from archex.index.store import IndexStore
+
+    store = IndexStore(tmp_path / "index.db")
+    try:
+        _set_index_config_metadata(store, IndexConfig(vector=True))
+        assert _index_config_metadata_matches(store, IndexConfig(vector=True))
+        assert not _index_config_metadata_matches(
+            store,
+            IndexConfig(vector=True, quantize_vectors=True, quantize_bits=4),
+        )
+
+        _set_index_config_metadata(
+            store,
+            IndexConfig(vector=True, quantize_vectors=True, quantize_bits=4),
+        )
+        assert _index_config_metadata_matches(
+            store,
+            IndexConfig(vector=True, quantize_vectors=True, quantize_bits=4),
+        )
+        assert not _index_config_metadata_matches(
+            store,
+            IndexConfig(vector=True, quantize_vectors=True, quantize_bits=2),
+        )
+    finally:
+        store.close()
 
 
 # ---------------------------------------------------------------------------
