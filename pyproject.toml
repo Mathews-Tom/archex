@@ -1,6 +1,6 @@
 [project]
 name = "archex"
-version = "0.13.0"
+version = "0.13.1"
 description = "Architecture extraction & codebase intelligence for the agentic era"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -26,7 +26,7 @@ dependencies = [
     "tree-sitter-java>=0.23",
     "tree-sitter-kotlin>=1.1",
     "tree-sitter-c-sharp>=0.23",
-    "tree-sitter-language-pack>=0.13",
+    "tree-sitter-language-pack>=0.13,<1.0",
     "tiktoken>=0.7",
     "pydantic>=2.7",
     "networkx>=3.3",
