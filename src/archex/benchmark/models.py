@@ -371,6 +371,19 @@ class BenchmarkResult(BaseModel):
     chunker: ChunkerName = "default"
     index_chunk_count: int = 0
     mean_chunk_tokens: float = 0.0
+    # Optional region/line-level retrieval-quality metrics. Populated only when a
+    # task declares expected_regions; otherwise left as None ("unknown").
+    region_recall: float | None = None
+    region_precision: float | None = None
+    region_f1: float | None = None
+    line_recall: float | None = None
+    line_precision: float | None = None
+    ranked_region_mrr: float | None = None
+    ranked_region_ndcg: float | None = None
+    context_noise_ratio: float | None = None
+    useful_tokens: int | None = None
+    wasted_tokens: int | None = None
+    relevance_per_1k_tokens: float | None = None
 
 
 class BenchmarkReport(BaseModel):

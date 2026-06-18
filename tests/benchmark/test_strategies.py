@@ -9,7 +9,14 @@ from unittest.mock import patch
 
 import pytest
 
-from archex.benchmark.models import BenchmarkRetrievalOptions, BenchmarkTask, Strategy
+from archex.benchmark.models import (
+    BenchmarkRetrievalOptions,
+    BenchmarkTask,
+    ExpectedRegion,
+    RegionGranularity,
+    Strategy,
+)
+from archex.benchmark.region_metrics import ReturnedRegion, compute_region_metrics
 from archex.benchmark.strategies import (
     _archex_fields,  # pyright: ignore[reportPrivateUsage]
     _deduplicate_ranked,  # pyright: ignore[reportPrivateUsage]
@@ -350,6 +357,150 @@ class TestComputeSymbolRecall:
         assert compute_symbol_recall(set(), ["foo"]) == 0.0
 
 
+class TestComputeRegionMetrics:
+    def test_returns_none_without_labels(self) -> None:
+        returned = [ReturnedRegion("a.py", 1, 10, None, 50)]
+        assert compute_region_metrics(returned, []) is None
+
+    def test_right_file_wrong_lines_fails_region_and_line(self) -> None:
+        # The file is returned (file recall would succeed) but the returned lines
+        # do not overlap the expected region (region/line recall must fail).
+        expected = [ExpectedRegion(path="a.py", start_line=10, end_line=20)]
+        returned = [ReturnedRegion("a.py", 100, 120, None, 200)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert compute_recall({"a.py"}, ["a.py"]) == 1.0  # file-level success
+        assert metrics.region_recall == 0.0
+        assert metrics.line_recall == 0.0
+        assert metrics.context_noise_ratio == 1.0
+        assert metrics.useful_tokens == 0
+        assert metrics.wasted_tokens == 200
+
+    def test_overlapping_lines_succeed(self) -> None:
+        expected = [ExpectedRegion(path="a.py", start_line=10, end_line=20)]
+        returned = [ReturnedRegion("a.py", 8, 22, None, 150)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.region_recall == 1.0
+        assert metrics.region_precision == 1.0
+        assert metrics.line_recall == 1.0  # all 11 expected lines covered
+        # 11 expected lines covered out of 15 returned lines.
+        assert metrics.line_precision == pytest.approx(11 / 15)  # pyright: ignore[reportUnknownMemberType]
+        assert metrics.useful_tokens == round(11 / 15 * 150)
+        assert metrics.ranked_region_mrr == 1.0
+        assert metrics.ranked_region_ndcg == 1.0
+
+    def test_ranking_respects_returned_order_not_path_sort(self) -> None:
+        # The relevant region ("a.py") is returned second; a path-sorted order
+        # would rank it first. MRR must reflect the returned position.
+        expected = [ExpectedRegion(path="z_relevant.py", start_line=10, end_line=20)]
+        returned = [
+            ReturnedRegion("a_irrelevant.py", 1, 5, None, 40),
+            ReturnedRegion("z_relevant.py", 10, 20, None, 40),
+        ]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.ranked_region_mrr == 0.5
+        # Putting the relevant region first scores a better nDCG.
+        reordered = compute_region_metrics(list(reversed(returned)), expected)
+        assert reordered is not None
+        assert reordered.ranked_region_ndcg > metrics.ranked_region_ndcg
+
+    def test_symbol_region_matches_unqualified_symbol(self) -> None:
+        expected = [
+            ExpectedRegion(path="a.py", granularity=RegionGranularity.SYMBOL, symbol="Cli.run")
+        ]
+        returned = [ReturnedRegion("a.py", 1, 9, "run", 80)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.region_recall == 1.0
+        # No explicit expected line range -> line metrics stay unknown.
+        assert metrics.line_recall is None
+        assert metrics.line_precision is None
+        assert metrics.context_noise_ratio == 0.0
+
+    def test_file_granularity_region_covered_by_any_chunk(self) -> None:
+        expected = [ExpectedRegion(path="a.py", granularity=RegionGranularity.FILE)]
+        returned = [ReturnedRegion("a.py", 200, 240, None, 90)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.region_recall == 1.0
+        assert metrics.line_recall is None
+        assert metrics.context_noise_ratio == 0.0
+
+    def test_weighted_recall_reflects_region_weight(self) -> None:
+        expected = [
+            ExpectedRegion(path="a.py", start_line=10, end_line=20, weight=3.0),
+            ExpectedRegion(path="b.py", start_line=10, end_line=20, weight=1.0),
+        ]
+        # Only the heavy region is covered: weighted recall = 3 / (3 + 1).
+        returned = [ReturnedRegion("a.py", 10, 20, None, 60)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.region_recall == pytest.approx(0.75)  # pyright: ignore[reportUnknownMemberType]
+
+    def test_precision_penalizes_unmatched_returned_regions(self) -> None:
+        expected = [ExpectedRegion(path="a.py", start_line=10, end_line=20)]
+        returned = [
+            ReturnedRegion("a.py", 10, 20, None, 50),
+            ReturnedRegion("noise.py", 1, 5, None, 50),
+        ]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.region_precision == 0.5
+        assert metrics.context_noise_ratio == 0.5
+        assert metrics.relevance_per_1k_tokens == pytest.approx(1000.0 / 100)  # pyright: ignore[reportUnknownMemberType]
+
+    def test_useful_fraction_unions_multiple_regions_in_one_file(self) -> None:
+        # One chunk spanning two disjoint labeled regions is credited for the
+        # union of covered lines (20/100), not just the best single overlap.
+        expected = [
+            ExpectedRegion(path="a.py", start_line=1, end_line=10),
+            ExpectedRegion(path="a.py", start_line=91, end_line=100),
+        ]
+        returned = [ReturnedRegion("a.py", 1, 100, None, 1000)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.useful_tokens == 200
+        assert metrics.wasted_tokens == 800
+        assert metrics.context_noise_ratio == pytest.approx(0.8)  # pyright: ignore[reportUnknownMemberType]
+
+    def test_ndcg_penalizes_missing_heavy_region(self) -> None:
+        # Heaviest region A is missed; only the light region B is returned, so
+        # nDCG must be well below 1.0 even though B is ranked first.
+        expected = [
+            ExpectedRegion(path="a.py", start_line=1, end_line=10, weight=5.0),
+            ExpectedRegion(path="a.py", start_line=100, end_line=110, weight=1.0),
+        ]
+        returned = [ReturnedRegion("a.py", 100, 110, None, 50)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.ranked_region_ndcg < 0.5
+
+    def test_ndcg_bounded_when_one_chunk_covers_multiple_regions(self) -> None:
+        # A single returned chunk that covers two adjacent expected regions must
+        # not push nDCG above 1.0; both are surfaced as early as possible.
+        expected = [
+            ExpectedRegion(path="a.py", start_line=1, end_line=10),
+            ExpectedRegion(path="a.py", start_line=11, end_line=20),
+        ]
+        returned = [ReturnedRegion("a.py", 1, 20, None, 100)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.ranked_region_ndcg == 1.0
+
+    def test_symbol_match_rejects_different_qualified_symbol(self) -> None:
+        # A qualified label must not be credited by a different qualified symbol
+        # that merely shares the trailing name in the same file.
+        expected = [
+            ExpectedRegion(path="a.py", granularity=RegionGranularity.SYMBOL, symbol="Cli.run")
+        ]
+        returned = [ReturnedRegion("a.py", 1, 9, "Server.run", 80)]
+        metrics = compute_region_metrics(returned, expected)
+        assert metrics is not None
+        assert metrics.region_recall == 0.0
+
+
 class TestRunRawFiles:
     def test_raw_files_strategy(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
@@ -575,6 +726,58 @@ class TestRunArchexQuery:
         assert result.required_file_recall == 1.0
         assert result.all_required_files_present is True
         assert result.task_completion_result.value == "pass"
+
+    def test_archex_query_without_regions_leaves_region_fields_none(
+        self,
+        python_simple_repo: Path,
+    ) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=4096,
+        )
+        result = run_archex_query(task, python_simple_repo)
+        assert result.region_recall is None
+        assert result.region_precision is None
+        assert result.line_recall is None
+        assert result.ranked_region_mrr is None
+        assert result.context_noise_ratio is None
+        assert result.useful_tokens is None
+        assert result.relevance_per_1k_tokens is None
+
+    def test_archex_query_with_regions_populates_region_fields(
+        self,
+        python_simple_repo: Path,
+    ) -> None:
+        line_count = len((python_simple_repo / "main.py").read_text(encoding="utf-8").splitlines())
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=4096,
+            expected_regions=[
+                ExpectedRegion(path="main.py", start_line=1, end_line=line_count),
+            ],
+        )
+        result = run_archex_query(task, python_simple_repo)
+        # File-level success is unchanged.
+        assert result.required_file_recall == 1.0
+        # Region fields are now populated (a whole-file region is covered when
+        # main.py is returned).
+        assert result.region_recall == 1.0
+        assert result.region_precision is not None
+        assert result.line_recall is not None
+        assert 0.0 <= result.line_recall <= 1.0
+        assert result.ranked_region_mrr is not None
+        assert result.context_noise_ratio is not None
+        assert result.useful_tokens is not None
+        assert result.wasted_tokens is not None
+        assert result.relevance_per_1k_tokens is not None
 
     def test_archex_query_reports_configured_chunker_metadata(
         self,
