@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1] - 2026-06-18
+
+### Fixed
+
+- **Tree-sitter language-pack compatibility:** Capped `tree-sitter-language-pack` below 1.0 and added a parser guard so `archex index` does not crash with `TypeError: Parser(...) expected tree_sitter.Language` when a resolver installs the incompatible Rust-backed 1.x package line.
+
+
 ## [0.13.0] - 2026-06-18
 
 ### Added
@@ -17,7 +24,6 @@
 ### Fixed
 
 - **Badge cache busting:** Bumped README badge cache keys for the v0.13 release so PyPI and Star History embeds stop showing stale v0.12-era cached assets.
-- **Tree-sitter language-pack compatibility:** Capped `tree-sitter-language-pack` below 1.0 and added a parser guard so `archex index` does not crash with `TypeError: Parser(...) expected tree_sitter.Language` when a resolver installs the incompatible Rust-backed 1.x package line.
 
 ## [0.12.1] - 2026-06-17
 
