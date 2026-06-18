@@ -1,0 +1,190 @@
+"""Tests for optional bundle-only evaluator commands."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+from archex.benchmark.bundle_eval import (
+    BundleOnlyEvaluatorError,
+    build_bundle_only_evaluator_input,
+    parse_bundle_only_evaluator_output,
+    run_bundle_only_evaluator,
+)
+from archex.benchmark.models import (
+    BenchmarkTask,
+    BundleOnlyAllowedContext,
+    BundleOnlyEvaluation,
+    BundleOnlyEvaluatorCommand,
+    TaskCompletionResult,
+)
+from archex.models import (
+    ContextBundle,
+    ContextCompletenessStatus,
+    ContextReceipt,
+    ContextReceiptTokenBudget,
+)
+
+
+def _fixture_command(mode: str) -> BundleOnlyEvaluatorCommand:
+    command_path = Path(__file__).parents[1] / "fixtures" / "bundle_eval_command.py"
+    return BundleOnlyEvaluatorCommand(
+        command=sys.executable,
+        args=[str(command_path), mode],
+        timeout_seconds=10,
+    )
+
+
+def _task(command: BundleOnlyEvaluatorCommand | None = None) -> BenchmarkTask:
+    return BenchmarkTask(
+        task_id="bundle_eval_task",
+        repo="owner/repo",
+        commit="abc123",
+        question="Can the bundle answer this?",
+        expected_files=["src/main.py"],
+        bundle_only_eval=BundleOnlyEvaluation(
+            expected_answer="bundle contains receipt",
+            allowed_context_policy=BundleOnlyAllowedContext.BUNDLE_PLUS_FRONTIER,
+            evaluator_command=command,
+        ),
+    )
+
+
+def _bundle() -> ContextBundle:
+    receipt = ContextReceipt(
+        query="Can the bundle answer this?",
+        token_budget=ContextReceiptTokenBudget(requested=1000, consumed=20),
+        index_revision="sha256:test",
+        context_complete=ContextCompletenessStatus.COMPLETE,
+    )
+    return ContextBundle(
+        query="Can the bundle answer this?",
+        token_count=20,
+        token_budget=1000,
+        receipt=receipt,
+    )
+
+
+def test_build_evaluator_input_contains_bundle_receipt_and_policy() -> None:
+    evaluator_input = build_bundle_only_evaluator_input(_task(), _bundle())
+
+    assert evaluator_input.question == "Can the bundle answer this?"
+    assert "Can the bundle answer this?" in evaluator_input.rendered_bundle
+    assert "sha256:test" in evaluator_input.receipt_json
+    assert evaluator_input.allowed_context_policy == "bundle-plus-frontier"
+    assert evaluator_input.output_schema["required"] == [
+        "answer",
+        "confidence",
+        "needed_files",
+        "attempted_more_context",
+    ]
+
+
+def test_run_evaluator_command_returns_structured_output(tmp_path: Path) -> None:
+    output = run_bundle_only_evaluator(
+        _task(_fixture_command("pass")),
+        _bundle(),
+        cwd=tmp_path,
+    )
+
+    assert output.answer == "bundle contains receipt"
+    assert output.confidence == 0.95
+    assert output.needed_files == ["src/frontier.py"]
+    assert output.attempted_more_context is False
+    assert output.post_bundle_read_turns == 1
+    assert output.bundle_only_success is TaskCompletionResult.PASS
+
+
+def test_expected_answer_grades_missing_success_field(tmp_path: Path) -> None:
+    output = run_bundle_only_evaluator(
+        _task(_fixture_command("no-success")),
+        _bundle(),
+        cwd=tmp_path,
+    )
+
+    assert output.bundle_only_success is TaskCompletionResult.PASS
+
+
+def test_explicit_command_overrides_task_command(tmp_path: Path) -> None:
+    output = run_bundle_only_evaluator(
+        _task(_fixture_command("exit-2")),
+        _bundle(),
+        command=_fixture_command("pass"),
+        cwd=tmp_path,
+    )
+
+    assert output.bundle_only_success is TaskCompletionResult.PASS
+
+
+def test_invalid_evaluator_json_fails_loudly(tmp_path: Path) -> None:
+    with pytest.raises(BundleOnlyEvaluatorError, match="invalid JSON"):
+        run_bundle_only_evaluator(
+            _task(_fixture_command("invalid-json")),
+            _bundle(),
+            cwd=tmp_path,
+        )
+
+
+def test_invalid_evaluator_schema_fails_loudly() -> None:
+    with pytest.raises(BundleOnlyEvaluatorError, match="required schema"):
+        parse_bundle_only_evaluator_output('{"answer": "missing fields"}')
+
+
+def test_missing_required_evaluator_fields_fail_loudly() -> None:
+    with pytest.raises(BundleOnlyEvaluatorError, match="required schema"):
+        parse_bundle_only_evaluator_output(
+            """{
+                "answer": "a",
+                "confidence": 1.0
+            }"""
+        )
+
+
+def test_invalid_needed_file_path_fails_loudly() -> None:
+    with pytest.raises(BundleOnlyEvaluatorError, match="required schema"):
+        parse_bundle_only_evaluator_output(
+            """{
+                "answer": "a",
+                "confidence": 1.0,
+                "needed_files": ["../secret.py"],
+                "attempted_more_context": false
+            }"""
+        )
+
+
+def test_nonzero_evaluator_exit_fails_loudly(tmp_path: Path) -> None:
+    with pytest.raises(BundleOnlyEvaluatorError, match="exit code 2"):
+        run_bundle_only_evaluator(
+            _task(_fixture_command("exit-2")),
+            _bundle(),
+            cwd=tmp_path,
+        )
+
+
+def test_nonexistent_evaluator_command_fails_loudly(tmp_path: Path) -> None:
+    command = BundleOnlyEvaluatorCommand(command="definitely-not-archex-bundle-eval")
+
+    with pytest.raises(BundleOnlyEvaluatorError, match="could not be started"):
+        run_bundle_only_evaluator(
+            _task(command),
+            _bundle(),
+            cwd=tmp_path,
+        )
+
+
+def test_evaluator_timeout_fails_loudly(tmp_path: Path) -> None:
+    command = _fixture_command("sleep").model_copy(update={"timeout_seconds": 0.01})
+
+    with pytest.raises(BundleOnlyEvaluatorError, match="timed out"):
+        run_bundle_only_evaluator(
+            _task(command),
+            _bundle(),
+            cwd=tmp_path,
+        )
+
+
+def test_missing_command_fails_before_execution() -> None:
+    with pytest.raises(BundleOnlyEvaluatorError, match="explicit evaluator command"):
+        run_bundle_only_evaluator(_task(), _bundle())
