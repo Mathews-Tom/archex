@@ -11,6 +11,8 @@ _VECTOR_MODEL_STRATEGIES: frozenset[Strategy] = frozenset(
         Strategy.ARCHEX_QUERY_VECTOR,
         Strategy.SURROGATE_VECTOR,
         Strategy.ARCHEX_QUERY_FUSION,
+        Strategy.ARCHEX_QUERY_HYBRID,
+        Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
         Strategy.ARCHEX_QUERY_FUSION_RERANK,
         Strategy.CROSS_LAYER_FUSION,
     }

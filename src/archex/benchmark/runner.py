@@ -43,6 +43,8 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
     *DEFAULT_STRATEGIES,
     Strategy.ARCHEX_SCOUT_FETCH,
     Strategy.ARCHEX_QUERY_FUSION,
+    Strategy.ARCHEX_QUERY_HYBRID,
+    Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
     Strategy.ARCHEX_QUERY_FUSION_RERANK,
     Strategy.CROSS_LAYER_FUSION,
 ]
@@ -53,6 +55,8 @@ _VECTOR_STRATEGIES: frozenset[Strategy] = frozenset(
         Strategy.SURROGATE_VECTOR,
         Strategy.ARCHEX_QUERY_FUSION,
         Strategy.ARCHEX_QUERY_FUSION_RERANK,
+        Strategy.ARCHEX_QUERY_HYBRID,
+        Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
         Strategy.CROSS_LAYER_FUSION,
     }
 )
@@ -79,7 +83,7 @@ def _warm_repo_index(
     repo_path: Path,
     retrieval_options: BenchmarkRetrievalOptions | None = None,
     *,
-    warm_rerank: bool = False,
+    warm_strategy: Strategy = Strategy.ARCHEX_QUERY_FUSION,
 ) -> None:
     """Pre-build the shared vector index so every vector strategy runs warm.
 
@@ -95,15 +99,19 @@ def _warm_repo_index(
     from archex.models import Config, IndexConfig
 
     retrieval_options = retrieval_options or BenchmarkRetrievalOptions()
-    warm_strategy = (
-        Strategy.ARCHEX_QUERY_FUSION_RERANK if warm_rerank else Strategy.ARCHEX_QUERY_FUSION
-    )
+    warm_rerank = warm_strategy is Strategy.ARCHEX_QUERY_FUSION_RERANK
+    if warm_strategy is Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT:
+        base_config = IndexConfig(vector=True, quantize_vectors=True, quantize_bits=4)
+    elif warm_strategy in {Strategy.ARCHEX_QUERY_HYBRID, Strategy.ARCHEX_QUERY_FUSION}:
+        base_config = IndexConfig(vector=True, quantize_vectors=False)
+    else:
+        base_config = IndexConfig(vector=True, rerank=warm_rerank, quantize_vectors=False)
     token = set_benchmark_retrieval_options(retrieval_options)
     try:
         source = benchmark_repo_source(task, repo_path, strategy=warm_strategy)
         config = Config(cache=True, languages=task.languages)
         index_config = benchmark_index_config(
-            IndexConfig(vector=True, rerank=warm_rerank),
+            base_config,
             strategy=warm_strategy,
         )
     finally:
@@ -187,18 +195,25 @@ def run_benchmark(
     retrieval_options = retrieval_options or BenchmarkRetrievalOptions()
     token = set_benchmark_retrieval_options(retrieval_options)
     try:
-        should_warm = _check_vector_available() and any(s in _VECTOR_STRATEGIES for s in strategies)
-        should_warm_rerank = Strategy.ARCHEX_QUERY_FUSION_RERANK in strategies
-        if should_warm:
+        warm_strategies: list[Strategy] = []
+        if _check_vector_available() and any(s in _VECTOR_STRATEGIES for s in strategies):
+            warm_rerank = Strategy.ARCHEX_QUERY_FUSION_RERANK in strategies
+            warm_strategies.append(
+                Strategy.ARCHEX_QUERY_FUSION_RERANK if warm_rerank else Strategy.ARCHEX_QUERY_FUSION
+            )
+            if Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT in strategies:
+                warm_strategies.append(Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT)
+        if warm_strategies:
             _log_progress(progress, f"  warming vector index for {task.task_id}...")
             if progress is not None:
                 progress.start_warmup()
-            _warm_repo_index(
-                task,
-                repo_path,
-                retrieval_options,
-                warm_rerank=should_warm_rerank,
-            )
+            for warm_strategy in warm_strategies:
+                _warm_repo_index(
+                    task,
+                    repo_path,
+                    retrieval_options,
+                    warm_strategy=warm_strategy,
+                )
         if progress is not None:
             progress.finish_warmup(strategies)
 

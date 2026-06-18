@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from archex.benchmark.models import BenchmarkReport, DeltaBenchmarkResult
+    from archex.benchmark.models import BenchmarkReport, BenchmarkResult, DeltaBenchmarkResult
 
 
 _SUMMARY_FIELDS = (
@@ -258,6 +258,97 @@ def format_bucketed_summary(reports: list[BenchmarkReport]) -> str:
     for cat in sorted(buckets.keys()):
         lines.extend(_summary_table(cat, buckets[cat]))
 
+    return "\n".join(lines)
+
+
+def _result_for_strategy(report: BenchmarkReport, strategy: str) -> BenchmarkResult | None:
+    for result in report.results:
+        if result.strategy.value == strategy:
+            return result
+    return None
+
+
+def format_baseline_comparison(
+    candidate_reports: list[BenchmarkReport],
+    baseline_reports: list[BenchmarkReport],
+    *,
+    candidate_strategy: str,
+    baseline_strategy: str,
+) -> str:
+    """Render per-task and aggregate deltas between two result directories."""
+    if not candidate_reports or not baseline_reports:
+        return "No baseline comparison available."
+
+    baseline_by_task = {report.task_id: report for report in baseline_reports}
+    rows: list[tuple[str, float, float, float, float, float, float]] = []
+    compression_ratios: list[float] = []
+    for candidate_report in candidate_reports:
+        baseline_report = baseline_by_task.get(candidate_report.task_id)
+        if baseline_report is None:
+            continue
+        candidate = _result_for_strategy(candidate_report, candidate_strategy)
+        baseline = _result_for_strategy(baseline_report, baseline_strategy)
+        if candidate is None or baseline is None:
+            continue
+        compression_ratio = float(candidate.provenance.get("vector_compression_ratio", "0") or 0)
+        if compression_ratio:
+            compression_ratios.append(compression_ratio)
+        rows.append(
+            (
+                candidate_report.task_id,
+                candidate.recall - baseline.recall,
+                candidate.mrr - baseline.mrr,
+                candidate.f1_score - baseline.f1_score,
+                candidate.required_file_recall - baseline.required_file_recall,
+                candidate.wall_time_ms - baseline.wall_time_ms,
+                compression_ratio,
+            )
+        )
+
+    if not rows:
+        return "No matching strategy results found for baseline comparison."
+
+    lines = [
+        "# Baseline Comparison",
+        "",
+        f"Candidate: `{candidate_strategy}`",
+        f"Baseline: `{baseline_strategy}`",
+        "",
+        "| Task | Recall Δ | MRR Δ | F1 Δ | Required Recall Δ | Latency Δ ms | Compression |",
+        "|------|----------|-------|------|-------------------|--------------|-------------|",
+    ]
+    for (
+        task_id,
+        recall_delta,
+        mrr_delta,
+        f1_delta,
+        required_delta,
+        latency_delta,
+        compression,
+    ) in rows:
+        compression_cell = f"{compression:.2f}x" if compression else "n/a"
+        lines.append(
+            f"| {task_id} | {recall_delta:+.3f} | {mrr_delta:+.3f} "
+            f"| {f1_delta:+.3f} | {required_delta:+.3f} "
+            f"| {latency_delta:+.0f} | {compression_cell} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Aggregate",
+            "",
+            f"- Recall Δ: {_mean([row[1] for row in rows]):+.3f}",
+            f"- MRR Δ: {_mean([row[2] for row in rows]):+.3f}",
+            f"- F1 Δ: {_mean([row[3] for row in rows]):+.3f}",
+            f"- Required recall Δ: {_mean([row[4] for row in rows]):+.3f}",
+            f"- Latency Δ ms: {_mean([row[5] for row in rows]):+.0f}",
+            f"- Compression: {_mean(compression_ratios):.2f}x"
+            if compression_ratios
+            else "- Compression: n/a",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 

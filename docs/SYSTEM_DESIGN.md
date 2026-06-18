@@ -225,6 +225,7 @@ Unknown files fall back to line-window chunking so they can still be found by BM
 - **Bundle-only eval lane:** `archex benchmark bundle-eval` is explicit opt-in and separate from retrieval gates. It invokes only an operator-supplied local command with the task question, rendered bundle, receipt JSON, and allowed-context policy, then reports bundle-only success and missing-needed-file attribution.
 - **Comparison page:** `docs/ARCHEX_VS_COCOINDEX.md` publishes accepted C1 cells and capability evidence without re-measuring inside docs work.
 - **Chunking A/B:** the benchmark runner records the chunker axis (`default` or `cast`) so stores and benchmark outputs built with different chunkers are not compared silently.
+- **TurboQuant vector A/B:** `archex_query_hybrid_quantized_4bit` builds a separate 4-bit TurboQuant vector artifact and records measured `.npz` sizes, compression ratio, recall/MRR/F1 deltas, required-file recall delta, and query latency delta against `archex_query_hybrid`.
 
 ### 1.3 Dependency Architecture
 
@@ -321,6 +322,8 @@ class IndexConfig:
     chunk_max_tokens: int = 500
     chunk_min_tokens: int = 50
     token_encoding: str = "cl100k_base"
+    quantize_vectors: bool = True               # Enable 4-bit TurboQuant vector storage by default
+    quantize_bits: int = 4                      # Supported TurboQuant bit widths: 2 or 4
 ```
 
 ### 2.2 Intermediate Models (Pipeline Outputs)
@@ -864,35 +867,101 @@ LIMIT ?;
 
 #### 3.3.4 Vector Index
 
-Optional, activated via `IndexConfig(vector=True)`.
+Optional, activated via `IndexConfig(vector=True)`. Stored vector artifacts use TurboQuant
+by default through `IndexConfig(quantize_vectors=True, quantize_bits=4)`.
+TurboQuant applies a random orthogonal rotation, 4-bit Beta-distribution scalar
+quantization, and QJL dot products in rotated space. `VectorIndex.load()` reads
+artifact metadata so old unquantized `.npz` files and new quantized `.npz` files
+remain self-describing.
 
 ```python
 class VectorIndex:
-    """Simple embedding-based similarity search."""
+    """Embedding-based similarity search with optional TurboQuant storage."""
 
-    def __init__(self, embedder: Embedder):
+    def __init__(
+        self,
+        embedder: Embedder,
+        *,
+        quantize: bool = False,
+        quantize_bits: int = 4,
+    ):
         self.embedder = embedder
-        self.vectors: np.ndarray | None = None  # (n_chunks, dim)
+        self.quantize = quantize
+        self.quantize_bits = quantize_bits
+        self.vectors: np.ndarray | None = None
+        self.quantized_vectors: QuantizedVectors | None = None
         self.chunk_ids: list[str] = []
 
     def build(self, chunks: list[CodeChunk]) -> None:
         texts = [c.imports_context + "\n" + c.content for c in chunks]
-        self.vectors = self.embedder.embed(texts)
+        vectors = self.embedder.embed(texts)
+        self.vectors = vectors
+        self.quantized_vectors = quantize_vectors(vectors, bits=self.quantize_bits) if self.quantize else None
         self.chunk_ids = [c.id for c in chunks]
 
     def search(self, query: str, top_k: int = 20) -> list[tuple[str, float]]:
         query_vec = self.embedder.embed([query])[0]
-        similarities = self.vectors @ query_vec  # Cosine sim (vectors are normalized)
-        top_indices = np.argsort(similarities)[::-1][:top_k]
-        return [(self.chunk_ids[i], float(similarities[i])) for i in top_indices]
+        if self.quantized_vectors is not None:
+            scores = self.quantized_vectors.dot(query_vec)
+        else:
+            scores = self.vectors @ query_vec
+        top_indices = np.argsort(scores)[::-1][:top_k]
+        return [(self.chunk_ids[i], float(scores[i])) for i in top_indices]
 
     def save(self, path: Path) -> None:
-        np.save(path / "vectors.npy", self.vectors)
-        (path / "chunk_ids.json").write_text(json.dumps(self.chunk_ids))
+        # Writes vectors.npz with quantize_meta when quantized.
+        ...
 
     @classmethod
     def load(cls, path: Path, embedder: Embedder) -> "VectorIndex": ...
 ```
+
+2026-06-18 local benchmark comparison:
+
+- Candidate: `uv run archex benchmark run --strategy archex_query_hybrid_quantized_4bit --output .archex/e2e-quantized --allow-remote-code --no-progress`
+- Baseline: `uv run archex benchmark run --strategy archex_query_hybrid --output .archex/e2e-baseline --allow-remote-code --no-progress`
+- Report: `uv run archex benchmark report --input .archex/e2e-quantized --baseline .archex/e2e-baseline --format markdown`
+- Corpus: 35 benchmark tasks under `benchmarks/tasks`.
+- Aggregate result: 7.07× mean vector `.npz` compression, 6.98× minimum compression, recall Δ +0.000, MRR Δ +0.000, F1 Δ +0.000, required-file recall Δ +0.000, mean query latency Δ +110 ms.
+- Default decision: enable 4-bit TurboQuant by default. The Workstream 6 gate passed because aggregate recall and MRR did not regress by more than 0.02, and measured compression stayed above the 6× threshold.
+
+| Task | Recall Δ | MRR Δ | F1 Δ | Required Recall Δ | Latency Δ ms | Compression |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `archex_adapter_registry` | +0.000 | +0.000 | +0.000 | +0.000 | +73 | 7.04x |
+| `archex_benchmark_gate_lifecycle` | +0.000 | +0.000 | +0.000 | +0.000 | +342 | 7.04x |
+| `archex_delta_index_lifecycle` | +0.000 | +0.000 | +0.000 | +0.000 | +113 | 7.04x |
+| `archex_delta_indexing` | +0.000 | +0.000 | +0.000 | +0.000 | +75 | 7.04x |
+| `archex_graph_expansion` | +0.000 | +0.000 | +0.000 | +0.000 | +73 | 7.04x |
+| `archex_mcp_query_lifecycle` | +0.000 | +0.000 | +0.000 | +0.000 | +29 | 7.04x |
+| `archex_pattern_detection` | +0.000 | +0.000 | +0.000 | +0.000 | +648 | 7.04x |
+| `archex_project_config_resolution` | +0.000 | +0.000 | +0.000 | +0.000 | +228 | 7.04x |
+| `archex_project_index` | +0.000 | +0.000 | +0.000 | +0.000 | +172 | 7.04x |
+| `archex_project_init` | +0.000 | +0.000 | +0.000 | +0.000 | +119 | 7.04x |
+| `archex_project_reset` | +0.000 | +0.000 | +0.000 | +0.000 | +833 | 7.04x |
+| `archex_project_status` | +0.000 | +0.000 | +0.000 | +0.000 | +197 | 7.04x |
+| `archex_query_cache_lifecycle` | +0.000 | +0.000 | +0.000 | +0.000 | +65 | 7.04x |
+| `archex_query_pipeline` | +0.000 | +0.000 | +0.000 | +0.000 | +52 | 7.04x |
+| `archex_scoring` | +0.000 | +0.000 | +0.000 | +0.000 | +39 | 7.04x |
+| `archex_vector_cache_lifecycle` | +0.000 | +0.000 | +0.000 | +0.000 | +307 | 7.04x |
+| `celery_task_dispatch` | +0.000 | +0.000 | +0.000 | +0.000 | +26 | 7.11x |
+| `click_decorators` | +0.000 | +0.000 | +0.000 | +0.000 | +37 | 7.07x |
+| `django_middleware` | +0.000 | +0.000 | +0.000 | +0.000 | +60 | 7.03x |
+| `django_orm_queries` | +0.000 | +0.000 | +0.000 | +0.000 | +53 | 7.13x |
+| `express_error_handling` | +0.000 | +0.000 | +0.000 | +0.000 | +20 | 6.98x |
+| `express_middleware` | +0.000 | +0.000 | +0.000 | +0.000 | +24 | 6.98x |
+| `fastapi_dependency_injection` | +0.000 | +0.000 | +0.000 | +0.000 | +25 | 7.35x |
+| `fastapi_routing` | +0.000 | +0.000 | +0.000 | +0.000 | +17 | 7.48x |
+| `flask_blueprints` | +0.000 | +0.000 | +0.000 | +0.000 | +12 | 7.04x |
+| `gin_routing` | +0.000 | +0.000 | +0.000 | +0.000 | +30 | 7.04x |
+| `go_gin_middleware` | +0.000 | +0.000 | +0.000 | +0.000 | +18 | 7.04x |
+| `httpx_pooling` | +0.000 | +0.000 | +0.000 | +0.000 | +22 | 7.09x |
+| `mini_redis_async` | +0.000 | +0.000 | +0.000 | +0.000 | +14 | 7.02x |
+| `pydantic_validators` | +0.000 | +0.000 | +0.000 | +0.000 | +16 | 7.10x |
+| `pytest_fixtures` | +0.000 | +0.000 | +0.000 | +0.000 | +71 | 7.04x |
+| `react_hooks` | +0.000 | +0.000 | +0.000 | +0.000 | +3 | 7.12x |
+| `requests_sessions` | +0.000 | +0.000 | +0.000 | +0.000 | -8 | 7.03x |
+| `rust_tokio_runtime` | +0.000 | +0.000 | +0.000 | +0.000 | +17 | 7.04x |
+| `sqlalchemy_sessions` | +0.000 | +0.000 | +0.000 | +0.000 | +14 | 7.11x |
 
 #### 3.3.5 Index Persistence (SQLite)
 
@@ -1182,7 +1251,7 @@ graph TD
 
 ### 4.3 Cache Identity Strategy
 
-Repo-local mode uses the repository root plus `.archex/settings.toml` as the durable identity. Benchmark and remote-repo cache identities include the source identity, target path, retrieval strategy, embedder, vector mode, chunker, chunker revision, and config hash. The chunker axis is part of the identity so `default` and `cast` stores are never reused across each other silently.
+Repo-local mode uses the repository root plus `.archex/settings.toml` as the durable identity. Benchmark and remote-repo cache identities include the source identity, target path, retrieval strategy, embedder, vector mode, chunker, chunker revision, quantization mode and bit width, and config hash. The chunker and quantization axes are part of the identity so `default`/`cast` stores and quantized/unquantized vector artifacts are never reused across each other silently.
 
 ---
 

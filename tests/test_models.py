@@ -653,7 +653,7 @@ class TestIndexConfigValidation:
         assert config.chunk_min_tokens == 50
         assert config.vector_mode == VectorMode.RAW
         assert config.retrieval_policy == RetrievalPolicy.AUTO
-        assert config.quantize_vectors is False
+        assert config.quantize_vectors is True
         assert config.quantize_bits == 4
 
     def test_quantize_bits_must_be_supported(self) -> None:

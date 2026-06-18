@@ -24,6 +24,8 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_VECTOR = "archex_query_vector"
     SURROGATE_VECTOR = "surrogate_vector"
     ARCHEX_QUERY_FUSION = "archex_query_fusion"
+    ARCHEX_QUERY_HYBRID = "archex_query_hybrid"
+    ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT = "archex_query_hybrid_quantized_4bit"
     CROSS_LAYER_FUSION = "cross_layer_fusion"
     ARCHEX_QUERY_FUSION_RERANK = "archex_query_fusion_rerank"
     EXTERNAL_MCP = "external_mcp"

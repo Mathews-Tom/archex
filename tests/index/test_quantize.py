@@ -489,8 +489,10 @@ def test_index_config_metadata_tracks_quantization(tmp_path: Path) -> None:
 
     store = IndexStore(tmp_path / "index.db")
     try:
-        _set_index_config_metadata(store, IndexConfig(vector=True))
-        assert _index_config_metadata_matches(store, IndexConfig(vector=True))
+        _set_index_config_metadata(store, IndexConfig(vector=True, quantize_vectors=False))
+        assert _index_config_metadata_matches(
+            store, IndexConfig(vector=True, quantize_vectors=False)
+        )
         assert not _index_config_metadata_matches(
             store,
             IndexConfig(vector=True, quantize_vectors=True, quantize_bits=4),

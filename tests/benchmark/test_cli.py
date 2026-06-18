@@ -100,6 +100,71 @@ class TestReportCommand:
         data = json.loads(result.output)
         assert data["task_id"] == "test"
 
+    def test_markdown_output_with_baseline_comparison(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        candidate_dir = tmp_path / "candidate"
+        baseline_dir = tmp_path / "baseline"
+        candidate_dir.mkdir()
+        baseline_dir.mkdir()
+        baseline = BenchmarkReport(
+            task_id="test",
+            repo="owner/repo",
+            question="How?",
+            results=[
+                BenchmarkResult(
+                    task_id="test",
+                    strategy=Strategy.ARCHEX_QUERY_HYBRID,
+                    tokens_total=100,
+                    tool_calls=1,
+                    files_accessed=1,
+                    recall=0.8,
+                    precision=1.0,
+                    f1_score=0.89,
+                    mrr=0.5,
+                    savings_vs_raw=0.0,
+                    wall_time_ms=10.0,
+                    cached=True,
+                    timestamp="2025-01-01T00:00:00Z",
+                )
+            ],
+            baseline_tokens=100,
+        )
+        candidate = baseline.model_copy(
+            update={
+                "results": [
+                    BenchmarkResult(
+                        task_id="test",
+                        strategy=Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
+                        tokens_total=100,
+                        tool_calls=1,
+                        files_accessed=1,
+                        recall=0.79,
+                        precision=1.0,
+                        f1_score=0.88,
+                        mrr=0.5,
+                        savings_vs_raw=0.0,
+                        wall_time_ms=12.0,
+                        cached=True,
+                        timestamp="2025-01-01T00:00:00Z",
+                        provenance={"vector_compression_ratio": "7.5"},
+                    )
+                ]
+            }
+        )
+        (baseline_dir / "test.json").write_text(baseline.model_dump_json(indent=2))
+        (candidate_dir / "test.json").write_text(candidate.model_dump_json(indent=2))
+
+        result = runner.invoke(
+            benchmark_cmd,
+            ["report", "--input", str(candidate_dir), "--baseline", str(baseline_dir)],
+        )
+
+        assert result.exit_code == 0
+        assert "# Baseline Comparison" in result.output
+        assert "| test | -0.010 | +0.000 | -0.010" in result.output
+        assert "- Compression: 7.50x" in result.output
+
     def test_no_results_error(self, runner: CliRunner, tmp_path: Path) -> None:
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
