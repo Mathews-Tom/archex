@@ -14,7 +14,11 @@ from archex.benchmark.models import (
     BenchmarkReport,
     BenchmarkResult,
     BenchmarkTask,
+    BundleOnlyAllowedContext,
+    BundleOnlyEvaluation,
+    BundleOnlyEvaluatorCommand,
     Strategy,
+    TaskCompletionResult,
 )
 
 
@@ -54,6 +58,45 @@ class TestBenchmarkTask:
         assert task.keywords == []
         assert task.expected_symbols == []
         assert task.include_paths == []
+        assert task.bundle_only_eval is None
+
+    def test_bundle_only_eval_task_fields(self) -> None:
+        task = BenchmarkTask(
+            task_id="test_task",
+            repo="owner/repo",
+            commit="abc123",
+            question="How does X work?",
+            expected_files=["src/main.py"],
+            bundle_only_eval=BundleOnlyEvaluation(
+                expected_answer="It initializes the CLI.",
+                allowed_context_policy=BundleOnlyAllowedContext.BUNDLE_PLUS_FRONTIER,
+                evaluator_command=BundleOnlyEvaluatorCommand(
+                    command="python",
+                    args=["tests/fixtures/bundle_eval.py"],
+                    timeout_seconds=30.0,
+                ),
+            ),
+        )
+
+        assert task.bundle_only_eval is not None
+        assert task.bundle_only_eval.expected_answer == "It initializes the CLI."
+        assert task.bundle_only_eval.deterministic_rubric is None
+        assert (
+            task.bundle_only_eval.allowed_context_policy
+            is BundleOnlyAllowedContext.BUNDLE_PLUS_FRONTIER
+        )
+        assert task.bundle_only_eval.evaluator_command is not None
+        assert task.bundle_only_eval.evaluator_command.command == "python"
+
+    def test_bundle_only_eval_requires_one_grader(self) -> None:
+        with pytest.raises(ValidationError):
+            BundleOnlyEvaluation()
+
+        with pytest.raises(ValidationError):
+            BundleOnlyEvaluation(
+                expected_answer="answer",
+                deterministic_rubric="rubric",
+            )
 
     def test_include_paths_must_be_relative(self) -> None:
         with pytest.raises(ValidationError):
@@ -179,6 +222,39 @@ class TestBenchmarkResult:
         assert result.symbol_recall == 0.0
         assert result.vector_mode == "raw"
         assert result.cache_state == "cold"
+        assert result.bundle_only_success is None
+        assert result.needed_files_outside_returned is None
+        assert result.needed_files_in_frontier_cut is None
+        assert result.needed_files_in_top_candidates is None
+        assert result.safe_to_act_false_positive is None
+
+    def test_bundle_only_result_fields(self) -> None:
+        result = BenchmarkResult(
+            task_id="test",
+            strategy=Strategy.ARCHEX_QUERY,
+            tokens_total=1000,
+            tool_calls=3,
+            files_accessed=3,
+            recall=1.0,
+            precision=1.0,
+            savings_vs_raw=0.0,
+            wall_time_ms=50.0,
+            cached=False,
+            timestamp="2025-01-01T00:00:00Z",
+            bundle_only_success=TaskCompletionResult.PASS,
+            needed_files_outside_returned=["src/missing.py"],
+            needed_files_in_frontier_cut=["src/frontier.py"],
+            needed_files_in_top_candidates=["src/skipped.py"],
+            safe_to_act_false_positive=True,
+            post_bundle_read_turns=2,
+        )
+
+        assert result.bundle_only_success is TaskCompletionResult.PASS
+        assert result.needed_files_outside_returned == ["src/missing.py"]
+        assert result.needed_files_in_frontier_cut == ["src/frontier.py"]
+        assert result.needed_files_in_top_candidates == ["src/skipped.py"]
+        assert result.safe_to_act_false_positive is True
+        assert result.post_bundle_read_turns == 2
 
     def test_with_timing(self) -> None:
         from archex.models import PipelineTiming

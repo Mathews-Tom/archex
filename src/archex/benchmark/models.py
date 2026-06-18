@@ -41,6 +41,47 @@ class BenchmarkSpecModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class BundleOnlyAllowedContext(StrEnum):
+    BUNDLE_ONLY = "bundle-only"
+    BUNDLE_PLUS_FRONTIER = "bundle-plus-frontier"
+
+
+class BundleOnlyEvaluatorCommand(BenchmarkSpecModel):
+    command: str
+    args: list[str] = []
+    timeout_seconds: float = Field(default=600.0, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_command(self) -> BundleOnlyEvaluatorCommand:
+        if not self.command.strip():
+            msg = "bundle-only evaluator command must not be empty"
+            raise ValueError(msg)
+        return self
+
+
+class BundleOnlyEvaluation(BenchmarkSpecModel):
+    expected_answer: str | None = None
+    deterministic_rubric: str | None = None
+    allowed_context_policy: BundleOnlyAllowedContext = BundleOnlyAllowedContext.BUNDLE_ONLY
+    evaluator_command: BundleOnlyEvaluatorCommand | None = None
+
+    @model_validator(mode="after")
+    def _validate_grader(self) -> BundleOnlyEvaluation:
+        has_expected_answer = self.expected_answer is not None and bool(
+            self.expected_answer.strip()
+        )
+        has_rubric = self.deterministic_rubric is not None and bool(
+            self.deterministic_rubric.strip()
+        )
+        if has_expected_answer == has_rubric:
+            msg = (
+                "bundle-only evaluation must define exactly one of "
+                "expected_answer or deterministic_rubric"
+            )
+            raise ValueError(msg)
+        return self
+
+
 class BenchmarkTask(BenchmarkSpecModel):
     task_id: str
     repo: str
@@ -53,6 +94,7 @@ class BenchmarkTask(BenchmarkSpecModel):
     languages: list[str] | None = None
     include_paths: list[str] = []
     category: TaskCategory | None = None
+    bundle_only_eval: BundleOnlyEvaluation | None = None
 
     @model_validator(mode="after")
     def _validate_include_paths(self) -> BenchmarkTask:
@@ -247,6 +289,11 @@ class BenchmarkResult(BaseModel):
     all_required_files_present: bool = False
     required_files_present: list[str] = []
     required_files_missing: list[str] = []
+    bundle_only_success: TaskCompletionResult | None = None
+    needed_files_outside_returned: list[str] | None = None
+    needed_files_in_frontier_cut: list[str] | None = None
+    needed_files_in_top_candidates: list[str] | None = None
+    safe_to_act_false_positive: bool | None = None
     post_bundle_search_turns: int | None = None
     post_bundle_read_turns: int | None = None
     task_completion_result: TaskCompletionResult = TaskCompletionResult.UNKNOWN
