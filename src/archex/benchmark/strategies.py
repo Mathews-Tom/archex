@@ -816,6 +816,8 @@ _VECTOR_CHUNKER_STRATEGIES = frozenset(
         Strategy.SURROGATE_VECTOR,
         Strategy.ARCHEX_QUERY_FUSION,
         Strategy.ARCHEX_QUERY_FUSION_RERANK,
+        Strategy.ARCHEX_QUERY_HYBRID,
+        Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
         Strategy.CROSS_LAYER_FUSION,
     }
 )
@@ -872,6 +874,8 @@ def _retrieval_cache_suffix(
             enabled.append(f"vector-chunker={vector_chunker}")
     else:
         enabled.append(f"chunker={_chunker_for_strategy(strategy, options)}")
+    if strategy is Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT:
+        enabled.append("quantize=4bit")
     if options.splade:
         enabled.append("splade")
     if options.module_prefilter:
@@ -1355,7 +1359,7 @@ def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         task,
         repo_path,
         strategy=Strategy.ARCHEX_QUERY_VECTOR,
-        index_config=IndexConfig(bm25=False, vector=True),
+        index_config=IndexConfig(bm25=False, vector=True, quantize_vectors=False),
         cache=True,
     )
 
@@ -1385,9 +1389,121 @@ def run_archex_query_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRe
         task,
         repo_path,
         strategy=Strategy.ARCHEX_QUERY_FUSION,
-        index_config=IndexConfig(vector=True),
+        index_config=IndexConfig(vector=True, quantize_vectors=False),
         cache=True,
     )
+
+
+def run_archex_query_hybrid(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Alias for the BM25 + independent vector hybrid retrieval strategy."""
+    result = _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_HYBRID,
+        index_config=IndexConfig(vector=True, quantize_vectors=False),
+        cache=True,
+    )
+    return result
+
+
+def _vector_artifact_matches_config(path: Path, index_config: IndexConfig) -> bool:
+    if not path.exists():
+        return False
+
+    try:
+        import numpy as np
+
+        with np.load(str(path), allow_pickle=False) as data:
+            quantized = "quantize_meta" in data
+            if not index_config.quantize_vectors:
+                return not quantized
+            if not quantized:
+                return False
+            meta = list(data["quantize_meta"])
+            return int(meta[0]) == index_config.quantize_bits
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return False
+
+
+def _ensure_vector_artifact(
+    task: BenchmarkTask,
+    repo_path: Path,
+    *,
+    strategy: Strategy,
+    index_config: IndexConfig,
+) -> Path:
+    source = benchmark_repo_source(task, repo_path, strategy=strategy)
+    effective_config = benchmark_index_config(index_config, strategy=strategy)
+    cache = CacheManager()
+    key = cache.cache_key(source)
+    path = cache.vector_path(
+        key,
+        vector_mode=effective_config.vector_mode,
+        surrogate_version=effective_config.surrogate_version,
+    )
+    if _vector_artifact_matches_config(path, effective_config):
+        return path
+    if path.exists():
+        path.unlink()
+
+    from archex.api import query
+    from archex.models import Config
+
+    cache.invalidate(key)
+    timing = PipelineTiming()
+    query(
+        source,
+        task.question,
+        token_budget=task.token_budget,
+        explicit_token_budget=True,
+        config=Config(cache=True, languages=task.languages),
+        index_config=effective_config,
+        timing=timing,
+    )
+    return path
+
+
+def _quantized_storage_provenance(task: BenchmarkTask, repo_path: Path) -> dict[str, str]:
+    unquantized_path = _ensure_vector_artifact(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_HYBRID,
+        index_config=IndexConfig(vector=True, quantize_vectors=False),
+    )
+    quantized_path = _ensure_vector_artifact(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
+        index_config=IndexConfig(vector=True, quantize_vectors=True, quantize_bits=4),
+    )
+    unquantized_bytes = unquantized_path.stat().st_size if unquantized_path.exists() else 0
+    quantized_bytes = quantized_path.stat().st_size if quantized_path.exists() else 0
+    compression_ratio = (
+        unquantized_bytes / quantized_bytes if unquantized_bytes and quantized_bytes else 0.0
+    )
+    size_ratio = (
+        quantized_bytes / unquantized_bytes if unquantized_bytes and quantized_bytes else 0.0
+    )
+    return {
+        "unquantized_vector_npz_bytes": str(unquantized_bytes),
+        "quantized_vector_npz_bytes": str(quantized_bytes),
+        "vector_compression_ratio": f"{compression_ratio:.6f}",
+        "quantized_vector_size_ratio": f"{size_ratio:.6f}",
+    }
+
+
+def run_archex_query_hybrid_quantized_4bit(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Hybrid retrieval with 4-bit TurboQuant vector storage."""
+    provenance = _quantized_storage_provenance(task, repo_path)
+    result = _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
+        index_config=IndexConfig(vector=True, quantize_vectors=True, quantize_bits=4),
+        cache=True,
+    )
+    result.provenance = result.provenance | provenance
+    return result
 
 
 def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
@@ -1396,7 +1512,7 @@ def run_archex_query_fusion_rerank(task: BenchmarkTask, repo_path: Path) -> Benc
         task,
         repo_path,
         strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK,
-        index_config=IndexConfig(vector=True, rerank=True),
+        index_config=IndexConfig(vector=True, rerank=True, quantize_vectors=False),
         cache=True,
     )
 
@@ -1480,6 +1596,11 @@ default_strategy_registry.register(Strategy.ARCHEX_SCOUT_FETCH.value, run_archex
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_VECTOR.value, run_archex_query_vector)
 default_strategy_registry.register(Strategy.SURROGATE_VECTOR.value, run_surrogate_vector)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_FUSION.value, run_archex_query_fusion)
+default_strategy_registry.register(Strategy.ARCHEX_QUERY_HYBRID.value, run_archex_query_hybrid)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT.value,
+    run_archex_query_hybrid_quantized_4bit,
+)
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_FUSION_RERANK.value, run_archex_query_fusion_rerank
 )

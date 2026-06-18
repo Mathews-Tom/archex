@@ -44,6 +44,8 @@ class TestAvailableStrategies:
         assert Strategy.ARCHEX_SCOUT_FETCH in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY_FUSION in AVAILABLE_STRATEGIES
         assert Strategy.CROSS_LAYER_FUSION in AVAILABLE_STRATEGIES
+        assert Strategy.ARCHEX_QUERY_HYBRID in AVAILABLE_STRATEGIES
+        assert Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT in AVAILABLE_STRATEGIES
 
 
 class TestBenchmarkPreflight:
@@ -183,16 +185,16 @@ class TestRunBenchmark:
         from archex.benchmark.strategies import default_strategy_registry
         from archex.exceptions import ArchexIndexError
 
-        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None, bool]] = []
+        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None, Strategy]] = []
 
         def _record(
             _task: BenchmarkTask,
             path: Path,
             options: BenchmarkRetrievalOptions | None = None,
             *,
-            warm_rerank: bool = False,
+            warm_strategy: Strategy = Strategy.ARCHEX_QUERY_FUSION,
         ) -> None:
-            warmed.append((path, options, warm_rerank))
+            warmed.append((path, options, warm_strategy))
 
         def _raise(_task: BenchmarkTask, _path: Path) -> None:
             raise ArchexIndexError("no vector backend in test")
@@ -209,7 +211,13 @@ class TestRunBenchmark:
             repo_path=repo_path,
             retrieval_options=BenchmarkRetrievalOptions(embedder="coderank"),
         )
-        assert warmed == [(repo_path, BenchmarkRetrievalOptions(embedder="coderank"), False)]
+        assert warmed == [
+            (
+                repo_path,
+                BenchmarkRetrievalOptions(embedder="coderank"),
+                Strategy.ARCHEX_QUERY_FUSION,
+            )
+        ]
 
     def test_warms_reranker_when_rerank_strategy_present(
         self,
@@ -221,16 +229,16 @@ class TestRunBenchmark:
         from archex.exceptions import ArchexIndexError
 
         task, repo_path = fixture_task
-        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None, bool]] = []
+        warmed: list[tuple[Path, BenchmarkRetrievalOptions | None, Strategy]] = []
 
         def _record(
             _task: BenchmarkTask,
             path: Path,
             options: BenchmarkRetrievalOptions | None = None,
             *,
-            warm_rerank: bool = False,
+            warm_strategy: Strategy = Strategy.ARCHEX_QUERY_FUSION,
         ) -> None:
-            warmed.append((path, options, warm_rerank))
+            warmed.append((path, options, warm_strategy))
 
         def _raise(_task: BenchmarkTask, _path: Path) -> None:
             raise ArchexIndexError("no vector backend in test")
@@ -248,7 +256,7 @@ class TestRunBenchmark:
             repo_path=repo_path,
             retrieval_options=options,
         )
-        assert warmed == [(repo_path, options, True)]
+        assert warmed == [(repo_path, options, Strategy.ARCHEX_QUERY_FUSION_RERANK)]
 
     def test_warm_repo_index_uses_configured_embedder(
         self,
@@ -258,7 +266,7 @@ class TestRunBenchmark:
         from archex.models import ContextBundle, IndexConfig
 
         task, repo_path = fixture_task
-        captured: list[tuple[str | None, bool, str | None, str, int]] = []
+        captured: list[tuple[str | None, bool, str | None, str, int, bool, int]] = []
 
         def fake_query(
             _source: object,
@@ -278,6 +286,8 @@ class TestRunBenchmark:
                     index_config.rerank_model,
                     index_config.chunker,
                     index_config.rerank_candidate_limit,
+                    index_config.quantize_vectors,
+                    index_config.quantize_bits,
                 )
             )
             return ContextBundle(
@@ -305,12 +315,22 @@ class TestRunBenchmark:
                     rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
                     rerank_candidate_limit=3,
                 ),
-                warm_rerank=True,
+                warm_strategy=Strategy.ARCHEX_QUERY_FUSION_RERANK,
+            )
+            runner_mod._warm_repo_index(  # pyright: ignore[reportPrivateUsage]
+                task,
+                repo_path,
+                BenchmarkRetrievalOptions(
+                    embedder="coderank",
+                    vector_chunker="cast",
+                ),
+                warm_strategy=Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
             )
 
         assert captured == [
-            ("coderank", False, None, "cast", 4),
-            ("coderank", True, "cross-encoder/ms-marco-MiniLM-L-6-v2", "cast", 3),
+            ("coderank", False, None, "cast", 4, False, 4),
+            ("coderank", True, "cross-encoder/ms-marco-MiniLM-L-6-v2", "cast", 3, False, 4),
+            ("coderank", False, None, "cast", 4, True, 4),
         ]
 
     @REQUIRES_RG

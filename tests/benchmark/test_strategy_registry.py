@@ -49,6 +49,8 @@ class TestStrategyRegistry:
         assert Strategy.ARCHEX_QUERY_VECTOR.value in names
         assert Strategy.SURROGATE_VECTOR.value in names
         assert Strategy.ARCHEX_QUERY_FUSION.value in names
+        assert Strategy.ARCHEX_QUERY_HYBRID.value in names
+        assert Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT.value in names
         assert Strategy.CROSS_LAYER_FUSION.value in names
         assert Strategy.ARCHEX_QUERY_FUSION_RERANK.value in names
 

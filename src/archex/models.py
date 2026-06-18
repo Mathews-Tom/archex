@@ -220,7 +220,7 @@ class IndexConfig(BaseModel):
     chunk_min_tokens: int = 50
     token_encoding: str = "cl100k_base"
     allow_remote_code: bool = False
-    quantize_vectors: bool = False
+    quantize_vectors: bool = True
     quantize_bits: int = 4
 
     @model_validator(mode="after")

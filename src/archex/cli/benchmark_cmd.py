@@ -53,6 +53,7 @@ from archex.benchmark.readiness import (
     format_readiness_markdown,
 )
 from archex.benchmark.reporter import (
+    format_baseline_comparison,
     format_bucketed_summary,
     format_chunker_frontier_table,
     format_delta_summary,
@@ -365,7 +366,14 @@ def bundle_eval_cmd(
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
-def report_cmd(output_format: str, input_dir: str) -> None:
+@click.option(
+    "--baseline",
+    "baseline_dir",
+    default=None,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Optional baseline result directory for strategy delta reporting.",
+)
+def report_cmd(output_format: str, input_dir: str, baseline_dir: str | None) -> None:
     """Generate formatted reports from benchmark results."""
     input_path = Path(input_dir)
     reports: list[BenchmarkReport] = []
@@ -373,6 +381,13 @@ def report_cmd(output_format: str, input_dir: str) -> None:
     for json_file in sorted(input_path.glob("*.json")):
         data = json.loads(json_file.read_text(encoding="utf-8"))
         reports.append(BenchmarkReport.model_validate(data))
+    baseline_reports: list[BenchmarkReport] = []
+    if baseline_dir is not None:
+        for json_file in sorted(Path(baseline_dir).glob("*.json")):
+            data = json.loads(json_file.read_text(encoding="utf-8"))
+            baseline_reports.append(BenchmarkReport.model_validate(data))
+        if not baseline_reports:
+            raise click.ClickException(f"No baseline result files found in {baseline_dir}")
 
     if not reports:
         raise click.ClickException(f"No result files found in {input_dir}")
@@ -385,6 +400,15 @@ def report_cmd(output_format: str, input_dir: str) -> None:
             click.echo(format_markdown(report))
         click.echo(format_summary(reports))
         click.echo(format_bucketed_summary(reports))
+        if baseline_reports:
+            click.echo(
+                format_baseline_comparison(
+                    reports,
+                    baseline_reports,
+                    candidate_strategy=Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT.value,
+                    baseline_strategy=Strategy.ARCHEX_QUERY_HYBRID.value,
+                )
+            )
 
 
 @benchmark_cmd.command("triage")

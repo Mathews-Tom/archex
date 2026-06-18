@@ -32,6 +32,8 @@ from archex.benchmark.strategies import (
     run_archex_query,
     run_archex_query_fusion,
     run_archex_query_fusion_rerank,
+    run_archex_query_hybrid,
+    run_archex_query_hybrid_quantized_4bit,
     run_archex_query_vector,
     run_archex_scout_fetch,
     run_cross_layer_fusion,
@@ -1029,6 +1031,8 @@ def test_vector_strategies_read_configured_embedder(
                 run_archex_query_vector,
                 run_surrogate_vector,
                 run_archex_query_fusion,
+                run_archex_query_hybrid,
+                run_archex_query_hybrid_quantized_4bit,
                 run_cross_layer_fusion,
                 run_archex_query_fusion_rerank,
             ):
@@ -1036,7 +1040,7 @@ def test_vector_strategies_read_configured_embedder(
     finally:
         reset_benchmark_retrieval_options(token)
 
-    assert captured == ["coderank"] * 5
+    assert captured == ["coderank"] * 9
 
 
 class TestRunArchexQueryVector:
@@ -1104,6 +1108,29 @@ class TestRunArchexQueryFusion:
         )
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_archex_query_fusion(task, python_simple_repo)
+        assert result.files_accessed >= 0
+        assert isinstance(result.recall, float)
+        assert isinstance(result.precision, float)
+
+
+class TestRunArchexQueryHybridQuantized4Bit:
+    def test_quantized_strategy_records_storage_provenance(self, python_simple_repo: Path) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=4096,
+        )
+        with patch("archex.api._get_embedder", _stub_get_embedder):
+            result = run_archex_query_hybrid_quantized_4bit(task, python_simple_repo)
+
+        assert result.strategy == Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT
+        assert result.provenance["unquantized_vector_npz_bytes"] != "0"
+        assert result.provenance["quantized_vector_npz_bytes"] != "0"
+        assert float(result.provenance["vector_compression_ratio"]) > 1.0
+
         assert result.files_accessed >= 0
         assert isinstance(result.recall, float)
         assert isinstance(result.precision, float)
