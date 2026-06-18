@@ -66,13 +66,13 @@ def _result(
 def _report(
     task_id: str,
     result: BenchmarkResult,
-    raw_grepped: BenchmarkResult | None = None,
+    raw_read: BenchmarkResult | None = None,
 ) -> BenchmarkReport:
     result.task_id = task_id
     results = [result]
-    if raw_grepped is not None:
-        raw_grepped.task_id = task_id
-        results.insert(0, raw_grepped)
+    if raw_read is not None:
+        raw_read.task_id = task_id
+        results.insert(0, raw_read)
     return BenchmarkReport(
         task_id=task_id,
         repo="owner/repo",
@@ -121,7 +121,7 @@ def test_triage_ranks_zero_recall_before_low_precision() -> None:
     assert findings[0].extra_files == ["src/noise.py"]
 
 
-def test_triage_detects_raw_grepped_gap() -> None:
+def test_triage_detects_raw_ripgrep_gap() -> None:
     archex = _result(
         Strategy.ARCHEX_QUERY,
         recall=0.4,
@@ -130,18 +130,18 @@ def test_triage_detects_raw_grepped_gap() -> None:
         category=TaskCategory.ARCHITECTURE_BROAD,
         seed_files=["src/task.py"],
     )
-    raw_grepped = _result(
+    raw_read = _result(
         Strategy.RAW_RIPGREP,
         recall=0.9,
         precision=0.1,
         f1_score=0.18,
     )
-    findings = triage_failures([_report("gap", archex, raw_grepped)], {"gap": _task("gap")})
+    findings = triage_failures([_report("gap", archex, raw_read)], {"gap": _task("gap")})
 
     assert len(findings) == 1
-    assert findings[0].failure_bucket == "raw_grepped_gap"
-    assert "raw_grepped_gap" in findings[0].failure_reasons
-    assert findings[0].raw_grepped_recall == 0.9
+    assert findings[0].failure_bucket == "raw_ripgrep_gap"
+    assert "raw_ripgrep_gap" in findings[0].failure_reasons
+    assert findings[0].raw_read_recall == 0.9
 
 
 def test_triage_uses_task_category_when_result_category_missing() -> None:
@@ -192,6 +192,7 @@ def test_format_triage_outputs_are_stable() -> None:
     assert "Token Efficiency" in markdown
     assert "Savings vs Raw" in markdown
     assert "Expansion:" in markdown
+    assert "raw_grepped" not in markdown
 
     payload = json.loads(format_triage_json(findings))
     assert payload[0]["task_id"] == "zero"
@@ -200,6 +201,7 @@ def test_format_triage_outputs_are_stable() -> None:
     assert payload[0]["metrics"]["token_efficiency"] == 0.5
     assert payload[0]["metrics"]["savings_vs_raw"] == 25.0
     assert payload[0]["expansion_diagnostics"]["eligible_seeds"] == 0
+    assert "raw_grepped_metrics" not in payload[0]
 
 
 def test_format_triage_json_serializes_expansion_diagnostics() -> None:

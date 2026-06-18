@@ -14,6 +14,14 @@ TARGET_MEAN_F1 = 0.70
 TARGET_ZERO_RECALL_TASKS = 1
 LOW_F1_THRESHOLD = 0.40
 LOW_PRECISION_THRESHOLD = 0.35
+TARGET_REQUIRED_FILE_RECALL = 0.80
+TARGET_MISSED_REQUIRED_TASK_RATE = 0.00
+TARGET_RECEIPT_ACCURACY = 0.95
+TARGET_TOKEN_EFFICIENCY_WITH_COMPLETION = 0.08
+
+
+def _receipt_accuracy_score(value: bool | None) -> float:
+    return 0.0 if value is None else 1.0 if value else 0.0
 
 
 @dataclass(frozen=True)
@@ -72,7 +80,13 @@ class ReadinessReport:
     p95_latency_ms: float
     tokens_total: int
     token_efficiency: float
+    token_efficiency_with_completion: float
     savings_vs_raw: float
+    mean_required_file_recall: float
+    mean_missed_required_file_rate: float
+    missed_required_task_rate: float
+    all_required_present_rate: float
+    receipt_accuracy_rate: float
     zero_recall_tasks: int
     low_f1_tasks: int
     low_precision_tasks: int
@@ -97,7 +111,13 @@ class ReadinessReport:
             "p95_latency_ms": self.p95_latency_ms,
             "tokens_total": self.tokens_total,
             "token_efficiency": self.token_efficiency,
+            "token_efficiency_with_completion": self.token_efficiency_with_completion,
             "savings_vs_raw": self.savings_vs_raw,
+            "mean_required_file_recall": self.mean_required_file_recall,
+            "mean_missed_required_file_rate": self.mean_missed_required_file_rate,
+            "missed_required_task_rate": self.missed_required_task_rate,
+            "all_required_present_rate": self.all_required_present_rate,
+            "receipt_accuracy_rate": self.receipt_accuracy_rate,
             "zero_recall_tasks": self.zero_recall_tasks,
             "low_f1_tasks": self.low_f1_tasks,
             "low_precision_tasks": self.low_precision_tasks,
@@ -132,7 +152,13 @@ def build_readiness_report(
             p95_latency_ms=0.0,
             tokens_total=0,
             token_efficiency=0.0,
+            token_efficiency_with_completion=0.0,
             savings_vs_raw=0.0,
+            mean_required_file_recall=0.0,
+            mean_missed_required_file_rate=0.0,
+            missed_required_task_rate=0.0,
+            all_required_present_rate=0.0,
+            receipt_accuracy_rate=0.0,
             zero_recall_tasks=0,
             low_f1_tasks=0,
             low_precision_tasks=0,
@@ -151,6 +177,22 @@ def build_readiness_report(
     tokens_total = sum(result.tokens_total for result in metric_results)
     token_efficiency = _mean([result.token_efficiency for result in metric_results])
     savings_vs_raw = _mean([result.savings_vs_raw for result in metric_results])
+    token_efficiency_with_completion = _mean(
+        [result.token_efficiency_with_completion for result in metric_results]
+    )
+    mean_required_file_recall = _mean([result.required_file_recall for result in metric_results])
+    mean_missed_required_file_rate = _mean(
+        [result.missed_required_file_rate for result in metric_results]
+    )
+    missed_required_task_rate = _mean(
+        [result.missed_required_task_rate for result in metric_results]
+    )
+    all_required_present_rate = _mean(
+        [1.0 if result.all_required_files_present else 0.0 for result in metric_results]
+    )
+    receipt_accuracy_rate = _mean(
+        [_receipt_accuracy_score(result.receipt_accuracy) for result in metric_results]
+    )
     zero_recall_tasks = sum(1 for result in metric_results if result.recall <= 0.0)
     low_f1_tasks = sum(1 for result in metric_results if result.f1_score < LOW_F1_THRESHOLD)
     low_precision_tasks = sum(
@@ -185,6 +227,34 @@ def build_readiness_report(
             passed=zero_recall_tasks <= TARGET_ZERO_RECALL_TASKS,
             comparator="<=",
         ),
+        ReadinessTargetStatus(
+            name="mean_required_file_recall",
+            actual=mean_required_file_recall,
+            target=TARGET_REQUIRED_FILE_RECALL,
+            passed=mean_required_file_recall >= TARGET_REQUIRED_FILE_RECALL,
+            comparator=">=",
+        ),
+        ReadinessTargetStatus(
+            name="missed_required_task_rate",
+            actual=missed_required_task_rate,
+            target=TARGET_MISSED_REQUIRED_TASK_RATE,
+            passed=missed_required_task_rate <= TARGET_MISSED_REQUIRED_TASK_RATE,
+            comparator="<=",
+        ),
+        ReadinessTargetStatus(
+            name="receipt_accuracy_rate",
+            actual=receipt_accuracy_rate,
+            target=TARGET_RECEIPT_ACCURACY,
+            passed=receipt_accuracy_rate >= TARGET_RECEIPT_ACCURACY,
+            comparator=">=",
+        ),
+        ReadinessTargetStatus(
+            name="token_efficiency_with_completion",
+            actual=token_efficiency_with_completion,
+            target=TARGET_TOKEN_EFFICIENCY_WITH_COMPLETION,
+            passed=token_efficiency_with_completion >= TARGET_TOKEN_EFFICIENCY_WITH_COMPLETION,
+            comparator=">=",
+        ),
     ]
     categories = _category_readiness(results, tasks_by_id)
     blocking_tasks = triage_failures(reports, tasks_by_id, strategy=strategy)[:10]
@@ -200,7 +270,13 @@ def build_readiness_report(
         tokens_total=tokens_total,
         token_efficiency=token_efficiency,
         savings_vs_raw=savings_vs_raw,
+        token_efficiency_with_completion=token_efficiency_with_completion,
         zero_recall_tasks=zero_recall_tasks,
+        mean_required_file_recall=mean_required_file_recall,
+        mean_missed_required_file_rate=mean_missed_required_file_rate,
+        missed_required_task_rate=missed_required_task_rate,
+        all_required_present_rate=all_required_present_rate,
+        receipt_accuracy_rate=receipt_accuracy_rate,
         low_f1_tasks=low_f1_tasks,
         low_precision_tasks=low_precision_tasks,
         targets=targets,
@@ -231,14 +307,20 @@ def format_readiness_markdown(report: ReadinessReport) -> str:
     lines.append("## Strategy Metrics")
     lines.append("")
     lines.append(
-        "| Strategy | Tasks | Recall | F1 | Tokens Total | Token Efficiency "
-        "| Savings vs Raw | Median Latency | P95 Latency |"
+        "| Strategy | Tasks | Recall | Required Recall | Missed Task Rate "
+        "| Receipt Accuracy | F1 | Tokens Total | Token Efficiency "
+        "| Efficiency after Completion | Savings vs Raw | Median Latency | P95 Latency |"
     )
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     lines.append(
         f"| `{report.strategy}` | {report.task_count} | {report.mean_recall:.3f} "
+        f"| {report.mean_required_file_recall:.3f} "
+        f"| {report.missed_required_task_rate:.3f} "
+        f"| {report.receipt_accuracy_rate:.3f} "
         f"| {report.mean_f1_score:.3f} | {report.tokens_total:,} "
-        f"| {report.token_efficiency:.3f} | {report.savings_vs_raw:.1f}% "
+        f"| {report.token_efficiency:.3f} "
+        f"| {report.token_efficiency_with_completion:.3f} "
+        f"| {report.savings_vs_raw:.1f}% "
         f"| {report.median_latency_ms:.0f} ms | {report.p95_latency_ms:.0f} ms |"
     )
     lines.append("")
@@ -253,6 +335,12 @@ def format_readiness_markdown(report: ReadinessReport) -> str:
         f"- P95 latency: `{report.p95_latency_ms:.0f} ms`\n"
         f"- Tokens total: `{report.tokens_total:,}`\n"
         f"- Token efficiency: `{report.token_efficiency:.3f}`\n"
+        f"- Token efficiency after completion: `{report.token_efficiency_with_completion:.3f}`\n"
+        f"- Required-file recall: `{report.mean_required_file_recall:.3f}`\n"
+        f"- Missed required-file rate: `{report.mean_missed_required_file_rate:.3f}`\n"
+        f"- Missed required-task rate: `{report.missed_required_task_rate:.3f}`\n"
+        f"- All-required-present rate: `{report.all_required_present_rate:.3f}`\n"
+        f"- Receipt accuracy: `{report.receipt_accuracy_rate:.3f}`\n"
         f"- Savings vs raw: `{report.savings_vs_raw:.1f}%`\n"
         f"- Zero-recall tasks: `{report.zero_recall_tasks}`\n"
         f"- Tasks below F1 {LOW_F1_THRESHOLD:.2f}: `{report.low_f1_tasks}`\n"

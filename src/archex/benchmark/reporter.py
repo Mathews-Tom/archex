@@ -166,11 +166,12 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
 
     lines.append(
         "| Strategy | Avg Tokens | Avg Savings | Avg Efficiency | Avg Recall | "
-        "Avg Required Recall | Missed Task Rate | Avg F1 | Avg MRR | Avg nDCG | Avg MAP | Tasks |"
+        "Avg Required Recall | Missed File Rate | Missed Task Rate | Avg F1 | "
+        "Avg MRR | Avg nDCG | Avg MAP | Tasks |"
     )
     lines.append(
         "|----------|------------|-------------|----------------|------------|"
-        "---------------------|------------------|--------|---------|----------|---------|-------|"
+        "---------------------|------------------|------------------|--------|---------|----------|---------|-------|"
     )
 
     for name in sorted(strategy_metrics):
@@ -182,6 +183,7 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
             f"| {_mean(metrics['token_efficiency']):.2f} | {_mean(metrics['recall']):.2f} "
             f"| {_mean(metrics['required_file_recall']):.2f} "
             f"| {_mean(metrics['missed_required_file_rate']):.2f} "
+            f"| {_mean(metrics['missed_required_task_rate']):.2f} "
             f"| {_mean(metrics['f1_score']):.2f} | {_mean(metrics['mrr']):.2f} "
             f"| {_mean(metrics['ndcg']):.2f} | {_mean(metrics['map_score']):.2f} | {count} |"
         )
@@ -225,11 +227,12 @@ def format_bucketed_summary(reports: list[BenchmarkReport]) -> str:
         strategy_metrics = _aggregate_strategy_metrics(bucket_reports, _BUCKET_FIELDS)
 
         tbl.append(
-            "| Strategy | Recall | Precision | F1 | MRR | nDCG | MAP "
-            "| Seed Recall | Seed Precision | Tasks |"
+            "| Strategy | Recall | Precision | Required Recall | Missed File Rate "
+            "| Missed Task Rate | F1 | MRR | nDCG | MAP | Seed Recall "
+            "| Seed Precision | Tasks |"
         )
         tbl.append(
-            "|----------|--------|-----------|------|------|------|------"
+            "|----------|--------|-----------|-----------------|------------------|------------------|------|------|------|------"
             "|-------------|----------------|-------|"
         )
         for name in sorted(strategy_metrics):
@@ -238,6 +241,9 @@ def format_bucketed_summary(reports: list[BenchmarkReport]) -> str:
             tbl.append(
                 f"| {name} "
                 f"| {_mean(metrics['recall']):.2f} | {_mean(metrics['precision']):.2f} "
+                f"| {_mean(metrics['required_file_recall']):.2f} "
+                f"| {_mean(metrics['missed_required_file_rate']):.2f} "
+                f"| {_mean(metrics['missed_required_task_rate']):.2f} "
                 f"| {_mean(metrics['f1_score']):.2f} | {_mean(metrics['mrr']):.2f} "
                 f"| {_mean(metrics['ndcg']):.2f} | {_mean(metrics['map_score']):.2f} "
                 f"| {_mean(metrics['seed_recall']):.2f} "

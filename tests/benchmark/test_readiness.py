@@ -29,6 +29,12 @@ def _result(
     tokens_total: int = 100,
     token_efficiency: float = 0.5,
     savings_vs_raw: float = 25.0,
+    required_file_recall: float = 1.0,
+    missed_required_file_rate: float = 0.0,
+    missed_required_task_rate: float = 0.0,
+    all_required_files_present: bool = True,
+    receipt_accuracy: bool | None = True,
+    token_efficiency_with_completion: float = 0.5,
     category: TaskCategory | None = None,
     strategy: Strategy = Strategy.ARCHEX_QUERY,
 ) -> BenchmarkResult:
@@ -37,6 +43,12 @@ def _result(
         strategy=strategy,
         tokens_total=tokens_total,
         token_efficiency=token_efficiency,
+        token_efficiency_with_completion=token_efficiency_with_completion,
+        required_file_recall=required_file_recall,
+        missed_required_file_rate=missed_required_file_rate,
+        missed_required_task_rate=missed_required_task_rate,
+        all_required_files_present=all_required_files_present,
+        receipt_accuracy=receipt_accuracy,
         tool_calls=1,
         files_accessed=1,
         recall=recall,
@@ -123,7 +135,15 @@ def test_build_readiness_report_tracks_targets_and_counts() -> None:
         "mean_precision",
         "mean_f1_score",
         "zero_recall_tasks",
+        "mean_required_file_recall",
+        "missed_required_task_rate",
+        "receipt_accuracy_rate",
+        "token_efficiency_with_completion",
     ]
+    assert readiness.mean_required_file_recall == 1.0
+    assert readiness.missed_required_task_rate == 0.0
+    assert readiness.receipt_accuracy_rate == 1.0
+    assert readiness.token_efficiency_with_completion == 0.5
     assert readiness.blocking_tasks[0].task_id == "miss"
 
 
@@ -159,6 +179,28 @@ def test_build_readiness_report_handles_missing_strategy() -> None:
     assert readiness.blocking_tasks == []
 
 
+def test_readiness_missing_receipt_accuracy_fails_target() -> None:
+    report = _report(
+        "missing_receipt",
+        _result(
+            "missing_receipt",
+            recall=1.0,
+            precision=1.0,
+            f1_score=1.0,
+            receipt_accuracy=None,
+        ),
+    )
+
+    readiness = build_readiness_report(
+        [report],
+        {"missing_receipt": _task("missing_receipt", TaskCategory.SELF)},
+    )
+
+    target = next(target for target in readiness.targets if target.name == "receipt_accuracy_rate")
+    assert readiness.receipt_accuracy_rate == 0.0
+    assert target.passed is False
+
+
 def test_format_readiness_outputs_are_stable() -> None:
     report = _report(
         "miss",
@@ -183,6 +225,10 @@ def test_format_readiness_outputs_are_stable() -> None:
     assert "Tokens Total" in markdown
     assert "Token Efficiency" in markdown
     assert "Savings vs Raw" in markdown
+    assert "Required Recall" in markdown
+    assert "Missed Task Rate" in markdown
+    assert "Receipt Accuracy" in markdown
+    assert "Efficiency after Completion" in markdown
     assert "`miss`" in markdown
     assert "Expansion Reasons" in markdown
 
@@ -194,4 +240,8 @@ def test_format_readiness_outputs_are_stable() -> None:
     assert payload["tokens_total"] == 100
     assert payload["token_efficiency"] == 0.5
     assert payload["savings_vs_raw"] == 25.0
+    assert payload["mean_required_file_recall"] == 1.0
+    assert payload["missed_required_task_rate"] == 0.0
+    assert payload["receipt_accuracy_rate"] == 1.0
+    assert payload["token_efficiency_with_completion"] == 0.5
     assert payload["blocking_tasks"][0]["task_id"] == "miss"

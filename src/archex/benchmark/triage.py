@@ -11,7 +11,7 @@ from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkT
 
 LOW_F1_THRESHOLD = 0.40
 LOW_PRECISION_THRESHOLD = 0.35
-RAW_GREPPED_GAP_THRESHOLD = 0.25
+RAW_READ_GAP_THRESHOLD = 0.25
 
 
 @dataclass(frozen=True)
@@ -45,9 +45,9 @@ class TriageFinding:
     expansion_zero_candidate_reason: str
     expansion_reason_counts: dict[str, int]
     expanded_file_reasons: dict[str, list[str]]
-    raw_grepped_recall: float | None
-    raw_grepped_precision: float | None
-    raw_grepped_f1_score: float | None
+    raw_read_recall: float | None
+    raw_read_precision: float | None
+    raw_read_f1_score: float | None
     failure_bucket: str
     failure_reasons: list[str]
     rank_score: float
@@ -85,10 +85,10 @@ class TriageFinding:
                 "reason_counts": self.expansion_reason_counts,
                 "file_reasons": self.expanded_file_reasons,
             },
-            "raw_grepped_metrics": {
-                "recall": self.raw_grepped_recall,
-                "precision": self.raw_grepped_precision,
-                "f1_score": self.raw_grepped_f1_score,
+            "raw_read_baseline_metrics": {
+                "recall": self.raw_read_recall,
+                "precision": self.raw_read_precision,
+                "f1_score": self.raw_read_f1_score,
             },
             "failure_bucket": self.failure_bucket,
             "failure_reasons": self.failure_reasons,
@@ -122,17 +122,17 @@ def triage_failures(
         result = _find_result(report, strategy)
         if result is None:
             continue
-        raw_grepped = _find_raw_read_result(report)
+        raw_read = _find_raw_read_result(report)
         task = tasks_by_id.get(report.task_id)
         expected_files = task.expected_files if task is not None else []
         category = _category(result, task)
-        reasons = _failure_reasons(result, raw_grepped, category)
+        reasons = _failure_reasons(result, raw_read, category)
         if not reasons:
             continue
         returned_files = _returned_files(result)
         missing_files = _missing_files(expected_files, returned_files, result)
         extra_files = [path for path in returned_files if path not in set(expected_files)]
-        bucket = _failure_bucket(result, raw_grepped, category, missing_files)
+        bucket = _failure_bucket(result, raw_read, category, missing_files)
         findings.append(
             TriageFinding(
                 task_id=report.task_id,
@@ -162,12 +162,12 @@ def triage_failures(
                 expansion_zero_candidate_reason=result.expansion_zero_candidate_reason,
                 expansion_reason_counts=result.expansion_reason_counts,
                 expanded_file_reasons=result.expanded_file_reasons,
-                raw_grepped_recall=raw_grepped.recall if raw_grepped is not None else None,
-                raw_grepped_precision=raw_grepped.precision if raw_grepped is not None else None,
-                raw_grepped_f1_score=raw_grepped.f1_score if raw_grepped is not None else None,
+                raw_read_recall=raw_read.recall if raw_read is not None else None,
+                raw_read_precision=raw_read.precision if raw_read is not None else None,
+                raw_read_f1_score=raw_read.f1_score if raw_read is not None else None,
                 failure_bucket=bucket,
                 failure_reasons=reasons,
-                rank_score=_rank_score(result, raw_grepped, category, bucket),
+                rank_score=_rank_score(result, raw_read, category, bucket),
             )
         )
     return sorted(findings, key=_finding_sort_key)
@@ -210,12 +210,12 @@ def format_triage_markdown(findings: list[TriageFinding]) -> str:
             f"token efficiency `{finding.token_efficiency:.3f}`, "
             f"savings vs raw `{finding.savings_vs_raw:.1f}%`"
         )
-        if finding.raw_grepped_f1_score is not None:
+        if finding.raw_read_f1_score is not None:
             lines.append(
-                "- Raw grepped: "
-                f"recall `{finding.raw_grepped_recall:.3f}`, "
-                f"precision `{finding.raw_grepped_precision:.3f}`, "
-                f"F1 `{finding.raw_grepped_f1_score:.3f}`"
+                "- Raw ripgrep/read baseline: "
+                f"recall `{finding.raw_read_recall:.3f}`, "
+                f"precision `{finding.raw_read_precision:.3f}`, "
+                f"F1 `{finding.raw_read_f1_score:.3f}`"
             )
         lines.append(
             "- Expansion: "
@@ -295,7 +295,7 @@ def _missing_files(
 
 def _failure_reasons(
     result: BenchmarkResult,
-    raw_grepped: BenchmarkResult | None,
+    raw_read: BenchmarkResult | None,
     category: str,
 ) -> list[str]:
     reasons: list[str] = []
@@ -305,8 +305,9 @@ def _failure_reasons(
         reasons.append("low_f1")
     if result.precision < LOW_PRECISION_THRESHOLD:
         reasons.append("low_precision")
-    if _raw_grepped_gap(result, raw_grepped):
-        reasons.append("raw_grepped_gap")
+    raw_read_gap_reason = _raw_read_gap_reason(result, raw_read)
+    if raw_read_gap_reason is not None:
+        reasons.append(raw_read_gap_reason)
     if category == "external-large" and result.f1_score < LOW_F1_THRESHOLD:
         reasons.append("external_large_failure")
     if category == "framework-semantic" and result.f1_score < LOW_F1_THRESHOLD:
@@ -316,7 +317,7 @@ def _failure_reasons(
 
 def _failure_bucket(
     result: BenchmarkResult,
-    raw_grepped: BenchmarkResult | None,
+    raw_read: BenchmarkResult | None,
     category: str,
     missing_files: list[str],
 ) -> str:
@@ -326,8 +327,9 @@ def _failure_bucket(
         return "large_repo_ambiguity"
     if category == "framework-semantic":
         return "semantic_gap"
-    if _raw_grepped_gap(result, raw_grepped):
-        return "raw_grepped_gap"
+    raw_read_gap_reason = _raw_read_gap_reason(result, raw_read)
+    if raw_read_gap_reason is not None:
+        return raw_read_gap_reason
     if result.expanded_files and missing_files and result.precision < LOW_PRECISION_THRESHOLD:
         return "expansion_noise"
     if result.precision < LOW_PRECISION_THRESHOLD:
@@ -339,20 +341,22 @@ def _find_raw_read_result(report: BenchmarkReport) -> BenchmarkResult | None:
     return _find_result(report, Strategy.RAW_RIPGREP) or _find_result(report, Strategy.RAW_GREPPED)
 
 
-def _raw_grepped_gap(
+def _raw_read_gap_reason(
     result: BenchmarkResult,
-    raw_grepped: BenchmarkResult | None,
-) -> bool:
-    if raw_grepped is None:
-        return False
-    recall_gap = raw_grepped.recall - result.recall
-    f1_gap = raw_grepped.f1_score - result.f1_score
-    return recall_gap >= RAW_GREPPED_GAP_THRESHOLD or f1_gap >= RAW_GREPPED_GAP_THRESHOLD
+    raw_read: BenchmarkResult | None,
+) -> str | None:
+    if raw_read is None:
+        return None
+    recall_gap = raw_read.recall - result.recall
+    f1_gap = raw_read.f1_score - result.f1_score
+    if recall_gap < RAW_READ_GAP_THRESHOLD and f1_gap < RAW_READ_GAP_THRESHOLD:
+        return None
+    return "raw_ripgrep_gap" if raw_read.strategy is Strategy.RAW_RIPGREP else "raw_grepped_gap"
 
 
 def _rank_score(
     result: BenchmarkResult,
-    raw_grepped: BenchmarkResult | None,
+    raw_read: BenchmarkResult | None,
     category: str,
     bucket: str,
 ) -> float:
@@ -361,7 +365,7 @@ def _rank_score(
         score += 100.0
     score += max(0.0, LOW_F1_THRESHOLD - result.f1_score) * 25.0
     score += max(0.0, LOW_PRECISION_THRESHOLD - result.precision) * 10.0
-    if _raw_grepped_gap(result, raw_grepped):
+    if _raw_read_gap_reason(result, raw_read) is not None:
         score += 20.0
     if category == "external-large":
         score += 12.0

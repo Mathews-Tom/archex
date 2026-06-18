@@ -21,6 +21,10 @@ def _make_report(
     ndcg: float = 0.7,
     map_score: float = 0.6,
     token_efficiency: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
+    required_file_recall: float = 1.0,
+    missed_required_task_rate: float = 0.0,
+    receipt_accuracy: bool | None = True,
+    token_efficiency_with_completion: float = PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
 ) -> BenchmarkReport:
     result = BenchmarkResult(
         task_id="test_task",
@@ -36,6 +40,10 @@ def _make_report(
         map_score=map_score,
         savings_vs_raw=50.0,
         token_efficiency=token_efficiency,
+        required_file_recall=required_file_recall,
+        missed_required_task_rate=missed_required_task_rate,
+        receipt_accuracy=receipt_accuracy,
+        token_efficiency_with_completion=token_efficiency_with_completion,
         wall_time_ms=100.0,
         cached=False,
         timestamp="2026-01-01T00:00:00Z",
@@ -119,6 +127,54 @@ def test_check_gate_token_efficiency_floor_passes_at_floor() -> None:
     assert "token_efficiency" not in violated_metrics
 
 
+def test_check_gate_trust_metrics_can_fail() -> None:
+    reports = [
+        _make_report(
+            required_file_recall=0.75,
+            missed_required_task_rate=1.0,
+            receipt_accuracy=False,
+            token_efficiency_with_completion=0.02,
+        )
+    ]
+    thresholds = QualityThresholds(
+        min_required_file_recall=0.9,
+        max_missed_required_task_rate=0.0,
+        min_receipt_accuracy=1.0,
+        min_token_efficiency_with_completion=0.05,
+    )
+
+    violations = check_gate(reports, thresholds)
+
+    assert {violation.metric for violation in violations} == {
+        "required_file_recall",
+        "missed_required_task_rate",
+        "receipt_accuracy",
+        "token_efficiency_with_completion",
+    }
+
+
+def test_check_gate_missing_receipt_accuracy_fails_when_required() -> None:
+    reports = [_make_report(receipt_accuracy=None)]
+    thresholds = QualityThresholds(min_receipt_accuracy=1.0)
+
+    violations = check_gate(reports, thresholds)
+
+    assert [(v.metric, v.threshold, v.actual) for v in violations] == [
+        ("receipt_accuracy", 1.0, 0.0)
+    ]
+
+
+def test_baseline_gate_flags_completion_efficiency_regression() -> None:
+    baseline = [_make_report(token_efficiency_with_completion=0.6)]
+    current = [_make_report(token_efficiency_with_completion=0.5)]
+
+    violations = check_recall_regressions(current, baseline)
+
+    assert [(v.metric, v.baseline, v.actual) for v in violations] == [
+        ("token_efficiency_with_completion", 0.6, 0.5)
+    ]
+
+
 def test_baseline_gate_flags_recall_regression() -> None:
     baseline = [_make_report(recall=0.8)]
     current = [_make_report(recall=0.6)]
@@ -167,6 +223,7 @@ def _make_report_for_strategy(
     f1_score: float = 0.05,
     mrr: float = 0.0,
     token_efficiency: float = 0.0,
+    token_efficiency_with_completion: float = 0.0,
 ) -> BenchmarkReport:
     result = BenchmarkResult(
         task_id="test_task",
@@ -180,6 +237,7 @@ def _make_report_for_strategy(
         mrr=mrr,
         savings_vs_raw=0.0,
         token_efficiency=token_efficiency,
+        token_efficiency_with_completion=token_efficiency_with_completion,
         wall_time_ms=100.0,
         cached=False,
         timestamp="2026-01-01T00:00:00Z",
