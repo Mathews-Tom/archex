@@ -297,3 +297,49 @@ class TestFormatChunkerFrontierTable:
         assert "archex_query_fusion_rerank | cast" in table
         assert "Chunk Count" in table
         assert "Mean Chunk Tokens" in table
+
+
+def _region_result(strategy: Strategy = Strategy.ARCHEX_QUERY) -> BenchmarkResult:
+    return _make_result(strategy).model_copy(
+        update={
+            "region_recall": 0.5,
+            "region_precision": 0.4,
+            "region_f1": 0.44,
+            "line_recall": 0.3,
+            "line_precision": 0.6,
+            "ranked_region_mrr": 0.5,
+            "ranked_region_ndcg": 0.7,
+            "context_noise_ratio": 0.25,
+            "useful_tokens": 75,
+            "wasted_tokens": 25,
+            "relevance_per_1k_tokens": 5.0,
+        }
+    )
+
+
+class TestRegionQualityReporting:
+    def test_markdown_shows_region_table_when_labeled(self) -> None:
+        md = format_markdown(_make_report([_region_result()]))
+        assert "Region & Context Efficiency" in md
+        assert "Noise Ratio" in md
+        assert "Rel/1k" in md
+
+    def test_markdown_omits_region_table_for_file_only_results(self) -> None:
+        md = format_markdown(_make_report([_make_result(Strategy.ARCHEX_QUERY)]))
+        assert "Region & Context Efficiency" not in md
+
+    def test_summary_shows_region_table_when_labeled(self) -> None:
+        summary = format_summary([_make_report([_region_result()])])
+        assert "Region & Context Efficiency" in summary
+
+    def test_summary_omits_region_table_for_file_only_results(self) -> None:
+        summary = format_summary([_make_report([_make_result(Strategy.ARCHEX_QUERY)])])
+        assert "Region & Context Efficiency" not in summary
+
+    def test_json_includes_region_fields(self) -> None:
+        import json
+
+        data = json.loads(format_json(_make_report([_region_result()])))
+        assert data["results"][0]["region_recall"] == 0.5
+        assert data["results"][0]["context_noise_ratio"] == 0.25
+        assert data["results"][0]["useful_tokens"] == 75
