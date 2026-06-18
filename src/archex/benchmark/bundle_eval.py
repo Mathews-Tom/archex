@@ -3,17 +3,34 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import time
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from archex.benchmark.models import TaskCompletionResult  # noqa: TC001 — Pydantic needs at runtime
+from archex.benchmark.models import (  # noqa: TC001 — Pydantic needs at runtime
+    BenchmarkReport,
+    BenchmarkResult,
+    Strategy,
+    TaskCompletionResult,
+)
 
 if TYPE_CHECKING:
     from archex.benchmark.models import BenchmarkTask, BundleOnlyEvaluatorCommand
     from archex.models import ContextBundle
+
+
+class BundleOnlyResultFields(TypedDict):
+    bundle_only_success: TaskCompletionResult
+    needed_files_outside_returned: list[str]
+    needed_files_in_frontier_cut: list[str]
+    needed_files_in_top_candidates: list[str]
+    safe_to_act_false_positive: bool
+    post_bundle_read_turns: int
 
 
 class BundleOnlyEvaluatorError(RuntimeError):
@@ -73,9 +90,9 @@ def build_bundle_only_evaluator_input(
     *,
     bundle_format: str = "markdown",
 ) -> BundleOnlyEvaluatorInput:
-    if task.bundle_only_eval is None:
-        msg = "bundle-only evaluation is not configured for this task"
-        raise BundleOnlyEvaluatorError(msg)
+    allowed_context_policy = "bundle-only"
+    if task.bundle_only_eval is not None:
+        allowed_context_policy = task.bundle_only_eval.allowed_context_policy.value
     receipt_json = "null"
     if bundle.receipt is not None:
         receipt_json = bundle.receipt.model_dump_json()
@@ -84,7 +101,7 @@ def build_bundle_only_evaluator_input(
         question=task.question,
         rendered_bundle=bundle.to_prompt(format=bundle_format),
         receipt_json=receipt_json,
-        allowed_context_policy=task.bundle_only_eval.allowed_context_policy.value,
+        allowed_context_policy=allowed_context_policy,
         output_schema=bundle_only_output_schema(),
     )
 
@@ -138,7 +155,7 @@ def _top_candidate_files(bundle: ContextBundle) -> set[str]:
 def bundle_only_result_fields(
     bundle: ContextBundle,
     output: BundleOnlyEvaluatorOutput,
-) -> dict[str, object]:
+) -> BundleOnlyResultFields:
     """Derive benchmark result fields from evaluator output and receipt metadata."""
     needed_files = list(dict.fromkeys(output.needed_files))
     returned_files = _returned_files(bundle)
@@ -225,3 +242,146 @@ def run_bundle_only_evaluator(
         msg = f"bundle-only evaluator command failed with exit code {completed.returncode}"
         raise BundleOnlyEvaluatorError(msg)
     return _with_expected_answer_success(task, parse_bundle_only_evaluator_output(completed.stdout))
+
+
+def _unique_ranked_files(bundle: ContextBundle) -> list[str]:
+    seen: set[str] = set()
+    files: list[str] = []
+    for chunk in bundle.chunks:
+        path = chunk.chunk.file_path
+        if path not in seen:
+            seen.add(path)
+            files.append(path)
+    return files
+
+
+def _repo_path_for_task(task: BenchmarkTask) -> tuple[Path, list[Path]]:
+    from archex.benchmark.runner import repo_path_for_task
+
+    cleanup_paths: list[Path] = []
+    repo_path = repo_path_for_task(task, {}, cleanup_paths)
+    return repo_path, cleanup_paths
+
+
+def run_bundle_only_eval_task(
+    task: BenchmarkTask,
+    *,
+    command: BundleOnlyEvaluatorCommand,
+    bundle_format: str = "markdown",
+) -> BenchmarkReport:
+    """Run the opt-in bundle-only eval lane for a single task."""
+    from archex.api import query
+    from archex.benchmark.strategies import (
+        benchmark_repo_source,
+        compute_f1,
+        compute_precision,
+        compute_recall,
+        compute_receipt_accuracy,
+        compute_required_file_metrics,
+    )
+    from archex.models import Config, IndexConfig
+
+    repo_path, cleanup_paths = _repo_path_for_task(task)
+    try:
+        t0 = time.perf_counter()
+        source = benchmark_repo_source(task, repo_path, strategy=Strategy.ARCHEX_QUERY)
+        bundle = query(
+            source,
+            task.question,
+            token_budget=task.token_budget,
+            explicit_token_budget=True,
+            config=Config(cache=False, languages=task.languages),
+            index_config=IndexConfig(vector=False),
+        )
+        wall_ms = (time.perf_counter() - t0) * 1000
+        ranked_files = _unique_ranked_files(bundle)
+        result_files = set(ranked_files)
+        (
+            required_file_recall,
+            missed_required_file_rate,
+            missed_required_task_rate,
+            all_required_files_present,
+            present,
+            missing,
+        ) = compute_required_file_metrics(result_files, task.expected_files)
+        evaluator_output = run_bundle_only_evaluator(
+            task,
+            bundle,
+            command=command,
+            cwd=repo_path,
+            bundle_format=bundle_format,
+        )
+        bundle_fields = bundle_only_result_fields(bundle, evaluator_output)
+        result = BenchmarkResult(
+            task_id=task.task_id,
+            strategy=Strategy.ARCHEX_QUERY,
+            strategy_label="bundle-only eval",
+            tokens_total=bundle.token_count,
+            tokens_input=bundle.token_count,
+            tokens_output=bundle.token_count,
+            tool_calls=1,
+            files_accessed=len(result_files),
+            recall=compute_recall(result_files, task.expected_files),
+            precision=compute_precision(result_files, task.expected_files),
+            f1_score=compute_f1(
+                compute_recall(result_files, task.expected_files),
+                compute_precision(result_files, task.expected_files),
+            ),
+            savings_vs_raw=0.0,
+            wall_time_ms=wall_ms,
+            cached=False,
+            timestamp=datetime.now(UTC).isoformat(),
+            result_files=ranked_files,
+            required_file_recall=required_file_recall,
+            missed_required_file_rate=missed_required_file_rate,
+            missed_required_task_rate=missed_required_task_rate,
+            all_required_files_present=all_required_files_present,
+            required_files_present=present,
+            required_files_missing=missing,
+            receipt_accuracy=compute_receipt_accuracy(
+                bundle,
+                all_required_files_present=all_required_files_present,
+            ),
+            bundle_only_success=bundle_fields["bundle_only_success"],
+            needed_files_outside_returned=bundle_fields["needed_files_outside_returned"],
+            needed_files_in_frontier_cut=bundle_fields["needed_files_in_frontier_cut"],
+            needed_files_in_top_candidates=bundle_fields["needed_files_in_top_candidates"],
+            safe_to_act_false_positive=bundle_fields["safe_to_act_false_positive"],
+            post_bundle_read_turns=bundle_fields["post_bundle_read_turns"],
+        )
+        return BenchmarkReport(
+            task_id=task.task_id,
+            repo=task.repo,
+            question=task.question,
+            results=[result],
+            baseline_tokens=0,
+            median_latency_ms=wall_ms,
+            p95_latency_ms=wall_ms,
+        )
+    finally:
+        for path in cleanup_paths:
+            shutil.rmtree(path, ignore_errors=True)
+
+
+def run_bundle_only_eval_all(
+    tasks: list[BenchmarkTask],
+    output_dir: Path,
+    *,
+    command: BundleOnlyEvaluatorCommand,
+    bundle_format: str = "markdown",
+) -> list[BenchmarkReport]:
+    """Run bundle-only eval for selected tasks and write BenchmarkReport JSON."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    reports: list[BenchmarkReport] = []
+    for task in tasks:
+        report = run_bundle_only_eval_task(
+            task,
+            command=command,
+            bundle_format=bundle_format,
+        )
+        reports.append(report)
+        (output_dir / f"{task.task_id}.json").write_text(
+            report.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+    return reports

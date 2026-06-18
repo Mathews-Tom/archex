@@ -14,6 +14,7 @@ from archex.benchmark.models import (
     BenchmarkResult,
     BenchmarkRetrievalOptions,
     BenchmarkTask,
+    BundleOnlyEvaluatorCommand,
     Strategy,
 )
 from archex.cli.benchmark_cmd import benchmark_cmd
@@ -319,6 +320,82 @@ expected_delta:
         result = runner.invoke(benchmark_cmd, ["validate", "--tasks-dir", str(tasks)])
         assert result.exit_code != 0
         assert "Failed to parse YAML" in result.output
+
+
+class TestBundleEvalCommand:
+    def test_bundle_eval_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(benchmark_cmd, ["bundle-eval", "--help"])
+
+        assert result.exit_code == 0
+        assert "--evaluator-command" in result.output
+        assert "--bundle-format" in result.output
+
+    def test_bundle_eval_requires_evaluator_command(
+        self,
+        runner: CliRunner,
+        tasks_dir: Path,
+    ) -> None:
+        result = runner.invoke(benchmark_cmd, ["bundle-eval", "--tasks-dir", str(tasks_dir)])
+
+        assert result.exit_code != 0
+        assert "Missing option '--evaluator-command'" in result.output
+
+    def test_bundle_eval_invokes_opt_in_runner(
+        self,
+        runner: CliRunner,
+        tasks_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def capture_run_bundle_only_eval_all(
+            tasks: list[BenchmarkTask],
+            output_dir: Path,
+            *,
+            command: object,
+            bundle_format: str,
+        ) -> list[BenchmarkReport]:
+            captured["task_count"] = len(tasks)
+            captured["output_dir"] = output_dir
+            captured["command"] = command
+            captured["bundle_format"] = bundle_format
+            return []
+
+        monkeypatch.setattr(
+            "archex.cli.benchmark_cmd.run_bundle_only_eval_all",
+            capture_run_bundle_only_eval_all,
+        )
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "bundle-eval",
+                "--tasks-dir",
+                str(tasks_dir),
+                "--output",
+                str(tmp_path / "bundle-eval"),
+                "--evaluator-command",
+                "python",
+                "--evaluator-arg",
+                "tests/fixtures/bundle_eval_command.py",
+                "--evaluator-arg",
+                "pass",
+                "--timeout-seconds",
+                "12",
+                "--bundle-format",
+                "json",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured["task_count"] == 1
+        assert captured["output_dir"] == tmp_path / "bundle-eval"
+        command = cast("BundleOnlyEvaluatorCommand", captured["command"])
+        assert command.command == "python"
+        assert command.args == ["tests/fixtures/bundle_eval_command.py", "pass"]
+        assert command.timeout_seconds == 12
+        assert captured["bundle_format"] == "json"
 
 
 class TestRunCommand:

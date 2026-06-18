@@ -4,7 +4,7 @@ Operator evidence from the 2026-06-09 retrieval-default benchmark keeps `archex_
 
 ## Invariants
 
-- Run benchmarks locally only; no network or generative LLM inference.
+- Run core retrieval benchmarks locally only; no network or generative LLM inference. Bundle-only eval is separate and runs only when an operator supplies a local evaluator command.
 - Pin exactly one embedder per benchmark run with `--embedder`.
 - Compare candidates on recall, required-file recall, missed-required-task rate, receipt accuracy when available, token efficiency after completion, F1, median latency, and p95 latency. Recall/F1 alone is not sufficient, and raw token efficiency is not sufficient when completion penalty cancels the savings.
 - Keep `archex_query` as the product default; the 2026-06-09 run did not satisfy the strategy switch rule.

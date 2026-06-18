@@ -264,9 +264,11 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 
 ## Measured results
 
-The public C1 harness publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw-ripgrep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, required-file recall, missed-required-file rate, missed-required-task rate, all-required-present rate, receipt accuracy, and bundle-completion penalty tokens. The checked-in artifacts now include those trust fields; receipt accuracy is `n/a` for the historical C1 run because those artifacts predate query receipt capture.
+The public C1 harness publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw-ripgrep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, required-file recall, missed-required-file rate, missed-required-task rate, all-required-present rate, receipt accuracy, and bundle-completion penalty tokens. The checked-in artifacts now include those trust fields; receipt accuracy is `n/a` for the historical C1 run because those artifacts predate query receipt capture. Core retrieval benchmarks make no LLM calls.
 
 See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the current published comparison and [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) for the decision trail.
+
+Bundle-only evaluation is a separate opt-in lane: `archex benchmark bundle-eval --evaluator-command ...` gives a user-supplied local command only the rendered bundle and receipt JSON, then reports bundle-only success and files the evaluator still needed outside returned context. archex does not provide hosted evaluator calls, telemetry, credentials, or default network behavior for that lane.
 
 | Lane | Recall | Required recall | Missed task rate | F1 | Token efficiency | Efficiency after completion | Warm latency ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -293,6 +295,7 @@ archex impact --changed-file src/archex/serve/context.py
 # Benchmarks and gates
 archex benchmark headtohead report --input .archex/headtohead --format markdown
 archex benchmark gate --input .archex/e2e --baseline .archex/e2e-baseline --warn-latency-ms 3000
+archex benchmark bundle-eval --tasks-dir benchmarks/tasks --evaluator-command ./local-evaluator
 archex dogfood --all --baseline benchmarks/dogfood_baseline.json --format dogfood-delta
 ```
 

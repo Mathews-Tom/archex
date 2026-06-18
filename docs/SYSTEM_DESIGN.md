@@ -222,6 +222,7 @@ Unknown files fall back to line-window chunking so they can still be found by BM
 
 - **Retrieval gate:** product-default changes are gated by recall, required-file recall, missed-required-task rate, receipt accuracy when available, token efficiency after completion, F1, median latency, and p95 latency. `docs/RETRIEVAL_DEFAULT_DECISIONS.md` owns the default-strategy verdict and rationale.
 - **Head-to-head harness:** `src/archex/benchmark/headtohead.py` and `benchmarks/headtohead/` run the same external-repo tasks through archex, `ccc`, and raw-ripgrep/read, then record cold-start, warm latency, recall, precision, F1, token efficiency, required-file recall, missed-file/task rates, receipt accuracy, completion-penalty tokens, and token efficiency after completion.
+- **Bundle-only eval lane:** `archex benchmark bundle-eval` is explicit opt-in and separate from retrieval gates. It invokes only an operator-supplied local command with the task question, rendered bundle, receipt JSON, and allowed-context policy, then reports bundle-only success and missing-needed-file attribution.
 - **Comparison page:** `docs/ARCHEX_VS_COCOINDEX.md` publishes accepted C1 cells and capability evidence without re-measuring inside docs work.
 - **Chunking A/B:** the benchmark runner records the chunker axis (`default` or `cast`) so stores and benchmark outputs built with different chunkers are not compared silently.
 
@@ -1274,6 +1275,6 @@ _Parse + index is a one-time cost, amortized by caching. Query time is per-reque
 | **Arbitrary repo cloning** | Validate URL format. Only support https:// and git:// protocols. Block file:// and ssh:// by default (configurable).                                                             |
 | **Path traversal**         | All file paths are resolved relative to clone root. Reject paths containing `..`.                                                                                                |
 | **Prompt injection boundary** | archex emits structured evidence and never treats repository text as instructions. Downstream agents decide how to consume the bundle. |
-| **Secret posture**           | No hosted inference or API key is required for core, MCP, skill, Docker slim, or benchmark-gate workflows. User config stays local. |
+| **Secret posture**           | No hosted inference or API key is required for core, MCP, skill, Docker slim, or benchmark-gate workflows. User config stays local. Bundle-only eval inherits only the normal process environment of the operator-supplied local command and does not store credentials in result fields. |
 | **Disk space**             | Default cache TTL of 7 days. `archex cache clean` for manual management. Warning at 5GB total cache size.                                                                        |
-| **No code execution**      | archex never executes cloned code. No `eval()`, no subprocess calls on repo content. Tree-sitter parsing is static analysis only.                                                |
+| **No code execution by default** | Core retrieval never executes cloned code. No `eval()`, no subprocess calls on repo content. Tree-sitter parsing is static analysis only. The optional bundle-only eval lane can run an explicit operator-supplied local command; it is not part of default benchmarks or gates. |

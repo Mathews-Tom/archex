@@ -301,7 +301,7 @@ def run_all(
             else:
                 print(f"[{i}/{len(tasks)}] {task.task_id} ({task.repo})", file=sys.stderr)
             try:
-                task_repo_path = _repo_path_for_task(task, repo_cache, cleanup_paths)
+                task_repo_path = repo_path_for_task(task, repo_cache, cleanup_paths)
                 report = run_benchmark(
                     task,
                     strategies=strategies,
@@ -356,7 +356,7 @@ def load_selected_tasks(
     return tasks
 
 
-def _repo_path_for_task(
+def repo_path_for_task(
     task: BenchmarkTask,
     repo_cache: dict[tuple[str, str, tuple[str, ...]], Path],
     cleanup_paths: list[Path],

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -87,6 +88,20 @@ def test_build_evaluator_input_contains_bundle_receipt_and_policy() -> None:
         "needed_files",
         "attempted_more_context",
     ]
+
+
+def test_build_evaluator_input_defaults_to_bundle_only_policy_without_task_config() -> None:
+    task = BenchmarkTask(
+        task_id="plain_task",
+        repo="owner/repo",
+        commit="abc123",
+        question="Can the bundle answer this?",
+        expected_files=["src/main.py"],
+    )
+
+    evaluator_input = build_bundle_only_evaluator_input(task, _bundle())
+
+    assert evaluator_input.allowed_context_policy == "bundle-only"
 
 
 def test_result_fields_attribute_needed_files_and_false_positive() -> None:
@@ -255,6 +270,43 @@ def test_evaluator_timeout_fails_loudly(tmp_path: Path) -> None:
             _bundle(),
             cwd=tmp_path,
         )
+
+
+def test_bundle_eval_repo_path_slices_include_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import archex.benchmark.bundle_eval as bundle_eval_mod
+    import archex.benchmark.runner as runner_mod
+
+    clone_dir = tmp_path / "clone"
+    (clone_dir / "pkg" / "sub").mkdir(parents=True)
+    (clone_dir / "pkg" / "sub" / "kept.py").write_text("kept = True\n")
+    (clone_dir / "pkg" / "discarded.py").write_text("discarded = True\n")
+
+    def clone_repo(_repo: str, _commit: str) -> tuple[Path, bool]:
+        return clone_dir, True
+
+    monkeypatch.setattr(runner_mod, "clone_at_commit", clone_repo)
+    task = BenchmarkTask(
+        task_id="slice",
+        repo="owner/repo",
+        commit="abc",
+        question="How?",
+        expected_files=["pkg/sub/kept.py"],
+        include_paths=["pkg/sub"],
+        bundle_only_eval=BundleOnlyEvaluation(expected_answer="answer"),
+    )
+
+    repo_path, cleanup_paths = bundle_eval_mod._repo_path_for_task(task)  # pyright: ignore[reportPrivateUsage]
+
+    try:
+        assert (repo_path / "pkg" / "sub" / "kept.py").exists()
+        assert not (repo_path / "pkg" / "discarded.py").exists()
+        assert cleanup_paths == [clone_dir, repo_path]
+    finally:
+        for path in cleanup_paths:
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def test_missing_command_fails_before_execution() -> None:
