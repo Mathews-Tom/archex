@@ -291,13 +291,14 @@ def compute_bundle_completion_penalty(
 def compute_required_file_metrics(
     result_files: set[str],
     expected_files: list[str],
-) -> tuple[float, float, bool, list[str], list[str]]:
+) -> tuple[float, float, float, bool, list[str], list[str]]:
     present = [path for path in expected_files if path in result_files]
     missing = [path for path in expected_files if path not in result_files]
     recall = len(present) / len(expected_files) if expected_files else 0.0
     all_present = not missing
-    missed_rate = (len(missing) / len(expected_files)) if expected_files else 0.0
-    return recall, missed_rate, all_present, present, missing
+    missed_file_rate = (len(missing) / len(expected_files)) if expected_files else 0.0
+    missed_task_rate = 0.0 if all_present else 1.0
+    return recall, missed_file_rate, missed_task_rate, all_present, present, missing
 
 
 def compute_receipt_accuracy(
@@ -330,6 +331,7 @@ def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     (
         required_file_recall,
         missed_required_file_rate,
+        missed_required_task_rate,
         all_required_files_present,
         present,
         missing,
@@ -345,7 +347,7 @@ def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         result_files=list(task.expected_files),
         required_file_recall=required_file_recall,
         missed_required_file_rate=missed_required_file_rate,
-        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
+        missed_required_task_rate=missed_required_task_rate,
         all_required_files_present=all_required_files_present,
         required_files_present=present,
         required_files_missing=missing,
@@ -426,6 +428,7 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     (
         required_file_recall,
         missed_required_file_rate,
+        missed_required_task_rate,
         all_required_files_present,
         present,
         missing,
@@ -442,7 +445,7 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         result_files=_deduplicate_ranked(matched_files_ordered),
         required_file_recall=required_file_recall,
         missed_required_file_rate=missed_required_file_rate,
-        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
+        missed_required_task_rate=missed_required_task_rate,
         all_required_files_present=all_required_files_present,
         required_files_present=present,
         required_files_missing=missing,
@@ -548,6 +551,7 @@ def run_raw_ripgrep(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     (
         required_file_recall,
         missed_required_file_rate,
+        missed_required_task_rate,
         all_required_files_present,
         present,
         missing,
@@ -564,7 +568,7 @@ def run_raw_ripgrep(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         result_files=_deduplicate_ranked(matched_files_ordered),
         required_file_recall=required_file_recall,
         missed_required_file_rate=missed_required_file_rate,
-        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
+        missed_required_task_rate=missed_required_task_rate,
         all_required_files_present=all_required_files_present,
         required_files_present=present,
         required_files_missing=missing,
@@ -1057,6 +1061,7 @@ def _run_query_strategy(
     (
         required_file_recall,
         missed_required_file_rate,
+        missed_required_task_rate,
         all_required_files_present,
         present,
         missing,
@@ -1103,7 +1108,7 @@ def _run_query_strategy(
         "required_file_recall": required_file_recall,
         "missed_required_file_rate": missed_required_file_rate,
         "all_required_files_present": all_required_files_present,
-        "missed_required_task_rate": 0.0 if all_required_files_present else 1.0,
+        "missed_required_task_rate": missed_required_task_rate,
         "required_files_present": present,
         "required_files_missing": missing,
         "receipt_accuracy": compute_receipt_accuracy(
@@ -1229,6 +1234,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
     (
         required_file_recall,
         missed_required_file_rate,
+        missed_required_task_rate,
         all_required_files_present,
         present,
         missing,
@@ -1273,7 +1279,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         result_files=unique_ranked,
         required_file_recall=required_file_recall,
         missed_required_file_rate=missed_required_file_rate,
-        missed_required_task_rate=0.0 if all_required_files_present else 1.0,
+        missed_required_task_rate=missed_required_task_rate,
         all_required_files_present=all_required_files_present,
         required_files_present=present,
         required_files_missing=missing,

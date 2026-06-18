@@ -236,16 +236,44 @@ class TestBundleCompletionPenalty:
 
 class TestRequiredFileMetrics:
     def test_metrics_capture_missing_required_files(self) -> None:
-        recall, missed_rate, all_present, present, missing = compute_required_file_metrics(
+        (
+            recall,
+            missed_file_rate,
+            missed_task_rate,
+            all_present,
+            present,
+            missing,
+        ) = compute_required_file_metrics(
             {"a.py"},
             ["a.py", "b.py"],
         )
 
         assert recall == 0.5
-        assert missed_rate == 0.5
+        assert missed_file_rate == 0.5
+        assert missed_task_rate == 1.0
         assert all_present is False
         assert present == ["a.py"]
         assert missing == ["b.py"]
+
+    def test_file_and_task_miss_rates_are_separate(self) -> None:
+        (
+            recall,
+            missed_file_rate,
+            missed_task_rate,
+            all_present,
+            present,
+            missing,
+        ) = compute_required_file_metrics(
+            {"a.py", "b.py", "c.py"},
+            ["a.py", "b.py", "c.py", "d.py"],
+        )
+
+        assert recall == 0.75
+        assert missed_file_rate == 0.25
+        assert missed_task_rate == 1.0
+        assert all_present is False
+        assert present == ["a.py", "b.py", "c.py"]
+        assert missing == ["d.py"]
 
     def test_completion_result_from_missing_files(self) -> None:
         assert completion_result_from_missing([]).value == "pass"
