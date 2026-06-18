@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.13.0] - 2026-06-18
+
+### Added
+
+- **TurboQuant vector storage:** Added `IndexConfig.quantize_vectors` and `quantize_bits`, wired them through stored vector index build/search/load paths, exposed `archex index --quantize-vectors/--no-quantize-vectors` and `--quantize-bits`, and made 4-bit TurboQuant the default storage mode for vector indexes after measured recall/MRR parity.
+- **Quantized retrieval benchmark lane:** Added `archex_query_hybrid_quantized_4bit`, cache isolation for quantized vector artifacts, measured `.npz` size provenance, and baseline comparison reporting for recall, MRR, F1, required-file recall, latency, and compression.
+- **Raw-ripgrep trust baseline:** Added the public raw-ripgrep/read lane and required-file trust fields so external comparisons distinguish retrieval coverage from safe-to-act confidence.
+- **Bundle-only evaluator lane:** Added `archex benchmark bundle-eval` for operator-supplied local evaluators that receive only the rendered bundle and receipt JSON, with missing-needed-file attribution and no hosted evaluator behavior.
+
+### Changed
+
+- **README v0.13 refresh:** Updated the project front page for receipts, raw-ripgrep evidence, bundle-only evaluation, TurboQuant defaults, and clearer measured-results column names.
+- **Benchmark reports:** Surface required-file recall, missed-task/missed-file rates, completion-preserved metrics, bundle-only safety results, and quantized storage provenance without conflating those lanes.
+
+### Fixed
+
+- **Badge cache busting:** Bumped README badge cache keys for the v0.13 release so PyPI and Star History embeds stop showing stale v0.12-era cached assets.
+
 ## [0.12.1] - 2026-06-17
 
 ### Fixed

@@ -1,7 +1,7 @@
 # archex
 
 [![CI](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/archex?cacheSeconds=300)](https://pypi.org/project/archex/)
+[![PyPI](https://img.shields.io/pypi/v/archex?cacheSeconds=60&cacheBuster=v0.13.0)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -11,11 +11,11 @@
 
 **Verified local code context for agents.**
 
-archex turns a repository into a ranked, token-budgeted context bundle plus a context receipt with freshness, index revision, skipped candidates, omitted dependency edges, and a recommended next action. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key.
+archex turns a repository into a ranked, token-budgeted context bundle plus a context receipt with freshness, index revision, skipped candidates, omitted dependency edges, and a recommended next action. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.13 line adds stronger benchmark trust surfaces, bundle-only evaluator support, and default 4-bit TurboQuant vector storage for local vector indexes.
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Local metrics](docs/LOCAL_METRICS.md) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
-**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development) · [Documentation map](#documentation-map)
+**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Advanced workflows](#advanced-workflows) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development) · [Documentation map](#documentation-map)
 
 [![archex infographic](assets/archex-infographic-landscape.png)](assets/archex-infographic-landscape.svg)
 
@@ -25,7 +25,7 @@ archex turns a repository into a ranked, token-budgeted context bundle plus a co
 
 | Safe-to-act signals | Surfaces | Language coverage | Public evidence |
 | --- | --- | --- | --- |
-| Query/scout receipts expose freshness, index revision, skipped candidates, omitted edges, completeness, and next action | CLI, MCP, Python API, Docker, Claude Code skill | 25 declared language IDs with explicit `full` vs `chunk-only` tiers | C1 public comparison plus benchmark outputs that now emit required-file recall and missed-required-file rate |
+| Query/scout receipts expose freshness, index revision, skipped candidates, omitted edges, completeness, and next action | CLI, MCP, Python API, Docker, Claude Code skill | 25 declared language IDs with explicit `full` vs `chunk-only` tiers | C1 public comparison, raw-ripgrep/read baseline, bundle-only evaluator lane, and TurboQuant A/B measurement with 7.07× mean vector `.npz` compression |
 
 archex does not ask the downstream agent to trust ranking alone. Every query/scout receipt explains what was returned, what was skipped, whether freshness was current, and whether the bundle is complete enough to act on.
 
@@ -36,7 +36,7 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 | Agent workflows | `archex doctor`, then `archex scout "question" --budget 1000 --format json` | Checks local trust first, then returns a compact map, a receipt summary, and exact fetch handles. |
 | Claude Code or MCP | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts, and an in-repo skill that teaches doctor → scout → fetch. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
-| Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report plus harness-emitted required-file recall, missed-required-file rate, and receipt-accuracy fields. |
+| Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, raw-ripgrep/read baseline, bundle-only evaluator reports, required-file trust gates, and TurboQuant storage/recall evidence. |
 | Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Preview-first client bootstrap paths for Claude Code, Codex, Pi, OpenCode, and Cursor. |
 
 ## 30-second quickstart
@@ -137,7 +137,7 @@ Agents usually explore repositories by opening one file, following imports, chec
 Repository → repo-local index → intent routing → retrieval → graph/type expansion → token-budgeted bundle → agent / MCP client
 ```
 
-archex is a selection and assembly layer. Compression tools can shrink the final bundle later, but compressed irrelevant context is still irrelevant.
+archex is a selection and assembly layer. Compression tools can shrink the final bundle later, but compressed irrelevant context is still irrelevant. For the vector index itself, v0.13 enables 4-bit TurboQuant storage by default when vector retrieval is turned on: same measured recall/MRR on the current corpus, about seven times smaller vector artifacts, and self-describing compatibility with older unquantized `.npz` files.
 
 ## Use it your way
 
@@ -146,6 +146,7 @@ archex is a selection and assembly layer. Compression tools can shrink the final
 ```bash
 archex query "Where is cache invalidation handled?" --format xml
 archex scout "How does authentication flow through this repo?" --budget 1000 --format json
+archex index --quantize-vectors --quantize-bits 4 --allow-remote-code
 archex graph export --output .archex/archgraph.json
 archex graph neighbors src/auth/middleware.py --graph .archex/archgraph.json --format markdown
 archex symbol 'symbol:src/auth/middleware.py::authenticate#function'
@@ -264,13 +265,15 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 
 ## Measured results
 
-The public C1 harness publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw-ripgrep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, required-file recall, missed-required-file rate, missed-required-task rate, all-required-present rate, receipt accuracy, and bundle-completion penalty tokens. The checked-in artifacts now include those trust fields; receipt accuracy is `n/a` for the historical C1 run because those artifacts predate query receipt capture. Core retrieval benchmarks make no LLM calls.
+The public C1 harness publishes the same external-repo comparison for archex, cocoindex-code (`ccc`), and a raw-ripgrep/read baseline. It records cold-start, warm latency, recall, precision, F1, token efficiency, required-file recall, missed-required-file rate, missed-required-task rate, all-required-present rate, receipt accuracy, and bundle-completion penalty tokens. The checked-in artifacts include those trust fields; receipt accuracy is `n/a` for the historical C1 run because those artifacts predate query receipt capture. Core retrieval benchmarks make no LLM calls.
 
 See [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) for the current published comparison and [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) for the decision trail.
 
 Bundle-only evaluation is a separate opt-in lane: `archex benchmark bundle-eval --evaluator-command ...` gives a user-supplied local command only the rendered bundle and receipt JSON, then reports bundle-only success and files the evaluator still needed outside returned context. archex does not provide hosted evaluator calls, telemetry, credentials, or default network behavior for that lane.
 
-| Lane | Recall | Required recall | Missed task rate | F1 | Token efficiency | Efficiency after completion | Warm latency ms |
+TurboQuant evidence is measured separately with `archex_query_hybrid_quantized_4bit` against `archex_query_hybrid`: 35 tasks, 7.07× mean vector `.npz` compression, 6.98× minimum compression, recall Δ +0.000, MRR Δ +0.000, F1 Δ +0.000, required-file recall Δ +0.000, and mean query latency Δ +110 ms. That passed the default gate, so 4-bit TurboQuant is now the default storage mode for vector indexes.
+
+| Lane | Recall | Required-file recall | Missed task rate | F1 | Token efficiency | Token efficiency after completion | Warm latency ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `archex` | 0.95 | 0.95 | 0.16 | 0.66 | 0.76 | 0.74 | 408 |
 | `ccc` | 0.32 | 0.32 | 0.79 | 0.31 | 0.48 | 0.41 | 521 |
@@ -294,6 +297,8 @@ archex impact --changed-file src/archex/serve/context.py
 
 # Benchmarks and gates
 archex benchmark headtohead report --input .archex/headtohead --format markdown
+archex benchmark run --strategy archex_query_hybrid_quantized_4bit --output .archex/e2e-quantized --allow-remote-code
+archex benchmark report --input .archex/e2e-quantized --baseline .archex/e2e-baseline --format markdown
 archex benchmark gate --input .archex/e2e --baseline .archex/e2e-baseline --warn-latency-ms 3000
 archex benchmark bundle-eval --tasks-dir benchmarks/tasks --evaluator-command ./local-evaluator
 archex dogfood --all --baseline benchmarks/dogfood_baseline.json --format dogfood-delta
@@ -360,9 +365,9 @@ Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs.
 - [System Overview](docs/OVERVIEW.md) — current product overview and boundaries
 - [System Design](docs/SYSTEM_DESIGN.md) — shipped architecture, graph query, scout, language tiers, and distribution surfaces
 - [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) — evidence-backed C1 comparison
-- [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) — default-strategy evidence gate
+- [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) — default-strategy and TurboQuant evidence gates
+- [Context Receipts](docs/CONTEXT_RECEIPTS.md) — receipt field contract and safe-to-act semantics
 - [Local Metrics](docs/LOCAL_METRICS.md) — token-savings math, privacy boundary, and default-off versus opt-in behavior
-- [Roadmap](docs/ROADMAP.md) — historical execution record
 
 ## License
 
@@ -370,4 +375,4 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&legend=top-left&cache=v0.12.0)](https://www.star-history.com/?repos=Mathews-Tom%2Farchex&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&legend=top-left&cache=v0.13.0)](https://www.star-history.com/?repos=Mathews-Tom%2Farchex&type=date&legend=top-left)
