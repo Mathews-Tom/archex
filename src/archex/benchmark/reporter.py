@@ -161,6 +161,7 @@ def _region_quality_summary(reports: list[BenchmarkReport]) -> list[str]:
     lines.append("")
     return lines
 
+
 def _sum_optional_int(values: list[int | None]) -> int:
     return sum(value for value in values if value is not None)
 

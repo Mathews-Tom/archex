@@ -120,9 +120,7 @@ def _receipt_lines(receipt: ContextReceipt) -> list[str]:
         ),
     ]
     if compressed:
-        lines.append(
-            f"- Compressed regions: {len(compressed)} of {len(receipt.returned_context)}"
-        )
+        lines.append(f"- Compressed regions: {len(compressed)} of {len(receipt.returned_context)}")
     if receipt.skipped_candidates:
         lines.extend(["", "### Skipped candidates"])
         for item in receipt.skipped_candidates[:8]:
