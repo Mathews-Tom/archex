@@ -15,8 +15,13 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from archex.benchmark.bounded_rerank import (
+    RerankCaps,
+    query_signals,
+    symbolic_scores,
+)
 from archex.benchmark.models import (
     BenchmarkResult,
     BenchmarkRetrievalOptions,
@@ -54,6 +59,9 @@ from archex.serve.packing import (
     PackingSignals,
     pack_efficiently,
 )
+
+if TYPE_CHECKING:
+    from archex.index.rerank import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
 
@@ -1929,6 +1937,175 @@ def run_archex_query_dual_transform(task: BenchmarkTask, repo_path: Path) -> Ben
     return result
 
 
+_BOUNDED_RERANK_CAPS = RerankCaps()
+
+
+def _load_local_reranker() -> CrossEncoderReranker | None:
+    """Reuse an in-process cross-encoder reranker; never load or download a model.
+
+    Returns a warmed reranker only when one is already loaded in this process
+    (e.g. a prior fusion-rerank pass warmed it). When no local model is loaded, or
+    when warming the cached model is rejected (e.g. the model needs remote code and
+    the benchmark run did not opt in), returns None so the lane skips the model
+    rerank with explicit provenance. It never triggers a download, so it adds no
+    network behaviour; the remote-code opt-in mirrors the benchmark options.
+    """
+    from archex.index.rerank import CrossEncoderReranker, loaded_reranker_model_names
+
+    names = loaded_reranker_model_names()
+    if not names:
+        return None
+    options = current_benchmark_retrieval_options()
+    reranker = CrossEncoderReranker(names[0], allow_remote_code=options.allow_remote_code)
+    try:
+        reranker.warm()  # the model is already cached in-process; this never downloads
+    except ArchexError:
+        return None
+    return reranker
+
+
+def _normalize_ce_scores(results: list[tuple[CodeChunk, float]]) -> dict[str, float]:
+    """Min-max normalise cross-encoder scores into [0, 1] keyed by chunk id."""
+    if not results:
+        return {}
+    scores = [score for _, score in results]
+    low, high = min(scores), max(scores)
+    span = high - low
+    if span <= 0:
+        return {chunk.id: 1.0 for chunk, _ in results}
+    return {chunk.id: (score - low) / span for chunk, score in results}
+
+
+@dataclass
+class _BoundedRerank:
+    """Reordered bundle plus the provenance describing the bounded rerank."""
+
+    bundle: ContextBundle
+    provenance: dict[str, str]
+
+
+def _bounded_rerank_bundle(
+    bundle: ContextBundle, *, question: str, caps: RerankCaps
+) -> _BoundedRerank:
+    """Reorder a bounded compact candidate set by symbolic evidence (+ optional CE).
+
+    Only the top ``caps.candidate_cap`` retrieved chunks are reranked; chunks past
+    the cap keep their order. The deterministic symbolic evidence pass always runs.
+    A local cross-encoder is reused only when already loaded and only if its
+    measured pass stays under ``caps.latency_cap_ms``; otherwise the model rerank
+    is skipped/aborted and the symbolic order stands. Receipt rows are realigned to
+    the reordered chunk set so receipts stay aligned.
+    """
+    from archex.scout import chunk_handle
+
+    signals = query_signals(question)
+    compact = bundle.chunks[: caps.candidate_cap]
+    tail = bundle.chunks[caps.candidate_cap :]
+    candidate_count = len(compact)
+    scores = symbolic_scores([ranked.chunk for ranked in compact], signals)
+
+    reranker = _load_local_reranker()
+    rerank_ms = 0.0
+    if reranker is None:
+        cross_encoder_status = "skipped:unavailable"
+    elif not compact:
+        cross_encoder_status = "skipped:no_candidates"
+    else:
+        candidates = [(ranked.chunk, score) for ranked, score in zip(compact, scores, strict=True)]
+        t0 = time.perf_counter()
+        ce_results = reranker.rerank(question, candidates, top_k=candidate_count)
+        rerank_ms = (time.perf_counter() - t0) * 1000
+        if rerank_ms > caps.latency_cap_ms:
+            cross_encoder_status = "aborted:latency"
+        else:
+            ce_norm = _normalize_ce_scores(ce_results)
+            scores = [
+                score + ce_norm.get(ranked.chunk.id, 0.0)
+                for ranked, score in zip(compact, scores, strict=True)
+            ]
+            cross_encoder_status = "applied"
+
+    # Stable sort: higher score first, ties keep original retrieval order.
+    order = sorted(range(candidate_count), key=lambda index: -scores[index])
+    new_chunks = [compact[index] for index in order] + list(tail)
+
+    reordered = bundle.model_copy(update={"chunks": new_chunks})
+    if reordered.receipt is not None:
+        items_by_handle = {item.handle: item for item in reordered.receipt.returned_context}
+        ordered: list[ContextReceiptItem] = []
+        seen: set[str] = set()
+        for ranked in new_chunks:
+            handle = chunk_handle(ranked.chunk.id)
+            item = items_by_handle.get(handle)
+            if item is not None and handle not in seen:
+                ordered.append(item)
+                seen.add(handle)
+        # Preserve any receipt rows without a matching chunk (defensive).
+        ordered.extend(
+            item for item in reordered.receipt.returned_context if item.handle not in seen
+        )
+        reordered.receipt = reordered.receipt.model_copy(update={"returned_context": ordered})
+
+    rerank_method = "symbolic+cross_encoder" if cross_encoder_status == "applied" else "symbolic"
+    provenance = {
+        "candidate_cap": str(caps.candidate_cap),
+        "candidates_reranked": str(candidate_count),
+        "candidates_total": str(len(bundle.chunks)),
+        "latency_cap_ms": f"{caps.latency_cap_ms:.1f}",
+        "rerank_ms": f"{rerank_ms:.2f}",
+        "rerank_method": rerank_method,
+        "cross_encoder_status": cross_encoder_status,
+    }
+    return _BoundedRerank(bundle=reordered, provenance=provenance)
+
+
+def run_archex_query_bounded_rerank(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: bounded symbolic/evidence rerank over a compact set.
+
+    Runs the ``archex_query`` BM25 retrieval path, then reranks only the top
+    ``candidate_cap`` chunks by deterministic symbolic evidence (path / symbol /
+    term overlap blended with the retrieval rank). A local cross-encoder reranker
+    is reused only when already loaded in process and only if its measured pass
+    stays within the latency cap; otherwise the model rerank is skipped or aborted
+    with explicit provenance. Hard candidate and latency caps prevent unbounded
+    rerank. The product default is unchanged.
+    """
+    strategy = Strategy.ARCHEX_QUERY_BOUNDED_RERANK
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    rerank = _bounded_rerank_bundle(bundle, question=task.question, caps=_BOUNDED_RERANK_CAPS)
+    wall_ms = (time.perf_counter() - t0) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=rerank.bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = rerank.provenance
+    logger.info(
+        "Strategy %s for %s: reranked=%s/%s method=%s ce=%s wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        rerank.provenance["candidates_reranked"],
+        rerank.provenance["candidates_total"],
+        rerank.provenance["rerank_method"],
+        rerank.provenance["cross_encoder_status"],
+        wall_ms,
+    )
+    return result
+
+
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
     from archex.api import query, scout_with_bundle
@@ -2539,5 +2716,8 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_DUAL_TRANSFORM.value, run_archex_query_dual_transform
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_BOUNDED_RERANK.value, run_archex_query_bounded_rerank
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)

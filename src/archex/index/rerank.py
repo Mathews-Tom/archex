@@ -45,6 +45,15 @@ RERANK_CANDIDATE_LIMIT = 4
 _MODEL_CACHE: dict[str, Any] = {}
 
 
+def loaded_reranker_model_names() -> list[str]:
+    """Return names of cross-encoder models already loaded in this process.
+
+    Lets callers reuse an in-process reranker without triggering a model load or
+    download: an empty list means no local reranker is available right now.
+    """
+    return list(_MODEL_CACHE)
+
+
 def _ensure_padding_token(cross_encoder: Any) -> None:
     tokenizer = getattr(cross_encoder, "tokenizer", None)
     if tokenizer is None:
