@@ -66,6 +66,16 @@ Decision rule: each advanced lane is **not eligible for product-default promotio
 
 No numeric advanced-lane results are claimed here. Reports surface each lane's added latency, token impact, storage/index cost where applicable, and quality metrics in the **Advanced Quality Lanes** table, but any future advanced-lane win claim must come from checked-in benchmark artifacts that contain the per-lane provenance and the required-file/region, completion-adjusted token-efficiency, and p95 fields needed to verify it.
 
+## Competitive comparison
+
+Workstream 6 of `.docs/2026-06-18-retrieval-quality-token-efficiency-enhancement-design.md` refreshes the **public competitive comparison** after the internal lanes exist. It is comparison infrastructure, not a retrieval change, and it does not alter the switch rule. `archex benchmark headtohead competitive` renders the comparison across these lanes: the `archex_query` product default; optional benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`); the external retrieval engine `ccc`; the raw-ripgrep/read baseline; and Headroom-style compression lanes (`headroom_only_on_raw_context`, `archex_plus_headroom`).
+
+The manifest tags each lane's `layer_type` (`retrieval`/`compression`/`baseline`). **Headroom is evaluated as a compression / context-management layer, not a retrieval engine**, so its lanes contribute only a compression ratio and the retrieval-quality columns are `n/a` for them. Headroom runs locally where reproducible or is imported as version-pinned, SHA-256-stamped operator artifacts. Reports are grouped by repo/task family and aggregate, and the report never publishes a cherry-picked aggregate-only winner.
+
+Disposition: the improved archex candidate lanes remain **benchmark-only candidates**, not shipped defaults — per the disposition notes above, `archex_query_task_aware` tied `archex_query` on file recall and F1, and the compression/packing lanes produced only modest token reduction with the safety invariants intact, so none cleared the default-switch gate. The shipped default is still `archex_query`.
+
+No new competitive numbers are claimed here. Every value in a published competitive report must come from checked-in artifacts under `benchmarks/headtohead/results/`; the current checked-in public set includes `archex`, the benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`), `ccc`, and raw-ripgrep/read. Headroom-layer cells appear only when an operator supplies the corresponding artifacts.
+
 ## Decision rationale
 
 ### Why this gate exists
