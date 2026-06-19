@@ -1,0 +1,28 @@
+{
+  "task_id": "httpx_pooling",
+  "headroom_version": "0.4.1",
+  "modes": {
+    "headroom_only_on_raw_context": {
+      "source_lane": "raw_files",
+      "source_passthrough": false,
+      "bundle_tokens_uncompressed": 18481,
+      "bundle_tokens_compressed": 9120,
+      "command": "headroom compress --profile balanced --no-protect-code",
+      "compression_settings": {
+        "profile": "balanced",
+        "protect_code": "false"
+      }
+    },
+    "archex_plus_headroom": {
+      "source_lane": "archex",
+      "source_passthrough": true,
+      "bundle_tokens_uncompressed": 4200,
+      "bundle_tokens_compressed": 4200,
+      "command": "headroom compress --profile balanced --protect-code",
+      "compression_settings": {
+        "profile": "balanced",
+        "protect_code": "true"
+      }
+    }
+  }
+}
