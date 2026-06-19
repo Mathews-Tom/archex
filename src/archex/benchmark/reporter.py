@@ -220,6 +220,7 @@ def format_markdown(report: BenchmarkReport) -> str:
     lines.extend(_missing_required_file_appendix(report))
     lines.extend(_bundle_only_eval_appendix(report))
     lines.extend(_region_quality_appendix(report))
+    lines.extend(_task_aware_policy_appendix(report))
     lines.append("")
     return "\n".join(lines)
 
@@ -467,6 +468,7 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
             )
         lines.extend(_missing_required_file_appendix(report))
         lines.extend(_bundle_only_eval_appendix(report))
+        lines.extend(_task_aware_policy_appendix(report))
         lines.append("")
 
     # Head-to-head wins
@@ -546,6 +548,36 @@ def _bundle_only_eval_appendix(report: BenchmarkReport) -> list[str]:
         lines.append(
             f"| {result.strategy.value} | {success} | {outside} | {frontier} | "
             f"{top_candidates} | {false_positive} | {post_reads} |"
+        )
+    return lines
+
+
+def _task_aware_policy_appendix(report: BenchmarkReport) -> list[str]:
+    """Compact policy provenance for ``archex_query_task_aware`` results."""
+    from archex.benchmark.models import Strategy
+
+    rows = [
+        result
+        for result in report.results
+        if result.strategy is Strategy.ARCHEX_QUERY_TASK_AWARE and result.provenance
+    ]
+    if not rows:
+        return []
+    header = "| Strategy | Modality | Budget | Routing | Cand cap | Dense cap | Fusion | Skipped |"
+    separator = (
+        "|----------|----------|--------|---------|----------|-----------|--------|---------|"
+    )
+    lines = ["", "### Task-aware policy", header, separator]
+    for result in rows:
+        prov = result.provenance
+        lines.append(
+            f"| {result.strategy.value} | {prov.get('modality', 'unknown')} "
+            f"| {prov.get('budget_tier', 'unknown')} "
+            f"| {prov.get('routing_decision', 'unknown')} "
+            f"| {prov.get('policy_candidate_cap', 'unknown')} "
+            f"| {prov.get('policy_dense_candidate_cap', 'unknown')} "
+            f"| {prov.get('fusion_used', 'unknown')} "
+            f"| {prov.get('policy_skipped_steps', 'unknown')} |"
         )
     return lines
 

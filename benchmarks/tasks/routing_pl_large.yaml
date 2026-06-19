@@ -1,0 +1,12 @@
+task_id: routing_pl_large
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "DependencyGraph dependency_graph edge_confidence import_neighbors expansion_candidates"
+expected_files:
+  - src/archex/index/graph.py
+expected_symbols:
+  - DependencyGraph
+token_budget: 16384
+keywords: [graph, dependency, edge, expansion]

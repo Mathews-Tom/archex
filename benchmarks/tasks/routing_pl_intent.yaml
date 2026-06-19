@@ -1,0 +1,13 @@
+task_id: routing_pl_intent
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "classify_intent QueryIntent DEFINITION_LOOKUP USAGE_SEARCH intent heuristic"
+expected_files:
+  - src/archex/serve/intent.py
+expected_symbols:
+  - classify_intent
+  - QueryIntent
+token_budget: 8192
+keywords: [intent, classify, lookup]

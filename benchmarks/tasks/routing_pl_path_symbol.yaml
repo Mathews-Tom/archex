@@ -1,0 +1,12 @@
+task_id: routing_pl_path_symbol
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "where is benchmark_repo_source defined in src/archex/benchmark/strategies.py"
+expected_files:
+  - src/archex/benchmark/strategies.py
+expected_symbols:
+  - benchmark_repo_source
+token_budget: 8192
+keywords: [benchmark, repo, source]

@@ -1,0 +1,13 @@
+task_id: routing_mixed_chunker
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "How does the chunker decide boundaries, I am seeing odd splits when chunk sizes are small, can you check the chunking logic in src/archex/pipeline/chunker.py"
+expected_files:
+  - src/archex/pipeline/chunker.py
+expected_symbols:
+  - Chunker
+  - build_breadcrumbs
+token_budget: 8192
+keywords: [chunk, boundary, split]

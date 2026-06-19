@@ -1,0 +1,13 @@
+task_id: routing_pl_tight
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "CacheManager cache_key vector_path store_path digest"
+expected_files:
+  - src/archex/cache.py
+expected_symbols:
+  - CacheManager
+  - cache_key
+token_budget: 2048
+keywords: [cache, key, path]
