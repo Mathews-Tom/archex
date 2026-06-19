@@ -339,6 +339,21 @@ def test_json_exposes_compression_metadata() -> None:
 def test_json_uncompressed_row_has_null_compression() -> None:
     import json
 
-    data = json.loads(render_json(_base_bundle(receipt=_receipt())))
-    for item in data["receipt"]["returned_context"]:
+    receipt = _receipt().model_copy(
+        update={
+            "returned_context": [
+                ContextReceiptItem(
+                    handle=chunk_handle("c1"),
+                    file_path="src/app.py",
+                    start_line=1,
+                    end_line=5,
+                    content_hash="h",
+                )
+            ]
+        }
+    )
+    data = json.loads(render_json(_base_bundle(receipt=receipt)))
+    rows = data["receipt"]["returned_context"]
+    assert rows  # non-empty so the assertion below actually runs
+    for item in rows:
         assert item["compression"] is None

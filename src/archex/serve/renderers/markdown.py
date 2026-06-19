@@ -145,6 +145,8 @@ def _receipt_lines(receipt: ContextReceipt) -> list[str]:
         lines.extend(["", "### Compressed regions"])
         for item in compressed[:8]:
             meta = item.compression
+            if meta is None:  # pragma: no cover - filtered into `compressed` above
+                continue
             lines.append(
                 f"- {item.file_path} ({meta.compression_mode.value}, risk "
                 f"{meta.compression_loss_risk.value}): {meta.original_tokens} -> "
