@@ -414,13 +414,19 @@ def _integer_metric_cell(value: float, provenance: str, field: str) -> str:
 
 
 def _results_by_lane(
-    reports: list[BenchmarkReport],
+    manifest: HeadToHeadManifest, reports: list[BenchmarkReport]
 ) -> dict[str, list[BenchmarkResult]]:
+    allowed_labels = {
+        "archex",
+        *(tool.name for tool in manifest.external_tools),
+        "raw-ripgrep/read",
+    }
     lanes: dict[str, list[BenchmarkResult]] = {}
     for report in reports:
         for result in report.results:
-            if result.strategy in HEADTOHEAD_REPORT_STRATEGIES:
-                lanes.setdefault(lane_label(result), []).append(result)
+            label = lane_label(result)
+            if result.strategy in HEADTOHEAD_REPORT_STRATEGIES and label in allowed_labels:
+                lanes.setdefault(label, []).append(result)
     return lanes
 
 
@@ -432,7 +438,7 @@ def format_headtohead_markdown(
     if not reports:
         return "No head-to-head benchmark results."
 
-    lanes = _results_by_lane(reports)
+    lanes = _results_by_lane(manifest, reports)
     required_lanes = {"archex", manifest.external_tools[0].name, "raw-ripgrep/read"}
     missing_lanes = sorted(required_lanes.difference(lanes))
     if missing_lanes:
@@ -440,9 +446,6 @@ def format_headtohead_markdown(
             "Head-to-head report is missing lane(s): " + ", ".join(missing_lanes)
         )
 
-    graphify_labels = [
-        lane.name.value for lane in manifest.graphify_lanes if lane.name.value in lanes
-    ]
     lines: list[str] = [
         "# archex Head-to-Head Benchmark",
         "",
@@ -451,18 +454,6 @@ def format_headtohead_markdown(
         f"Hardware notes: {manifest.hardware_notes}",
         "",
         "Every metric cell includes its provenance. No winner filtering is applied.",
-        *(
-            [
-                "",
-                "Graphify rows are graph / memory-layer lanes, not direct retrieval-"
-                "equivalent winners. `graphify_build_plus_query` includes graph "
-                "construction/setup plus the first graph-backed answer; "
-                "`graphify_query_warm` measures only the warm graph-query path "
-                "against a prebuilt graph.",
-            ]
-            if graphify_labels
-            else []
-        ),
         "",
         "| Lane | Recall | Required-file recall | Missed file rate | Missed task rate | "
         "All required present | Receipt accuracy | Precision | F1 | Token efficiency | "
@@ -587,15 +578,6 @@ def format_headtohead_markdown(
         "benchmarks/headtohead/manifest.yaml --output .archex/headtohead",
         "uv run archex benchmark headtohead report --input .archex/headtohead --format markdown",
     ]
-    if graphify_labels:
-        reproduction_lines.extend(
-            [
-                "# Optional Graphify follow-up lanes are artifact-backed in this report.",
-                "# Produce or copy the task artifacts declared under",
-                "# graphify_lanes[].artifact_dir, then rerun the report command to include",
-                "# graphify_build_plus_query and graphify_query_warm with their pinned provenance.",
-            ]
-        )
     reproduction_lines.extend(["```", ""])
     lines.extend(reproduction_lines)
     return "\n".join(lines)

@@ -247,6 +247,7 @@ def test_competitive_report_includes_graphify_lanes_and_fairness_frame() -> None
     assert "Graphify is evaluated as a graph / memory layer." in output
     assert "graph construction/setup plus the first graph-backed answer" in output
     assert "warm graph-query path against a prebuilt graph" in output
+    assert "Graphify token-efficiency cells measure the graph reference listing" in output
     assert (
         "manifest=competitive; lane=graphify_build_plus_query; package=graphifyy; "
         "version=0.8.44; mode=build+query; run=artifact"

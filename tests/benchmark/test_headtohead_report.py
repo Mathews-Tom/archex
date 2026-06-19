@@ -97,7 +97,7 @@ def test_format_headtohead_markdown_keeps_all_lanes_and_provenance() -> None:
     assert "No winner filtering" in output
 
 
-def test_format_headtohead_markdown_includes_graphify_lane_provenance() -> None:
+def test_format_headtohead_markdown_ignores_graphify_followup_lanes() -> None:
     manifest = HeadToHeadManifest(
         name="comparison",
         task_subset=["task_a"],
@@ -144,10 +144,11 @@ def test_format_headtohead_markdown_includes_graphify_lane_provenance() -> None:
 
     output = format_headtohead_markdown(manifest, [report])
 
-    assert "| graphify_query_warm |" in output
-    assert "package=graphifyy; version=0.8.44; mode=warm-query; run=artifact" in output
-    assert "Graphify rows are graph / memory-layer lanes" in output
-    assert "Optional Graphify follow-up lanes are artifact-backed in this report." in output
+    assert "| archex |" in output
+    assert "| ccc |" in output
+    assert "| raw-ripgrep/read |" in output
+    assert "graphify_query_warm" not in output
+    assert "Graphify rows are graph / memory-layer lanes" not in output
 
 
 def test_run_headtohead_copies_manifest_and_uses_external_config(

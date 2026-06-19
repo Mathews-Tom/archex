@@ -1026,9 +1026,8 @@ def headtohead_report_cmd(input_dir: str, output_format: str) -> None:
     if not reports:
         raise click.ClickException(f"No result files found in {input_dir}")
     try:
-        augmented_reports = reports_with_graphify_lanes(manifest, reports)
-        click.echo(format_headtohead_markdown(manifest, augmented_reports))
-    except (GraphifyAdapterError, HeadToHeadManifestError) as exc:
+        click.echo(format_headtohead_markdown(manifest, reports))
+    except HeadToHeadManifestError as exc:
         raise click.ClickException(str(exc)) from exc
 
 

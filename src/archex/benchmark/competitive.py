@@ -251,7 +251,10 @@ def format_competitive_markdown(
         "`graphify_build_plus_query` includes graph construction/setup plus the first "
         "graph-backed answer; `graphify_query_warm` measures only the warm graph-query "
         "path against a prebuilt graph. These lanes are reported separately and are not "
-        "framed as direct retrieval-equivalent wins.",
+        "framed as direct retrieval-equivalent wins. Graphify token-efficiency cells "
+        "measure the graph reference listing returned by `graphify query`, not returned "
+        "source code, so treat them as within-lane efficiency signals rather than "
+        "bundle-for-bundle comparisons against retrieval lanes.",
         "",
         "Metrics are reported per repo/task family and in aggregate. No aggregate-only "
         "winner is claimed; every lane and cell is shown.",

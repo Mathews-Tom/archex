@@ -259,12 +259,15 @@ def test_checked_in_headtohead_artifacts_validate_and_render() -> None:
     # The competitive report renders the checked-in artifacts without error and
     # carries every lane plus the per-repo and aggregate sections docs reference.
     manifest = load_headtohead_manifest(_RESULTS_DIR / "manifest.yaml")
-    output = format_competitive_markdown(manifest, reports)
+    augmented = reports_with_graphify_lanes(manifest, reports)
+    output = format_competitive_markdown(manifest, augmented)
 
     assert "| archex | retrieval |" in output
     assert "| archex_query_compressed | retrieval |" in output
     assert "| archex_query_efficiency_packed | retrieval |" in output
     assert "| ccc | retrieval |" in output
+    assert "| graphify_build_plus_query | graph-memory |" in output
+    assert "| graphify_query_warm | graph-memory |" in output
     assert "| raw-ripgrep/read | baseline |" in output
     assert "## Aggregate (19 tasks)" in output
     assert "## By task family" in output
@@ -272,9 +275,13 @@ def test_checked_in_headtohead_artifacts_validate_and_render() -> None:
 
 
 def test_checked_in_artifacts_have_no_absolute_path_leaks() -> None:
-    for path in sorted(_RESULTS_DIR.glob("*.json")):
+    artifact_paths = sorted(_RESULTS_DIR.glob("*.json"))
+    artifact_paths += sorted((_RESULTS_DIR / "graphify_build_plus_query").glob("*.json"))
+    artifact_paths += sorted((_RESULTS_DIR / "graphify_query_warm").glob("*.json"))
+    for path in artifact_paths:
         text = path.read_text(encoding="utf-8")
         assert "/Users/" not in text, path.name
         assert "/home/" not in text, path.name
-        # Result files must remain valid BenchmarkReport documents.
-        BenchmarkReport.model_validate(json.loads(text))
+        assert "/private/" not in text, path.name
+        if path.parent == _RESULTS_DIR:
+            BenchmarkReport.model_validate(json.loads(text))
