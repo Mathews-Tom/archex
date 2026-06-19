@@ -233,6 +233,101 @@ def _compression_summary(reports: list[BenchmarkReport]) -> list[str]:
     return lines
 
 
+def _packing_appendix(report: BenchmarkReport) -> list[str]:
+    """Per-task efficiency-aware packing provenance, rendered only when present."""
+    rows = [
+        result for result in report.results if result.packed_relevance_per_1k_tokens is not None
+    ]
+    if not rows:
+        return []
+    lines = ["", "### Efficiency-Aware Packing", ""]
+    lines.append(
+        "| Strategy | Budget | Include | Compress | Elide | Skip | Rel/1k | Compression Ratio |"
+    )
+    lines.append(
+        "|----------|--------|--------:|---------:|------:|-----:|-------:|------------------:|"
+    )
+    for result in rows:
+        prov = result.provenance
+        lines.append(
+            f"| {result.strategy.value} | {prov.get('budget_tier', 'unknown')} "
+            f"| {_fmt_opt_int(result.packing_included_regions)} "
+            f"| {_fmt_opt_int(result.packing_compressed_regions)} "
+            f"| {_fmt_opt_int(result.packing_elided_regions)} "
+            f"| {_fmt_opt_int(result.packing_skipped_regions)} "
+            f"| {_fmt_opt(result.packed_relevance_per_1k_tokens, digits=2)} "
+            f"| {_fmt_opt(result.bundle_compression_ratio)} |"
+        )
+    return lines
+
+
+_PACKING_LANES = (
+    "archex_query",
+    "archex_query_compressed",
+    "archex_query_efficiency_packed",
+)
+_PACKING_LANE_LABELS = {
+    "archex_query": "normal packing",
+    "archex_query_compressed": "compressed packing",
+    "archex_query_efficiency_packed": "efficiency-aware packing",
+}
+
+
+def _packing_lane_comparison(reports: list[BenchmarkReport]) -> list[str]:
+    """Compare normal vs compressed vs efficiency-aware packing on the same retrieval."""
+    by_strategy: dict[str, list[BenchmarkResult]] = defaultdict(list)
+    for report in reports:
+        for result in report.results:
+            if result.strategy.value in _PACKING_LANES:
+                by_strategy[result.strategy.value].append(result)
+    # The section's subject is the efficiency-packed lane; omit it entirely when
+    # that lane did not run so unrelated reports are unaffected.
+    if "archex_query_efficiency_packed" not in by_strategy:
+        return []
+    lines = ["## Packing Lane Comparison", ""]
+    lines.append(
+        "Normal (`archex_query`), compressed (`archex_query_compressed`), and efficiency-aware "
+        "(`archex_query_efficiency_packed`) packing on the same retrieval. Token efficiency is "
+        "after the completion penalty; region Rel/1k and compression ratio are reported where "
+        "available. The efficiency-packed lane is eligible for default consideration only if "
+        "required-file/region metrics do not regress and p95 latency does not regress."
+    )
+    lines.append("")
+    lines.append(
+        "| Lane | Strategy | Token Efficiency | Region Rel/1k | Compression Ratio | p95 ms "
+        "| Tasks |"
+    )
+    lines.append(
+        "|------|----------|-----------------:|--------------:|------------------:|-------:"
+        "|------:|"
+    )
+    for name in _PACKING_LANES:
+        results = by_strategy.get(name)
+        if not results:
+            continue
+        # Post-reduction efficiency where the lane shaped tokens (compressed/packed
+        # set the compression field), else the plain completion-adjusted efficiency
+        # for normal packing — so all three lanes are compared after their shaping.
+        efficiency = _mean(
+            [
+                r.token_efficiency_with_compression_and_completion
+                if r.token_efficiency_with_compression_and_completion is not None
+                else r.token_efficiency_with_completion
+                for r in results
+            ]
+        )
+        region_rel = _mean_optional([r.relevance_per_1k_tokens for r in results])
+        ratio = _mean_optional([r.bundle_compression_ratio for r in results])
+        p95 = _percentile([r.wall_time_ms for r in results], 0.95)
+        lines.append(
+            f"| {_PACKING_LANE_LABELS[name]} | {name} | {efficiency:.3f} "
+            f"| {_fmt_opt(region_rel, digits=2)} | {_fmt_opt(ratio)} "
+            f"| {p95:.0f} | {len(results)} |"
+        )
+    lines.append("")
+    return lines
+
+
 def _aggregate_strategy_metrics(
     reports: list[BenchmarkReport],
     fields: tuple[str, ...],
@@ -293,6 +388,7 @@ def format_markdown(report: BenchmarkReport) -> str:
     lines.extend(_region_quality_appendix(report))
     lines.extend(_task_aware_policy_appendix(report))
     lines.extend(_compression_appendix(report))
+    lines.extend(_packing_appendix(report))
     lines.append("")
     return "\n".join(lines)
 
@@ -341,6 +437,7 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
     lines.append("")
     lines.extend(_region_quality_summary(reports))
     lines.extend(_compression_summary(reports))
+    lines.extend(_packing_lane_comparison(reports))
     return "\n".join(lines)
 
 
@@ -542,6 +639,7 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
         lines.extend(_missing_required_file_appendix(report))
         lines.extend(_bundle_only_eval_appendix(report))
         lines.extend(_task_aware_policy_appendix(report))
+        lines.extend(_packing_appendix(report))
         lines.append("")
 
     # Head-to-head wins

@@ -440,3 +440,77 @@ class TestCompressionReporting:
     def test_summary_absent_without_compression(self) -> None:
         report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
         assert "Post-Retrieval Compression" not in format_summary([report])
+
+
+def _packed_result() -> BenchmarkResult:
+    result = _make_result(Strategy.ARCHEX_QUERY_EFFICIENCY_PACKED, tokens=600).model_copy(
+        update={
+            "bundle_tokens_uncompressed": 1000,
+            "bundle_tokens_compressed": 600,
+            "bundle_compression_ratio": 0.6,
+            "token_efficiency_with_completion": 0.74,
+            "token_efficiency_with_compression_and_completion": 0.74,
+            "relevance_per_1k_tokens": 1.8,
+            "packed_relevance_per_1k_tokens": 2.5,
+            "packing_included_regions": 4,
+            "packing_compressed_regions": 1,
+            "packing_elided_regions": 1,
+            "packing_skipped_regions": 2,
+        }
+    )
+    result.provenance = {
+        "budget_tier": "standard",
+        "include_count": "4",
+        "compress_count": "1",
+        "elide_count": "1",
+        "skip_count": "2",
+        "relevance_per_1k_tokens": "2.5000",
+    }
+    return result
+
+
+class TestPackingReporting:
+    def test_appendix_rendered_for_packed_strategy(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _packed_result()])
+        md = format_markdown(report)
+        assert "### Efficiency-Aware Packing" in md
+        assert "archex_query_efficiency_packed" in md
+        assert "2.50" in md  # packed relevance per 1k tokens
+        assert "Include | Compress | Elide | Skip" in md
+
+    def test_appendix_absent_without_packing(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
+        assert "Efficiency-Aware Packing" not in format_markdown(report)
+
+    def test_lane_comparison_compares_normal_compressed_and_packed(self) -> None:
+        report = _make_report(
+            [_make_result(Strategy.ARCHEX_QUERY), _compression_result(), _packed_result()]
+        )
+        summary = format_summary([report])
+        assert "## Packing Lane Comparison" in summary
+        assert "normal packing" in summary
+        assert "compressed packing" in summary
+        assert "efficiency-aware packing" in summary
+        assert "archex_query_efficiency_packed" in summary
+
+    def test_lane_comparison_uses_post_reduction_efficiency(self) -> None:
+        # The compressed lane sets only token_efficiency_with_compression_and_completion;
+        # the comparison must report that (0.720), not its pre-compression
+        # token_efficiency_with_completion (0.0), so the three lanes stay comparable.
+        report = _make_report(
+            [_make_result(Strategy.ARCHEX_QUERY), _compression_result(), _packed_result()]
+        )
+        section = format_summary([report]).split("## Packing Lane Comparison", 1)[1]
+        assert "0.720" in section  # compressed lane, post-compression efficiency
+        assert "0.740" in section  # efficiency-packed lane, post-packing efficiency
+
+    def test_lane_comparison_absent_without_packed_lane(self) -> None:
+        # The efficiency-packed lane is the section's subject; without it the
+        # comparison is omitted so unrelated reports are unaffected.
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _compression_result()])
+        assert "Packing Lane Comparison" not in format_summary([report])
+
+    def test_appendix_rendered_in_strategy_comparison(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _packed_result()])
+        md = format_strategy_comparison([report])
+        assert "### Efficiency-Aware Packing" in md
