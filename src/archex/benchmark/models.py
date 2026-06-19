@@ -489,6 +489,30 @@ class BenchmarkReport(BaseModel):
     p95_latency_ms: float = 0.0
 
 
+class CompressionLayerResult(BaseModel):
+    """Result of applying a compression layer (Headroom-style) to a lane's context.
+
+    A compression layer is not a retrieval engine: ``layer_type`` is fixed to
+    ``compression`` and ``source_lane`` records which retrieval/baseline lane
+    produced the context that was compressed. ``source_passthrough`` records
+    whether the layer protected (passed through) the source/RAG content rather
+    than compressing it. Reuses the bundle compression-token fields so reports
+    can show compression ratio beside the retrieval lanes' token efficiency.
+    """
+
+    task_id: str
+    lane_label: str
+    layer_type: ComparisonLayerType = ComparisonLayerType.COMPRESSION
+    mode: CompressionLayerMode
+    source_lane: str
+    source_passthrough: bool
+    bundle_tokens_uncompressed: int
+    bundle_tokens_compressed: int
+    bundle_compression_ratio: float
+    provenance: dict[str, str] = {}
+    timestamp: str
+
+
 # ---------------------------------------------------------------------------
 # Delta benchmarking models
 # ---------------------------------------------------------------------------
