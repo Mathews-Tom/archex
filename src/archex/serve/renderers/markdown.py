@@ -24,6 +24,18 @@ def render_markdown(bundle: ContextBundle) -> str:
         lines.append("```")
         lines.append("")
 
+    from archex.scout import chunk_handle
+
+    compression_by_handle = (
+        {
+            item.handle: item.compression
+            for item in bundle.receipt.returned_context
+            if item.compression is not None
+        }
+        if bundle.receipt is not None
+        else {}
+    )
+
     # Chunks
     total_tokens = bundle.token_count
     chunk_count = len(bundle.chunks)
@@ -36,6 +48,15 @@ def render_markdown(bundle: ContextBundle) -> str:
             header += f":{chunk.symbol_name}"
         header += f" (score: {rc.final_score:.2f})"
         lines.append(f"### {header}")
+        compression = compression_by_handle.get(chunk_handle(chunk.id))
+        if compression is not None and compression.is_compressed:
+            lines.append(
+                f"> Compressed ({compression.compression_mode.value}, risk "
+                f"{compression.compression_loss_risk.value}): {compression.original_tokens} -> "
+                f"{compression.compressed_tokens} tokens. "
+                f"Fetch original: `{compression.fetch_original_handle}`"
+            )
+            lines.append("")
         lang = chunk.language or ""
         lines.append(f"```{lang}")
         lines.append(chunk.content)
@@ -77,6 +98,11 @@ def render_markdown(bundle: ContextBundle) -> str:
 
 
 def _receipt_lines(receipt: ContextReceipt) -> list[str]:
+    compressed = [
+        item
+        for item in receipt.returned_context
+        if item.compression is not None and item.compression.is_compressed
+    ]
     lines = [
         "## Receipt",
         "",
@@ -93,6 +119,10 @@ def _receipt_lines(receipt: ContextReceipt) -> list[str]:
             f"{receipt.omitted_edges_total} total"
         ),
     ]
+    if compressed:
+        lines.append(
+            f"- Compressed regions: {len(compressed)} of {len(receipt.returned_context)}"
+        )
     if receipt.skipped_candidates:
         lines.extend(["", "### Skipped candidates"])
         for item in receipt.skipped_candidates[:8]:
@@ -110,5 +140,14 @@ def _receipt_lines(receipt: ContextReceipt) -> list[str]:
             lines.append(
                 f"- {edge.source} --{edge.kind.value}--> {edge.target}: "
                 f"{reason}, confidence={edge.confidence_score or 0.0:.3f}"
+            )
+    if compressed:
+        lines.extend(["", "### Compressed regions"])
+        for item in compressed[:8]:
+            meta = item.compression
+            lines.append(
+                f"- {item.file_path} ({meta.compression_mode.value}, risk "
+                f"{meta.compression_loss_risk.value}): {meta.original_tokens} -> "
+                f"{meta.compressed_tokens} tokens, fetch original `{meta.fetch_original_handle}`"
             )
     return lines

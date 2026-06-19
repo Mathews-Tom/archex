@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from archex.models import (
     CodeChunk,
+    CompressionLossRisk,
+    CompressionMetadata,
+    CompressionMode,
     ContextBundle,
     ContextCompletenessReason,
     ContextCompletenessStatus,
@@ -11,6 +14,7 @@ from archex.models import (
     ContextOmittedEdgeReason,
     ContextReceipt,
     ContextReceiptEdge,
+    ContextReceiptItem,
     ContextReceiptTokenBudget,
     ContextRecommendedAction,
     ContextSkippedCandidate,
@@ -22,6 +26,8 @@ from archex.models import (
     SymbolKind,
     TypeDefinition,
 )
+from archex.scout import chunk_handle
+from archex.serve.renderers.json import render_json
 from archex.serve.renderers.markdown import render_markdown
 from archex.serve.renderers.xml import render_xml
 
@@ -255,3 +261,84 @@ def test_xml_no_type_defs_or_deps_tags_when_empty() -> None:
     xml = render_xml(bundle)
     assert "<type-definitions>" not in xml
     assert "<dependencies>" not in xml
+
+
+# ---------------------------------------------------------------------------
+# Compression rendering
+# ---------------------------------------------------------------------------
+
+
+def _compressed_bundle() -> ContextBundle:
+    chunk = CodeChunk(
+        id="c1",
+        content="def f():\n    # ... [archex elided 30 line(s); fetch original: chunk:c1]",
+        file_path="src/app.py",
+        start_line=1,
+        end_line=40,
+        language="python",
+    )
+    handle = chunk_handle("c1")
+    item = ContextReceiptItem(
+        handle=handle,
+        file_path="src/app.py",
+        start_line=1,
+        end_line=40,
+        content_hash="orig",
+        compression=CompressionMetadata(
+            compression_mode=CompressionMode.STRUCTURAL_CODE_ELISION,
+            original_tokens=200,
+            compressed_tokens=60,
+            compression_ratio=0.3,
+            original_content_hash="orig",
+            compressed_content_hash="comp",
+            fetch_original_handle=handle,
+            compression_loss_risk=CompressionLossRisk.LOW,
+        ),
+    )
+    receipt = ContextReceipt(
+        query="q",
+        token_budget=ContextReceiptTokenBudget(requested=500, consumed=100),
+        index_revision="rev",
+        returned_context=[item],
+        returned_total=1,
+    )
+    return ContextBundle(
+        query="q",
+        chunks=[RankedChunk(chunk=chunk, relevance_score=0.4, final_score=0.4)],
+        token_count=60,
+        token_budget=500,
+        receipt=receipt,
+    )
+
+
+def test_markdown_marks_compressed_region_and_fetch_handle() -> None:
+    md = render_markdown(_compressed_bundle())
+    assert "Compressed (structural_code_elision" in md
+    assert "fetch original" in md.lower()
+    assert chunk_handle("c1") in md
+    assert "### Compressed regions" in md
+    assert "Compressed regions: 1 of 1" in md
+
+
+def test_markdown_uncompressed_bundle_has_no_compression_markers() -> None:
+    md = render_markdown(_base_bundle(receipt=_receipt()))
+    assert "Compressed (" not in md
+    assert "### Compressed regions" not in md
+
+
+def test_json_exposes_compression_metadata() -> None:
+    import json
+
+    data = json.loads(render_json(_compressed_bundle()))
+    item = data["receipt"]["returned_context"][0]
+    assert item["compression"]["compression_mode"] == "structural_code_elision"
+    assert item["compression"]["fetch_original_handle"] == chunk_handle("c1")
+    assert item["compression"]["compression_loss_risk"] == "low"
+
+
+def test_json_uncompressed_row_has_null_compression() -> None:
+    import json
+
+    data = json.loads(render_json(_base_bundle(receipt=_receipt())))
+    for item in data["receipt"]["returned_context"]:
+        assert item["compression"] is None
