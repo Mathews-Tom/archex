@@ -132,7 +132,8 @@ def test_checked_in_headtohead_artifacts_validate_and_render() -> None:
     assert "| ccc | retrieval |" in output
     assert "| raw-ripgrep/read | baseline |" in output
     assert "## Aggregate (19 tasks)" in output
-    assert "## By repo / task family" in output
+    assert "## By task family" in output
+    assert "## By repo" in output
 
 
 def test_checked_in_artifacts_have_no_absolute_path_leaks() -> None:
