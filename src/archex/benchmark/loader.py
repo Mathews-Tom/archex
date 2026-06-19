@@ -170,6 +170,29 @@ def validate_task(task: BenchmarkTask, repo_path: Path) -> list[str]:
         if not full.is_file():
             errors.append(f"Expected file not found: {expected}")
 
+    line_counts: dict[str, int] = {}
+    for region in task.expected_regions:
+        full = repo_path / region.path
+        if not full.is_file():
+            errors.append(f"Expected region file not found: {region.path}")
+            continue
+        if region.start_line is None or region.end_line is None:
+            continue
+        line_count = line_counts.get(region.path)
+        if line_count is None:
+            line_count = len(full.read_text(encoding="utf-8", errors="replace").splitlines())
+            line_counts[region.path] = line_count
+        if region.start_line > line_count:
+            errors.append(
+                f"Expected region start_line {region.start_line} exceeds "
+                f"{region.path} length {line_count}"
+            )
+        elif region.end_line > line_count:
+            errors.append(
+                f"Expected region end_line {region.end_line} exceeds "
+                f"{region.path} length {line_count}"
+            )
+
     if not task.expected_files:
         errors.append("No expected_files defined")
 

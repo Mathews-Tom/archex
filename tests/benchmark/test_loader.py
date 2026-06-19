@@ -15,7 +15,12 @@ from archex.benchmark.loader import (
     load_tasks,
     validate_task,
 )
-from archex.benchmark.models import ArchitectureBenchmarkTask, BenchmarkTask, DeltaBenchmarkTask
+from archex.benchmark.models import (
+    ArchitectureBenchmarkTask,
+    BenchmarkTask,
+    DeltaBenchmarkTask,
+    ExpectedRegion,
+)
 
 
 @pytest.fixture
@@ -214,6 +219,133 @@ expected_files:
 """)
 
         with pytest.raises(ValueError, match=r"invalid_include\.yaml.*include_paths"):
+            load_task(p)
+
+
+class TestLoadRegionTask:
+    def test_load_legacy_task_without_regions(self, sample_yaml: Path) -> None:
+        task = load_task(sample_yaml)
+        assert task.expected_regions == []
+
+    def test_load_line_range_region(self, tmp_path: Path) -> None:
+        p = tmp_path / "region_line.yaml"
+        p.write_text("""\
+task_id: region_line
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+expected_regions:
+  - path: src/main.py
+    granularity: line_range
+    start_line: 10
+    end_line: 40
+    notes: "core handler"
+    weight: 2.0
+""")
+
+        task = load_task(p)
+
+        assert len(task.expected_regions) == 1
+        region = task.expected_regions[0]
+        assert region.path == "src/main.py"
+        assert region.start_line == 10
+        assert region.end_line == 40
+        assert region.notes == "core handler"
+        assert region.weight == 2.0
+
+    def test_load_symbol_region(self, tmp_path: Path) -> None:
+        p = tmp_path / "region_symbol.yaml"
+        p.write_text("""\
+task_id: region_symbol
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+expected_regions:
+  - path: src/main.py
+    granularity: symbol
+    symbol: "Cli.run"
+""")
+
+        task = load_task(p)
+
+        assert task.expected_regions[0].symbol == "Cli.run"
+
+    def test_load_rejects_absolute_region_path(self, tmp_path: Path) -> None:
+        p = tmp_path / "region_abs.yaml"
+        p.write_text("""\
+task_id: region_abs
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+expected_regions:
+  - path: /etc/passwd
+    granularity: line_range
+    start_line: 1
+    end_line: 2
+""")
+
+        with pytest.raises(ValueError, match=r"region_abs\.yaml.*expected_regions"):
+            load_task(p)
+
+    def test_load_rejects_inverted_range(self, tmp_path: Path) -> None:
+        p = tmp_path / "region_inverted.yaml"
+        p.write_text("""\
+task_id: region_inverted
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+expected_regions:
+  - path: src/main.py
+    granularity: line_range
+    start_line: 40
+    end_line: 10
+""")
+
+        with pytest.raises(ValueError, match=r"region_inverted\.yaml.*start_line"):
+            load_task(p)
+
+    def test_load_rejects_symbol_region_without_handle(self, tmp_path: Path) -> None:
+        p = tmp_path / "region_no_symbol.yaml"
+        p.write_text("""\
+task_id: region_no_symbol
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+expected_regions:
+  - path: src/main.py
+    granularity: symbol
+""")
+
+        with pytest.raises(ValueError, match=r"region_no_symbol\.yaml.*symbol handle"):
+            load_task(p)
+
+    def test_load_rejects_invalid_granularity(self, tmp_path: Path) -> None:
+        p = tmp_path / "region_bad_gran.yaml"
+        p.write_text("""\
+task_id: region_bad_gran
+repo: owner/repo
+commit: abc
+question: "How?"
+expected_files:
+  - src/main.py
+expected_regions:
+  - path: src/main.py
+    granularity: paragraph
+    start_line: 1
+    end_line: 2
+""")
+
+        with pytest.raises(ValueError, match=r"region_bad_gran\.yaml.*granularity"):
             load_task(p)
 
 
@@ -445,6 +577,78 @@ class TestValidateTask:
         )
         errors = validate_task(task, python_simple_repo)
         assert any("Empty question" in e for e in errors)
+
+    def test_region_within_bounds_passes(self, python_simple_repo: Path) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does main work?",
+            expected_files=["main.py"],
+            expected_regions=[
+                ExpectedRegion(path="main.py", start_line=1, end_line=5),
+            ],
+        )
+        errors = validate_task(task, python_simple_repo)
+        assert errors == []
+
+    def test_region_missing_file(self, python_simple_repo: Path) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How?",
+            expected_files=["main.py"],
+            expected_regions=[
+                ExpectedRegion(path="ghost.py", start_line=1, end_line=2),
+            ],
+        )
+        errors = validate_task(task, python_simple_repo)
+        assert any("Expected region file not found: ghost.py" in e for e in errors)
+
+    def test_region_range_exceeds_file_length(self, python_simple_repo: Path) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How?",
+            expected_files=["main.py"],
+            expected_regions=[
+                ExpectedRegion(path="main.py", start_line=500, end_line=600),
+            ],
+        )
+        errors = validate_task(task, python_simple_repo)
+        assert any("start_line 500 exceeds" in e for e in errors)
+
+    def test_region_end_line_at_file_length_passes(self, python_simple_repo: Path) -> None:
+        line_count = len((python_simple_repo / "main.py").read_text(encoding="utf-8").splitlines())
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How?",
+            expected_files=["main.py"],
+            expected_regions=[
+                ExpectedRegion(path="main.py", start_line=1, end_line=line_count),
+            ],
+        )
+        errors = validate_task(task, python_simple_repo)
+        assert errors == []
+
+    def test_region_end_line_beyond_file_length_fails(self, python_simple_repo: Path) -> None:
+        line_count = len((python_simple_repo / "main.py").read_text(encoding="utf-8").splitlines())
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How?",
+            expected_files=["main.py"],
+            expected_regions=[
+                ExpectedRegion(path="main.py", start_line=1, end_line=line_count + 1),
+            ],
+        )
+        errors = validate_task(task, python_simple_repo)
+        assert any(f"end_line {line_count + 1} exceeds" in e for e in errors)
 
 
 class TestLoadDeltaTask:
