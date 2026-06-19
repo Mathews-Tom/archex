@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from archex.models import CompressionLossRisk, CompressionMode
 from archex.reporting import count_tokens
-from archex.serve.compression import compress_region
+from archex.serve.compression import _slim_comments_whitespace, compress_region
 
 _HANDLE = "chunk:abc123def456"
 
@@ -181,3 +181,42 @@ def test_protect_code_leaves_clean_code_uncompressed() -> None:
         protect_code=True,
     )
     assert result is None
+
+
+def _shell_region() -> str:
+    body = "\n".join(f"VAR_{i}=value_{i}" for i in range(30))
+    return f"#!/bin/bash\nset -e\n{body}\necho done"
+
+
+def test_non_python_code_language_is_not_literal_compressed() -> None:
+    # Shell is a source language, not data: assignment-heavy shell must route to
+    # code elision, never large-literal summarization.
+    result = compress_region(
+        _shell_region(), language="bash", fetch_original_handle=_HANDLE, required=False
+    )
+    assert result is not None
+    assert result.mode != CompressionMode.LARGE_LITERAL_SUMMARIZATION
+    assert result.mode != CompressionMode.JSON_LOG_SMART_CRUSHING
+
+
+def test_protect_code_holds_for_non_python_code_language() -> None:
+    # protect_code must guard every source language, not just the curated set.
+    assert (
+        compress_region(
+            _shell_region(),
+            language="bash",
+            fetch_original_handle=_HANDLE,
+            required=False,
+            protect_code=True,
+        )
+        is None
+    )
+
+
+def test_slimming_preserves_block_comment_delimiters() -> None:
+    region = "/*\n * note kept\n */\n\n\nint x = 1;"
+    slimmed = _slim_comments_whitespace(region)
+    assert slimmed is not None  # repeated blank lines collapsed
+    assert "/*" in slimmed
+    assert "*/" in slimmed
+    assert "* note kept" in slimmed

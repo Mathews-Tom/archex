@@ -40,30 +40,8 @@ _MARKER_TOKEN = "[archex"
 _HASH_COMMENT_LANGUAGES = frozenset(
     {"python", "ruby", "shell", "bash", "sh", "yaml", "yml", "toml", "r", "perl"}
 )
-_CODE_LANGUAGES = frozenset(
-    {
-        "python",
-        "javascript",
-        "typescript",
-        "tsx",
-        "jsx",
-        "go",
-        "rust",
-        "java",
-        "kotlin",
-        "swift",
-        "c",
-        "cpp",
-        "c++",
-        "csharp",
-        "cs",
-        "ruby",
-        "php",
-        "scala",
-    }
-)
 _DATA_LANGUAGES = frozenset(
-    {"json", "jsonl", "ndjson", "yaml", "yml", "toml", "log", "text", "txt", "csv", "tsv", ""}
+    {"json", "jsonl", "ndjson", "yaml", "yml", "toml", "log", "text", "txt", "csv", "tsv"}
 )
 
 _IMPORT_PREFIXES = (
@@ -106,6 +84,9 @@ _DECL_PREFIXES = (
 _COMMENT_PREFIXES = ("#", "//", "/*", "*")
 _BLOCK_OPENERS = (":", "{", "(", "[")
 _BLOCK_CLOSERS = ("}", ")", "]", "};", "});", "),")
+# Block-comment delimiters that look like decoration but must not be dropped, to
+# avoid leaving orphaned ``* text`` interior lines without their open/close.
+_BLOCK_COMMENT_DELIMITERS = frozenset({"/*", "*/", "/**", "**/"})
 
 # A comment line made only of separator/decoration characters (banner rules).
 _DECORATION_COMMENT_RE = re.compile(r"^[#/*\-=_~. ]+$")
@@ -168,10 +149,14 @@ def _is_comment(stripped: str) -> bool:
 
 def _looks_like_code(language: str | None, content: str) -> bool:
     lang = (language or "").lower()
-    if lang in _CODE_LANGUAGES:
-        return True
     if lang in _DATA_LANGUAGES:
         return False
+    if lang:
+        # Any known, non-empty language that is not a data format is treated as
+        # code so compression fails safe toward code protection: literal/JSON-log
+        # modes never fire on code, and protect_code stays effective for
+        # shell/sql/lua and any other source language.
+        return True
     return bool(_CODE_SIGNAL_RE.search(content))
 
 
@@ -251,7 +236,12 @@ def _slim_comments_whitespace(content: str) -> str | None:
     for line in lines:
         trimmed = line.rstrip()
         stripped = trimmed.strip()
-        if stripped and _is_comment(stripped) and _DECORATION_COMMENT_RE.match(stripped):
+        if (
+            stripped
+            and _is_comment(stripped)
+            and stripped not in _BLOCK_COMMENT_DELIMITERS
+            and _DECORATION_COMMENT_RE.match(stripped)
+        ):
             continue  # banner / separator comment with no information
         if not stripped:
             if previous_blank:
