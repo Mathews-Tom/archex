@@ -343,3 +343,57 @@ class TestRegionQualityReporting:
         assert data["results"][0]["region_recall"] == 0.5
         assert data["results"][0]["context_noise_ratio"] == 0.25
         assert data["results"][0]["useful_tokens"] == 75
+
+
+def _task_aware_result() -> BenchmarkResult:
+    result = _make_result(Strategy.ARCHEX_QUERY_TASK_AWARE, tokens=600)
+    result.provenance = {
+        "modality": "pl_to_pl",
+        "budget_tier": "standard",
+        "routing_decision": "bm25_only",
+        "dense_expansion": "skipped:confident_sparse",
+        "fusion_used": "false",
+        "policy_candidate_cap": "40",
+        "policy_dense_candidate_cap": "20",
+        "policy_skipped_steps": "cross_encoder_rerank",
+    }
+    return result
+
+
+class TestTaskAwarePolicyAppendix:
+    def test_appendix_rendered_for_task_aware(self) -> None:
+        md = format_markdown(_make_report([_task_aware_result()]))
+        assert "### Task-aware policy" in md
+        # Every populated column is rendered in the appendix section.
+        appendix = md.split("### Task-aware policy", 1)[1]
+        cells = ("pl_to_pl", "standard", "bm25_only", "40", "20", "false", "cross_encoder_rerank")
+        for cell in cells:
+            assert cell in appendix
+
+    def test_appendix_uses_unknown_for_missing_keys(self) -> None:
+        result = _make_result(Strategy.ARCHEX_QUERY_TASK_AWARE)
+        result.provenance = {"modality": "nl_to_pl"}  # routing/caps/skipped absent
+        md = format_markdown(_make_report([result]))
+        appendix = md.split("### Task-aware policy", 1)[1]
+        assert "nl_to_pl" in appendix
+        # routing_decision / caps / skipped_steps fall back to "unknown".
+        assert "unknown" in appendix
+
+    def test_appendix_omitted_for_empty_provenance(self) -> None:
+        result = _make_result(Strategy.ARCHEX_QUERY_TASK_AWARE)
+        # Default provenance is empty; the appendix has nothing to show.
+        md = format_markdown(_make_report([result]))
+        assert "### Task-aware policy" not in md
+
+    def test_appendix_absent_without_task_aware(self) -> None:
+        md = format_markdown(_make_report([_make_result(Strategy.ARCHEX_QUERY)]))
+        assert "### Task-aware policy" not in md
+
+    def test_strategy_comparison_compares_lane_against_archex_query(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _task_aware_result()])
+        md = format_strategy_comparison([report])
+        # The lane appears alongside archex_query in the comparison table and
+        # carries its compact policy appendix.
+        assert Strategy.ARCHEX_QUERY.value in md
+        assert Strategy.ARCHEX_QUERY_TASK_AWARE.value in md
+        assert "### Task-aware policy" in md
