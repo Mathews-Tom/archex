@@ -17,7 +17,7 @@ from archex.benchmark.arch_quality import (
 )
 from archex.benchmark.baseline import compare_baseline, load_baseline, save_baseline
 from archex.benchmark.bundle_eval import BundleOnlyEvaluatorError, run_bundle_only_eval_all
-from archex.benchmark.competitive import format_competitive_markdown
+from archex.benchmark.competitive import format_competitive_markdown, load_compression_results
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.gate import (
     DeltaQualityThresholds,
@@ -30,6 +30,7 @@ from archex.benchmark.gate import (
     non_token_quality_warnings,
     token_efficiency_violations,
 )
+from archex.benchmark.headroom import HeadroomAdapterError
 from archex.benchmark.headtohead import (
     HeadToHeadManifestError,
     format_headtohead_markdown,
@@ -1058,8 +1059,11 @@ def headtohead_competitive_cmd(input_dir: str, output_format: str) -> None:
     if not reports:
         raise click.ClickException(f"No result files found in {input_dir}")
     try:
-        click.echo(format_competitive_markdown(manifest, reports))
-    except HeadToHeadManifestError as exc:
+        compression_results = load_compression_results(
+            manifest, [report.task_id for report in reports]
+        )
+        click.echo(format_competitive_markdown(manifest, reports, compression_results))
+    except (HeadToHeadManifestError, HeadroomAdapterError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 

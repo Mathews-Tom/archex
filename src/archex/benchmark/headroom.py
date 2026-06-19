@@ -143,24 +143,9 @@ def apply_headroom_layer_local(
     )
 
 
-def load_headroom_artifact(
-    config: CompressionLayerConfig,
-    mode: CompressionLayerMode,
-    *,
-    task_id: str,
-    artifact_dir: Path,
-) -> CompressionLayerResult:
-    """Import an operator-produced compression artifact for one task/mode.
-
-    The artifact's ``headroom_version`` must match the manifest-pinned version so
-    imported numbers carry pinned provenance. Records the artifact path and its
-    SHA-256 so the source of every imported number is traceable.
-    """
-    artifact_path = artifact_dir / f"{task_id}.json"
-    if not artifact_path.is_file():
-        raise HeadroomAdapterError(
-            f"compression layer {config.name!r} artifact not found: {artifact_path}"
-        )
+def _parse_artifact(
+    config: CompressionLayerConfig, artifact_path: Path
+) -> tuple[HeadroomArtifact, str]:
     raw = artifact_path.read_bytes()
     try:
         artifact = HeadroomArtifact.model_validate_json(raw)
@@ -168,21 +153,23 @@ def load_headroom_artifact(
         raise HeadroomAdapterError(
             f"compression layer {config.name!r} artifact {artifact_path} is invalid: {exc}"
         ) from exc
-
     if artifact.headroom_version != config.version:
         raise HeadroomAdapterError(
             f"compression layer {config.name!r} artifact {artifact_path} version "
             f"{artifact.headroom_version!r} does not match pinned version {config.version!r}"
         )
-    if mode not in artifact.modes:
-        raise HeadroomAdapterError(
-            f"compression layer {config.name!r} artifact {artifact_path} is missing mode "
-            f"{mode.value!r}"
-        )
+    return artifact, hashlib.sha256(raw).hexdigest()
 
-    entry = artifact.modes[mode]
-    digest = hashlib.sha256(raw).hexdigest()
-    settings = _render_settings(entry.compression_settings)
+
+def _result_from_entry(
+    config: CompressionLayerConfig,
+    mode: CompressionLayerMode,
+    entry: HeadroomArtifactMode,
+    *,
+    task_id: str,
+    artifact_path: Path,
+    digest: str,
+) -> CompressionLayerResult:
     return CompressionLayerResult(
         task_id=task_id,
         lane_label=mode.value,
@@ -201,13 +188,84 @@ def load_headroom_artifact(
             "command": entry.command,
             "mode": mode.value,
             "source_lane": entry.source_lane,
-            "compression_settings": settings,
+            "compression_settings": _render_settings(entry.compression_settings),
             "run_mode": "artifact",
             "artifact_path": str(artifact_path),
             "artifact_sha256": digest,
         },
         timestamp=_now_iso(),
     )
+
+
+def load_headroom_artifact(
+    config: CompressionLayerConfig,
+    mode: CompressionLayerMode,
+    *,
+    task_id: str,
+    artifact_dir: Path,
+) -> CompressionLayerResult:
+    """Import an operator-produced compression artifact for one task/mode.
+
+    The artifact's ``headroom_version`` must match the manifest-pinned version so
+    imported numbers carry pinned provenance. Records the artifact path and its
+    SHA-256 so the source of every imported number is traceable.
+    """
+    artifact_path = artifact_dir / f"{task_id}.json"
+    if not artifact_path.is_file():
+        raise HeadroomAdapterError(
+            f"compression layer {config.name!r} artifact not found: {artifact_path}"
+        )
+    artifact, digest = _parse_artifact(config, artifact_path)
+    if mode not in artifact.modes:
+        raise HeadroomAdapterError(
+            f"compression layer {config.name!r} artifact {artifact_path} is missing mode "
+            f"{mode.value!r}"
+        )
+    return _result_from_entry(
+        config,
+        mode,
+        artifact.modes[mode],
+        task_id=task_id,
+        artifact_path=artifact_path,
+        digest=digest,
+    )
+
+
+def load_headroom_results(
+    config: CompressionLayerConfig, task_ids: list[str]
+) -> list[CompressionLayerResult]:
+    """Import every available compression result for ``task_ids`` (tolerant batch).
+
+    Requires artifact mode (``config.artifact_dir`` set). Tasks with no artifact
+    file are skipped; for present files every mode the artifact declares that is
+    also enabled on the layer is imported. Corrupt or version-mismatched artifacts
+    still raise so a bad import is never silently dropped.
+    """
+    if config.artifact_dir is None:
+        raise HeadroomAdapterError(
+            f"compression layer {config.name!r} requires artifact_dir for batch import"
+        )
+    artifact_dir = Path(config.artifact_dir)
+    enabled = set(config.modes)
+    results: list[CompressionLayerResult] = []
+    for task_id in task_ids:
+        artifact_path = artifact_dir / f"{task_id}.json"
+        if not artifact_path.is_file():
+            continue
+        artifact, digest = _parse_artifact(config, artifact_path)
+        for mode, entry in artifact.modes.items():
+            if mode in enabled:
+                results.append(
+                    _result_from_entry(
+                        config,
+                        mode,
+                        entry,
+                        task_id=task_id,
+                        artifact_path=artifact_path,
+                        digest=digest,
+                    )
+                )
+    return results
 
 
 def run_compression_layer(

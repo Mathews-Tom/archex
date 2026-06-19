@@ -9,6 +9,7 @@ contribute a compression ratio and are explicitly marked ``compression``.
 
 from __future__ import annotations
 
+from archex.benchmark.headroom import load_headroom_results
 from archex.benchmark.headtohead import (
     HeadToHeadManifestError,
     comparison_lane_layers,
@@ -23,6 +24,22 @@ from archex.benchmark.models import (
     HeadToHeadManifest,
     Strategy,
 )
+
+
+def load_compression_results(
+    manifest: HeadToHeadManifest, task_ids: list[str]
+) -> list[CompressionLayerResult]:
+    """Import compression-layer results for every artifact-backed layer in the manifest.
+
+    Layers without an ``artifact_dir`` are skipped: local compression cannot be
+    replayed from stored retrieval results. Returns the combined results.
+    """
+    results: list[CompressionLayerResult] = []
+    for layer in manifest.compression_layers:
+        if layer.artifact_dir is not None:
+            results.extend(load_headroom_results(layer, task_ids))
+    return results
+
 
 _METRIC_HEADER = (
     "| Lane | Layer | Recall | Required-file recall | Region recall | Line recall | "
