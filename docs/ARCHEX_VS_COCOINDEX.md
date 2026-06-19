@@ -67,7 +67,7 @@ Compression lanes contribute a compression ratio only; retrieval-quality columns
 - raw-ripgrep/read baseline.
 - Headroom compression lanes (`headroom_only_on_raw_context`, `archex_plus_headroom`) — a compression layer, not a retrieval engine, applied locally where reproducible or imported as version-pinned operator artifacts.
 
-Reported dimensions: cold-start, warm p50/p95 latency, recall, required-file recall, region/line recall where labeled, context precision/noise ratio, token efficiency after completion, compression ratio, receipt accuracy, freshness, plus an operational table (local/offline posture, setup steps, embedder). Every numeric value in a published comparison comes from checked-in artifacts under `benchmarks/headtohead/results/`. The current checked-in set covers the `archex`, `ccc`, and raw-ripgrep/read lanes (the C1 cells above); improved-archex-candidate and Headroom-layer cells appear only when an operator supplies the corresponding artifacts.
+Reported dimensions: cold-start, warm p50/p95 latency, recall, required-file recall, region/line recall where labeled, context precision/noise ratio, token efficiency after completion, compression ratio, receipt accuracy, freshness, plus an operational table (local/offline posture, setup steps, embedder). Every numeric value in a published comparison comes from checked-in artifacts under `benchmarks/headtohead/results/`. The current checked-in public set includes `archex`, the benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`), `ccc`, and raw-ripgrep/read. Headroom-layer cells appear only when an operator supplies the corresponding artifacts.
 
 ## Practical choice
 

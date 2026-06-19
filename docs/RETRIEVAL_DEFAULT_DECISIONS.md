@@ -74,7 +74,7 @@ The manifest tags each lane's `layer_type` (`retrieval`/`compression`/`baseline`
 
 Disposition: the improved archex candidate lanes remain **benchmark-only candidates**, not shipped defaults — per the disposition notes above, `archex_query_task_aware` tied `archex_query` on file recall and F1, and the compression/packing lanes produced only modest token reduction with the safety invariants intact, so none cleared the default-switch gate. The shipped default is still `archex_query`.
 
-No new competitive numbers are claimed here. Every value in a published competitive report must come from checked-in artifacts under `benchmarks/headtohead/results/`; the current checked-in set covers the `archex`, `ccc`, and raw-ripgrep/read lanes (the accepted C1 cells in `docs/ARCHEX_VS_COCOINDEX.md`). Improved-archex-candidate and Headroom-layer cells appear only when an operator supplies the corresponding artifacts.
+No new competitive numbers are claimed here. Every value in a published competitive report must come from checked-in artifacts under `benchmarks/headtohead/results/`; the current checked-in public set includes `archex`, the benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`), `ccc`, and raw-ripgrep/read. Headroom-layer cells appear only when an operator supplies the corresponding artifacts.
 
 ## Decision rationale
 

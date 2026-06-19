@@ -26,7 +26,7 @@ The competitive report is a richer view of the same artifacts, grouped by repo/t
 uv run archex benchmark headtohead competitive --input benchmarks/headtohead/results --format markdown
 ```
 
-It models lanes by `layer_type` (`retrieval`/`compression`/`baseline`) so a compression layer is never presented as a retrieval engine. Beyond the C1 lanes it can include benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`) declared under `archex.candidate_strategies`, and Headroom-style compression lanes declared under `compression_layers`. Improved-archex-candidate and Headroom cells appear only when the corresponding artifacts are present.
+It models lanes by `layer_type` (`retrieval`/`compression`/`baseline`) so a compression layer is never presented as a retrieval engine. The checked-in public artifact set now includes the benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`) declared under `archex.candidate_strategies`. Headroom-style compression lanes are declared under `compression_layers` and appear in the public report when operator artifacts are present.
 
 ## Headroom is a compression layer, not a retrieval engine
 
