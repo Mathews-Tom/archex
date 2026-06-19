@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from archex.models import CompressionLossRisk, CompressionMode
 from archex.reporting import count_tokens
-from archex.serve.compression import _slim_comments_whitespace, compress_region
+from archex.serve.compression import (
+    _slim_comments_whitespace,  # pyright: ignore[reportPrivateUsage]
+    compress_region,
+)
 
 _HANDLE = "chunk:abc123def456"
 
