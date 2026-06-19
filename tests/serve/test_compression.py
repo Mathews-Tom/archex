@@ -55,9 +55,7 @@ def test_structural_code_elision_keeps_signatures_and_marks_handle() -> None:
 
 def test_large_literal_summary_keeps_first_last_and_count() -> None:
     region = _literal_region(items=30)
-    result = compress_region(
-        region, language="text", fetch_original_handle=_HANDLE, required=False
-    )
+    result = compress_region(region, language="text", fetch_original_handle=_HANDLE, required=False)
     assert result is not None
     assert result.mode == CompressionMode.LARGE_LITERAL_SUMMARIZATION
     assert result.loss_risk == CompressionLossRisk.MEDIUM
@@ -70,9 +68,7 @@ def test_large_literal_summary_keeps_first_last_and_count() -> None:
 
 def test_json_log_crushing_preserves_anomaly_lines() -> None:
     region = _log_region()
-    result = compress_region(
-        region, language="log", fetch_original_handle=_HANDLE, required=False
-    )
+    result = compress_region(region, language="log", fetch_original_handle=_HANDLE, required=False)
     assert result is not None
     assert result.mode == CompressionMode.JSON_LOG_SMART_CRUSHING
     # The error line must survive even though it sits in the omitted middle band.
@@ -85,9 +81,7 @@ def test_json_log_crushing_preserves_anomaly_lines() -> None:
 def test_json_object_routes_to_json_log_crushing() -> None:
     rows = "\n".join(f'  "key_{i}": {i},' for i in range(30))
     region = "{\n" + rows + "\n}"
-    result = compress_region(
-        region, language="json", fetch_original_handle=_HANDLE, required=False
-    )
+    result = compress_region(region, language="json", fetch_original_handle=_HANDLE, required=False)
     assert result is not None
     assert result.mode == CompressionMode.JSON_LOG_SMART_CRUSHING
 
@@ -103,9 +97,7 @@ def test_comment_and_whitespace_slimming_drops_banners() -> None:
         "# -------------------------\n"
         "value_c = 3\n"
     )
-    result = compress_region(
-        region, language="text", fetch_original_handle=_HANDLE, required=False
-    )
+    result = compress_region(region, language="text", fetch_original_handle=_HANDLE, required=False)
     assert result is not None
     assert result.mode == CompressionMode.COMMENT_AND_WHITESPACE_SLIMMING
     assert result.loss_risk == CompressionLossRisk.LOW
@@ -121,9 +113,7 @@ def test_compression_larger_than_original_falls_back_to_none() -> None:
     # than it saves, and nothing else applies, so the region stays uncompressed.
     region = "x = 1\ny = 2"
     assert (
-        compress_region(
-            region, language="python", fetch_original_handle=_HANDLE, required=False
-        )
+        compress_region(region, language="python", fetch_original_handle=_HANDLE, required=False)
         is None
     )
 

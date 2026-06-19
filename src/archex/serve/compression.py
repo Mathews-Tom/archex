@@ -267,9 +267,7 @@ def _summarize_large_literal(content: str, *, handle: str) -> str | None:
     if _looks_like_json(content) or _looks_like_log(lines):
         return None
     item_like = sum(
-        1
-        for line in lines
-        if line.rstrip().endswith((",", "[", "{")) or _KEYVAL_RE.match(line)
+        1 for line in lines if line.rstrip().endswith((",", "[", "{")) or _KEYVAL_RE.match(line)
     )
     if item_like < len(lines) * _LITERAL_ITEM_FRACTION:
         return None
