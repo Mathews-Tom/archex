@@ -22,6 +22,14 @@ from archex.benchmark.bounded_rerank import (
     query_signals,
     symbolic_scores,
 )
+from archex.benchmark.graph_multihop import (
+    ExpansionAction,
+    ExpansionDecision,
+    GraphEdge,
+    MultihopCaps,
+    MultihopResult,
+    graph_multihop_expand,
+)
 from archex.benchmark.models import (
     BenchmarkResult,
     BenchmarkRetrievalOptions,
@@ -46,7 +54,13 @@ from archex.models import (
     CompressionMode,
     ContextBundle,
     ContextCompletenessStatus,
+    ContextOmittedEdgeReason,
+    ContextReceiptEdge,
     ContextReceiptItem,
+    ContextSkippedCandidate,
+    ContextSkippedReason,
+    EdgeConfidence,
+    EdgeKind,
     IndexConfig,
     PipelineTiming,
     RankedChunk,
@@ -63,6 +77,7 @@ from archex.serve.packing import (
 
 if TYPE_CHECKING:
     from archex.index.rerank import CrossEncoderReranker
+    from archex.index.store import IndexStore
 
 logger = logging.getLogger(__name__)
 
@@ -2309,6 +2324,240 @@ def run_archex_query_summary_sidecar(task: BenchmarkTask, repo_path: Path) -> Be
     return result
 
 
+_MULTIHOP_HOP_CAP = 2
+_MULTIHOP_FRONTIER_CAP = 8
+_MULTIHOP_CONFIDENCE_THRESHOLD = 0.5
+# Fraction of the token budget retrieved as seeds; the remainder funds expansion.
+_MULTIHOP_SEED_BUDGET_FRACTION = 0.5
+
+
+def _file_token_map(store: IndexStore) -> dict[str, int]:
+    """Total token count per file across the indexed chunk set."""
+    totals: dict[str, int] = {}
+    for chunk in store.get_chunks():
+        totals[chunk.file_path] = totals.get(chunk.file_path, 0) + (
+            chunk.token_count or count_tokens(chunk.content)
+        )
+    return totals
+
+
+def _expansion_edge(
+    decision: ExpansionDecision, *, reason: ContextOmittedEdgeReason | None = None
+) -> ContextReceiptEdge:
+    return ContextReceiptEdge(
+        source=decision.via,
+        target=decision.file,
+        kind=EdgeKind.IMPORTS,
+        confidence=EdgeConfidence.EXTRACTED,
+        confidence_score=decision.confidence,
+        evidence=[
+            f"graph multihop hop {decision.hop} via {decision.via} "
+            f"(confidence {decision.confidence:.2f})"
+        ],
+        reason=reason,
+    )
+
+
+def _expansion_skip(
+    decision: ExpansionDecision, reason: ContextSkippedReason
+) -> ContextSkippedCandidate:
+    return ContextSkippedCandidate(
+        file_path=decision.file,
+        reason=reason,
+        score=decision.confidence,
+        detail=f"graph multihop hop {decision.hop} via {decision.via}",
+    )
+
+
+def _apply_multihop_expansion(
+    bundle: ContextBundle,
+    store: IndexStore,
+    *,
+    seed_files: list[str],
+    expansion: MultihopResult,
+) -> ContextBundle:
+    """Append expanded files' original chunks and record the expansion in receipts.
+
+    Expanded files contribute their original code (the edit evidence); every
+    expansion decision becomes a receipt edge (included) or a cut (omitted edge /
+    skipped candidate), and the seed/expansion diagnostics are set to the expanded
+    bundle so they describe what the lane actually returned.
+    """
+    from archex.receipt import chunk_content_hash
+    from archex.scout import chunk_handle
+
+    confidence_by_file = {d.file: d.confidence for d in expansion.expanded_decisions()}
+    chunks_by_file: dict[str, list[CodeChunk]] = {}
+    for chunk in store.get_chunks_for_files(expansion.added_files):
+        chunks_by_file.setdefault(chunk.file_path, []).append(chunk)
+
+    expanded_ranked: list[RankedChunk] = []
+    new_items: list[ContextReceiptItem] = []
+    added_tokens = 0
+    for file in expansion.added_files:
+        confidence = confidence_by_file.get(file, 0.0)
+        for chunk in sorted(chunks_by_file.get(file, []), key=lambda c: c.start_line):
+            expanded_ranked.append(RankedChunk(chunk=chunk, final_score=confidence))
+            added_tokens += chunk.token_count or count_tokens(chunk.content)
+            new_items.append(
+                ContextReceiptItem(
+                    handle=chunk_handle(chunk.id),
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    content_hash=chunk_content_hash(chunk),
+                    reason_codes=["graph_multihop_expansion"],
+                )
+            )
+
+    new_chunks = list(bundle.chunks) + expanded_ranked
+    receipt = bundle.receipt
+    if receipt is not None:
+        included = list(receipt.included_edges)
+        omitted = list(receipt.omitted_edges)
+        skipped = list(receipt.skipped_candidates)
+        for decision in expansion.decisions:
+            if decision.action is ExpansionAction.EXPANDED:
+                included.append(_expansion_edge(decision))
+            elif decision.action is ExpansionAction.SUPPRESSED_LOW_CONFIDENCE:
+                omitted.append(
+                    _expansion_edge(decision, reason=ContextOmittedEdgeReason.BELOW_THRESHOLD)
+                )
+                skipped.append(_expansion_skip(decision, ContextSkippedReason.BELOW_THRESHOLD))
+            elif decision.action is ExpansionAction.CUT_FRONTIER:
+                skipped.append(
+                    _expansion_skip(decision, ContextSkippedReason.DEPENDENCY_FRONTIER_CUT)
+                )
+            elif decision.action is ExpansionAction.CUT_BUDGET:
+                omitted.append(
+                    _expansion_edge(decision, reason=ContextOmittedEdgeReason.OVER_BUDGET)
+                )
+                skipped.append(_expansion_skip(decision, ContextSkippedReason.OVER_BUDGET))
+        returned = list(receipt.returned_context) + new_items
+        receipt = receipt.model_copy(
+            update={
+                "returned_context": returned,
+                "returned_total": len(returned),
+                "included_edges": included,
+                "included_edges_total": len(included),
+                "omitted_edges": omitted,
+                "omitted_edges_total": len(omitted),
+                "skipped_candidates": skipped,
+                "skipped_total": len(skipped),
+            }
+        )
+
+    metadata = bundle.retrieval_metadata.model_copy(
+        update={
+            "seed_file_paths": list(seed_files),
+            "expanded_file_paths": list(expansion.added_files),
+            "seed_files_found": len(seed_files),
+            "expansion_files_added": len(expansion.added_files),
+            "expansion_candidates_found": len(expansion.decisions),
+            "expansion_import_neighbor_edges": expansion.action_count(ExpansionAction.EXPANDED),
+        }
+    )
+    return bundle.model_copy(
+        update={
+            "chunks": new_chunks,
+            "token_count": bundle.token_count + added_tokens,
+            "receipt": receipt,
+            "retrieval_metadata": metadata,
+        }
+    )
+
+
+def run_archex_query_graph_multihop(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: bounded multi-hop dependency-graph expansion.
+
+    Retrieves seeds with a reduced budget, then expands the file dependency graph
+    outward from those seeds under hard caps — an edge-confidence threshold, a
+    per-hop frontier cap, a hop cap, and a token budget — so dependency expansion
+    cannot flood the bundle. Expanded files contribute their original code; every
+    expansion decision and cut is recorded in the receipt (included/omitted edges,
+    skipped candidates) and in provenance. The product default is unchanged.
+    """
+    from archex.api import index_repository
+    from archex.index.graph import DependencyGraph
+    from archex.models import Config
+
+    strategy = Strategy.ARCHEX_QUERY_GRAPH_MULTIHOP
+    t0 = time.perf_counter()
+    seed_budget = max(1, int(task.token_budget * _MULTIHOP_SEED_BUDGET_FRACTION))
+    seed_task = task.model_copy(update={"token_budget": seed_budget})
+    bundle, effective_config, timing = _query_bundle(
+        seed_task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=True,
+    )
+    seed_files = _deduplicate_ranked([ranked.chunk.file_path for ranked in bundle.chunks])
+    expansion_budget = max(0, task.token_budget - bundle.token_count)
+
+    source = benchmark_repo_source(seed_task, repo_path, strategy=strategy)
+    store = index_repository(
+        source, config=Config(cache=True, languages=task.languages), index_config=effective_config
+    )
+    try:
+        graph = DependencyGraph.from_edges(store.get_edges())
+        edges = [
+            GraphEdge(edge.source, edge.target, edge.confidence_score)
+            for edge in graph.file_edges()
+        ]
+        file_tokens = _file_token_map(store)
+        caps = MultihopCaps(
+            hop_cap=_MULTIHOP_HOP_CAP,
+            frontier_cap=_MULTIHOP_FRONTIER_CAP,
+            confidence_threshold=_MULTIHOP_CONFIDENCE_THRESHOLD,
+            token_budget=expansion_budget,
+        )
+        expansion = graph_multihop_expand(edges, seed_files, file_tokens, caps)
+        expanded_bundle = _apply_multihop_expansion(
+            bundle, store, seed_files=seed_files, expansion=expansion
+        )
+    finally:
+        store.close()
+
+    wall_ms = (time.perf_counter() - t0) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=expanded_bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = {
+        "hop_cap": str(_MULTIHOP_HOP_CAP),
+        "frontier_cap": str(_MULTIHOP_FRONTIER_CAP),
+        "confidence_threshold": f"{_MULTIHOP_CONFIDENCE_THRESHOLD:.2f}",
+        "expansion_token_budget": str(expansion_budget),
+        "seed_file_count": str(len(seed_files)),
+        "hops_run": str(expansion.hops_run),
+        "files_expanded": str(len(expansion.added_files)),
+        "suppressed_low_confidence": str(
+            expansion.action_count(ExpansionAction.SUPPRESSED_LOW_CONFIDENCE)
+        ),
+        "frontier_cuts": str(expansion.action_count(ExpansionAction.CUT_FRONTIER)),
+        "budget_cuts": str(expansion.action_count(ExpansionAction.CUT_BUDGET)),
+        "expanded_files": ", ".join(expansion.added_files) or "none",
+    }
+    logger.info(
+        "Strategy %s for %s: seeds=%d expanded=%d hops=%d wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        len(seed_files),
+        len(expansion.added_files),
+        expansion.hops_run,
+        wall_ms,
+    )
+    return result
+
+
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
     from archex.api import query, scout_with_bundle
@@ -2925,5 +3174,8 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_SUMMARY_SIDECAR.value, run_archex_query_summary_sidecar
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_GRAPH_MULTIHOP.value, run_archex_query_graph_multihop
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)
