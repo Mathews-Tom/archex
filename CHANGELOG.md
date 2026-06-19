@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.13.2] - 2026-06-19
+
+### Fixed
+
+- **Missing scipy dependency:** `scipy` was absent from `[project.dependencies]` (declared only in the dev group), causing `ModuleNotFoundError: No module named 'scipy'` when `archex query` ran on a plain `archex[mcp]` install. networkx ≥ 3.3 routes `nx.pagerank()` — used by `DependencyGraph.structural_centrality` on the core query path — through `_pagerank_scipy`, which does a bare `import numpy` then `import scipy` at call time. v0.12.1 promoted `numpy` but missed `scipy` on the very next line of the same function, and CI installs `--all-extras` (which always pulls scipy transitively), so the gap stayed invisible. Promoted `scipy>=1.11.2` to a declared core dependency and removed the redundant dev entry. Added a minimal-install CI smoke job that installs only core dependencies and runs `archex index`/`archex query` end-to-end so missing runtime dependencies fail CI. Fixes #266.
+
 ## [0.13.1] - 2026-06-18
 
 ### Fixed

@@ -1,6 +1,6 @@
 [project]
 name = "archex"
-version = "0.13.1"
+version = "0.13.2"
 description = "Architecture extraction & codebase intelligence for the agentic era"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -31,6 +31,7 @@ dependencies = [
     "pydantic>=2.7",
     "networkx>=3.3",
     "numpy>=1.24",
+    "scipy>=1.11.2",
     "click>=8.1",
     "pyyaml>=6.0",
     "rich==14.3.3",
@@ -130,5 +131,4 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.5",
-    "scipy>=1.17.1",
 ]
