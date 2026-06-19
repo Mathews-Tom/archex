@@ -23,6 +23,10 @@ from archex.benchmark.models import (
     Strategy,
     TaskCompletionResult,
 )
+from archex.benchmark.region_metrics import (
+    ReturnedRegion,
+    compute_region_metrics,
+)
 from archex.cache import CacheManager
 from archex.exceptions import ArchexError, ConfigError
 from archex.models import (
@@ -1017,6 +1021,29 @@ def measure_archex_freshness(task: BenchmarkTask, repo_path: Path) -> tuple[floa
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def _bundle_returned_regions(bundle: ContextBundle) -> list[ReturnedRegion]:
+    """Build ranked returned regions from a context bundle, preserving order."""
+    return [
+        ReturnedRegion(
+            path=ranked.chunk.file_path,
+            start_line=ranked.chunk.start_line,
+            end_line=ranked.chunk.end_line,
+            symbol=ranked.chunk.symbol_name,
+            tokens=count_tokens(ranked.chunk.content),
+        )
+        for ranked in bundle.chunks
+    ]
+
+
+def _region_result_fields(
+    bundle: ContextBundle,
+    task: BenchmarkTask,
+) -> dict[str, float | int | None]:
+    """Region/line/ranking/context-efficiency result fields, empty without labels."""
+    metrics = compute_region_metrics(_bundle_returned_regions(bundle), task.expected_regions)
+    return metrics.as_result_fields() if metrics is not None else {}
+
+
 def _run_query_strategy(
     task: BenchmarkTask,
     repo_path: Path,
@@ -1156,6 +1183,7 @@ def _run_query_strategy(
                 "freshness_correct": freshness_correct,
             }
         )
+    result_fields.update(_region_result_fields(bundle, task))
     return BenchmarkResult(**result_fields)
 
 
@@ -1273,7 +1301,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         missing_from_fetch_reasons = {
             path: "direct_query_bundle_omission" for path in missing_from_fetch
         }
-    return BenchmarkResult(
+    result = BenchmarkResult(
         task_id=task.task_id,
         strategy=Strategy.ARCHEX_SCOUT_FETCH,
         tokens_total=tokens_total,
@@ -1351,6 +1379,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
             "intent_class": task.category.value if task.category is not None else "uncategorized",
         },
     )
+    return result.model_copy(update=_region_result_fields(bundle, task))
 
 
 def run_archex_query_vector(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
