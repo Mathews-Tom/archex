@@ -23,6 +23,9 @@ task_subset:
   - sqlalchemy_sessions
 archex:
   strategy: archex_query
+  candidate_strategies:
+    - archex_query_compressed
+    - archex_query_efficiency_packed
   embedder: jina-v2
   local_models_only: true
 external_tools:
@@ -46,4 +49,13 @@ external_tools:
       - command: ccc
         args: [index]
         timeout_seconds: 900
+compression_layers:
+  - name: headroom
+    version: "0.4.1"
+    command: headroom
+    modes:
+      - headroom_only_on_raw_context
+      - archex_plus_headroom
+    compression_settings:
+      profile: balanced
 raw_read_strategy: raw_ripgrep

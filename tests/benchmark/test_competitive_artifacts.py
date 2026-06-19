@@ -129,6 +129,8 @@ def test_checked_in_headtohead_artifacts_validate_and_render() -> None:
     output = format_competitive_markdown(manifest, reports)
 
     assert "| archex | retrieval |" in output
+    assert "| archex_query_compressed | retrieval |" in output
+    assert "| archex_query_efficiency_packed | retrieval |" in output
     assert "| ccc | retrieval |" in output
     assert "| raw-ripgrep/read | baseline |" in output
     assert "## Aggregate (19 tasks)" in output
