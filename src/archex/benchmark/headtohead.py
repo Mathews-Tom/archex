@@ -288,7 +288,7 @@ def load_headtohead_results(input_dir: Path) -> list[BenchmarkReport]:
     return reports
 
 
-def _lane_label(result: BenchmarkResult) -> str:
+def lane_label(result: BenchmarkResult) -> str:
     if result.strategy is Strategy.ARCHEX_QUERY:
         return "archex"
     if result.strategy is Strategy.RAW_RIPGREP:
@@ -298,7 +298,7 @@ def _lane_label(result: BenchmarkResult) -> str:
     return result.strategy.value
 
 
-def _result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> str:
+def result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> str:
     if result.strategy is Strategy.ARCHEX_QUERY:
         return f"manifest={manifest.name}; lane=archex; embedder={manifest.archex.embedder}"
     if result.strategy is Strategy.RAW_RIPGREP:
@@ -341,7 +341,7 @@ def _results_by_lane(
     for report in reports:
         for result in report.results:
             if result.strategy in HEADTOHEAD_REPORT_STRATEGIES:
-                lanes.setdefault(_lane_label(result), []).append(result)
+                lanes.setdefault(lane_label(result), []).append(result)
     return lanes
 
 
@@ -379,7 +379,7 @@ def format_headtohead_markdown(
 
     for lane in sorted(lanes):
         results = lanes[lane]
-        provenance = _result_provenance(results[0], manifest) + f"; tasks={len(results)}"
+        provenance = result_provenance(results[0], manifest) + f"; tasks={len(results)}"
         lines.append(
             "| "
             + " | ".join(
