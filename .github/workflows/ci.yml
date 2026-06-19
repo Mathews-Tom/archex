@@ -58,3 +58,28 @@ jobs:
         with:
           name: test-results-${{ matrix.python-version }}
           path: results.xml
+
+  smoke-min-install:
+    # Guard against missing runtime dependencies that the full --all-extras dev
+    # environment masks (e.g. networkx pagerank's transitive numpy/scipy). Install
+    # ONLY [project.dependencies] into a clean venv and exercise the core query
+    # path end-to-end; a missing core dependency fails here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install core dependencies only (no extras, no dev group)
+        run: |
+          python -m venv .smoke-venv
+          .smoke-venv/bin/pip install --upgrade pip
+          .smoke-venv/bin/pip install .
+
+      - name: Exercise core query path on a clean install
+        run: |
+          .smoke-venv/bin/archex index .
+          .smoke-venv/bin/archex query "how does archex score and rank retrieval candidates"

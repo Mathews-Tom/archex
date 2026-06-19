@@ -174,7 +174,7 @@ wheels = [
 
 [[package]]
 name = "archex"
-version = "0.13.1"
+version = "0.13.2"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -183,6 +183,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "scipy" },
     { name = "tiktoken" },
     { name = "tree-sitter" },
     { name = "tree-sitter-c-sharp" },
@@ -250,7 +251,6 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -269,6 +269,7 @@ requires-dist = [
     { name = "python-igraph", marker = "extra == 'graph'", specifier = ">=0.11" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = "==14.3.3" },
+    { name = "scipy", specifier = ">=1.11.2" },
     { name = "sentence-transformers", marker = "extra == 'vector-torch'", specifier = ">=5.2,<6" },
     { name = "tiktoken", specifier = ">=0.7" },
     { name = "torch", marker = "extra == 'splade'", specifier = ">=2.0" },
@@ -300,7 +301,6 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "ruff", specifier = ">=0.5" },
-    { name = "scipy", specifier = ">=1.17.1" },
 ]
 
 [[package]]
