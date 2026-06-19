@@ -58,4 +58,21 @@ compression_layers:
       - archex_plus_headroom
     compression_settings:
       profile: balanced
+graphify_lanes:
+  - name: graphify_build_plus_query
+    package_name: graphifyy
+    version: "0.8.44"
+    command: uv
+    args: [run, python, scripts/run_graphify_headtohead_lane.py]
+    includes_build_cost: true
+    artifact_dir: benchmarks/headtohead/results/graphify_build_plus_query
+    operational_notes: "local AST-only Graphify code graph; cold lane includes per-task graph build plus first query"
+  - name: graphify_query_warm
+    package_name: graphifyy
+    version: "0.8.44"
+    command: uv
+    args: [run, python, scripts/run_graphify_headtohead_lane.py]
+    includes_build_cost: false
+    artifact_dir: benchmarks/headtohead/results/graphify_query_warm
+    operational_notes: "local AST-only Graphify code graph; warm lane measures query-only against a prebuilt graph"
 raw_read_strategy: raw_ripgrep
