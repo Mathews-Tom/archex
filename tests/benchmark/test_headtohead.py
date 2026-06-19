@@ -79,6 +79,137 @@ compression_layers:
       profile: balanced
 """
 
+_GRAPHIFY_LANES_YAML = """\
+graphify_lanes:
+  - name: graphify_build_plus_query
+    package_name: graphifyy
+    version: "0.8.44"
+    command: python
+    args: [tools/run_graphify_lane.py, build]
+    includes_build_cost: true
+    operational_notes: "graph build plus first answer"
+  - name: graphify_query_warm
+    package_name: graphifyy
+    version: "0.8.44"
+    command: python
+    args: [tools/run_graphify_lane.py, warm]
+    includes_build_cost: false
+    operational_notes: "prebuilt graph warm query"
+"""
+
+
+def test_load_headtohead_manifest_accepts_pinned_graphify_lanes(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        _manifest_text(["external_task"], extra=_GRAPHIFY_LANES_YAML),
+        encoding="utf-8",
+    )
+
+    manifest = load_headtohead_manifest(manifest_path)
+
+    assert [lane.name.value for lane in manifest.graphify_lanes] == [
+        "graphify_build_plus_query",
+        "graphify_query_warm",
+    ]
+    assert manifest.graphify_lanes[0].includes_build_cost is True
+    assert manifest.graphify_lanes[1].includes_build_cost is False
+    assert all(
+        lane.layer_type is ComparisonLayerType.GRAPH_MEMORY for lane in manifest.graphify_lanes
+    )
+
+
+def test_load_headtohead_manifest_rejects_unpinned_graphify_version(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        _manifest_text(
+            ["external_task"],
+            extra=_GRAPHIFY_LANES_YAML.replace('version: "0.8.44"', "version: latest", 1),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        HeadToHeadManifestError,
+        match="graphify_lanes.graphify_build_plus_query.version must pin an exact released version",
+    ):
+        load_headtohead_manifest(manifest_path)
+
+
+def test_load_headtohead_manifest_rejects_graphify_lane_with_wrong_build_semantics(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        _manifest_text(
+            ["external_task"],
+            extra=_GRAPHIFY_LANES_YAML.replace(
+                "    includes_build_cost: false\n",
+                "    includes_build_cost: true\n",
+                1,
+            ),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        HeadToHeadManifestError,
+        match="graphify_query_warm must not include build cost",
+    ):
+        load_headtohead_manifest(manifest_path)
+
+
+def test_load_headtohead_manifest_rejects_graphify_lane_labeled_retrieval(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        _manifest_text(
+            ["external_task"],
+            extra=_GRAPHIFY_LANES_YAML.replace(
+                "    command: python\n",
+                "    command: python\n    layer_type: retrieval\n",
+                1,
+            ),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        HeadToHeadManifestError,
+        match="graphify_lanes.graphify_build_plus_query.layer_type must be graph-memory",
+    ):
+        load_headtohead_manifest(manifest_path)
+
+
+def test_load_headtohead_manifest_rejects_non_graphify_package_name(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        _manifest_text(
+            ["external_task"],
+            extra=_GRAPHIFY_LANES_YAML.replace("package_name: graphifyy", "package_name: graphify"),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        HeadToHeadManifestError,
+        match="graphify_lanes.graphify_build_plus_query.package_name must be 'graphifyy'",
+    ):
+        load_headtohead_manifest(manifest_path)
+
+
+def test_comparison_lane_layers_labels_graphify_lanes(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        _manifest_text(["external_task"], extra=_GRAPHIFY_LANES_YAML),
+        encoding="utf-8",
+    )
+
+    layers = comparison_lane_layers(load_headtohead_manifest(manifest_path))
+
+    assert layers["graphify_build_plus_query"] is ComparisonLayerType.GRAPH_MEMORY
+    assert layers["graphify_query_warm"] is ComparisonLayerType.GRAPH_MEMORY
+
 
 def test_load_headtohead_manifest_accepts_pinned_external_tool(tmp_path: Path) -> None:
     manifest_path = tmp_path / "manifest.yaml"

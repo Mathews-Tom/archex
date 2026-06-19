@@ -18,6 +18,7 @@ from archex.benchmark.models import (
     BenchmarkRetrievalOptions,
     BenchmarkTask,
     ComparisonLayerType,
+    GraphifyLaneName,
     HeadToHeadManifest,
     Strategy,
     TaskCategory,
@@ -126,6 +127,36 @@ def _validate_compression_layers(path: Path, manifest: HeadToHeadManifest) -> No
         seen.add(layer.name)
 
 
+def _validate_graphify_lanes(path: Path, manifest: HeadToHeadManifest) -> None:
+    seen: set[GraphifyLaneName] = set()
+    for lane in manifest.graphify_lanes:
+        prefix = f"graphify_lanes.{lane.name.value}"
+        _reject_empty_text(path, f"{prefix}.package_name", lane.package_name)
+        _reject_empty_text(path, f"{prefix}.command", lane.command)
+        _reject_unpinned_version(path, f"{prefix}.version", lane.version)
+        if lane.package_name != "graphifyy":
+            raise HeadToHeadManifestError(
+                "Invalid head-to-head manifest in "
+                f"{path}: {prefix}.package_name must be 'graphifyy'"
+            )
+        if lane.layer_type is not ComparisonLayerType.GRAPH_MEMORY:
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: {prefix}.layer_type must be graph-memory"
+            )
+        expected_build = lane.name is GraphifyLaneName.GRAPHIFY_BUILD_PLUS_QUERY
+        if lane.includes_build_cost is not expected_build:
+            message = "must include build cost" if expected_build else "must not include build cost"
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: {prefix}.includes_build_cost {message}"
+            )
+        if lane.name in seen:
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: duplicate graphify lane "
+                f"{lane.name.value!r}"
+            )
+        seen.add(lane.name)
+
+
 def _validate_manifest_shape(path: Path, manifest: HeadToHeadManifest) -> None:
     if manifest.manifest_version != 1:
         raise HeadToHeadManifestError(
@@ -175,6 +206,7 @@ def _validate_manifest_shape(path: Path, manifest: HeadToHeadManifest) -> None:
         seen_tools.add(tool.name)
     _validate_archex_candidate_lanes(path, manifest)
     _validate_compression_layers(path, manifest)
+    _validate_graphify_lanes(path, manifest)
 
 
 def load_headtohead_manifest(path: Path) -> HeadToHeadManifest:
@@ -196,6 +228,8 @@ def comparison_lane_layers(manifest: HeadToHeadManifest) -> dict[str, Comparison
         layers[candidate.value] = ComparisonLayerType.RETRIEVAL
     for tool in manifest.external_tools:
         layers[tool.name] = tool.layer_type
+    for lane in manifest.graphify_lanes:
+        layers[lane.name.value] = lane.layer_type
     for layer in manifest.compression_layers:
         for mode in layer.modes:
             layers[mode.value] = layer.layer_type
