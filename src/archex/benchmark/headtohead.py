@@ -304,6 +304,13 @@ def result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> 
     if result.strategy is Strategy.RAW_RIPGREP:
         version = result.provenance.get("rg_version", "")
         return f"manifest={manifest.name}; lane=raw-ripgrep/read; rg={version}"
+    if result.strategy is not Strategy.EXTERNAL_MCP and result.strategy.value.startswith(
+        "archex_query"
+    ):
+        return (
+            f"manifest={manifest.name}; lane={result.strategy.value}; "
+            f"embedder={manifest.archex.embedder}"
+        )
     tool = result.provenance.get("external_tool", result.strategy_label or "external")
     version = result.provenance.get("external_tool_version", "")
     embedder = result.provenance.get("external_tool_embedder", "")

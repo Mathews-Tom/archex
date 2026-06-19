@@ -152,8 +152,9 @@ def test_competitive_report_includes_all_lanes_and_layer_labels() -> None:
     # p95 latency and token-efficiency-after-completion columns.
     assert "Warm p95 ms" in output
     assert "Token eff. (compl.)" in output
-    # Provenance for retrieval and compression lanes.
-    assert "manifest=competitive" in output
+    # Provenance for retrieval, candidate, and compression lanes.
+    assert "manifest=competitive; lane=archex; embedder=jina-v2" in output
+    assert "manifest=competitive; lane=archex_query_compressed; embedder=jina-v2" in output
     assert "layer=headroom" in output
 
 
