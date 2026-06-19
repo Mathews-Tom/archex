@@ -24,6 +24,7 @@ from archex.benchmark.models import (
     Strategy,
     TaskCompletionResult,
 )
+from archex.benchmark.query_transform import transform_query
 from archex.benchmark.region_metrics import (
     ReturnedRegion,
     compute_region_metrics,
@@ -1764,6 +1765,170 @@ def run_archex_query_efficiency_packed(task: BenchmarkTask, repo_path: Path) -> 
     return result
 
 
+def _fuse_dual_bundles(
+    structural: ContextBundle,
+    behavioral: ContextBundle,
+    *,
+    query: str,
+    token_budget: int,
+) -> tuple[ContextBundle, dict[str, int]]:
+    """Reciprocal-rank fuse two retrieved bundles into one budget-bounded bundle.
+
+    Both inputs already ran the full retrieval + packing path for their subquery.
+    Their ranked chunks are merged by reciprocal rank; the fused order is filled
+    greedily up to ``token_budget`` (the top chunk is always kept). The structural
+    bundle supplies receipt/metadata scaffolding; the receipt's returned_context
+    and the seed/expansion diagnostics are rebuilt to match the fused chunk set so
+    they stay aligned. Returns the fused bundle plus candidate-count stats.
+    """
+    from archex.index.fusion import reciprocal_rank_fusion
+    from archex.scout import chunk_handle
+
+    structural_ranked = [(rc.chunk, rc.final_score) for rc in structural.chunks]
+    behavioral_ranked = [(rc.chunk, rc.final_score) for rc in behavioral.chunks]
+    fused = reciprocal_rank_fusion(structural_ranked, behavioral_ranked)
+
+    ranked_by_id: dict[str, RankedChunk] = {}
+    for ranked in (*structural.chunks, *behavioral.chunks):
+        ranked_by_id.setdefault(ranked.chunk.id, ranked)
+
+    fused_chunks: list[RankedChunk] = []
+    total_tokens = 0
+    for chunk, rrf_score in fused:
+        tokens = chunk.token_count or count_tokens(chunk.content)
+        if fused_chunks and total_tokens + tokens > token_budget:
+            continue
+        base = ranked_by_id[chunk.id]
+        fused_chunks.append(base.model_copy(update={"final_score": rrf_score}))
+        total_tokens += tokens
+
+    receipt = None
+    if structural.receipt is not None:
+        items_by_handle: dict[str, ContextReceiptItem] = {}
+        for source in (structural, behavioral):
+            if source.receipt is not None:
+                for item in source.receipt.returned_context:
+                    items_by_handle.setdefault(item.handle, item)
+        returned = [
+            items_by_handle[handle]
+            for ranked in fused_chunks
+            if (handle := chunk_handle(ranked.chunk.id)) in items_by_handle
+        ]
+        receipt = structural.receipt.model_copy(
+            update={
+                "query": query,
+                "returned_context": returned,
+                "returned_total": len(returned),
+            }
+        )
+
+    # The fused selection has no single-pass "seed vs graph-expansion" split, so
+    # the structural pass's expansion diagnostics would misattribute to this lane.
+    # Reset them so every fused file reports as a direct seed with no expansion.
+    fused_files = _deduplicate_ranked([ranked.chunk.file_path for ranked in fused_chunks])
+    fused_metadata = structural.retrieval_metadata.model_copy(
+        update={
+            "seed_file_paths": [],
+            "expanded_file_paths": [],
+            "seed_files_found": len(fused_files),
+            "expansion_files_added": 0,
+            "expansion_eligible_seeds": 0,
+            "expansion_candidates_found": 0,
+            "expansion_import_neighbor_edges": 0,
+            "expansion_same_module_candidates": 0,
+            "expansion_hub_candidates": 0,
+            "expansion_test_candidates_skipped": 0,
+            "expansion_zero_candidate_reason": "",
+            "expansion_reason_counts": {},
+            "expanded_file_reasons": {},
+        }
+    )
+
+    fused_bundle = structural.model_copy(
+        update={
+            "query": query,
+            "chunks": fused_chunks,
+            "token_count": total_tokens,
+            "token_budget": token_budget,
+            "retrieval_metadata": fused_metadata,
+            "receipt": receipt,
+        }
+    )
+    stats = {
+        "structural_candidates": len(structural.chunks),
+        "behavioral_candidates": len(behavioral.chunks),
+        "fused_candidates": len(fused),
+        "fused_included": len(fused_chunks),
+    }
+    return fused_bundle, stats
+
+
+def run_archex_query_dual_transform(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: deterministic dual-perspective query transformation.
+
+    Rewrites the query into a structural subquery (paths, identifiers, call
+    sites, errors, stack-trace and import signals) and a behavioural subquery
+    (natural-language symptoms and domain nouns) using rule-based transforms
+    only, runs the BM25 retrieval path once per subquery sharing one warm index,
+    then reciprocal-rank fuses the two results into one budget-bounded bundle.
+    Both subqueries and the fusion stats are recorded in strategy provenance. No
+    hosted LLM calls; the product default is unchanged.
+    """
+    strategy = Strategy.ARCHEX_QUERY_DUAL_TRANSFORM
+    dual = transform_query(task.question)
+    t0 = time.perf_counter()
+    structural_bundle, _, structural_timing = _query_bundle(
+        task.model_copy(update={"question": dual.structural}),
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=True,
+    )
+    behavioral_bundle, effective_config, behavioral_timing = _query_bundle(
+        task.model_copy(update={"question": dual.behavioral}),
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=True,
+    )
+    fused_bundle, fusion_stats = _fuse_dual_bundles(
+        structural_bundle,
+        behavioral_bundle,
+        query=task.question,
+        token_budget=task.token_budget,
+    )
+    wall_ms = (time.perf_counter() - t0) * 1000
+    # Report cache state across both passes: warm only if neither built work.
+    behavioral_timing.cached = structural_timing.cached and behavioral_timing.cached
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=fused_bundle,
+        timing=behavioral_timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = dual.to_provenance() | {
+        "structural_candidates": str(fusion_stats["structural_candidates"]),
+        "behavioral_candidates": str(fusion_stats["behavioral_candidates"]),
+        "fused_candidates": str(fusion_stats["fused_candidates"]),
+        "fused_included": str(fusion_stats["fused_included"]),
+    }
+    logger.info(
+        "Strategy %s for %s: structural=%d behavioral=%d fused=%d wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        fusion_stats["structural_candidates"],
+        fusion_stats["behavioral_candidates"],
+        fusion_stats["fused_included"],
+        wall_ms,
+    )
+    return result
+
+
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
     from archex.api import query, scout_with_bundle
@@ -2371,5 +2536,8 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_EFFICIENCY_PACKED.value, run_archex_query_efficiency_packed
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_DUAL_TRANSFORM.value, run_archex_query_dual_transform
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)

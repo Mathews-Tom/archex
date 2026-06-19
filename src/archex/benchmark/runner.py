@@ -50,6 +50,7 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
     Strategy.ARCHEX_QUERY_TASK_AWARE,
     Strategy.ARCHEX_QUERY_COMPRESSED,
     Strategy.ARCHEX_QUERY_EFFICIENCY_PACKED,
+    Strategy.ARCHEX_QUERY_DUAL_TRANSFORM,
 ]
 
 _VECTOR_STRATEGIES: frozenset[Strategy] = frozenset(
