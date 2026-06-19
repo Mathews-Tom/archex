@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from archex.models import (
+    CompressionLossRisk,
+    CompressionMetadata,
+    CompressionMode,
     ContextBundle,
     ContextCompletenessReason,
     ContextCompletenessStatus,
     ContextFreshness,
     ContextReceipt,
     ContextReceiptEdge,
+    ContextReceiptItem,
     ContextReceiptTokenBudget,
     ContextRecommendedAction,
     ContextSkippedCandidate,
@@ -150,3 +154,62 @@ def test_scout_receipt_does_not_mark_selected_handle_files_as_skipped() -> None:
     assert receipt.context_complete == ContextCompletenessStatus.COMPLETE
     assert receipt.context_complete_reason == ContextCompletenessReason.COMPLETE
     assert receipt.recommended_next_action == ContextRecommendedAction.USE_BUNDLE
+
+
+def _compressed_item(handle: str) -> ContextReceiptItem:
+    return ContextReceiptItem(
+        handle=handle,
+        file_path="src/widget.py",
+        start_line=1,
+        end_line=40,
+        content_hash="orig-hash",
+        compression=CompressionMetadata(
+            compression_mode=CompressionMode.STRUCTURAL_CODE_ELISION,
+            original_tokens=200,
+            compressed_tokens=70,
+            compression_ratio=0.35,
+            original_content_hash="orig-hash",
+            compressed_content_hash="elided-hash",
+            fetch_original_handle=handle,
+            compression_loss_risk=CompressionLossRisk.LOW,
+        ),
+    )
+
+
+def test_compression_metadata_does_not_upgrade_receipt_completeness() -> None:
+    receipt = ContextReceipt(
+        query="q",
+        token_budget=ContextReceiptTokenBudget(requested=500, consumed=250),
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+        returned_context=[_compressed_item("chunk:widget")],
+        returned_total=1,
+        context_complete=ContextCompletenessStatus.INCOMPLETE,
+        context_complete_reason=ContextCompletenessReason.BUDGET_EXHAUSTED,
+        recommended_next_action=ContextRecommendedAction.RAISE_BUDGET,
+    )
+
+    # Compression metadata is orthogonal to completeness: an incomplete receipt
+    # stays incomplete and keeps its reason/action even when rows are compressed.
+    assert receipt.context_complete == ContextCompletenessStatus.INCOMPLETE
+    assert receipt.context_complete_reason == ContextCompletenessReason.BUDGET_EXHAUSTED
+    assert receipt.recommended_next_action == ContextRecommendedAction.RAISE_BUDGET
+    assert receipt.returned_context[0].compression is not None
+    assert receipt.returned_context[0].compression.is_compressed is True
+
+
+def test_receipt_round_trips_with_compressed_rows() -> None:
+    receipt = ContextReceipt(
+        query="q",
+        token_budget=ContextReceiptTokenBudget(requested=500, consumed=250),
+        index_revision="rev",
+        returned_context=[_compressed_item("chunk:widget")],
+        returned_total=1,
+        context_complete=ContextCompletenessStatus.COMPLETE,
+        context_complete_reason=ContextCompletenessReason.COMPLETE,
+        recommended_next_action=ContextRecommendedAction.USE_BUNDLE,
+    )
+    restored = ContextReceipt.model_validate_json(receipt.model_dump_json())
+    assert restored == receipt
+    # A compressed row never flips a complete receipt; completeness is preserved.
+    assert restored.context_complete == ContextCompletenessStatus.COMPLETE

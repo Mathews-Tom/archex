@@ -134,6 +134,25 @@ class ContextOmittedEdgeReason(StrEnum):
     BELOW_THRESHOLD = "below_threshold"
 
 
+class CompressionMode(StrEnum):
+    """Deterministic post-retrieval compression mode applied to a returned region."""
+
+    PASSTHROUGH_REQUIRED = "passthrough_required"
+    STRUCTURAL_CODE_ELISION = "structural_code_elision"
+    COMMENT_AND_WHITESPACE_SLIMMING = "comment_and_whitespace_slimming"
+    LARGE_LITERAL_SUMMARIZATION = "large_literal_summarization"
+    JSON_LOG_SMART_CRUSHING = "json_log_smart_crushing"
+
+
+class CompressionLossRisk(StrEnum):
+    """How risky a compression mode is for an editing/debugging agent."""
+
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
@@ -699,6 +718,44 @@ class ContextReceiptTokenBudget(BaseModel):
     consumed: int
 
 
+class CompressionMetadata(BaseModel):
+    """Optional provenance for a post-retrieval compression step on one region.
+
+    Absent on uncompressed rows. When present, the original region stays exactly
+    retrievable via ``fetch_original_handle`` + ``original_content_hash`` so
+    compression never hides editable evidence. ``compression_ratio`` is the
+    fraction of original tokens retained (1.0 means nothing was removed); a
+    ``passthrough_required`` row keeps the original content and hashes unchanged.
+    """
+
+    compression_mode: CompressionMode
+    original_tokens: int
+    compressed_tokens: int
+    compression_ratio: float
+    original_content_hash: str
+    compressed_content_hash: str
+    fetch_original_handle: str
+    compression_loss_risk: CompressionLossRisk = CompressionLossRisk.NONE
+
+    @model_validator(mode="after")
+    def _validate_compression(self) -> CompressionMetadata:
+        if self.original_tokens < 0 or self.compressed_tokens < 0:
+            raise ValueError("token counts must be non-negative")
+        if self.compression_ratio < 0.0:
+            raise ValueError("compression_ratio must be non-negative")
+        if (
+            self.compression_mode is CompressionMode.PASSTHROUGH_REQUIRED
+            and self.compressed_content_hash != self.original_content_hash
+        ):
+            raise ValueError("passthrough_required rows must keep the original content hash")
+        return self
+
+    @property
+    def is_compressed(self) -> bool:
+        """True when the displayed content differs from the original region."""
+        return self.compressed_content_hash != self.original_content_hash
+
+
 class ContextReceiptItem(BaseModel):
     handle: str
     file_path: str
@@ -708,6 +765,7 @@ class ContextReceiptItem(BaseModel):
     symbols: list[str] = []
     score: float = 0.0
     reason_codes: list[str] = []
+    compression: CompressionMetadata | None = None
 
 
 class ContextReceiptEdge(BaseModel):

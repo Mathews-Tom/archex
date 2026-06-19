@@ -6,6 +6,9 @@ from archex.models import (
     ArchDecision,
     ArchProfile,
     CodeChunk,
+    CompressionLossRisk,
+    CompressionMetadata,
+    CompressionMode,
     Config,
     ContextBundle,
     ContextCompletenessReason,
@@ -226,6 +229,97 @@ def test_context_receipt_edge_confidence_score_bounds() -> None:
             kind=EdgeKind.IMPORTS,
             confidence_score=1.1,
         )
+
+
+# ---------------------------------------------------------------------------
+# CompressionMetadata model
+# ---------------------------------------------------------------------------
+
+
+def _compression_metadata(**overrides: object) -> CompressionMetadata:
+    fields: dict[str, object] = {
+        "compression_mode": CompressionMode.STRUCTURAL_CODE_ELISION,
+        "original_tokens": 120,
+        "compressed_tokens": 48,
+        "compression_ratio": 0.4,
+        "original_content_hash": "orig",
+        "compressed_content_hash": "comp",
+        "fetch_original_handle": "chunk:abc",
+        "compression_loss_risk": CompressionLossRisk.LOW,
+    }
+    fields.update(overrides)
+    return CompressionMetadata(**fields)  # type: ignore[arg-type]
+
+
+def test_compression_mode_and_loss_risk_members() -> None:
+    assert {member.value for member in CompressionMode} == {
+        "passthrough_required",
+        "structural_code_elision",
+        "comment_and_whitespace_slimming",
+        "large_literal_summarization",
+        "json_log_smart_crushing",
+    }
+    assert {member.value for member in CompressionLossRisk} == {"none", "low", "medium", "high"}
+
+
+def test_compression_metadata_round_trip_is_deterministic() -> None:
+    meta = _compression_metadata()
+    dumped = meta.model_dump_json()
+    restored = CompressionMetadata.model_validate_json(dumped)
+    assert restored == meta
+    assert restored.model_dump_json() == dumped
+
+
+def test_compression_metadata_compressed_row_is_marked() -> None:
+    meta = _compression_metadata()
+    assert meta.is_compressed is True
+    assert meta.compression_loss_risk == CompressionLossRisk.LOW
+
+
+def test_compression_metadata_passthrough_row_is_neutral() -> None:
+    meta = _compression_metadata(
+        compression_mode=CompressionMode.PASSTHROUGH_REQUIRED,
+        original_tokens=60,
+        compressed_tokens=60,
+        compression_ratio=1.0,
+        compressed_content_hash="orig",
+        compression_loss_risk=CompressionLossRisk.NONE,
+    )
+    assert meta.is_compressed is False
+    assert meta.original_tokens == meta.compressed_tokens
+
+
+def test_compression_metadata_rejects_negative_counts() -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        _compression_metadata(compressed_tokens=-1)
+
+
+def test_compression_metadata_passthrough_requires_matching_hash() -> None:
+    with pytest.raises(ValueError, match="passthrough_required rows must keep"):
+        _compression_metadata(compression_mode=CompressionMode.PASSTHROUGH_REQUIRED)
+
+
+def test_context_receipt_item_uncompressed_row_has_no_metadata() -> None:
+    item = ContextReceiptItem(
+        handle="chunk:x", file_path="a.py", start_line=1, end_line=10, content_hash="h"
+    )
+    assert item.compression is None
+    assert item.model_dump()["compression"] is None
+
+
+def test_context_receipt_item_carries_compression_metadata() -> None:
+    item = ContextReceiptItem(
+        handle="chunk:x",
+        file_path="a.py",
+        start_line=1,
+        end_line=10,
+        content_hash="h",
+        compression=_compression_metadata(fetch_original_handle="chunk:x"),
+    )
+    restored = ContextReceiptItem.model_validate_json(item.model_dump_json())
+    assert restored == item
+    assert restored.compression is not None
+    assert restored.compression.is_compressed is True
 
 
 def test_pattern_category_members() -> None:
