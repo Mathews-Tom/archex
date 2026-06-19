@@ -1,0 +1,33 @@
+task_id: region_python_simple_auth
+repo: fixtures/python_simple
+commit: fixture
+category: self
+languages: [python]
+question: "How does AuthService issue and verify login session tokens?"
+expected_files:
+  - services/auth.py
+  - main.py
+expected_symbols:
+  - AuthService
+  - login
+expected_regions:
+  - path: services/auth.py
+    granularity: line_range
+    start_line: 15
+    end_line: 18
+    notes: "login() hashes credentials into a session token"
+    weight: 2.0
+  - path: services/auth.py
+    granularity: symbol
+    symbol: AuthService.verify_token
+    notes: "verify_token() resolves the session user"
+  - path: main.py
+    granularity: line_range
+    start_line: 8
+    end_line: 15
+    notes: "run() wires the end-to-end auth flow"
+token_budget: 4096
+keywords:
+  - auth
+  - login
+  - token

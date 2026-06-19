@@ -11,6 +11,12 @@ Operator evidence from the 2026-06-09 retrieval-default benchmark keeps `archex_
 - Do not refresh `benchmarks/dogfood_baseline.json` without explicit approval after a proven improvement.
 
 
+## Candidate region and context-efficiency gate inputs
+
+The benchmark eval frontier adds optional retrieval-quality signals that are available as **candidate** gate inputs for tasks that declare `expected_regions`: region recall, line recall, ranked-region MRR/nDCG, context noise ratio, and relevance per 1k tokens. The gate exposes optional thresholds (`min_region_recall`, `min_line_recall`, `max_context_noise_ratio`, `min_relevance_per_1k_tokens`).
+
+These inputs do not change the current switch rule. They are optional and ignored when a task has no region labels, and they enforce a threshold only when the label exists. No region/context-efficiency values are claimed here; any future numeric claim must come from checked-in benchmark artifacts that contain the region fields. Until a region-labelled run is published, treat these signals as descriptive, not as a passing or failing default-switch criterion.
+
 ## Decision rationale
 
 ### Why this gate exists

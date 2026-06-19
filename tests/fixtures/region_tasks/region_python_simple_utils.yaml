@@ -1,0 +1,23 @@
+task_id: region_python_simple_utils
+repo: fixtures/python_simple
+commit: fixture
+category: self
+languages: [python]
+question: "How are passwords hashed and emails validated?"
+expected_files:
+  - utils.py
+expected_regions:
+  - path: utils.py
+    granularity: line_range
+    start_line: 9
+    end_line: 10
+    notes: "hash_password() derives a sha256 digest"
+  - path: utils.py
+    granularity: block
+    symbol: validate_email
+    notes: "validate_email() matches the email regex"
+token_budget: 4096
+keywords:
+  - hash
+  - email
+  - validate
