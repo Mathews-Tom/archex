@@ -46,9 +46,28 @@ Citations: each cell above is the corresponding C1 report cell emitted by `uv ru
 | Freshness visibility | Query and MCP paths expose refresh metadata; doctor reports stale, dirty, and missing-index states. | C1 manifest measures ccc bootstrap and warm search latency, not edit-to-correct freshness. | Commands `archex status --strict`, `archex doctor . --format json`; C1 warm/cold cells. |
 | Language breadth | archex reports declared grammar availability by tier through doctor. | cocoindex-code advertises broader language coverage in its distribution story. C3 is the archex roadmap item for breadth parity. | Command `archex doctor . --format json` grammar check; roadmap item C3 in the competitive plan. |
 
-## Selection, not compression
+## Selection, not compression: where Headroom fits
 
-archex decides what context to retrieve: files, symbols, chunks, dependency neighborhoods, and token-budgeted bundles. Compression layers such as Headroom shrink context after it has already been gathered. They are composable, not competing: archex selects relevant context first, then a compression layer can reduce the residual payload. Compressed irrelevant context is still irrelevant.
+archex decides what context to retrieve: files, symbols, chunks, dependency neighborhoods, and token-budgeted bundles. Headroom-style layers compress context after it has already been gathered. archex is a retrieval and context-selection system; Headroom is a compression / context-management layer, not a retrieval engine, so this page never reports Headroom as a retrieval competitor. They are composable, not competing: archex selects relevant context first, then a compression layer can reduce the residual payload. Compressed irrelevant context is still irrelevant.
+
+The competitive harness models the layer difference explicitly with two Headroom modes:
+
+- `headroom_only_on_raw_context` — raw or broad context is compressed with no archex selection, testing whether compression alone can rescue broad context.
+- `archex_plus_headroom` — archex selects context first, then Headroom compresses supported payloads after selection, testing composability. Source/RAG code is passed through (protected) by default so edit-critical lines are not hidden.
+
+Compression lanes contribute a compression ratio only; retrieval-quality columns (recall, required-file recall, precision) do not apply to them and are reported as `n/a`.
+
+## Broader competitive comparison
+
+`archex benchmark headtohead competitive --input benchmarks/headtohead/results --format markdown` renders a richer comparison than the C1 table above, grouped by repo/task family and aggregate, with no aggregate-only winner claim. Lanes:
+
+- `archex` — the current product default (`archex_query`).
+- Benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`) when their per-task artifacts are present. These stay benchmark-only candidates: per [Retrieval Default Decisions](RETRIEVAL_DEFAULT_DECISIONS.md) they have not cleared the default-switch gate, so they are not the shipped default.
+- `ccc` — cocoindex-code, a retrieval engine, version-pinned in the manifest.
+- raw-ripgrep/read baseline.
+- Headroom compression lanes (`headroom_only_on_raw_context`, `archex_plus_headroom`) — a compression layer, not a retrieval engine, applied locally where reproducible or imported as version-pinned operator artifacts.
+
+Reported dimensions: cold-start, warm p50/p95 latency, recall, required-file recall, region/line recall where labeled, context precision/noise ratio, token efficiency after completion, compression ratio, receipt accuracy, freshness, plus an operational table (local/offline posture, setup steps, embedder). Every numeric value in a published comparison comes from checked-in artifacts under `benchmarks/headtohead/results/`. The current checked-in set covers the `archex`, `ccc`, and raw-ripgrep/read lanes (the C1 cells above); improved-archex-candidate and Headroom-layer cells appear only when an operator supplies the corresponding artifacts.
 
 ## Practical choice
 
