@@ -151,3 +151,33 @@ def test_compression_is_deterministic() -> None:
         region, language="python", fetch_original_handle=_HANDLE, required=False
     )
     assert first == second
+
+
+def _assignment_heavy_code() -> str:
+    body = "\n".join(f"    total = total + delta_{i}" for i in range(40))
+    return f"def reduce(deltas):\n    total = 0\n{body}\n    return total"
+
+
+def test_large_literal_mode_does_not_fire_on_code() -> None:
+    # Assignment-heavy code superficially resembles key=value data, but code is
+    # routed to structural elision, never to literal summarization.
+    result = compress_region(
+        _assignment_heavy_code(),
+        language="python",
+        fetch_original_handle=_HANDLE,
+        required=False,
+    )
+    assert result is not None
+    assert result.mode == CompressionMode.STRUCTURAL_CODE_ELISION
+
+
+def test_protect_code_leaves_clean_code_uncompressed() -> None:
+    # With elision disabled and no data/banner content, clean code stays intact.
+    result = compress_region(
+        _assignment_heavy_code(),
+        language="python",
+        fetch_original_handle=_HANDLE,
+        required=False,
+        protect_code=True,
+    )
+    assert result is None

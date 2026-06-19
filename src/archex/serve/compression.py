@@ -363,16 +363,21 @@ def compress_region(
         return None
 
     candidates: list[tuple[CompressionMode, str]] = []
-    if _looks_like_code(language, content) and not protect_code:
+    is_code = _looks_like_code(language, content)
+    if is_code and not protect_code:
         elided = _elide_structural(content, language=language, handle=fetch_original_handle)
         if elided is not None:
             candidates.append((CompressionMode.STRUCTURAL_CODE_ELISION, elided))
-    literal = _summarize_large_literal(content, handle=fetch_original_handle)
-    if literal is not None:
-        candidates.append((CompressionMode.LARGE_LITERAL_SUMMARIZATION, literal))
-    crushed = _crush_json_log(content, handle=fetch_original_handle)
-    if crushed is not None:
-        candidates.append((CompressionMode.JSON_LOG_SMART_CRUSHING, crushed))
+    # Literal and JSON/log modes target data payloads, not source code. Keeping
+    # them off code prevents data-shaped code (assignment-heavy bodies) from
+    # being summarized and keeps protect_code an effective guard for editors.
+    if not is_code:
+        literal = _summarize_large_literal(content, handle=fetch_original_handle)
+        if literal is not None:
+            candidates.append((CompressionMode.LARGE_LITERAL_SUMMARIZATION, literal))
+        crushed = _crush_json_log(content, handle=fetch_original_handle)
+        if crushed is not None:
+            candidates.append((CompressionMode.JSON_LOG_SMART_CRUSHING, crushed))
     slimmed = _slim_comments_whitespace(content)
     if slimmed is not None:
         candidates.append((CompressionMode.COMMENT_AND_WHITESPACE_SLIMMING, slimmed))
