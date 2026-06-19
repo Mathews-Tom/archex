@@ -58,6 +58,22 @@ Current query/scout receipts emit `clean` for the normal refresh path and `unkno
 - `fetch_skipped_candidate`
 - `manual_review`
 
+## Compression metadata (benchmark-only)
+
+Returned context rows carry an optional `compression` block, populated only by the benchmark-only `archex_query_compressed` lane after bundle assembly. It is absent (neutral) on uncompressed rows. When present it contains:
+
+- `compression_mode`: `passthrough_required`, `structural_code_elision`, `comment_and_whitespace_slimming`, `large_literal_summarization`, or `json_log_smart_crushing`
+- `original_tokens` and `compressed_tokens`
+- `compression_ratio`: compressed/original token fraction (1.0 means nothing was removed)
+- `original_content_hash`: equals the row's original `content_hash`
+- `compressed_content_hash`: hash of the displayed (possibly compressed) content
+- `fetch_original_handle`: the exact handle to retrieve the uncompressed region
+- `compression_loss_risk`: `none`, `low`, `medium`, or `high`
+
+Compression preserves provenance: the file path, original line range, original content hash, and fetch-original handle stay intact, so a downstream agent can always fetch the exact original source. Compressed regions are clearly marked in markdown output and surfaced in JSON.
+
+Compression is orthogonal to completeness. It never upgrades `context_complete`, and **compression cannot make incomplete context complete**: if retrieval missed required context, compression metadata does not hide or repair that miss. Required, direct, and high-confidence code passes through uncompressed by default.
+
 ## Output surfaces
 
 - `archex query --format json` includes `receipt` in the serialized bundle.
