@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 from archex.benchmark.models import BenchmarkTask, Strategy
 from archex.benchmark.runner import AVAILABLE_STRATEGIES, DEFAULT_STRATEGIES
 from archex.benchmark.strategies import (
-    _compress_bundle,
-    _passthrough_required,
+    _compress_bundle,  # pyright: ignore[reportPrivateUsage]
+    _passthrough_required,  # pyright: ignore[reportPrivateUsage]
     default_strategy_registry,
     run_archex_query,
     run_archex_query_compressed,
@@ -141,6 +141,7 @@ class TestCompressBundle:
         bundle = _bundle(chunks)
         result = _compress_bundle(bundle, question="where is the widget rendered")
 
+        assert result.bundle.receipt is not None
         items = {item.file_path: item for item in result.bundle.receipt.returned_context}
         top = items["a.py"].compression
         assert top is not None
@@ -162,6 +163,7 @@ class TestCompressBundle:
         original_content = bundle.chunks[1].chunk.content
         _compress_bundle(bundle, question="where is the widget rendered")
         assert bundle.chunks[1].chunk.content == original_content
+        assert bundle.receipt is not None
         assert bundle.receipt.returned_context[0].compression is None
 
     def test_protect_code_skips_elision_for_debugging_intent(self) -> None:
