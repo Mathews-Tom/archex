@@ -1,0 +1,15 @@
+task_id: routing_mixed_cache
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "Delta indexing intermittently returns stale results after a file changes; I think the cache key is computed wrong in the cache manager. Traceback (most recent call last): File 'src/archex/cache.py', line 60, in cache_key return digest"
+expected_files:
+  - src/archex/cache.py
+  - src/archex/index/delta.py
+expected_symbols:
+  - cache_key
+  - CacheManager
+  - compute_working_tree_signature
+token_budget: 8192
+keywords: [cache, delta, stale, key]

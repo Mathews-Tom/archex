@@ -1,0 +1,20 @@
+task_id: routing_trace_api
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: |-
+  Traceback (most recent call last):
+    File "src/archex/api.py", line 1700, in query
+      bundle = assemble_context(results, token_budget)
+    File "src/archex/serve/context.py", line 904, in assemble_context
+      scored = adaptive_rsf(bm25, vector)
+  ValueError: invalid token budget
+expected_files:
+  - src/archex/api.py
+  - src/archex/serve/context.py
+expected_symbols:
+  - query
+  - assemble_context
+token_budget: 8192
+keywords: [traceback, query, context]
