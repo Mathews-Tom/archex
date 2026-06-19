@@ -13,6 +13,8 @@ from archex.benchmark.models import (
     CompressionLayerMode,
     CompressionLayerResult,
     ExternalToolBenchmarkConfig,
+    GraphifyLaneConfig,
+    GraphifyLaneName,
     HeadToHeadArchexConfig,
     HeadToHeadManifest,
     Strategy,
@@ -48,6 +50,10 @@ def _result(
     region_recall: float | None = None,
     compression_ratio: float | None = None,
     category: TaskCategory | None = TaskCategory.EXTERNAL_FRAMEWORK,
+    cold_start_ms: float = 2.0,
+    warm_latency_ms: float = 10.0,
+    cached: bool = True,
+    provenance: dict[str, str] | None = None,
 ) -> BenchmarkResult:
     return BenchmarkResult(
         task_id="task_a",
@@ -71,12 +77,13 @@ def _result(
         bundle_compression_ratio=compression_ratio,
         category=category,
         savings_vs_raw=0.0,
-        wall_time_ms=12.0,
-        warm_latency_ms=10.0,
-        cold_start_ms=2.0,
-        cached=True,
+        wall_time_ms=cold_start_ms + warm_latency_ms,
+        warm_latency_ms=warm_latency_ms,
+        cold_start_ms=cold_start_ms,
+        cached=cached,
         timestamp="2026-06-19T00:00:00Z",
-        provenance={
+        provenance=provenance
+        or {
             "external_tool": label or strategy.value,
             "external_tool_version": "0.2.35",
             "external_tool_embedder": "Snowflake/snowflake-arctic-embed-xs",
@@ -156,6 +163,98 @@ def test_competitive_report_includes_all_lanes_and_layer_labels() -> None:
     assert "manifest=competitive; lane=archex; embedder=jina-v2" in output
     assert "manifest=competitive; lane=archex_query_compressed; embedder=jina-v2" in output
     assert "layer=headroom" in output
+
+
+def test_competitive_report_includes_graphify_lanes_and_fairness_frame() -> None:
+    manifest = HeadToHeadManifest(
+        name="competitive",
+        task_subset=["task_a"],
+        hardware_notes="M1 Pro",
+        archex=HeadToHeadArchexConfig(candidate_strategies=[Strategy.ARCHEX_QUERY_COMPRESSED]),
+        external_tools=[
+            ExternalToolBenchmarkConfig(
+                name="ccc",
+                version="0.2.35",
+                command="ccc",
+                args=["mcp"],
+                embedder="Snowflake/snowflake-arctic-embed-xs",
+            )
+        ],
+        graphify_lanes=[
+            GraphifyLaneConfig(
+                name=GraphifyLaneName.GRAPHIFY_BUILD_PLUS_QUERY,
+                version="0.8.44",
+                command="graphify",
+                includes_build_cost=True,
+                operational_notes="operator-run graph workflow",
+            ),
+            GraphifyLaneConfig(
+                name=GraphifyLaneName.GRAPHIFY_QUERY_WARM,
+                version="0.8.44",
+                command="graphify",
+                includes_build_cost=False,
+                operational_notes="operator-run graph workflow",
+            ),
+        ],
+    )
+    reports = [
+        _report(
+            "task_a",
+            "owner/repo",
+            [
+                _result(Strategy.ARCHEX_QUERY, region_recall=0.8),
+                _result(Strategy.ARCHEX_QUERY_COMPRESSED, compression_ratio=0.85),
+                _result(Strategy.EXTERNAL_MCP, label="ccc"),
+                _result(
+                    Strategy.EXTERNAL_MCP,
+                    label="graphify_build_plus_query",
+                    cold_start_ms=4200.0,
+                    warm_latency_ms=315.0,
+                    cached=False,
+                    provenance={
+                        "external_tool": "graphify_build_plus_query",
+                        "external_tool_version": "0.8.44",
+                        "graphify_package": "graphifyy",
+                        "graphify_run_mode": "artifact",
+                        "graphify_backend": "local-ast",
+                        "graphify_local_offline_posture": "local code graph only",
+                    },
+                ),
+                _result(
+                    Strategy.EXTERNAL_MCP,
+                    label="graphify_query_warm",
+                    cold_start_ms=0.0,
+                    warm_latency_ms=315.0,
+                    cached=True,
+                    provenance={
+                        "external_tool": "graphify_query_warm",
+                        "external_tool_version": "0.8.44",
+                        "graphify_package": "graphifyy",
+                        "graphify_run_mode": "artifact",
+                        "graphify_backend": "local-ast",
+                        "graphify_local_offline_posture": "local code graph only",
+                    },
+                ),
+                _result(Strategy.RAW_RIPGREP),
+            ],
+        )
+    ]
+
+    output = format_competitive_markdown(manifest, reports)
+
+    assert "| graphify_build_plus_query | graph-memory |" in output
+    assert "| graphify_query_warm | graph-memory |" in output
+    assert "Graphify is evaluated as a graph / memory layer." in output
+    assert "graph construction/setup plus the first graph-backed answer" in output
+    assert "warm graph-query path against a prebuilt graph" in output
+    assert (
+        "manifest=competitive; lane=graphify_build_plus_query; package=graphifyy; "
+        "version=0.8.44; mode=build+query; run=artifact"
+    ) in output
+    assert (
+        "| graphify_query_warm | graph-memory | local code graph only | "
+        "warm query on prebuilt graph | local-ast |"
+    ) in output
 
 
 def test_competitive_report_renders_region_metrics_when_available() -> None:

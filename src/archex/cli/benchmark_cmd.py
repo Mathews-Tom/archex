@@ -30,12 +30,14 @@ from archex.benchmark.gate import (
     non_token_quality_warnings,
     token_efficiency_violations,
 )
+from archex.benchmark.graphify import GraphifyAdapterError
 from archex.benchmark.headroom import HeadroomAdapterError
 from archex.benchmark.headtohead import (
     HeadToHeadManifestError,
     format_headtohead_markdown,
     load_headtohead_manifest,
     load_headtohead_results,
+    reports_with_graphify_lanes,
     run_headtohead,
 )
 from archex.benchmark.loader import load_arch_tasks, load_delta_tasks, load_tasks
@@ -1024,8 +1026,9 @@ def headtohead_report_cmd(input_dir: str, output_format: str) -> None:
     if not reports:
         raise click.ClickException(f"No result files found in {input_dir}")
     try:
-        click.echo(format_headtohead_markdown(manifest, reports))
-    except HeadToHeadManifestError as exc:
+        augmented_reports = reports_with_graphify_lanes(manifest, reports)
+        click.echo(format_headtohead_markdown(manifest, augmented_reports))
+    except (GraphifyAdapterError, HeadToHeadManifestError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 
@@ -1059,11 +1062,12 @@ def headtohead_competitive_cmd(input_dir: str, output_format: str) -> None:
     if not reports:
         raise click.ClickException(f"No result files found in {input_dir}")
     try:
+        augmented_reports = reports_with_graphify_lanes(manifest, reports)
         compression_results = load_compression_results(
-            manifest, [report.task_id for report in reports]
+            manifest, [report.task_id for report in augmented_reports]
         )
-        click.echo(format_competitive_markdown(manifest, reports, compression_results))
-    except (HeadToHeadManifestError, HeadroomAdapterError) as exc:
+        click.echo(format_competitive_markdown(manifest, augmented_reports, compression_results))
+    except (GraphifyAdapterError, HeadToHeadManifestError, HeadroomAdapterError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 

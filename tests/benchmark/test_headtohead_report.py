@@ -10,6 +10,8 @@ from archex.benchmark.models import (
     BenchmarkReport,
     BenchmarkResult,
     ExternalToolBenchmarkConfig,
+    GraphifyLaneConfig,
+    GraphifyLaneName,
     HeadToHeadManifest,
     Strategy,
 )
@@ -18,7 +20,12 @@ if TYPE_CHECKING:
     import pytest
 
 
-def _result(strategy: Strategy, *, label: str | None = None) -> BenchmarkResult:
+def _result(
+    strategy: Strategy,
+    *,
+    label: str | None = None,
+    provenance: dict[str, str] | None = None,
+) -> BenchmarkResult:
     return BenchmarkResult(
         task_id="task_a",
         strategy=strategy,
@@ -42,7 +49,8 @@ def _result(strategy: Strategy, *, label: str | None = None) -> BenchmarkResult:
         cold_start_ms=2.0,
         cached=True,
         timestamp="2026-06-11T00:00:00Z",
-        provenance={
+        provenance=provenance
+        or {
             "external_tool": label or strategy.value,
             "external_tool_version": "0.2.35",
             "external_tool_embedder": "Snowflake/snowflake-arctic-embed-xs",
@@ -87,6 +95,59 @@ def test_format_headtohead_markdown_keeps_all_lanes_and_provenance() -> None:
     assert "field=freshness_correct" in output
     assert "field=bundle_completion_tokens" in output
     assert "No winner filtering" in output
+
+
+def test_format_headtohead_markdown_includes_graphify_lane_provenance() -> None:
+    manifest = HeadToHeadManifest(
+        name="comparison",
+        task_subset=["task_a"],
+        hardware_notes="M1 Pro",
+        external_tools=[
+            ExternalToolBenchmarkConfig(
+                name="ccc",
+                version="0.2.35",
+                command="ccc",
+                args=["mcp"],
+                embedder="Snowflake/snowflake-arctic-embed-xs",
+            )
+        ],
+        graphify_lanes=[
+            GraphifyLaneConfig(
+                name=GraphifyLaneName.GRAPHIFY_QUERY_WARM,
+                version="0.8.44",
+                command="graphify",
+                includes_build_cost=False,
+            )
+        ],
+    )
+    report = BenchmarkReport(
+        task_id="task_a",
+        repo="owner/repo",
+        question="How?",
+        baseline_tokens=400,
+        results=[
+            _result(Strategy.ARCHEX_QUERY),
+            _result(Strategy.EXTERNAL_MCP, label="ccc"),
+            _result(
+                Strategy.EXTERNAL_MCP,
+                label="graphify_query_warm",
+                provenance={
+                    "external_tool": "graphify_query_warm",
+                    "external_tool_version": "0.8.44",
+                    "graphify_package": "graphifyy",
+                    "graphify_run_mode": "artifact",
+                },
+            ),
+            _result(Strategy.RAW_RIPGREP),
+        ],
+    )
+
+    output = format_headtohead_markdown(manifest, [report])
+
+    assert "| graphify_query_warm |" in output
+    assert "package=graphifyy; version=0.8.44; mode=warm-query; run=artifact" in output
+    assert "Graphify rows are graph / memory-layer lanes" in output
+    assert "Optional Graphify follow-up lanes are artifact-backed in this report." in output
 
 
 def test_run_headtohead_copies_manifest_and_uses_external_config(
