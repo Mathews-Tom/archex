@@ -33,17 +33,26 @@ from archex.cache import CacheManager
 from archex.exceptions import ArchexError, ConfigError
 from archex.models import (
     ChunkerName,
+    CodeChunk,
+    CompressionLossRisk,
     CompressionMetadata,
     CompressionMode,
     ContextBundle,
     ContextCompletenessStatus,
+    ContextReceiptItem,
     IndexConfig,
     PipelineTiming,
     RankedChunk,
     RepoSource,
 )
 from archex.reporting import count_tokens
-from archex.serve.modality import classify_query
+from archex.serve.modality import budget_tier, classify_query
+from archex.serve.packing import (
+    PackDecision,
+    PackingCandidate,
+    PackingSignals,
+    pack_efficiently,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1447,6 +1456,314 @@ def run_archex_query_compressed(task: BenchmarkTask, repo_path: Path) -> Benchma
     return result
 
 
+# Loss risk recorded for a region whose body is dropped to a fetch anchor. The
+# original stays retrievable via the handle and original hash, but the displayed
+# text no longer carries the body, so it is not a low-risk representation.
+_ELIDE_ANCHOR_RISK = CompressionLossRisk.MEDIUM
+
+
+def _elide_anchor(original_tokens: int, handle: str) -> str:
+    return (
+        f"... [archex packed: {original_tokens}-token region elided; fetch original: {handle}] ..."
+    )
+
+
+def _shape_packed_region(
+    chunk: CodeChunk,
+    item: ContextReceiptItem | None,
+    *,
+    original: str,
+    new_content: str,
+    mode: CompressionMode,
+    loss_risk: CompressionLossRisk,
+) -> int:
+    """Rewrite a region's content and record compression provenance; return new tokens."""
+    from archex.receipt import region_content_hash
+
+    original_tokens = count_tokens(original)
+    new_tokens = count_tokens(new_content)
+    chunk.content = new_content
+    chunk.token_count = new_tokens
+    if item is not None:
+        item.compression = CompressionMetadata(
+            compression_mode=mode,
+            original_tokens=original_tokens,
+            compressed_tokens=new_tokens,
+            compression_ratio=(new_tokens / original_tokens) if original_tokens else 1.0,
+            original_content_hash=region_content_hash(
+                chunk.file_path, chunk.start_line, chunk.end_line, original
+            ),
+            compressed_content_hash=region_content_hash(
+                chunk.file_path, chunk.start_line, chunk.end_line, new_content
+            ),
+            fetch_original_handle=item.handle,
+            compression_loss_risk=loss_risk,
+        )
+    return new_tokens
+
+
+@dataclass
+class _BundlePacking:
+    """Packed bundle plus the benchmark result fields and provenance it produces."""
+
+    bundle: ContextBundle
+    result_fields: dict[str, float | int | None]
+    provenance: dict[str, str]
+
+
+def _pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
+    """Re-pack an assembled bundle for relevance-per-token within the same budget.
+
+    Retrieval is untouched: the bundle's chunks are the candidate pool. The
+    efficiency-aware packer preserves direct/high-confidence targets, prefers
+    smaller enclosing evidence over whole-file context under non-large budgets,
+    compresses only low-risk regions, and skips or anchors low-value graph-distant
+    context. Receipts keep the original handle/hash for every shaped region so the
+    exact source stays retrievable; no benchmark ground truth is consulted.
+    """
+    from archex.scout import chunk_handle
+    from archex.serve.compression import RegionCompression, compress_region
+    from archex.serve.intent import QueryIntent, classify_intent
+
+    intent = classify_intent(question)
+    protect_code = intent == QueryIntent.DEBUGGING
+    meta = bundle.retrieval_metadata
+    seed_paths = set(meta.seed_file_paths)
+    expanded_paths = set(meta.expanded_file_paths)
+    top_score = max((rc.final_score for rc in bundle.chunks), default=0.0)
+
+    direct_by_id: dict[str, bool] = {}
+    file_direct_counts: dict[str, int] = {}
+    for index, ranked in enumerate(bundle.chunks):
+        direct = _passthrough_required(
+            index,
+            ranked,
+            seed_paths=seed_paths,
+            expanded_paths=expanded_paths,
+            top_score=top_score,
+        )
+        direct_by_id[ranked.chunk.id] = direct
+        if direct:
+            file_direct_counts[ranked.chunk.file_path] = (
+                file_direct_counts.get(ranked.chunk.file_path, 0) + 1
+            )
+
+    candidates: list[PackingCandidate] = []
+    outcomes: dict[str, RegionCompression] = {}
+    original_tokens_by_id: dict[str, int] = {}
+    score_by_id: dict[str, float] = {}
+    for ranked in bundle.chunks:
+        chunk = ranked.chunk
+        direct = direct_by_id[chunk.id]
+        handle = chunk_handle(chunk.id)
+        original_tokens = count_tokens(chunk.content)
+        original_tokens_by_id[chunk.id] = original_tokens
+        normalized = (ranked.final_score / top_score) if top_score > 0 else 0.0
+        score_by_id[chunk.id] = normalized
+        elided_tokens = count_tokens(_elide_anchor(original_tokens, handle))
+        outcome = compress_region(
+            chunk.content,
+            language=chunk.language,
+            fetch_original_handle=handle,
+            required=direct,
+            protect_code=protect_code,
+        )
+        eligible = outcome is not None and outcome.mode is not CompressionMode.PASSTHROUGH_REQUIRED
+        if eligible and outcome is not None:
+            outcomes[chunk.id] = outcome
+            compressed_tokens = count_tokens(outcome.content)
+            loss_risk = outcome.loss_risk
+        else:
+            compressed_tokens = original_tokens
+            loss_risk = CompressionLossRisk.NONE
+        direct_or_seed = direct or chunk.file_path in seed_paths
+        candidates.append(
+            PackingCandidate(
+                signals=PackingSignals(
+                    candidate_id=chunk.id,
+                    file_path=chunk.file_path,
+                    retrieval_score=normalized,
+                    direct_match=direct,
+                    graph_distance=0 if direct_or_seed else 1,
+                    graph_edge_confidence=1.0 if direct_or_seed else 0.5,
+                    token_count=original_tokens,
+                    compression_eligible=eligible,
+                    compression_loss_risk=loss_risk,
+                    handle_priority=0.0,
+                    whole_file=chunk.symbol_name is None,
+                    file_evidence_regions=file_direct_counts.get(chunk.file_path, 0),
+                    protect_code=protect_code,
+                ),
+                compressed_token_count=compressed_tokens,
+                elided_token_count=elided_tokens,
+            )
+        )
+
+    tier = budget_tier(bundle.token_budget)
+    plan = pack_efficiently(candidates, token_budget=bundle.token_budget, budget_tier=tier)
+    decisions = {region.candidate_id: region.decision for region in plan.regions}
+
+    packed = bundle.model_copy(deep=True)
+    receipt_items = (
+        {item.handle: item for item in packed.receipt.returned_context}
+        if packed.receipt is not None
+        else {}
+    )
+
+    kept: list[RankedChunk] = []
+    kept_handles: set[str] = set()
+    actual_counts = dict.fromkeys(PackDecision, 0)
+    uncompressed_tokens = 0
+    delivered_mass = 0.0
+    passthrough_required_tokens = 0
+    compressed_required_tokens = 0
+    hidden_required = 0
+    for ranked in packed.chunks:
+        chunk = ranked.chunk
+        original_tokens = original_tokens_by_id[chunk.id]
+        uncompressed_tokens += original_tokens
+        decision = decisions.get(chunk.id, PackDecision.SKIP)
+        if decision is PackDecision.SKIP:
+            actual_counts[PackDecision.SKIP] += 1
+            continue
+        direct = direct_by_id[chunk.id]
+        handle = chunk_handle(chunk.id)
+        item = receipt_items.get(handle)
+        if decision is PackDecision.ELIDE:
+            # Drop the body to a fetch anchor, unless the anchor would not be
+            # smaller than the region — then keep it verbatim rather than grow it.
+            anchor = _elide_anchor(original_tokens, handle)
+            if count_tokens(anchor) < original_tokens:
+                _shape_packed_region(
+                    chunk,
+                    item,
+                    original=chunk.content,
+                    new_content=anchor,
+                    mode=CompressionMode.STRUCTURAL_CODE_ELISION,
+                    loss_risk=_ELIDE_ANCHOR_RISK,
+                )
+                actual_counts[PackDecision.ELIDE] += 1
+                if direct:
+                    compressed_required_tokens += count_tokens(anchor)
+                    hidden_required += 1
+            else:
+                decision = PackDecision.INCLUDE
+        if decision is PackDecision.INCLUDE:
+            actual_counts[PackDecision.INCLUDE] += 1
+            delivered_mass += score_by_id[chunk.id]
+            if direct:
+                passthrough_required_tokens += original_tokens
+        elif decision is PackDecision.COMPRESS:
+            outcome = outcomes[chunk.id]
+            new_tokens = _shape_packed_region(
+                chunk,
+                item,
+                original=chunk.content,
+                new_content=outcome.content,
+                mode=outcome.mode,
+                loss_risk=outcome.loss_risk,
+            )
+            actual_counts[PackDecision.COMPRESS] += 1
+            delivered_mass += score_by_id[chunk.id]
+            if direct:
+                compressed_required_tokens += new_tokens
+                hidden_required += 1
+        kept.append(ranked)
+        kept_handles.add(handle)
+
+    packed.chunks = kept
+    packed_tokens = sum(count_tokens(rc.chunk.content) for rc in kept)
+    packed.token_count = packed_tokens
+    if packed.receipt is not None:
+        packed.receipt.returned_context = [
+            item for item in packed.receipt.returned_context if item.handle in kept_handles
+        ]
+        packed.receipt.returned_total = len(packed.receipt.returned_context)
+        packed.receipt.token_budget.consumed = packed_tokens
+
+    relevance_per_1k = (delivered_mass / packed_tokens * 1000.0) if packed_tokens else 0.0
+    bundle_ratio = (packed_tokens / uncompressed_tokens) if uncompressed_tokens else 1.0
+    result_fields: dict[str, float | int | None] = {
+        "bundle_tokens_uncompressed": uncompressed_tokens,
+        "bundle_tokens_compressed": packed_tokens,
+        "bundle_compression_ratio": bundle_ratio,
+        "required_context_passthrough_tokens": passthrough_required_tokens,
+        "required_context_compressed_tokens": compressed_required_tokens,
+        "compression_hidden_required_region_count": hidden_required,
+        "packed_relevance_per_1k_tokens": relevance_per_1k,
+        "packing_included_regions": actual_counts[PackDecision.INCLUDE],
+        "packing_compressed_regions": actual_counts[PackDecision.COMPRESS],
+        "packing_elided_regions": actual_counts[PackDecision.ELIDE],
+        "packing_skipped_regions": actual_counts[PackDecision.SKIP],
+    }
+    provenance = {
+        "budget_tier": tier.value,
+        "query_intent": intent.value,
+        "protect_code": str(protect_code).lower(),
+        "include_count": str(actual_counts[PackDecision.INCLUDE]),
+        "compress_count": str(actual_counts[PackDecision.COMPRESS]),
+        "elide_count": str(actual_counts[PackDecision.ELIDE]),
+        "skip_count": str(actual_counts[PackDecision.SKIP]),
+        "direct_match_count": str(sum(1 for v in direct_by_id.values() if v)),
+        "hidden_required_count": str(hidden_required),
+        "bundle_compression_ratio": f"{bundle_ratio:.4f}",
+        "relevance_per_1k_tokens": f"{relevance_per_1k:.4f}",
+    }
+    return _BundlePacking(bundle=packed, result_fields=result_fields, provenance=provenance)
+
+
+def run_archex_query_efficiency_packed(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: archex query retrieval, then efficiency-aware packing.
+
+    Runs the exact ``archex_query`` retrieval path, then re-packs the assembled
+    bundle with the efficiency-aware packer to maximize relevance per token while
+    preserving direct/high-confidence targets. The packed bundle is the lane's
+    returned context, so retrieval metrics reflect the packed selection; receipts
+    and compression metadata are preserved. The product default is unchanged.
+    """
+    strategy = Strategy.ARCHEX_QUERY_EFFICIENCY_PACKED
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    packing = _pack_bundle(bundle, question=task.question)
+    wall_ms = (time.perf_counter() - t0) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=packing.bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    fields = dict(packing.result_fields)
+    # The packed bundle is the returned context, so its with-completion efficiency
+    # already reflects packing; mirror it into the shared compression-efficiency
+    # field so reports can compare normal/compressed/efficiency-packed lanes.
+    fields["token_efficiency_with_compression_and_completion"] = (
+        result.token_efficiency_with_completion
+    )
+    result = result.model_copy(update=fields)
+    result.provenance = packing.provenance
+    logger.info(
+        "Strategy %s for %s: ratio=%s included=%s skipped=%s wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        packing.provenance["bundle_compression_ratio"],
+        packing.provenance["include_count"],
+        packing.provenance["skip_count"],
+        wall_ms,
+    )
+    return result
+
+
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
     from archex.api import query, scout_with_bundle
@@ -2051,5 +2368,8 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_COMPRESSED.value, run_archex_query_compressed
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_EFFICIENCY_PACKED.value, run_archex_query_efficiency_packed
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)
