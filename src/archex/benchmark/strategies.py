@@ -27,6 +27,7 @@ from archex.benchmark.region_metrics import (
     ReturnedRegion,
     compute_region_metrics,
 )
+from archex.benchmark.task_aware import DenseTrigger, TaskAwarePolicy, policy_for
 from archex.cache import CacheManager
 from archex.exceptions import ArchexError, ConfigError
 from archex.models import (
@@ -38,6 +39,7 @@ from archex.models import (
     RepoSource,
 )
 from archex.reporting import count_tokens
+from archex.serve.modality import classify_query
 
 logger = logging.getLogger(__name__)
 
@@ -1044,45 +1046,50 @@ def _region_result_fields(
     return metrics.as_result_fields() if metrics is not None else {}
 
 
-def _run_query_strategy(
+def _query_bundle(
     task: BenchmarkTask,
     repo_path: Path,
     *,
     strategy: Strategy,
     index_config: IndexConfig,
     cache: bool,
-    include_completion: bool = True,
-    measure_freshness: bool = False,
-) -> BenchmarkResult:
+) -> tuple[ContextBundle, IndexConfig, PipelineTiming]:
+    """Run the query pipeline once; return the bundle and effective index config."""
     from archex.api import query
     from archex.models import Config
 
-    t0 = time.perf_counter()
     timing = PipelineTiming()
     source = benchmark_repo_source(task, repo_path, strategy=strategy)
     config = Config(cache=cache, languages=task.languages)
-    index_config = benchmark_index_config(index_config, strategy=strategy)
+    effective_config = benchmark_index_config(index_config, strategy=strategy)
     bundle = query(
         source,
         task.question,
         token_budget=task.token_budget,
         explicit_token_budget=True,
         config=config,
-        index_config=index_config,
+        index_config=effective_config,
         timing=timing,
     )
+    return bundle, effective_config, timing
 
+
+def _assemble_query_result(
+    task: BenchmarkTask,
+    repo_path: Path,
+    *,
+    strategy: Strategy,
+    index_config: IndexConfig,
+    bundle: ContextBundle,
+    timing: PipelineTiming,
+    wall_ms: float,
+    include_completion: bool = True,
+    measure_freshness: bool = False,
+) -> BenchmarkResult:
+    """Build a BenchmarkResult from an already-retrieved bundle."""
     ranked_files = [chunk.chunk.file_path for chunk in bundle.chunks]
     unique_ranked = _deduplicate_ranked(ranked_files)
     result_files = set(unique_ranked)
-    wall_ms = (time.perf_counter() - t0) * 1000
-    logger.info(
-        "Strategy %s for %s: cached=%s, wall_time=%.1fms",
-        strategy.value,
-        task.task_id,
-        timing.cached,
-        wall_ms,
-    )
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
     required_metrics = compute_required_file_metrics(
@@ -1185,6 +1192,41 @@ def _run_query_strategy(
         )
     result_fields.update(_region_result_fields(bundle, task))
     return BenchmarkResult(**result_fields)
+
+
+def _run_query_strategy(
+    task: BenchmarkTask,
+    repo_path: Path,
+    *,
+    strategy: Strategy,
+    index_config: IndexConfig,
+    cache: bool,
+    include_completion: bool = True,
+    measure_freshness: bool = False,
+) -> BenchmarkResult:
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task, repo_path, strategy=strategy, index_config=index_config, cache=cache
+    )
+    wall_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "Strategy %s for %s: cached=%s, wall_time=%.1fms",
+        strategy.value,
+        task.task_id,
+        timing.cached,
+        wall_ms,
+    )
+    return _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=include_completion,
+        measure_freshness=measure_freshness,
+    )
 
 
 def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
@@ -1564,6 +1606,171 @@ def run_cross_layer_fusion(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
     )
 
 
+def _vector_dependencies_available() -> bool:
+    """Return True when an embedding backend (fastembed/sentence-transformers) imports."""
+    try:
+        import fastembed as _fe  # noqa: F401  # pyright: ignore[reportUnusedImport]
+
+        return True
+    except ImportError:
+        pass
+    try:
+        import sentence_transformers as _st  # noqa: F401  # pyright: ignore[reportUnusedImport]
+
+        return True
+    except ImportError:
+        return False
+
+
+def _sparse_confidence(bundle: ContextBundle, *, window: int) -> tuple[float, float, int]:
+    """Return (top_score, relative_rank1_gap, candidate_count) over the top window.
+
+    The relative gap between the first and second scores is the cheap diffuseness
+    signal: a large gap means the top result clearly stands out (confident
+    sparse), a small gap means the top scores are diffuse.
+    """
+    scores = [chunk.final_score for chunk in bundle.chunks[:window]]
+    count = len(scores)
+    top = scores[0] if scores else 0.0
+    if count >= 2 and top > 0:
+        relative_gap = (scores[0] - scores[1]) / top
+    elif count == 1:
+        relative_gap = 1.0
+    else:
+        relative_gap = 0.0
+    return top, relative_gap, count
+
+
+def _should_expand_dense(
+    policy: TaskAwarePolicy, *, relative_gap: float, candidate_count: int
+) -> bool:
+    """Decide whether the conditional dense pass should run for a sparse-first policy.
+
+    Both conditional triggers — ``LOW_SPARSE_CONFIDENCE`` (pl_to_pl) and
+    ``DIFFUSE_TOP_SCORES`` (mixed) — share the same cheap signal: a small rank-1
+    relative gap means the top result does not clearly dominate, which is the
+    proxy for both "sparse confidence is low" and "top scores are diffuse". An
+    empty candidate set always expands. The absolute top score is recorded as a
+    diagnostic provenance signal but does not drive this decision.
+    """
+    if candidate_count == 0:
+        return True
+    return relative_gap < policy.diffuse_gap_threshold
+
+
+def _task_aware_index_config(policy: TaskAwarePolicy, *, vector: bool) -> IndexConfig:
+    """Bounded IndexConfig for a task-aware pass.
+
+    The cross-encoder reranker is disabled; confidence-aware fusion is governed by
+    the default retrieval policy when ``vector`` is True.
+    """
+    return IndexConfig(
+        vector=vector,
+        quantize_vectors=False,
+        rerank=False,
+        rerank_candidate_limit=policy.rerank_candidate_limit,
+    )
+
+
+def run_archex_query_task_aware(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only task-aware lane: route sparse/dense retrieval by modality + budget.
+
+    Classifies the query modality and budget tier, derives a deterministic
+    TaskAwarePolicy, and runs a sparse-first BM25 pass (or a bounded hybrid pass
+    for nl_to_pl). For pl_to_pl/mixed it may run one targeted dense expansion pass
+    when the top sparse scores are diffuse. The cross-encoder reranker is never
+    run; confidence-aware fusion runs only on the hybrid/dense pass. Work is
+    bounded to at most two retrieval passes. Strategy provenance records modality,
+    budget tier, the routing decision, candidate caps, skipped expensive steps,
+    and whether fusion ran. Product defaults are unchanged.
+    """
+    strategy = Strategy.ARCHEX_QUERY_TASK_AWARE
+    classification = classify_query(task.question, task.token_budget)
+    policy = policy_for(classification)
+    vector_available = _vector_dependencies_available()
+
+    t0 = time.perf_counter()
+    initial_vector = policy.use_vector_initial and vector_available
+    if policy.use_vector_initial and not vector_available:
+        initial_pass = "bm25_only(vector_unavailable_fallback)"
+    else:
+        initial_pass = "hybrid" if initial_vector else "bm25_only"
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=_task_aware_index_config(policy, vector=initial_vector),
+        cache=True,
+    )
+    initial_cached = timing.cached
+    initial_cache_state = _cache_state(timing)
+
+    top_score, relative_gap, candidate_count = _sparse_confidence(
+        bundle, window=policy.candidate_cap
+    )
+
+    if policy.dense_trigger is DenseTrigger.NEVER:
+        dense_expansion = "disabled"
+    elif policy.dense_trigger is DenseTrigger.ALWAYS:
+        dense_expansion = "initial_hybrid" if initial_vector else "skipped:vector_unavailable"
+    elif not _should_expand_dense(
+        policy, relative_gap=relative_gap, candidate_count=candidate_count
+    ):
+        dense_expansion = "skipped:confident_sparse"
+    elif not vector_available:
+        dense_expansion = "skipped:vector_unavailable"
+    else:
+        bundle, effective_config, timing = _query_bundle(
+            task,
+            repo_path,
+            strategy=strategy,
+            index_config=_task_aware_index_config(policy, vector=True),
+            cache=True,
+        )
+        # Report cache state across both passes: warm only if neither built work.
+        timing.cached = initial_cached and timing.cached
+        dense_expansion = "ran"
+
+    wall_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "Strategy %s for %s: modality=%s tier=%s dense=%s wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        classification.modality.value,
+        classification.budget_tier.value,
+        dense_expansion,
+        wall_ms,
+    )
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    routing_decision = (
+        f"{initial_pass}+dense_expansion" if dense_expansion == "ran" else initial_pass
+    )
+    fusion_used = initial_vector or dense_expansion == "ran"
+    runtime_provenance = {
+        "routing_decision": routing_decision,
+        "initial_pass": initial_pass,
+        "dense_expansion": dense_expansion,
+        "fusion_used": str(fusion_used).lower(),
+        "sparse_top_score": f"{top_score:.4f}",
+        "sparse_relative_gap": f"{relative_gap:.4f}",
+        "sparse_candidate_count": str(candidate_count),
+        "initial_cache_state": initial_cache_state,
+        "vector_dependencies_available": str(vector_available).lower(),
+    }
+    result.provenance = classification.to_provenance() | policy.to_provenance() | runtime_provenance
+    return result
+
+
 class StrategyRegistry:
     """Registry for benchmark strategy runners with entry-point support."""
 
@@ -1634,4 +1841,7 @@ default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_FUSION_RERANK.value, run_archex_query_fusion_rerank
 )
 default_strategy_registry.register(Strategy.CROSS_LAYER_FUSION.value, run_cross_layer_fusion)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_TASK_AWARE.value, run_archex_query_task_aware
+)
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)

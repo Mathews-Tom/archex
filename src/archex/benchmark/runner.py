@@ -47,6 +47,7 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
     Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT,
     Strategy.ARCHEX_QUERY_FUSION_RERANK,
     Strategy.CROSS_LAYER_FUSION,
+    Strategy.ARCHEX_QUERY_TASK_AWARE,
 ]
 
 _VECTOR_STRATEGIES: frozenset[Strategy] = frozenset(
