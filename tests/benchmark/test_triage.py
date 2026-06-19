@@ -237,3 +237,61 @@ def test_format_triage_json_serializes_expansion_diagnostics() -> None:
     assert payload[0]["expansion_ratio"] == 0.5
     assert payload[0]["expansion_diagnostics"]["eligible_seeds"] == 1
     assert payload[0]["expansion_diagnostics"]["candidates_found"] == 2
+
+
+def _region_result(**fields: float) -> BenchmarkResult:
+    base = _result(Strategy.ARCHEX_QUERY, recall=1.0, precision=1.0, f1_score=1.0)
+    return base.model_copy(update=fields)
+
+
+def test_triage_flags_region_miss_when_file_recall_ok() -> None:
+    result = _region_result(region_recall=0.1, ranked_region_mrr=0.9, context_noise_ratio=0.1)
+    findings = triage_failures(
+        [_report("rmiss", result)],
+        {"rmiss": _task("rmiss", TaskCategory.SELF)},
+    )
+    assert len(findings) == 1
+    assert findings[0].failure_bucket == "region_miss"
+    assert "region_miss" in findings[0].failure_reasons
+
+
+def test_triage_flags_ranking_miss() -> None:
+    result = _region_result(region_recall=0.9, ranked_region_mrr=0.1, context_noise_ratio=0.1)
+    findings = triage_failures(
+        [_report("rank", result)],
+        {"rank": _task("rank", TaskCategory.SELF)},
+    )
+    assert findings[0].failure_bucket == "ranking_miss"
+    assert "ranking_miss" in findings[0].failure_reasons
+
+
+def test_triage_flags_token_noise() -> None:
+    result = _region_result(region_recall=0.9, ranked_region_mrr=0.9, context_noise_ratio=0.95)
+    findings = triage_failures(
+        [_report("noise", result)],
+        {"noise": _task("noise", TaskCategory.SELF)},
+    )
+    assert findings[0].failure_bucket == "token_noise"
+    assert "token_noise" in findings[0].failure_reasons
+
+
+def test_triage_skips_healthy_region_labeled_result() -> None:
+    result = _region_result(region_recall=0.9, ranked_region_mrr=0.9, context_noise_ratio=0.1)
+    findings = triage_failures(
+        [_report("ok", result)],
+        {"ok": _task("ok", TaskCategory.SELF)},
+    )
+    assert findings == []
+
+
+def test_triage_json_includes_region_metrics() -> None:
+    result = _region_result(
+        region_recall=0.1, line_recall=0.2, ranked_region_mrr=0.9, context_noise_ratio=0.1
+    )
+    findings = triage_failures(
+        [_report("rmiss", result)],
+        {"rmiss": _task("rmiss", TaskCategory.SELF)},
+    )
+    payload = json.loads(format_triage_json(findings))
+    assert payload[0]["region_metrics"]["region_recall"] == 0.1
+    assert payload[0]["region_metrics"]["line_recall"] == 0.2

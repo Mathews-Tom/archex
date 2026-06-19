@@ -31,6 +31,13 @@ class QualityThresholds(BaseModel):
     min_receipt_accuracy: float = 0.0
     min_token_efficiency_with_completion: float = 0.0
     max_completion_efficiency_regression: float = 0.0
+    # Optional region/line retrieval-quality thresholds. Defaults are permissive
+    # so they never fire unless explicitly configured. Results whose optional
+    # region metric is None (no expected-region labels) are always ignored.
+    min_region_recall: float = 0.0
+    min_line_recall: float = 0.0
+    max_context_noise_ratio: float = 1.0
+    min_relevance_per_1k_tokens: float = 0.0
     # Latency: warn-only, does not fail the gate
     warn_latency_ms: float = 5000.0
     # Strategies exempt from gate checks (results are informational only)
@@ -88,6 +95,20 @@ def _minimum_gate_checks(t: QualityThresholds, strategy: str) -> list[tuple[str,
 
 def _maximum_gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
     return [("missed_required_task_rate", t.max_missed_required_task_rate)]
+
+
+def _optional_minimum_gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
+    """Minimum checks for optional region metrics; skipped when the value is None."""
+    return [
+        ("region_recall", t.min_region_recall),
+        ("line_recall", t.min_line_recall),
+        ("relevance_per_1k_tokens", t.min_relevance_per_1k_tokens),
+    ]
+
+
+def _optional_maximum_gate_checks(t: QualityThresholds) -> list[tuple[str, float]]:
+    """Maximum checks for optional region metrics; skipped when the value is None."""
+    return [("context_noise_ratio", t.max_context_noise_ratio)]
 
 
 def _receipt_accuracy_score(value: bool | None) -> float:
@@ -150,6 +171,34 @@ def check_gate(
                         actual=actual,
                     )
                 )
+            for metric_name, threshold_val in _optional_minimum_gate_checks(effective):
+                actual = getattr(r, metric_name)
+                if actual is None:
+                    continue
+                if actual < threshold_val:
+                    violations.append(
+                        GateViolation(
+                            task_id=r.task_id,
+                            strategy=strategy_val,
+                            metric=metric_name,
+                            threshold=threshold_val,
+                            actual=actual,
+                        )
+                    )
+            for metric_name, threshold_val in _optional_maximum_gate_checks(effective):
+                actual = getattr(r, metric_name)
+                if actual is None:
+                    continue
+                if actual > threshold_val:
+                    violations.append(
+                        GateViolation(
+                            task_id=r.task_id,
+                            strategy=strategy_val,
+                            metric=metric_name,
+                            threshold=threshold_val,
+                            actual=actual,
+                        )
+                    )
     return violations
 
 

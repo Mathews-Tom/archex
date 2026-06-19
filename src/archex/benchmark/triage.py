@@ -12,6 +12,9 @@ from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkT
 LOW_F1_THRESHOLD = 0.40
 LOW_PRECISION_THRESHOLD = 0.35
 RAW_READ_GAP_THRESHOLD = 0.25
+LOW_REGION_RECALL_THRESHOLD = 0.40
+LOW_RANKED_REGION_MRR_THRESHOLD = 0.40
+HIGH_CONTEXT_NOISE_THRESHOLD = 0.75
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,13 @@ class TriageFinding:
     raw_read_recall: float | None
     raw_read_precision: float | None
     raw_read_f1_score: float | None
+    region_recall: float | None
+    region_precision: float | None
+    line_recall: float | None
+    ranked_region_mrr: float | None
+    ranked_region_ndcg: float | None
+    context_noise_ratio: float | None
+    relevance_per_1k_tokens: float | None
     failure_bucket: str
     failure_reasons: list[str]
     rank_score: float
@@ -89,6 +99,15 @@ class TriageFinding:
                 "recall": self.raw_read_recall,
                 "precision": self.raw_read_precision,
                 "f1_score": self.raw_read_f1_score,
+            },
+            "region_metrics": {
+                "region_recall": self.region_recall,
+                "region_precision": self.region_precision,
+                "line_recall": self.line_recall,
+                "ranked_region_mrr": self.ranked_region_mrr,
+                "ranked_region_ndcg": self.ranked_region_ndcg,
+                "context_noise_ratio": self.context_noise_ratio,
+                "relevance_per_1k_tokens": self.relevance_per_1k_tokens,
             },
             "failure_bucket": self.failure_bucket,
             "failure_reasons": self.failure_reasons,
@@ -165,6 +184,13 @@ def triage_failures(
                 raw_read_recall=raw_read.recall if raw_read is not None else None,
                 raw_read_precision=raw_read.precision if raw_read is not None else None,
                 raw_read_f1_score=raw_read.f1_score if raw_read is not None else None,
+                region_recall=result.region_recall,
+                region_precision=result.region_precision,
+                line_recall=result.line_recall,
+                ranked_region_mrr=result.ranked_region_mrr,
+                ranked_region_ndcg=result.ranked_region_ndcg,
+                context_noise_ratio=result.context_noise_ratio,
+                relevance_per_1k_tokens=result.relevance_per_1k_tokens,
                 failure_bucket=bucket,
                 failure_reasons=reasons,
                 rank_score=_rank_score(result, raw_read, category, bucket),
@@ -216,6 +242,16 @@ def format_triage_markdown(findings: list[TriageFinding]) -> str:
                 f"recall `{finding.raw_read_recall:.3f}`, "
                 f"precision `{finding.raw_read_precision:.3f}`, "
                 f"F1 `{finding.raw_read_f1_score:.3f}`"
+            )
+        if finding.region_recall is not None:
+            lines.append(
+                "- Region metrics: "
+                f"region recall `{finding.region_recall:.3f}`, "
+                f"line recall `{_fmt_optional_metric(finding.line_recall)}`, "
+                f"ranked MRR `{_fmt_optional_metric(finding.ranked_region_mrr)}`, "
+                f"ranked nDCG `{_fmt_optional_metric(finding.ranked_region_ndcg)}`, "
+                f"context noise `{_fmt_optional_metric(finding.context_noise_ratio)}`, "
+                f"relevance/1k `{_fmt_optional_metric(finding.relevance_per_1k_tokens)}`"
             )
         lines.append(
             "- Expansion: "
@@ -312,6 +348,18 @@ def _failure_reasons(
         reasons.append("external_large_failure")
     if category == "framework-semantic" and result.f1_score < LOW_F1_THRESHOLD:
         reasons.append("framework_semantic_failure")
+    if result.region_recall is not None and result.region_recall < LOW_REGION_RECALL_THRESHOLD:
+        reasons.append("region_miss")
+    if (
+        result.ranked_region_mrr is not None
+        and result.ranked_region_mrr < LOW_RANKED_REGION_MRR_THRESHOLD
+    ):
+        reasons.append("ranking_miss")
+    if (
+        result.context_noise_ratio is not None
+        and result.context_noise_ratio > HIGH_CONTEXT_NOISE_THRESHOLD
+    ):
+        reasons.append("token_noise")
     return reasons
 
 
@@ -323,6 +371,18 @@ def _failure_bucket(
 ) -> str:
     if result.recall <= 0.0:
         return "zero_recall"
+    if result.region_recall is not None and result.region_recall < LOW_REGION_RECALL_THRESHOLD:
+        return "region_miss"
+    if (
+        result.ranked_region_mrr is not None
+        and result.ranked_region_mrr < LOW_RANKED_REGION_MRR_THRESHOLD
+    ):
+        return "ranking_miss"
+    if (
+        result.context_noise_ratio is not None
+        and result.context_noise_ratio > HIGH_CONTEXT_NOISE_THRESHOLD
+    ):
+        return "token_noise"
     if category == "external-large":
         return "large_repo_ambiguity"
     if category == "framework-semantic":
@@ -373,6 +433,12 @@ def _rank_score(
         score += 10.0
     if bucket == "expansion_noise":
         score += 5.0
+    if result.region_recall is not None:
+        score += max(0.0, LOW_REGION_RECALL_THRESHOLD - result.region_recall) * 15.0
+    if result.ranked_region_mrr is not None:
+        score += max(0.0, LOW_RANKED_REGION_MRR_THRESHOLD - result.ranked_region_mrr) * 8.0
+    if result.context_noise_ratio is not None:
+        score += max(0.0, result.context_noise_ratio - HIGH_CONTEXT_NOISE_THRESHOLD) * 8.0
     return score
 
 
@@ -384,6 +450,10 @@ def _inline_files(files: list[str]) -> str:
     if not files:
         return "none"
     return "<br>".join(f"`{path}`" for path in files)
+
+
+def _fmt_optional_metric(value: float | None) -> str:
+    return "unknown" if value is None else f"{value:.3f}"
 
 
 def _file_bullets(files: list[str]) -> list[str]:

@@ -84,6 +84,84 @@ def _all_required_label(value: bool) -> str:
     return "yes" if value else "no"
 
 
+def _has_region_metrics(reports: list[BenchmarkReport]) -> bool:
+    return any(result.region_recall is not None for report in reports for result in report.results)
+
+
+def _fmt_opt(value: float | None, *, digits: int = 3) -> str:
+    return "unknown" if value is None else f"{value:.{digits}f}"
+
+
+def _fmt_opt_int(value: int | None) -> str:
+    return "unknown" if value is None else f"{value:,}"
+
+
+def _mean_optional(values: list[float | None]) -> float | None:
+    present = [value for value in values if value is not None]
+    return (sum(present) / len(present)) if present else None
+
+
+def _region_quality_appendix(report: BenchmarkReport) -> list[str]:
+    """Per-task region + context-efficiency table, rendered only when labelled."""
+    rows = [result for result in report.results if result.region_recall is not None]
+    if not rows:
+        return []
+    lines = ["", "### Region & Context Efficiency", ""]
+    lines.append(
+        "| Strategy | Region Recall | Region Prec | Region F1 | Line Recall | Line Prec "
+        "| Ranked MRR | Ranked nDCG | Noise Ratio | Useful Tokens | Wasted Tokens | Rel/1k |"
+    )
+    lines.append(
+        "|----------|--------------:|------------:|----------:|------------:|----------:"
+        "|-----------:|------------:|------------:|--------------:|--------------:|-------:|"
+    )
+    for result in rows:
+        lines.append(
+            f"| {result.strategy.value} | {_fmt_opt(result.region_recall)} "
+            f"| {_fmt_opt(result.region_precision)} | {_fmt_opt(result.region_f1)} "
+            f"| {_fmt_opt(result.line_recall)} | {_fmt_opt(result.line_precision)} "
+            f"| {_fmt_opt(result.ranked_region_mrr)} | {_fmt_opt(result.ranked_region_ndcg)} "
+            f"| {_fmt_opt(result.context_noise_ratio)} | {_fmt_opt_int(result.useful_tokens)} "
+            f"| {_fmt_opt_int(result.wasted_tokens)} "
+            f"| {_fmt_opt(result.relevance_per_1k_tokens, digits=2)} |"
+        )
+    return lines
+
+
+def _region_quality_summary(reports: list[BenchmarkReport]) -> list[str]:
+    """Aggregated region + context-efficiency table, rendered only when labelled."""
+    if not _has_region_metrics(reports):
+        return []
+    by_strategy: dict[str, list[BenchmarkResult]] = defaultdict(list)
+    for report in reports:
+        for result in report.results:
+            if result.region_recall is not None:
+                by_strategy[result.strategy.value].append(result)
+    lines = ["## Region & Context Efficiency", ""]
+    lines.append(
+        "| Strategy | Region Recall | Region F1 | Line Recall | Ranked nDCG "
+        "| Noise Ratio | Rel/1k | Tasks |"
+    )
+    lines.append(
+        "|----------|--------------:|----------:|------------:|------------:"
+        "|------------:|-------:|------:|"
+    )
+    for name in sorted(by_strategy):
+        results = by_strategy[name]
+        lines.append(
+            f"| {name} "
+            f"| {_fmt_opt(_mean_optional([r.region_recall for r in results]))} "
+            f"| {_fmt_opt(_mean_optional([r.region_f1 for r in results]))} "
+            f"| {_fmt_opt(_mean_optional([r.line_recall for r in results]))} "
+            f"| {_fmt_opt(_mean_optional([r.ranked_region_ndcg for r in results]))} "
+            f"| {_fmt_opt(_mean_optional([r.context_noise_ratio for r in results]))} "
+            f"| {_fmt_opt(_mean_optional([r.relevance_per_1k_tokens for r in results]), digits=2)} "
+            f"| {len(results)} |"
+        )
+    lines.append("")
+    return lines
+
+
 def _aggregate_strategy_metrics(
     reports: list[BenchmarkReport],
     fields: tuple[str, ...],
@@ -141,6 +219,7 @@ def format_markdown(report: BenchmarkReport) -> str:
         )
     lines.extend(_missing_required_file_appendix(report))
     lines.extend(_bundle_only_eval_appendix(report))
+    lines.extend(_region_quality_appendix(report))
     lines.append("")
     return "\n".join(lines)
 
@@ -187,6 +266,7 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
         )
 
     lines.append("")
+    lines.extend(_region_quality_summary(reports))
     return "\n".join(lines)
 
 

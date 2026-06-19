@@ -310,3 +310,87 @@ def test_check_gate_custom_exempt_set() -> None:
     )
     violations = check_gate(reports, thresholds)
     assert violations == []
+
+
+_REGION_METRICS = {
+    "region_recall",
+    "line_recall",
+    "context_noise_ratio",
+    "relevance_per_1k_tokens",
+}
+
+
+def _region_report(**fields: float) -> BenchmarkReport:
+    report = _make_report()
+    report.results[0] = report.results[0].model_copy(update=fields)
+    return report
+
+
+def test_gate_ignores_absent_region_labels() -> None:
+    # File-only result (region fields None): strict region thresholds must not fire.
+    reports = [_make_report()]
+    thresholds = QualityThresholds(
+        min_region_recall=0.9,
+        min_line_recall=0.9,
+        max_context_noise_ratio=0.1,
+        min_relevance_per_1k_tokens=100.0,
+    )
+    violations = check_gate(reports, thresholds)
+    assert not any(v.metric in _REGION_METRICS for v in violations)
+
+
+def test_gate_default_thresholds_pass_region_labeled_result() -> None:
+    reports = [
+        _region_report(
+            region_recall=0.5,
+            line_recall=0.5,
+            context_noise_ratio=0.5,
+            relevance_per_1k_tokens=5.0,
+        )
+    ]
+    violations = check_gate(reports)
+    assert not any(v.metric in _REGION_METRICS for v in violations)
+
+
+def test_gate_fails_region_recall_below_threshold() -> None:
+    reports = [
+        _region_report(
+            region_recall=0.2,
+            line_recall=0.5,
+            context_noise_ratio=0.3,
+            relevance_per_1k_tokens=5.0,
+        )
+    ]
+    thresholds = QualityThresholds(min_region_recall=0.5)
+    violations = check_gate(reports, thresholds)
+    assert any(v.metric == "region_recall" and v.actual == 0.2 for v in violations)
+
+
+def test_gate_fails_high_context_noise_ratio() -> None:
+    reports = [
+        _region_report(
+            region_recall=0.8,
+            line_recall=0.8,
+            context_noise_ratio=0.9,
+            relevance_per_1k_tokens=5.0,
+        )
+    ]
+    thresholds = QualityThresholds(max_context_noise_ratio=0.5)
+    violations = check_gate(reports, thresholds)
+    assert any(v.metric == "context_noise_ratio" and v.actual == 0.9 for v in violations)
+
+
+def test_gate_region_violations_are_advisory_warnings() -> None:
+    reports = [
+        _region_report(
+            region_recall=0.2,
+            line_recall=0.5,
+            context_noise_ratio=0.3,
+            relevance_per_1k_tokens=5.0,
+        )
+    ]
+    thresholds = QualityThresholds(min_region_recall=0.5)
+    violations = check_gate(reports, thresholds)
+    # Region failures are non-token quality warnings, not hard token failures.
+    assert any(v.metric == "region_recall" for v in non_token_quality_warnings(violations))
+    assert token_efficiency_violations(violations) == []

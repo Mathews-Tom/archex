@@ -24,6 +24,15 @@ def _receipt_accuracy_score(value: bool | None) -> float:
     return 0.0 if value is None else 1.0 if value else 0.0
 
 
+def _mean_optional(values: list[float | None]) -> float | None:
+    present = [value for value in values if value is not None]
+    return (sum(present) / len(present)) if present else None
+
+
+def _format_optional(value: float | None) -> str:
+    return "unknown" if value is None else f"{value:.3f}"
+
+
 @dataclass(frozen=True)
 class ReadinessTargetStatus:
     """Pass/fail status for one readiness target."""
@@ -93,6 +102,14 @@ class ReadinessReport:
     targets: list[ReadinessTargetStatus]
     categories: list[CategoryReadiness]
     blocking_tasks: list[TriageFinding]
+    # Optional region/line-level retrieval-quality means over region-labelled
+    # tasks for this strategy; None when no labelled tasks ran.
+    mean_region_recall: float | None = None
+    mean_region_precision: float | None = None
+    mean_line_recall: float | None = None
+    mean_ranked_region_ndcg: float | None = None
+    mean_context_noise_ratio: float | None = None
+    mean_relevance_per_1k_tokens: float | None = None
 
     @property
     def ready(self) -> bool:
@@ -121,6 +138,12 @@ class ReadinessReport:
             "zero_recall_tasks": self.zero_recall_tasks,
             "low_f1_tasks": self.low_f1_tasks,
             "low_precision_tasks": self.low_precision_tasks,
+            "mean_region_recall": self.mean_region_recall,
+            "mean_region_precision": self.mean_region_precision,
+            "mean_line_recall": self.mean_line_recall,
+            "mean_ranked_region_ndcg": self.mean_ranked_region_ndcg,
+            "mean_context_noise_ratio": self.mean_context_noise_ratio,
+            "mean_relevance_per_1k_tokens": self.mean_relevance_per_1k_tokens,
             "targets": [target.to_json() for target in self.targets],
             "categories": [category.to_json() for category in self.categories],
             "blocking_tasks": [finding.to_json() for finding in self.blocking_tasks],
@@ -197,6 +220,19 @@ def build_readiness_report(
     low_f1_tasks = sum(1 for result in metric_results if result.f1_score < LOW_F1_THRESHOLD)
     low_precision_tasks = sum(
         1 for result in metric_results if result.precision < LOW_PRECISION_THRESHOLD
+    )
+    region_results = [result for result in metric_results if result.region_recall is not None]
+    mean_region_recall = _mean_optional([result.region_recall for result in region_results])
+    mean_region_precision = _mean_optional([result.region_precision for result in region_results])
+    mean_line_recall = _mean_optional([result.line_recall for result in region_results])
+    mean_ranked_region_ndcg = _mean_optional(
+        [result.ranked_region_ndcg for result in region_results]
+    )
+    mean_context_noise_ratio = _mean_optional(
+        [result.context_noise_ratio for result in region_results]
+    )
+    mean_relevance_per_1k_tokens = _mean_optional(
+        [result.relevance_per_1k_tokens for result in region_results]
     )
     targets = [
         ReadinessTargetStatus(
@@ -282,6 +318,12 @@ def build_readiness_report(
         targets=targets,
         categories=categories,
         blocking_tasks=blocking_tasks,
+        mean_region_recall=mean_region_recall,
+        mean_region_precision=mean_region_precision,
+        mean_line_recall=mean_line_recall,
+        mean_ranked_region_ndcg=mean_ranked_region_ndcg,
+        mean_context_noise_ratio=mean_context_noise_ratio,
+        mean_relevance_per_1k_tokens=mean_relevance_per_1k_tokens,
     )
 
 
@@ -323,6 +365,19 @@ def format_readiness_markdown(report: ReadinessReport) -> str:
         f"| {report.savings_vs_raw:.1f}% "
         f"| {report.median_latency_ms:.0f} ms | {report.p95_latency_ms:.0f} ms |"
     )
+    if report.mean_region_recall is not None:
+        lines.append("")
+        lines.append("## Region & Context Efficiency")
+        lines.append("")
+        lines.append(
+            f"- Mean region recall: `{_format_optional(report.mean_region_recall)}`\n"
+            f"- Mean region precision: `{_format_optional(report.mean_region_precision)}`\n"
+            f"- Mean line recall: `{_format_optional(report.mean_line_recall)}`\n"
+            f"- Mean ranked region nDCG: `{_format_optional(report.mean_ranked_region_ndcg)}`\n"
+            f"- Mean context noise ratio: `{_format_optional(report.mean_context_noise_ratio)}`\n"
+            "- Mean relevance per 1k tokens: "
+            f"`{_format_optional(report.mean_relevance_per_1k_tokens)}`"
+        )
     lines.append("")
     lines.append("## Summary")
     lines.append("")

@@ -245,3 +245,41 @@ def test_format_readiness_outputs_are_stable() -> None:
     assert payload["receipt_accuracy_rate"] == 1.0
     assert payload["token_efficiency_with_completion"] == 0.5
     assert payload["blocking_tasks"][0]["task_id"] == "miss"
+
+
+def test_readiness_includes_region_metrics_when_labeled() -> None:
+    result = _result("region", recall=1.0, precision=1.0, f1_score=1.0).model_copy(
+        update={
+            "region_recall": 0.6,
+            "region_precision": 0.5,
+            "line_recall": 0.4,
+            "ranked_region_ndcg": 0.7,
+            "context_noise_ratio": 0.3,
+            "relevance_per_1k_tokens": 4.0,
+        }
+    )
+    readiness = build_readiness_report(
+        [_report("region", result)],
+        {"region": _task("region", TaskCategory.SELF)},
+    )
+    assert readiness.mean_region_recall == 0.6
+    assert readiness.mean_line_recall == 0.4
+    md = format_readiness_markdown(readiness)
+    assert "Region & Context Efficiency" in md
+    payload = json.loads(format_readiness_json(readiness))
+    assert payload["mean_region_recall"] == 0.6
+    assert payload["mean_context_noise_ratio"] == 0.3
+
+
+def test_readiness_region_metrics_none_for_file_only_tasks() -> None:
+    result = _result("file", recall=1.0, precision=1.0, f1_score=1.0)
+    readiness = build_readiness_report(
+        [_report("file", result)],
+        {"file": _task("file", TaskCategory.SELF)},
+    )
+    assert readiness.mean_region_recall is None
+    assert readiness.mean_line_recall is None
+    md = format_readiness_markdown(readiness)
+    assert "Region & Context Efficiency" not in md
+    payload = json.loads(format_readiness_json(readiness))
+    assert payload["mean_region_recall"] is None
