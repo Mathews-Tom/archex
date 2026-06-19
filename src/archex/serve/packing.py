@@ -241,3 +241,217 @@ def order_candidates(scores: list[PackingScore]) -> list[PackingScore]:
             score.candidate_id,
         ),
     )
+
+
+# Pack decisions ordered richest-first; the packer downgrades a region along this
+# chain under budget pressure (INCLUDE -> COMPRESS -> ELIDE -> SKIP).
+_CHEAPER: dict[PackDecision, PackDecision] = {
+    PackDecision.INCLUDE: PackDecision.COMPRESS,
+    PackDecision.COMPRESS: PackDecision.ELIDE,
+    PackDecision.ELIDE: PackDecision.SKIP,
+}
+
+
+@dataclass(frozen=True)
+class PackingCandidate:
+    """A region offered to the packer: its intrinsic signals plus shaped costs.
+
+    ``compressed_token_count`` is the token count of the deterministic compressed
+    representation (equal to ``signals.token_count`` when the region is not
+    compressible); the packer reads it only when a COMPRESS decision is viable.
+    ``elided_token_count`` is the token count of the anchor that replaces the body
+    when a region is elided; the packer charges it (capped at the verbatim cost)
+    so budget admission reflects the real anchor size rather than a fixed guess.
+    """
+
+    signals: PackingSignals
+    compressed_token_count: int
+    elided_token_count: int
+
+
+@dataclass(frozen=True)
+class PackedRegion:
+    """Final pack decision for one candidate, with the score that produced it."""
+
+    candidate_id: str
+    decision: PackDecision
+    score: PackingScore
+    tokens_charged: int
+    retrieval_score: float
+
+
+@dataclass(frozen=True)
+class PackingPlan:
+    """Result of packing a candidate set under a token budget.
+
+    ``regions`` lists every candidate (including skipped ones) in packed order so
+    provenance can explain each include/compress/elide/skip decision.
+    """
+
+    regions: list[PackedRegion]
+    included_tokens: int
+    budget_tier: BudgetTier
+    token_budget: int
+
+    def kept(self) -> list[PackedRegion]:
+        """Regions that survived packing (everything except SKIP), in packed order."""
+        return [region for region in self.regions if region.decision is not PackDecision.SKIP]
+
+    def kept_ids(self) -> list[str]:
+        return [region.candidate_id for region in self.kept()]
+
+    def decision_for(self, candidate_id: str) -> PackDecision | None:
+        for region in self.regions:
+            if region.candidate_id == candidate_id:
+                return region.decision
+        return None
+
+    def relevance_per_1k_tokens(self) -> float:
+        """Delivered retrieval relevance per 1000 packed tokens (0 for an empty pack).
+
+        Only INCLUDE and COMPRESS regions deliver content; an ELIDE region keeps
+        an anchor/fetch handle but not the region body, so its retrieval mass is
+        excluded from the numerator (counting it would reward eliding evidence).
+        """
+        if self.included_tokens <= 0:
+            return 0.0
+        retained = sum(
+            region.retrieval_score
+            for region in self.regions
+            if region.decision in (PackDecision.INCLUDE, PackDecision.COMPRESS)
+        )
+        return retained / self.included_tokens * 1000.0
+
+    def to_provenance(self) -> dict[str, str]:
+        """Aggregate decision counts and efficiency for the strategy/report layer."""
+        counts = dict.fromkeys(PackDecision, 0)
+        direct = 0
+        for region in self.regions:
+            counts[region.decision] += 1
+            if region.score.direct_match:
+                direct += 1
+        return {
+            "budget_tier": self.budget_tier.value,
+            "token_budget": str(self.token_budget),
+            "packed_tokens": str(self.included_tokens),
+            "candidate_count": str(len(self.regions)),
+            "direct_match_count": str(direct),
+            "include_count": str(counts[PackDecision.INCLUDE]),
+            "compress_count": str(counts[PackDecision.COMPRESS]),
+            "elide_count": str(counts[PackDecision.ELIDE]),
+            "skip_count": str(counts[PackDecision.SKIP]),
+            "relevance_per_1k_tokens": f"{self.relevance_per_1k_tokens():.4f}",
+        }
+
+
+def _decision_cost(decision: PackDecision, candidate: PackingCandidate) -> int:
+    if decision is PackDecision.INCLUDE:
+        return candidate.signals.token_count
+    if decision is PackDecision.COMPRESS:
+        return candidate.compressed_token_count
+    if decision is PackDecision.ELIDE:
+        return min(candidate.elided_token_count, candidate.signals.token_count)
+    return 0  # SKIP
+
+
+def _compress_viable(candidate: PackingCandidate) -> bool:
+    """Whether the packer may represent a region as a deterministic compression.
+
+    Direct/high-confidence targets are never compressed (their content is the
+    evidence). Only genuinely low-risk, compressible, non-protected regions whose
+    compressed form is strictly smaller are eligible.
+    """
+    signals = candidate.signals
+    return (
+        not signals.direct_match
+        and signals.compression_eligible
+        and signals.compression_loss_risk in _COMPRESSIBLE_RISKS
+        and not signals.protect_code
+        and candidate.compressed_token_count < signals.token_count
+    )
+
+
+def _representation_chain(candidate: PackingCandidate, start: PackDecision) -> list[PackDecision]:
+    """Decisions from ``start`` down to SKIP, dropping non-viable representations."""
+    chain: list[PackDecision] = []
+    decision: PackDecision | None = start
+    while decision is not None:
+        if decision is not PackDecision.COMPRESS or _compress_viable(candidate):
+            chain.append(decision)
+        decision = _CHEAPER.get(decision)
+    return chain
+
+
+def _fit_decision(
+    candidate: PackingCandidate,
+    start: PackDecision,
+    remaining: int,
+    *,
+    allow_skip: bool,
+) -> PackDecision:
+    """Pick the richest representation at or below ``start`` that fits ``remaining``.
+
+    Optional context falls through to SKIP when nothing fits. A direct/high-
+    confidence target is never skipped: if even an anchor exceeds the remaining
+    budget it is still kept as an anchor so its fetch handle survives.
+    """
+    chain = _representation_chain(candidate, start)
+    cheapest_kept: PackDecision | None = None
+    for decision in chain:
+        if decision is PackDecision.SKIP:
+            if allow_skip:
+                return PackDecision.SKIP
+            continue
+        cheapest_kept = decision
+        if _decision_cost(decision, candidate) <= remaining:
+            return decision
+    if allow_skip:
+        return PackDecision.SKIP
+    return cheapest_kept if cheapest_kept is not None else PackDecision.ELIDE
+
+
+def pack_efficiently(
+    candidates: list[PackingCandidate],
+    *,
+    token_budget: int,
+    budget_tier: BudgetTier,
+) -> PackingPlan:
+    """Select and shape candidates to maximize relevance per token within budget.
+
+    Direct/high-confidence targets are packed before optional context and never
+    dropped below an anchor. Optional regions are admitted in efficiency order and
+    downgraded (compress -> elide -> skip) as the budget tightens. Whole-file and
+    low-value graph-distant context is shrunk or skipped per the score model.
+    """
+    by_id = {candidate.signals.candidate_id: candidate for candidate in candidates}
+    scores = [
+        score_candidate(candidate.signals, budget_tier=budget_tier) for candidate in candidates
+    ]
+    ordered = order_candidates(scores)
+
+    used = 0
+    regions: list[PackedRegion] = []
+    for score in ordered:
+        candidate = by_id[score.candidate_id]
+        allow_skip = not score.direct_match
+        decision = _fit_decision(
+            candidate, score.decision, token_budget - used, allow_skip=allow_skip
+        )
+        cost = _decision_cost(decision, candidate)
+        charged = 0 if decision is PackDecision.SKIP else cost
+        used += charged
+        regions.append(
+            PackedRegion(
+                candidate_id=score.candidate_id,
+                decision=decision,
+                score=score,
+                tokens_charged=charged,
+                retrieval_score=candidate.signals.retrieval_score,
+            )
+        )
+    return PackingPlan(
+        regions=regions,
+        included_tokens=used,
+        budget_tier=budget_tier,
+        token_budget=token_budget,
+    )
