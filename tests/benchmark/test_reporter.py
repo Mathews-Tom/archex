@@ -514,3 +514,89 @@ class TestPackingReporting:
         report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _packed_result()])
         md = format_strategy_comparison([report])
         assert "### Efficiency-Aware Packing" in md
+
+
+def _dual_transform_result() -> BenchmarkResult:
+    result = _make_result(Strategy.ARCHEX_QUERY_DUAL_TRANSFORM, tokens=600)
+    result.provenance = {
+        "subquery_structural": "AuthManager validate_token",
+        "subquery_behavioral": "why does login fail",
+        "fused_included": "5",
+        "fused_candidates": "9",
+    }
+    return result
+
+
+def _graph_multihop_result() -> BenchmarkResult:
+    result = _make_result(Strategy.ARCHEX_QUERY_GRAPH_MULTIHOP, tokens=700)
+    result.provenance = {
+        "hop_cap": "2",
+        "frontier_cap": "8",
+        "files_expanded": "3",
+        "frontier_cuts": "1",
+        "budget_cuts": "2",
+        "suppressed_low_confidence": "4",
+    }
+    return result
+
+
+def _bounded_rerank_result() -> BenchmarkResult:
+    result = _make_result(Strategy.ARCHEX_QUERY_BOUNDED_RERANK, tokens=650)
+    result.provenance = {
+        "candidate_cap": "8",
+        "candidates_reranked": "8",
+        "candidates_total": "20",
+        "cross_encoder_status": "skipped:unavailable",
+        "rerank_method": "symbolic",
+    }
+    return result
+
+
+def _summary_sidecar_result() -> BenchmarkResult:
+    result = _make_result(Strategy.ARCHEX_QUERY_SUMMARY_SIDECAR, tokens=550)
+    result.provenance = {
+        "sidecar": "loaded",
+        "summary_first": "true",
+        "entries_stale": "2",
+    }
+    return result
+
+
+class TestAdvancedLanesReporting:
+    def test_appendix_rendered_for_advanced_lane(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _dual_transform_result()])
+        md = format_markdown(report)
+        assert "### Advanced Quality Lanes" in md
+        section = md.split("### Advanced Quality Lanes", 1)[1]
+        assert "archex_query_dual_transform" in section
+        # The lane note surfaces the fusion provenance.
+        assert "fused 5/9 candidates" in section
+        # The section states the benchmark-only / no-default-change framing.
+        assert "never changes the product default" in section
+
+    def test_appendix_notes_each_lane(self) -> None:
+        report = _make_report(
+            [
+                _dual_transform_result(),
+                _bounded_rerank_result(),
+                _summary_sidecar_result(),
+                _graph_multihop_result(),
+            ]
+        )
+        section = format_markdown(report).split("### Advanced Quality Lanes", 1)[1]
+        # Each lane's note surfaces its own provenance.
+        assert "fused 5/9 candidates" in section
+        assert "reranked 8/20 (ce=skipped:unavailable)" in section
+        assert "summary_first=true, stale=2" in section
+        assert "expanded 3" in section
+        assert "frontier/budget/low-conf=1/2/4" in section
+
+    def test_appendix_absent_without_advanced_lane(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
+        assert "Advanced Quality Lanes" not in format_markdown(report)
+
+    def test_appendix_rendered_in_strategy_comparison(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _dual_transform_result()])
+        md = format_strategy_comparison([report])
+        assert "### Advanced Quality Lanes" in md
+        assert "archex_query_dual_transform" in md
