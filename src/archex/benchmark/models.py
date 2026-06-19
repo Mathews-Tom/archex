@@ -30,6 +30,7 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_FUSION_RERANK = "archex_query_fusion_rerank"
     ARCHEX_QUERY_TASK_AWARE = "archex_query_task_aware"
     ARCHEX_QUERY_COMPRESSED = "archex_query_compressed"
+    ARCHEX_QUERY_EFFICIENCY_PACKED = "archex_query_efficiency_packed"
     EXTERNAL_MCP = "external_mcp"
 
 
@@ -397,6 +398,17 @@ class BenchmarkResult(BaseModel):
     required_context_passthrough_tokens: int | None = None
     compression_hidden_required_region_count: int | None = None
     token_efficiency_with_compression_and_completion: float | None = None
+    # Optional retrieval-aware packing metrics. Populated only by
+    # archex_query_efficiency_packed; None ("unknown") for every other strategy.
+    # The packed lane reuses the bundle_tokens_uncompressed/compressed/ratio and
+    # token_efficiency_with_compression_and_completion fields above to report its
+    # token reduction; these add the packing-decision provenance counts and the
+    # delivered relevance-per-token of the packed bundle.
+    packed_relevance_per_1k_tokens: float | None = None
+    packing_included_regions: int | None = None
+    packing_compressed_regions: int | None = None
+    packing_elided_regions: int | None = None
+    packing_skipped_regions: int | None = None
 
 
 class BenchmarkReport(BaseModel):
