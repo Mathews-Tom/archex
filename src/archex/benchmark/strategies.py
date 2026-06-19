@@ -34,6 +34,7 @@ from archex.benchmark.region_metrics import (
     ReturnedRegion,
     compute_region_metrics,
 )
+from archex.benchmark.summary_sidecar import SummarySidecar, file_content_hash
 from archex.benchmark.task_aware import DenseTrigger, TaskAwarePolicy, policy_for
 from archex.cache import CacheManager
 from archex.exceptions import ArchexError, ConfigError
@@ -2106,6 +2107,208 @@ def run_archex_query_bounded_rerank(task: BenchmarkTask, repo_path: Path) -> Ben
     return result
 
 
+_SUMMARY_FILE_CAP = 10
+
+
+def _load_summary_sidecar() -> SummarySidecar | None:
+    """Load the opted-in summary sidecar; None when not opted in or unreadable.
+
+    The path comes from the benchmark retrieval options (the explicit offline
+    opt-in). The lane never generates summaries — absence means summary-first
+    selection is simply disabled.
+    """
+    path = current_benchmark_retrieval_options().summary_sidecar_path
+    if not path:
+        return None
+    sidecar_path = Path(path)
+    if not sidecar_path.is_file():
+        return None
+    try:
+        return SummarySidecar.load(sidecar_path)
+    except (OSError, ValueError):
+        return None
+
+
+@dataclass
+class _SummarySelection:
+    """Summary-first file selection plus stats for provenance."""
+
+    selected_files: list[str]
+    stats: dict[str, int]
+
+
+def _select_summary_files(
+    sidecar: SummarySidecar, repo_path: Path, *, question: str, file_cap: int
+) -> _SummarySelection:
+    """Rank non-stale sidecar entries by query overlap into selected source files.
+
+    Stale entries (source file changed or missing) are excluded so summaries that
+    no longer describe the current code never drive selection.
+    """
+    signals = query_signals(question)
+    fresh = 0
+    stale = 0
+    file_scores: dict[str, int] = {}
+    file_order: list[str] = []
+    # Hash each source file at most once; every entry for a path is checked
+    # against that single read rather than re-reading per symbol entry.
+    current_hash: dict[str, str | None] = {}
+    for entry in sidecar.entries:
+        path = entry.source_file_path
+        if path not in current_hash:
+            current_hash[path] = file_content_hash(repo_path, path)
+        live = current_hash[path]
+        if live is None or live != entry.source_content_hash:
+            stale += 1
+            continue
+        fresh += 1
+        haystack = f"{entry.summary} {entry.symbol_name or ''} {path}".lower()
+        overlap = sum(1 for term in signals.terms if term in haystack)
+        if overlap <= 0:
+            continue
+        if path not in file_scores:
+            file_order.append(path)
+        file_scores[path] = file_scores.get(path, 0) + overlap
+    ranked = sorted(file_order, key=lambda path: -file_scores[path])
+    selected = ranked[:file_cap]
+    stats = {
+        "entries_total": len(sidecar.entries),
+        "entries_fresh": fresh,
+        "entries_stale": stale,
+        "matched_files": len(file_scores),
+        "selected_files": len(selected),
+    }
+    return _SummarySelection(selected_files=selected, stats=stats)
+
+
+def _filter_bundle_to_files(bundle: ContextBundle, files: set[str]) -> ContextBundle:
+    """Keep only chunks whose file was summary-selected; realign receipt + metadata.
+
+    The kept chunks are the original retrieved code (the edit evidence); summaries
+    only gate which files are returned. Seed/expansion diagnostics are reset to the
+    gated set so they are not misattributed to the pre-filter retrieval.
+    """
+    from archex.scout import chunk_handle
+
+    kept = [ranked for ranked in bundle.chunks if ranked.chunk.file_path in files]
+    token_count = sum(
+        ranked.chunk.token_count or count_tokens(ranked.chunk.content) for ranked in kept
+    )
+    receipt = bundle.receipt
+    if receipt is not None:
+        kept_handles = {chunk_handle(ranked.chunk.id) for ranked in kept}
+        returned = [item for item in receipt.returned_context if item.handle in kept_handles]
+        receipt = receipt.model_copy(
+            update={"returned_context": returned, "returned_total": len(returned)}
+        )
+    kept_files = _deduplicate_ranked([ranked.chunk.file_path for ranked in kept])
+    metadata = bundle.retrieval_metadata.model_copy(
+        update={
+            "seed_file_paths": [],
+            "expanded_file_paths": [],
+            "seed_files_found": len(kept_files),
+            "expansion_files_added": 0,
+            "expansion_eligible_seeds": 0,
+            "expansion_candidates_found": 0,
+            "expansion_import_neighbor_edges": 0,
+            "expansion_same_module_candidates": 0,
+            "expansion_hub_candidates": 0,
+            "expansion_test_candidates_skipped": 0,
+            "expansion_zero_candidate_reason": "",
+            "expansion_reason_counts": {},
+            "expanded_file_reasons": {},
+        }
+    )
+    return bundle.model_copy(
+        update={
+            "chunks": kept,
+            "token_count": token_count,
+            "receipt": receipt,
+            "retrieval_metadata": metadata,
+        }
+    )
+
+
+def run_archex_query_summary_sidecar(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: summary-first selection, then original-code retrieval.
+
+    Requires an explicit offline opt-in (a prebuilt sidecar path in the benchmark
+    retrieval options); summaries are never auto-generated. Loads the sidecar,
+    drops stale entries, ranks the rest by query overlap to select source files,
+    then returns the original retrieved code restricted to those files — summaries
+    gate selection but are never returned as edit evidence. Without an opt-in (or
+    when the selection excludes everything retrieved) the lane returns the plain
+    original-code bundle and records why. The product default is unchanged.
+    """
+    strategy = Strategy.ARCHEX_QUERY_SUMMARY_SIDECAR
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    current_revision = bundle.receipt.index_revision if bundle.receipt is not None else ""
+    sidecar = _load_summary_sidecar()
+    if sidecar is None:
+        final_bundle = bundle
+        provenance = {"sidecar": "absent", "summary_first": "false"}
+    else:
+        selection = _select_summary_files(
+            sidecar, repo_path, question=task.question, file_cap=_SUMMARY_FILE_CAP
+        )
+        selected = set(selection.selected_files)
+        gated = _filter_bundle_to_files(bundle, selected) if selected else bundle
+        if gated.chunks and selected:
+            final_bundle = gated
+            summary_first = "true"
+            fallback = "none"
+        else:
+            # Selection matched nothing retrievable; return the original-code
+            # bundle so the lane still yields editable evidence.
+            final_bundle = bundle
+            summary_first = "false"
+            fallback = "empty_selection"
+        provenance = {
+            "sidecar": "loaded",
+            "summary_first": summary_first,
+            "summary_fallback": fallback,
+            "sidecar_granularity": sidecar.granularity.value,
+            "sidecar_index_revision": sidecar.index_revision,
+            "index_revision_match": str(sidecar.index_revision == current_revision).lower(),
+            "entries_total": str(selection.stats["entries_total"]),
+            "entries_fresh": str(selection.stats["entries_fresh"]),
+            "entries_stale": str(selection.stats["entries_stale"]),
+            "summary_selected_file_count": str(selection.stats["selected_files"]),
+            "summary_selected_files": ", ".join(selection.selected_files) or "none",
+            "original_code_retrieved": "true",
+            "fetch_original_preserved": "true",
+        }
+    wall_ms = (time.perf_counter() - t0) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=final_bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = provenance
+    logger.info(
+        "Strategy %s for %s: sidecar=%s summary_first=%s wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        provenance["sidecar"],
+        provenance["summary_first"],
+        wall_ms,
+    )
+    return result
+
+
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
     from archex.api import query, scout_with_bundle
@@ -2719,5 +2922,8 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_BOUNDED_RERANK.value, run_archex_query_bounded_rerank
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_SUMMARY_SIDECAR.value, run_archex_query_summary_sidecar
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)

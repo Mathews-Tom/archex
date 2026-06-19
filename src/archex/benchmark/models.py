@@ -33,6 +33,7 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_EFFICIENCY_PACKED = "archex_query_efficiency_packed"
     ARCHEX_QUERY_DUAL_TRANSFORM = "archex_query_dual_transform"
     ARCHEX_QUERY_BOUNDED_RERANK = "archex_query_bounded_rerank"
+    ARCHEX_QUERY_SUMMARY_SIDECAR = "archex_query_summary_sidecar"
     EXTERNAL_MCP = "external_mcp"
 
 
@@ -255,6 +256,9 @@ class BenchmarkRetrievalOptions(BaseModel):
     bm25_chunker: ChunkerName | None = None
     vector_chunker: ChunkerName | None = None
     rerank_candidate_limit: int | None = None
+    # Explicit offline opt-in for the summary-sidecar lane: filesystem path of a
+    # prebuilt sidecar. None disables summary-first selection (no auto-generation).
+    summary_sidecar_path: str | None = None
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):
