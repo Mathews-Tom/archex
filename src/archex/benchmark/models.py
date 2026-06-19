@@ -34,6 +34,7 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_DUAL_TRANSFORM = "archex_query_dual_transform"
     ARCHEX_QUERY_BOUNDED_RERANK = "archex_query_bounded_rerank"
     ARCHEX_QUERY_SUMMARY_SIDECAR = "archex_query_summary_sidecar"
+    ARCHEX_QUERY_GRAPH_MULTIHOP = "archex_query_graph_multihop"
     EXTERNAL_MCP = "external_mcp"
 
 
