@@ -161,6 +161,76 @@ def _region_quality_summary(reports: list[BenchmarkReport]) -> list[str]:
     lines.append("")
     return lines
 
+def _sum_optional_int(values: list[int | None]) -> int:
+    return sum(value for value in values if value is not None)
+
+
+def _compression_appendix(report: BenchmarkReport) -> list[str]:
+    """Per-task post-retrieval compression table, rendered only when present."""
+    rows = [result for result in report.results if result.bundle_compression_ratio is not None]
+    if not rows:
+        return []
+    lines = ["", "### Post-Retrieval Compression", ""]
+    lines.append(
+        "| Strategy | Compression Ratio | Uncompressed | Compressed | Passthrough Required "
+        "| Hidden Required | Efficiency (compressed+completion) |"
+    )
+    lines.append(
+        "|----------|------------------:|-------------:|-----------:|---------------------:"
+        "|----------------:|----------------------------------:|"
+    )
+    for result in rows:
+        lines.append(
+            f"| {result.strategy.value} | {_fmt_opt(result.bundle_compression_ratio)} "
+            f"| {_fmt_opt_int(result.bundle_tokens_uncompressed)} "
+            f"| {_fmt_opt_int(result.bundle_tokens_compressed)} "
+            f"| {_fmt_opt_int(result.required_context_passthrough_tokens)} "
+            f"| {_fmt_opt_int(result.compression_hidden_required_region_count)} "
+            f"| {_fmt_opt(result.token_efficiency_with_compression_and_completion)} |"
+        )
+    return lines
+
+
+def _compression_summary(reports: list[BenchmarkReport]) -> list[str]:
+    """Aggregated post-retrieval compression table, rendered only when present."""
+    by_strategy: dict[str, list[BenchmarkResult]] = defaultdict(list)
+    for report in reports:
+        for result in report.results:
+            if result.bundle_compression_ratio is not None:
+                by_strategy[result.strategy.value].append(result)
+    if not by_strategy:
+        return []
+    lines = ["## Post-Retrieval Compression", ""]
+    lines.append(
+        "Compression ratio is compressed/uncompressed bundle tokens (lower means more "
+        "compression). Hidden Required counts required regions hidden by compression and must "
+        "stay 0; retrieval misses are reported separately above. Compression cannot make "
+        "incomplete context complete."
+    )
+    lines.append("")
+    lines.append(
+        "| Strategy | Compression Ratio | Passthrough Tokens | Hidden Required "
+        "| Efficiency (compressed+completion) | Tasks |"
+    )
+    lines.append(
+        "|----------|------------------:|-------------------:|----------------:"
+        "|----------------------------------:|------:|"
+    )
+    for name in sorted(by_strategy):
+        results = by_strategy[name]
+        ratio = _mean_optional([r.bundle_compression_ratio for r in results])
+        efficiency = _mean_optional(
+            [r.token_efficiency_with_compression_and_completion for r in results]
+        )
+        passthrough = _sum_optional_int([r.required_context_passthrough_tokens for r in results])
+        hidden = _sum_optional_int([r.compression_hidden_required_region_count for r in results])
+        lines.append(
+            f"| {name} | {_fmt_opt(ratio)} | {passthrough:,} | {hidden} "
+            f"| {_fmt_opt(efficiency)} | {len(results)} |"
+        )
+    lines.append("")
+    return lines
+
 
 def _aggregate_strategy_metrics(
     reports: list[BenchmarkReport],
@@ -221,6 +291,7 @@ def format_markdown(report: BenchmarkReport) -> str:
     lines.extend(_bundle_only_eval_appendix(report))
     lines.extend(_region_quality_appendix(report))
     lines.extend(_task_aware_policy_appendix(report))
+    lines.extend(_compression_appendix(report))
     lines.append("")
     return "\n".join(lines)
 
@@ -268,6 +339,7 @@ def format_summary(reports: list[BenchmarkReport]) -> str:
 
     lines.append("")
     lines.extend(_region_quality_summary(reports))
+    lines.extend(_compression_summary(reports))
     return "\n".join(lines)
 
 

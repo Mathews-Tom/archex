@@ -397,3 +397,46 @@ class TestTaskAwarePolicyAppendix:
         assert Strategy.ARCHEX_QUERY.value in md
         assert Strategy.ARCHEX_QUERY_TASK_AWARE.value in md
         assert "### Task-aware policy" in md
+
+
+def _compression_result() -> BenchmarkResult:
+    return _make_result(Strategy.ARCHEX_QUERY_COMPRESSED, tokens=600).model_copy(
+        update={
+            "bundle_tokens_uncompressed": 1000,
+            "bundle_tokens_compressed": 400,
+            "bundle_compression_ratio": 0.4,
+            "required_context_compressed_tokens": 0,
+            "required_context_passthrough_tokens": 250,
+            "compression_hidden_required_region_count": 0,
+            "token_efficiency_with_compression_and_completion": 0.72,
+        }
+    )
+
+
+class TestCompressionReporting:
+    def test_appendix_rendered_for_compressed_strategy(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _compression_result()])
+        md = format_markdown(report)
+        assert "### Post-Retrieval Compression" in md
+        assert "archex_query_compressed" in md
+        assert "0.400" in md  # compression ratio
+        assert "Efficiency (compressed+completion)" in md
+
+    def test_appendix_absent_without_compression(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
+        assert "Post-Retrieval Compression" not in format_markdown(report)
+
+    def test_summary_rendered_for_compressed_strategy(self) -> None:
+        summary = format_summary([_make_report([_compression_result()])])
+        assert "## Post-Retrieval Compression" in summary
+        assert "Hidden Required" in summary
+        assert "Compression cannot make incomplete context complete." in summary
+
+    def test_summary_separates_retrieval_miss_from_compression_hiding(self) -> None:
+        # Hidden Required is distinct from the missing-required-file appendix.
+        summary = format_summary([_make_report([_compression_result()])])
+        assert "retrieval misses are reported separately" in summary
+
+    def test_summary_absent_without_compression(self) -> None:
+        report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
+        assert "Post-Retrieval Compression" not in format_summary([report])
