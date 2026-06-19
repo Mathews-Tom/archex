@@ -29,6 +29,7 @@ class Strategy(StrEnum):
     CROSS_LAYER_FUSION = "cross_layer_fusion"
     ARCHEX_QUERY_FUSION_RERANK = "archex_query_fusion_rerank"
     ARCHEX_QUERY_TASK_AWARE = "archex_query_task_aware"
+    ARCHEX_QUERY_COMPRESSED = "archex_query_compressed"
     EXTERNAL_MCP = "external_mcp"
 
 
@@ -385,6 +386,17 @@ class BenchmarkResult(BaseModel):
     useful_tokens: int | None = None
     wasted_tokens: int | None = None
     relevance_per_1k_tokens: float | None = None
+    # Optional post-retrieval compression metrics. Populated only by
+    # archex_query_compressed; None ("unknown") for every other strategy so
+    # archex_query and other lanes are unaffected. Retrieval metrics above stay
+    # attributable to the uncompressed retrieval set.
+    bundle_tokens_uncompressed: int | None = None
+    bundle_tokens_compressed: int | None = None
+    bundle_compression_ratio: float | None = None
+    required_context_compressed_tokens: int | None = None
+    required_context_passthrough_tokens: int | None = None
+    compression_hidden_required_region_count: int | None = None
+    token_efficiency_with_compression_and_completion: float | None = None
 
 
 class BenchmarkReport(BaseModel):
