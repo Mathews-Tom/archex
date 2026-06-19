@@ -261,6 +261,80 @@ def _packing_appendix(report: BenchmarkReport) -> list[str]:
     return lines
 
 
+_ADVANCED_LANES = (
+    "archex_query_dual_transform",
+    "archex_query_bounded_rerank",
+    "archex_query_summary_sidecar",
+    "archex_query_graph_multihop",
+)
+
+
+def _advanced_lane_note(result: BenchmarkResult) -> str:
+    """One-line provenance highlight per advanced lane."""
+    prov = result.provenance
+    strategy = result.strategy.value
+    if strategy == "archex_query_dual_transform":
+        included = prov.get("fused_included", "unknown")
+        return f"fused {included}/{prov.get('fused_candidates', 'unknown')} candidates"
+    if strategy == "archex_query_bounded_rerank":
+        return (
+            f"reranked {prov.get('candidates_reranked', 'unknown')}/"
+            f"{prov.get('candidates_total', 'unknown')} "
+            f"(ce={prov.get('cross_encoder_status', 'unknown')})"
+        )
+    if strategy == "archex_query_summary_sidecar":
+        return (
+            f"summary_first={prov.get('summary_first', 'unknown')}, "
+            f"stale={prov.get('entries_stale', 'unknown')}"
+        )
+    if strategy == "archex_query_graph_multihop":
+        return (
+            f"expanded {prov.get('files_expanded', 'unknown')} "
+            f"(cuts frontier/budget/low-conf="
+            f"{prov.get('frontier_cuts', 'unknown')}/{prov.get('budget_cuts', 'unknown')}/"
+            f"{prov.get('suppressed_low_confidence', 'unknown')})"
+        )
+    return ""
+
+
+def _advanced_lanes_appendix(report: BenchmarkReport) -> list[str]:
+    """Per-task advanced-lane comparison: latency, token impact, and quality.
+
+    Rendered only when an advanced lane ran. These lanes are benchmark-only
+    experiments (Workstream 5); none changes the product default.
+    """
+    rows = [result for result in report.results if result.strategy.value in _ADVANCED_LANES]
+    if not rows:
+        return []
+    lines = ["", "### Advanced Quality Lanes", ""]
+    lines.append(
+        "Benchmark-only experimental lanes (Workstream 5): query transformation, bounded "
+        "rerank, summary sidecars, and graph multihop. Each is gated behind the default "
+        "switch rule and never changes the product default. Compare added latency and token "
+        "impact against `archex_query` in the table above; the summary-sidecar lane also "
+        "carries an offline storage/index cost (the prebuilt sidecar)."
+    )
+    lines.append("")
+    lines.append(
+        "| Strategy | Tokens | Token Eff (compl.) | Required Recall | Region Recall "
+        "| Latency (ms) | Lane notes |"
+    )
+    lines.append(
+        "|----------|-------:|-------------------:|----------------:|--------------:"
+        "|-------------:|------------|"
+    )
+    for result in rows:
+        lines.append(
+            f"| {result.strategy.value} | {result.tokens_total:,} "
+            f"| {result.token_efficiency_with_completion:.2f} "
+            f"| {result.required_file_recall:.2f} "
+            f"| {_fmt_opt(result.region_recall)} "
+            f"| {result.wall_time_ms:.0f} "
+            f"| {_advanced_lane_note(result)} |"
+        )
+    return lines
+
+
 _PACKING_LANES = (
     "archex_query",
     "archex_query_compressed",
@@ -389,6 +463,7 @@ def format_markdown(report: BenchmarkReport) -> str:
     lines.extend(_task_aware_policy_appendix(report))
     lines.extend(_compression_appendix(report))
     lines.extend(_packing_appendix(report))
+    lines.extend(_advanced_lanes_appendix(report))
     lines.append("")
     return "\n".join(lines)
 
@@ -640,6 +715,7 @@ def format_strategy_comparison(reports: list[BenchmarkReport]) -> str:
         lines.extend(_bundle_only_eval_appendix(report))
         lines.extend(_task_aware_policy_appendix(report))
         lines.extend(_packing_appendix(report))
+        lines.extend(_advanced_lanes_appendix(report))
         lines.append("")
 
     # Head-to-head wins
