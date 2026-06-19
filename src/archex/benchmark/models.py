@@ -266,12 +266,15 @@ class ComparisonLayerType(StrEnum):
     """Where a comparison lane operates.
 
     ``retrieval`` lanes are retrieval/selection engines (archex, cocoindex-code).
+    ``graph-memory`` lanes are graph/memory-layer workflows (Graphify); they may
+    include retrieval-like answers, but the comparison must keep their build/query
+    semantics explicit instead of presenting them as direct retrieval equivalents.
     ``compression`` lanes are post-selection context-management layers (Headroom);
-    they are not retrieval engines and the comparison must label the difference.
-    ``baseline`` is the raw filesystem read/grep lane.
+    they are not retrieval engines. ``baseline`` is the raw filesystem read/grep lane.
     """
 
     RETRIEVAL = "retrieval"
+    GRAPH_MEMORY = "graph-memory"
     COMPRESSION = "compression"
     BASELINE = "baseline"
 
@@ -286,6 +289,11 @@ class CompressionLayerMode(StrEnum):
 
     HEADROOM_ONLY_ON_RAW_CONTEXT = "headroom_only_on_raw_context"
     ARCHEX_PLUS_HEADROOM = "archex_plus_headroom"
+
+
+class GraphifyLaneName(StrEnum):
+    GRAPHIFY_BUILD_PLUS_QUERY = "graphify_build_plus_query"
+    GRAPHIFY_QUERY_WARM = "graphify_query_warm"
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):
@@ -343,6 +351,49 @@ class CompressionLayerConfig(BenchmarkSpecModel):
     artifact_dir: str | None = None
 
 
+class GraphifyLaneConfig(BenchmarkSpecModel):
+    """One Graphify public lane in the competitive comparison manifest.
+
+    Graphify is modeled separately from retrieval engines because the public
+    comparison must keep graph-build cost distinct from warm graph-query cost.
+    ``artifact_dir`` selects operator-artifact import mode. Without it, the
+    adapter executes ``command``/``args`` locally and expects a lane-result JSON
+    document on stdout.
+    """
+
+    name: GraphifyLaneName
+    package_name: str = "graphifyy"
+    version: str
+    command: str
+    args: list[str] = []
+    layer_type: ComparisonLayerType = ComparisonLayerType.GRAPH_MEMORY
+    includes_build_cost: bool
+    env: dict[str, str] = {}
+    timeout_seconds: float = Field(default=600.0, gt=0)
+    artifact_dir: str | None = None
+    operational_notes: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_lane_semantics(self) -> GraphifyLaneConfig:
+        if not self.package_name.strip():
+            msg = "graphify package_name must not be empty"
+            raise ValueError(msg)
+        if not self.command.strip():
+            msg = "graphify command must not be empty"
+            raise ValueError(msg)
+        if self.artifact_dir is not None and not self.artifact_dir.strip():
+            msg = "graphify artifact_dir must not be empty"
+            raise ValueError(msg)
+        expected = self.name is GraphifyLaneName.GRAPHIFY_BUILD_PLUS_QUERY
+        if self.includes_build_cost is not expected:
+            if expected:
+                msg = "graphify_build_plus_query must include build cost"
+            else:
+                msg = "graphify_query_warm must not include build cost"
+            raise ValueError(msg)
+        return self
+
+
 class HeadToHeadArchexConfig(BenchmarkSpecModel):
     strategy: Strategy = Strategy.ARCHEX_QUERY
     # Improved/benchmark-only archex lanes compared beside the current default
@@ -362,6 +413,7 @@ class HeadToHeadManifest(BenchmarkSpecModel):
     raw_read_strategy: Strategy = Strategy.RAW_RIPGREP
     external_tools: list[ExternalToolBenchmarkConfig]
     compression_layers: list[CompressionLayerConfig] = []
+    graphify_lanes: list[GraphifyLaneConfig] = []
 
 
 class TaskCompletionResult(StrEnum):
