@@ -84,9 +84,7 @@ class TestPassthroughRequired:
     def test_top_hit_always_passes_through(self) -> None:
         ranked = _chunk("a", score=0.01)
         assert (
-            _passthrough_required(
-                0, ranked, seed_paths=set(), expanded_paths=set(), top_score=1.0
-            )
+            _passthrough_required(0, ranked, seed_paths=set(), expanded_paths=set(), top_score=1.0)
             is True
         )
 
@@ -112,15 +110,11 @@ class TestPassthroughRequired:
         high = _chunk("d", score=0.7)
         low = _chunk("e", score=0.2)
         assert (
-            _passthrough_required(
-                1, high, seed_paths=set(), expanded_paths=set(), top_score=1.0
-            )
+            _passthrough_required(1, high, seed_paths=set(), expanded_paths=set(), top_score=1.0)
             is True
         )
         assert (
-            _passthrough_required(
-                1, low, seed_paths=set(), expanded_paths=set(), top_score=1.0
-            )
+            _passthrough_required(1, low, seed_paths=set(), expanded_paths=set(), top_score=1.0)
             is False
         )
 
