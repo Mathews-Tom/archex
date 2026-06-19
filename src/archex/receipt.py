@@ -35,9 +35,14 @@ _MAX_RECEIPT_OMITTED_EDGES = 20
 _MAX_RECEIPT_INCLUDED_EDGES = 40
 
 
-def chunk_content_hash(chunk: CodeChunk) -> str:
-    payload = f"{chunk.file_path}\0{chunk.start_line}\0{chunk.end_line}\0{chunk.content}"
+def region_content_hash(file_path: str, start_line: int, end_line: int, content: str) -> str:
+    """Stable hash of a file region, used for receipt rows and compression provenance."""
+    payload = f"{file_path}\0{start_line}\0{end_line}\0{content}"
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def chunk_content_hash(chunk: CodeChunk) -> str:
+    return region_content_hash(chunk.file_path, chunk.start_line, chunk.end_line, chunk.content)
 
 
 def index_revision_from_store(store: IndexStore) -> str:

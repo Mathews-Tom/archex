@@ -12,6 +12,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from contextvars import ContextVar, Token
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -32,10 +33,13 @@ from archex.cache import CacheManager
 from archex.exceptions import ArchexError, ConfigError
 from archex.models import (
     ChunkerName,
+    CompressionMetadata,
+    CompressionMode,
     ContextBundle,
     ContextCompletenessStatus,
     IndexConfig,
     PipelineTiming,
+    RankedChunk,
     RepoSource,
 )
 from archex.reporting import count_tokens
@@ -1242,6 +1246,207 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
 
+_PASSTHROUGH_SCORE_FRACTION = 0.6
+
+
+def _passthrough_required(
+    rank_index: int,
+    ranked: RankedChunk,
+    *,
+    seed_paths: set[str],
+    expanded_paths: set[str],
+    top_score: float,
+) -> bool:
+    """Whether a region is required/direct/high-confidence and must not compress.
+
+    Graph-frontier expansions are the only regions eligible for compression. The
+    top hit, seed/direct retrievals, and any region scoring within
+    ``_PASSTHROUGH_SCORE_FRACTION`` of the best score are protected. Uses only
+    intrinsic retrieval signals — never benchmark ground truth.
+    """
+    path = ranked.chunk.file_path
+    if path in expanded_paths and path not in seed_paths:
+        return False
+    if rank_index == 0:
+        return True
+    if path in seed_paths:
+        return True
+    return top_score > 0.0 and ranked.final_score >= top_score * _PASSTHROUGH_SCORE_FRACTION
+
+
+@dataclass
+class _BundleCompression:
+    """Compressed bundle plus the benchmark result fields it produces."""
+
+    bundle: ContextBundle
+    result_fields: dict[str, float | int]
+    provenance: dict[str, str]
+
+
+def _compress_bundle(bundle: ContextBundle, *, question: str) -> _BundleCompression:
+    """Apply deterministic compression after assembly, preserving receipts.
+
+    Retrieval is untouched: this runs on an already-assembled bundle. Required,
+    direct, and high-confidence regions pass through; only lower-confidence
+    frontier regions are compressed. The original handle and hash for every
+    compressed region stay retrievable through the receipt and metadata.
+    """
+    from archex.receipt import region_content_hash
+    from archex.scout import chunk_handle
+    from archex.serve.compression import compress_region
+    from archex.serve.intent import QueryIntent, classify_intent
+
+    intent = classify_intent(question)
+    protect_code = intent == QueryIntent.DEBUGGING
+    meta = bundle.retrieval_metadata
+    seed_paths = set(meta.seed_file_paths)
+    expanded_paths = set(meta.expanded_file_paths)
+    top_score = max((rc.final_score for rc in bundle.chunks), default=0.0)
+
+    compressed = bundle.model_copy(deep=True)
+    receipt_items = (
+        {item.handle: item for item in compressed.receipt.returned_context}
+        if compressed.receipt is not None
+        else {}
+    )
+
+    uncompressed_tokens = 0
+    compressed_tokens = 0
+    passthrough_required_tokens = 0
+    compressed_required_tokens = 0
+    hidden_required = 0
+    compressed_regions = 0
+    passthrough_regions = 0
+
+    for index, ranked in enumerate(compressed.chunks):
+        chunk = ranked.chunk
+        handle = chunk_handle(chunk.id)
+        original = chunk.content
+        original_tokens = count_tokens(original)
+        uncompressed_tokens += original_tokens
+        required = _passthrough_required(
+            index,
+            ranked,
+            seed_paths=seed_paths,
+            expanded_paths=expanded_paths,
+            top_score=top_score,
+        )
+        outcome = compress_region(
+            original,
+            language=chunk.language,
+            fetch_original_handle=handle,
+            required=required,
+            protect_code=protect_code,
+        )
+        if outcome is None:
+            compressed_tokens += original_tokens
+            continue
+        new_tokens = count_tokens(outcome.content)
+        compressed_tokens += new_tokens
+        ratio = (new_tokens / original_tokens) if original_tokens else 1.0
+        chunk.content = outcome.content
+        chunk.token_count = new_tokens
+        item = receipt_items.get(handle)
+        if item is not None:
+            item.compression = CompressionMetadata(
+                compression_mode=outcome.mode,
+                original_tokens=original_tokens,
+                compressed_tokens=new_tokens,
+                compression_ratio=ratio,
+                original_content_hash=region_content_hash(
+                    chunk.file_path, chunk.start_line, chunk.end_line, original
+                ),
+                compressed_content_hash=region_content_hash(
+                    chunk.file_path, chunk.start_line, chunk.end_line, outcome.content
+                ),
+                fetch_original_handle=handle,
+                compression_loss_risk=outcome.loss_risk,
+            )
+        if outcome.mode is CompressionMode.PASSTHROUGH_REQUIRED:
+            passthrough_required_tokens += new_tokens
+            passthrough_regions += 1
+        else:
+            compressed_regions += 1
+            if required:
+                # Invariant guard: required regions never reach this branch.
+                compressed_required_tokens += new_tokens
+                hidden_required += 1
+
+    compressed.token_count = compressed_tokens
+    bundle_ratio = (compressed_tokens / uncompressed_tokens) if uncompressed_tokens else 1.0
+    result_fields: dict[str, float | int] = {
+        "bundle_tokens_uncompressed": uncompressed_tokens,
+        "bundle_tokens_compressed": compressed_tokens,
+        "bundle_compression_ratio": bundle_ratio,
+        "required_context_compressed_tokens": compressed_required_tokens,
+        "required_context_passthrough_tokens": passthrough_required_tokens,
+        "compression_hidden_required_region_count": hidden_required,
+    }
+    provenance = {
+        "query_intent": intent.value,
+        "protect_code": str(protect_code).lower(),
+        "compressed_region_count": str(compressed_regions),
+        "passthrough_region_count": str(passthrough_regions),
+        "bundle_compression_ratio": f"{bundle_ratio:.4f}",
+    }
+    return _BundleCompression(bundle=compressed, result_fields=result_fields, provenance=provenance)
+
+
+def run_archex_query_compressed(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: archex query retrieval, then deterministic compression.
+
+    Runs the exact ``archex_query`` retrieval and packing path so retrieval
+    metrics stay attributable to the uncompressed set, then compresses the
+    assembled bundle. Compression metrics describe the compressed output.
+    Required/direct/high-confidence context passes through; the product default
+    is unchanged.
+    """
+    strategy = Strategy.ARCHEX_QUERY_COMPRESSED
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    wall_ms = (time.perf_counter() - t0) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    compression = _compress_bundle(bundle, question=task.question)
+    fields = dict(compression.result_fields)
+    # Completion penalty is identical to the uncompressed lane: compression
+    # cannot make incomplete retrieval complete. Scale measured output tokens by
+    # the region compression ratio so non-region overhead stays comparable.
+    ratio = float(compression.result_fields["bundle_compression_ratio"])
+    completion = result.bundle_completion_tokens
+    compressed_output = round(result.tokens_output * ratio)
+    fields["token_efficiency_with_compression_and_completion"] = compute_token_efficiency(
+        compressed_output + completion, result.tokens_input + completion
+    )
+    result = result.model_copy(update=fields)
+    result.provenance = compression.provenance
+    logger.info(
+        "Strategy %s for %s: ratio=%.4f compressed=%s passthrough=%s wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        ratio,
+        compression.provenance["compressed_region_count"],
+        compression.provenance["passthrough_region_count"],
+        wall_ms,
+    )
+    return result
+
+
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
     from archex.api import query, scout_with_bundle
@@ -1843,5 +2048,8 @@ default_strategy_registry.register(
 default_strategy_registry.register(Strategy.CROSS_LAYER_FUSION.value, run_cross_layer_fusion)
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_TASK_AWARE.value, run_archex_query_task_aware
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_COMPRESSED.value, run_archex_query_compressed
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)
