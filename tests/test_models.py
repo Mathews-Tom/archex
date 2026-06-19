@@ -294,6 +294,11 @@ def test_compression_metadata_rejects_negative_counts() -> None:
         _compression_metadata(compressed_tokens=-1)
 
 
+def test_compression_metadata_passthrough_requires_matching_hash() -> None:
+    with pytest.raises(ValueError, match="passthrough_required rows must keep"):
+        _compression_metadata(compression_mode=CompressionMode.PASSTHROUGH_REQUIRED)
+
+
 def test_context_receipt_item_uncompressed_row_has_no_metadata() -> None:
     item = ContextReceiptItem(
         handle="chunk:x", file_path="a.py", start_line=1, end_line=10, content_hash="h"

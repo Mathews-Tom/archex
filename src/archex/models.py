@@ -743,6 +743,11 @@ class CompressionMetadata(BaseModel):
             raise ValueError("token counts must be non-negative")
         if self.compression_ratio < 0.0:
             raise ValueError("compression_ratio must be non-negative")
+        if (
+            self.compression_mode is CompressionMode.PASSTHROUGH_REQUIRED
+            and self.compressed_content_hash != self.original_content_hash
+        ):
+            raise ValueError("passthrough_required rows must keep the original content hash")
         return self
 
     @property
