@@ -32,6 +32,7 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_COMPRESSED = "archex_query_compressed"
     ARCHEX_QUERY_EFFICIENCY_PACKED = "archex_query_efficiency_packed"
     ARCHEX_QUERY_DUAL_TRANSFORM = "archex_query_dual_transform"
+    ARCHEX_QUERY_BOUNDED_RERANK = "archex_query_bounded_rerank"
     EXTERNAL_MCP = "external_mcp"
 
 
