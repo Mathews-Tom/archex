@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from archex.benchmark.models import BenchmarkTask, Strategy
+from archex.benchmark.runner import AVAILABLE_STRATEGIES, DEFAULT_STRATEGIES
 from archex.benchmark.strategies import (
     _compress_bundle,
     _passthrough_required,
@@ -72,6 +73,11 @@ class TestStrategyRegistry:
     def test_strategy_value(self) -> None:
         assert Strategy.ARCHEX_QUERY_COMPRESSED.value == "archex_query_compressed"
         assert Strategy.ARCHEX_QUERY_COMPRESSED.value in default_strategy_registry.strategy_names
+
+    def test_available_but_not_default(self) -> None:
+        # Discoverable as a benchmark lane, but never part of the product default.
+        assert Strategy.ARCHEX_QUERY_COMPRESSED in AVAILABLE_STRATEGIES
+        assert Strategy.ARCHEX_QUERY_COMPRESSED not in DEFAULT_STRATEGIES
 
 
 class TestPassthroughRequired:
