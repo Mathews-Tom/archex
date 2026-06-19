@@ -11,8 +11,10 @@ from archex.models import CompressionLossRisk
 from archex.serve.modality import BudgetTier
 from archex.serve.packing import (
     PackDecision,
+    PackingCandidate,
     PackingSignals,
     order_candidates,
+    pack_efficiently,
     relevance_per_1k_tokens,
     score_candidate,
 )
@@ -309,3 +311,213 @@ class TestNoBenchmarkGroundTruthDependency:
         a = score_candidate(_signals("a"), budget_tier=BudgetTier.STANDARD)
         b = score_candidate(_signals("a"), budget_tier=BudgetTier.STANDARD)
         assert a == b
+
+
+def _candidate(
+    signals: PackingSignals,
+    compressed_token_count: int | None = None,
+    elided_token_count: int | None = None,
+) -> PackingCandidate:
+    return PackingCandidate(
+        signals=signals,
+        compressed_token_count=(
+            signals.token_count if compressed_token_count is None else compressed_token_count
+        ),
+        elided_token_count=(
+            min(12, signals.token_count) if elided_token_count is None else elided_token_count
+        ),
+    )
+
+
+class TestPackerDirectMatchWins:
+    def test_direct_match_packed_before_more_efficient_optional(self) -> None:
+        # The optional region is more efficient per token, but the budget only
+        # fits one region and the direct/high-confidence target must win.
+        direct = _candidate(
+            _signals("direct", direct_match=True, token_count=200, retrieval_score=0.2)
+        )
+        optional = _candidate(_signals("optional", token_count=60, retrieval_score=1.0))
+        plan = pack_efficiently([optional, direct], token_budget=200, budget_tier=BudgetTier.TIGHT)
+        assert plan.decision_for("direct") is PackDecision.INCLUDE
+        assert plan.decision_for("optional") is PackDecision.SKIP
+        assert plan.kept_ids() == ["direct"]
+        assert plan.included_tokens == 200
+
+
+class TestPackerGraphExpansion:
+    def _candidates(self) -> list[PackingCandidate]:
+        seed = _candidate(
+            _signals(
+                "seed", direct_match=True, graph_distance=0, token_count=100, retrieval_score=0.9
+            )
+        )
+        expanded = _candidate(
+            _signals(
+                "expanded",
+                graph_distance=1,
+                graph_edge_confidence=0.5,
+                token_count=100,
+                retrieval_score=0.4,
+            )
+        )
+        return [seed, expanded]
+
+    def test_graph_expansion_loses_under_tight_budget(self) -> None:
+        plan = pack_efficiently(self._candidates(), token_budget=100, budget_tier=BudgetTier.TIGHT)
+        assert plan.decision_for("seed") is PackDecision.INCLUDE
+        assert plan.decision_for("expanded") is PackDecision.SKIP
+        assert plan.kept_ids() == ["seed"]
+
+    def test_graph_expansion_included_when_budget_allows(self) -> None:
+        plan = pack_efficiently(self._candidates(), token_budget=400, budget_tier=BudgetTier.LARGE)
+        assert plan.decision_for("seed") is PackDecision.INCLUDE
+        assert plan.decision_for("expanded") is PackDecision.INCLUDE
+        assert set(plan.kept_ids()) == {"seed", "expanded"}
+
+
+class TestPackerWholeFilePreservation:
+    def test_whole_file_included_only_under_large_budget(self) -> None:
+        wf = _signals(
+            "wf", whole_file=True, file_evidence_regions=1, token_count=300, retrieval_score=0.5
+        )
+        large = pack_efficiently([_candidate(wf)], token_budget=2000, budget_tier=BudgetTier.LARGE)
+        standard = pack_efficiently(
+            [_candidate(wf)], token_budget=2000, budget_tier=BudgetTier.STANDARD
+        )
+        assert large.decision_for("wf") is PackDecision.INCLUDE
+        assert standard.decision_for("wf") is PackDecision.ELIDE
+
+
+class TestPackerCompressionRisk:
+    def test_high_risk_optional_is_never_compressed_under_pressure(self) -> None:
+        risky = _candidate(
+            _signals(
+                "risky",
+                token_count=300,
+                retrieval_score=0.6,
+                compression_eligible=True,
+                compression_loss_risk=CompressionLossRisk.HIGH,
+            ),
+            compressed_token_count=80,
+        )
+        plan = pack_efficiently([risky], token_budget=100, budget_tier=BudgetTier.TIGHT)
+        decision = plan.decision_for("risky")
+        assert decision is not PackDecision.COMPRESS
+        assert decision in (PackDecision.ELIDE, PackDecision.SKIP)
+
+    def test_low_risk_optional_is_compressed_under_pressure(self) -> None:
+        low = _candidate(
+            _signals(
+                "low",
+                token_count=300,
+                retrieval_score=0.6,
+                compression_eligible=True,
+                compression_loss_risk=CompressionLossRisk.LOW,
+            ),
+            compressed_token_count=80,
+        )
+        plan = pack_efficiently([low], token_budget=100, budget_tier=BudgetTier.TIGHT)
+        assert plan.decision_for("low") is PackDecision.COMPRESS
+        assert plan.included_tokens == 80
+
+
+class TestPackerInvariants:
+    def test_direct_match_kept_as_anchor_when_budget_exhausted(self) -> None:
+        first = _candidate(
+            _signals("first", direct_match=True, token_count=100, retrieval_score=0.9)
+        )
+        second = _candidate(
+            _signals("second", direct_match=True, token_count=100, retrieval_score=0.8)
+        )
+        plan = pack_efficiently([first, second], token_budget=100, budget_tier=BudgetTier.TIGHT)
+        assert plan.decision_for("first") is PackDecision.INCLUDE
+        # The second direct match no longer fits but is preserved as an anchor.
+        assert plan.decision_for("second") is PackDecision.ELIDE
+        assert "second" in plan.kept_ids()
+
+    def test_optional_regions_respect_budget(self) -> None:
+        candidates = [
+            _candidate(_signals(f"c{i}", token_count=100, retrieval_score=0.9 - i * 0.1))
+            for i in range(5)
+        ]
+        plan = pack_efficiently(candidates, token_budget=250, budget_tier=BudgetTier.STANDARD)
+        # Optional regions never overflow: the full packed total (include + anchors)
+        # stays within budget; only forced direct-match anchors may exceed it.
+        assert plan.included_tokens <= 250
+
+    def test_provenance_and_relevance_per_token(self) -> None:
+        seed = _candidate(_signals("seed", direct_match=True, token_count=100, retrieval_score=1.0))
+        opt = _candidate(_signals("opt", token_count=100, retrieval_score=0.5))
+        plan = pack_efficiently([seed, opt], token_budget=1000, budget_tier=BudgetTier.STANDARD)
+        prov = plan.to_provenance()
+        assert prov["include_count"] == "2"
+        assert prov["direct_match_count"] == "1"
+        assert prov["skip_count"] == "0"
+        assert prov["budget_tier"] == BudgetTier.STANDARD.value
+        # (1.0 + 0.5) retrieval mass over 200 packed tokens -> 7.5 per 1k tokens.
+        assert plan.relevance_per_1k_tokens() == 7.5
+        assert prov["relevance_per_1k_tokens"] == "7.5000"
+
+    def test_relevance_excludes_anchor_only_elided_regions(self) -> None:
+        # The elided region keeps only an anchor, so its retrieval mass must not
+        # count toward delivered relevance-per-token.
+        kept = _candidate(_signals("kept", direct_match=True, token_count=100, retrieval_score=1.0))
+        elided = _signals(
+            "wf", whole_file=True, file_evidence_regions=1, token_count=300, retrieval_score=0.9
+        )
+        plan = pack_efficiently(
+            [kept, _candidate(elided)], token_budget=2000, budget_tier=BudgetTier.STANDARD
+        )
+        assert plan.decision_for("wf") is PackDecision.ELIDE
+        # Only the INCLUDE region's mass (1.0) counts, over packed tokens (100 + 12).
+        assert plan.relevance_per_1k_tokens() == 1.0 / plan.included_tokens * 1000.0
+
+
+class TestPackerEdgeCases:
+    def test_empty_candidate_set(self) -> None:
+        plan = pack_efficiently([], token_budget=1000, budget_tier=BudgetTier.STANDARD)
+        assert plan.regions == []
+        assert plan.kept_ids() == []
+        assert plan.included_tokens == 0
+        assert plan.relevance_per_1k_tokens() == 0.0
+
+    def test_single_direct_match_larger_than_budget_is_anchored(self) -> None:
+        big = _candidate(_signals("big", direct_match=True, token_count=5000, retrieval_score=0.9))
+        plan = pack_efficiently([big], token_budget=100, budget_tier=BudgetTier.TIGHT)
+        # Cannot be INCLUDEd within budget, but a direct match is never dropped:
+        # it is preserved as an anchor even though that exceeds the budget.
+        assert plan.decision_for("big") is PackDecision.ELIDE
+        assert "big" in plan.kept_ids()
+
+    def test_zero_budget_skips_all_optional(self) -> None:
+        candidates = [_candidate(_signals(f"c{i}", token_count=100)) for i in range(3)]
+        plan = pack_efficiently(candidates, token_budget=0, budget_tier=BudgetTier.TIGHT)
+        assert plan.kept_ids() == []
+        assert plan.included_tokens == 0
+        assert plan.to_provenance()["skip_count"] == "3"
+
+    def test_packing_is_input_order_independent(self) -> None:
+        seed = _candidate(_signals("seed", direct_match=True, token_count=100, retrieval_score=0.9))
+        mid = _candidate(_signals("mid", token_count=100, retrieval_score=0.6))
+        low = _candidate(_signals("low", token_count=100, retrieval_score=0.2))
+        forward = pack_efficiently(
+            [seed, mid, low], token_budget=250, budget_tier=BudgetTier.STANDARD
+        )
+        shuffled = pack_efficiently(
+            [low, seed, mid], token_budget=250, budget_tier=BudgetTier.STANDARD
+        )
+        assert forward.kept_ids() == shuffled.kept_ids()
+        assert [r.decision for r in forward.regions] == [r.decision for r in shuffled.regions]
+
+    def test_elide_cost_uses_real_anchor_token_count(self) -> None:
+        # A whole-file region forced to an anchor is charged its real anchor cost
+        # (elided_token_count), not a fixed marker guess.
+        wf = _candidate(
+            _signals(
+                "wf", whole_file=True, file_evidence_regions=1, token_count=600, retrieval_score=0.4
+            ),
+            elided_token_count=30,
+        )
+        plan = pack_efficiently([wf], token_budget=2000, budget_tier=BudgetTier.STANDARD)
+        assert plan.decision_for("wf") is PackDecision.ELIDE
+        assert plan.included_tokens == 30
