@@ -17,6 +17,7 @@ from archex.benchmark.arch_quality import (
 )
 from archex.benchmark.baseline import compare_baseline, load_baseline, save_baseline
 from archex.benchmark.bundle_eval import BundleOnlyEvaluatorError, run_bundle_only_eval_all
+from archex.benchmark.competitive import format_competitive_markdown
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.gate import (
     DeltaQualityThresholds,
@@ -1023,6 +1024,41 @@ def headtohead_report_cmd(input_dir: str, output_format: str) -> None:
         raise click.ClickException(f"No result files found in {input_dir}")
     try:
         click.echo(format_headtohead_markdown(manifest, reports))
+    except HeadToHeadManifestError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@headtohead_cmd.command("competitive")
+@click.option(
+    "--input",
+    "input_dir",
+    default=".archex/headtohead",
+    type=click.Path(exists=True, file_okay=False),
+    show_default=True,
+    help="Directory containing head-to-head result JSON files.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    default="markdown",
+    type=click.Choice(["markdown"]),
+    show_default=True,
+    help="Report format.",
+)
+def headtohead_competitive_cmd(input_dir: str, output_format: str) -> None:
+    """Render the competitive comparison report (per repo/task family plus aggregate)."""
+    del output_format
+    input_path = Path(input_dir)
+    manifest_path = input_path / "manifest.yaml"
+    try:
+        manifest = load_headtohead_manifest(manifest_path)
+    except (FileNotFoundError, HeadToHeadManifestError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    reports = load_headtohead_results(input_path)
+    if not reports:
+        raise click.ClickException(f"No result files found in {input_dir}")
+    try:
+        click.echo(format_competitive_markdown(manifest, reports))
     except HeadToHeadManifestError as exc:
         raise click.ClickException(str(exc)) from exc
 
