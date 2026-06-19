@@ -16,6 +16,7 @@ from archex.benchmark.models import (
     HeadToHeadArchexConfig,
     HeadToHeadManifest,
     Strategy,
+    TaskCategory,
 )
 
 
@@ -46,6 +47,7 @@ def _result(
     label: str | None = None,
     region_recall: float | None = None,
     compression_ratio: float | None = None,
+    category: TaskCategory | None = TaskCategory.EXTERNAL_FRAMEWORK,
 ) -> BenchmarkResult:
     return BenchmarkResult(
         task_id="task_a",
@@ -67,6 +69,7 @@ def _result(
         line_recall=region_recall,
         context_noise_ratio=0.2 if region_recall is not None else None,
         bundle_compression_ratio=compression_ratio,
+        category=category,
         savings_vs_raw=0.0,
         wall_time_ms=12.0,
         warm_latency_ms=10.0,
@@ -190,7 +193,9 @@ def test_competitive_report_groups_by_repo_and_aggregate() -> None:
     output = format_competitive_markdown(_manifest(), reports)
 
     assert "## Aggregate (2 tasks)" in output
-    assert "## By repo / task family" in output
+    assert "## By task family" in output
+    assert "### `external-framework`" in output
+    assert "## By repo" in output
     assert "### `owner/one`" in output
     assert "### `owner/two`" in output
 

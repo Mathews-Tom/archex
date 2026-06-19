@@ -175,6 +175,13 @@ def _metric_table(
     return rows
 
 
+def _task_family(report: BenchmarkReport) -> str:
+    for result in report.results:
+        if result.category is not None:
+            return result.category.value
+    return "unknown"
+
+
 def format_competitive_markdown(
     manifest: HeadToHeadManifest,
     reports: list[BenchmarkReport],
@@ -246,8 +253,34 @@ def format_competitive_markdown(
         )
     )
 
+    task_family = {report.task_id: _task_family(report) for report in reports}
+
+    families = sorted({task_family[report.task_id] for report in reports})
+    lines.extend(["", "## By task family", ""])
+    for family in families:
+        family_reports = [report for report in reports if task_family[report.task_id] == family]
+        family_retrieval = _retrieval_lanes(manifest, family_reports)
+        family_retrieval_order = _ordered_retrieval_labels(manifest, family_retrieval)
+        family_compression = _compression_lanes(
+            [r for r in compression_results if task_family.get(r.task_id) == family]
+        )
+        family_compression_order = [
+            label for label in compression_order if label in family_compression
+        ]
+        lines.extend([f"### `{family}` ({len(family_reports)} tasks)", ""])
+        lines.extend(
+            _metric_table(
+                family_retrieval_order,
+                family_retrieval,
+                layers,
+                family_compression_order,
+                family_compression,
+            )
+        )
+        lines.append("")
+
     repos = sorted({report.repo for report in reports})
-    lines.extend(["", "## By repo / task family", ""])
+    lines.extend(["", "## By repo", ""])
     for repo in repos:
         repo_reports = [report for report in reports if report.repo == repo]
         repo_retrieval = _retrieval_lanes(manifest, repo_reports)
