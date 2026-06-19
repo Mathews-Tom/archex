@@ -11,6 +11,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from archex.benchmark.external_mcp import reset_external_tool_config, set_external_tool_config
+from archex.benchmark.graphify import load_graphify_results
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import (
     BenchmarkReport,
@@ -322,6 +323,32 @@ def load_headtohead_results(input_dir: Path) -> list[BenchmarkReport]:
     return reports
 
 
+def merge_results_by_task(
+    reports: list[BenchmarkReport], extra_results: list[BenchmarkResult]
+) -> list[BenchmarkReport]:
+    """Return report copies with ``extra_results`` appended by ``task_id``."""
+    if not extra_results:
+        return reports
+    merged = {report.task_id: report.model_copy(deep=True) for report in reports}
+    for result in extra_results:
+        report = merged.get(result.task_id)
+        if report is None:
+            continue
+        report.results.append(result)
+    return [merged[report.task_id] for report in reports]
+
+
+def reports_with_graphify_lanes(
+    manifest: HeadToHeadManifest, reports: list[BenchmarkReport]
+) -> list[BenchmarkReport]:
+    """Augment loaded reports with any artifact-backed Graphify lane results."""
+    graphify_results = load_graphify_results(
+        manifest.graphify_lanes,
+        [report.task_id for report in reports],
+    )
+    return merge_results_by_task(reports, graphify_results)
+
+
 def lane_label(result: BenchmarkResult) -> str:
     if result.strategy is Strategy.ARCHEX_QUERY:
         return "archex"
@@ -333,6 +360,7 @@ def lane_label(result: BenchmarkResult) -> str:
 
 
 def result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> str:
+    graphify_by_name = {lane.name.value: lane for lane in manifest.graphify_lanes}
     if result.strategy is Strategy.ARCHEX_QUERY:
         return f"manifest={manifest.name}; lane=archex; embedder={manifest.archex.embedder}"
     if result.strategy is Strategy.RAW_RIPGREP:
@@ -346,6 +374,16 @@ def result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> 
             f"embedder={manifest.archex.embedder}"
         )
     tool = result.provenance.get("external_tool", result.strategy_label or "external")
+    if tool in graphify_by_name:
+        lane = graphify_by_name[tool]
+        package = result.provenance.get("graphify_package", lane.package_name)
+        version = result.provenance.get("external_tool_version", lane.version)
+        mode = "build+query" if lane.includes_build_cost else "warm-query"
+        run_mode = result.provenance.get("graphify_run_mode", "local")
+        return (
+            f"manifest={manifest.name}; lane={tool}; package={package}; "
+            f"version={version}; mode={mode}; run={run_mode}"
+        )
     version = result.provenance.get("external_tool_version", "")
     embedder = result.provenance.get("external_tool_embedder", "")
     return f"manifest={manifest.name}; lane={tool}; version={version}; embedder={embedder}"
@@ -401,6 +439,10 @@ def format_headtohead_markdown(
         raise HeadToHeadManifestError(
             "Head-to-head report is missing lane(s): " + ", ".join(missing_lanes)
         )
+
+    graphify_labels = [
+        lane.name.value for lane in manifest.graphify_lanes if lane.name.value in lanes
+    ]
     lines: list[str] = [
         "# archex Head-to-Head Benchmark",
         "",
@@ -409,6 +451,18 @@ def format_headtohead_markdown(
         f"Hardware notes: {manifest.hardware_notes}",
         "",
         "Every metric cell includes its provenance. No winner filtering is applied.",
+        *(
+            [
+                "",
+                "Graphify rows are graph / memory-layer lanes, not direct retrieval-"
+                "equivalent winners. `graphify_build_plus_query` includes graph "
+                "construction/setup plus the first graph-backed answer; "
+                "`graphify_query_warm` measures only the warm graph-query path "
+                "against a prebuilt graph.",
+            ]
+            if graphify_labels
+            else []
+        ),
         "",
         "| Lane | Recall | Required-file recall | Missed file rate | Missed task rate | "
         "All required present | Receipt accuracy | Precision | F1 | Token efficiency | "
@@ -523,19 +577,25 @@ def format_headtohead_markdown(
     if missing_rows:
         lines.extend(["", "## Missing required files", *missing_rows])
 
-    lines.extend(
-        [
-            "",
-            "## Reproduction",
-            "",
-            "```bash",
-            "uv tool install cocoindex-code  # operator choice: [full] for local embeddings",
-            "uv run archex benchmark headtohead run --manifest "
-            "benchmarks/headtohead/manifest.yaml --output .archex/headtohead",
-            "uv run archex benchmark headtohead report --input .archex/headtohead "
-            "--format markdown",
-            "```",
-            "",
-        ]
-    )
+    reproduction_lines = [
+        "",
+        "## Reproduction",
+        "",
+        "```bash",
+        "uv tool install cocoindex-code  # operator choice: [full] for local embeddings",
+        "uv run archex benchmark headtohead run --manifest "
+        "benchmarks/headtohead/manifest.yaml --output .archex/headtohead",
+        "uv run archex benchmark headtohead report --input .archex/headtohead --format markdown",
+    ]
+    if graphify_labels:
+        reproduction_lines.extend(
+            [
+                "# Optional Graphify follow-up lanes are artifact-backed in this report.",
+                "# Produce or copy the task artifacts declared under",
+                "# graphify_lanes[].artifact_dir, then rerun the report command to include",
+                "# graphify_build_plus_query and graphify_query_warm with their pinned provenance.",
+            ]
+        )
+    reproduction_lines.extend(["```", ""])
+    lines.extend(reproduction_lines)
     return "\n".join(lines)

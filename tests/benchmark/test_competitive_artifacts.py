@@ -6,12 +6,18 @@ import json
 from pathlib import Path
 
 from archex.benchmark.competitive import format_competitive_markdown, load_compression_results
-from archex.benchmark.headtohead import load_headtohead_manifest, load_headtohead_results
+from archex.benchmark.headtohead import (
+    load_headtohead_manifest,
+    load_headtohead_results,
+    reports_with_graphify_lanes,
+)
 from archex.benchmark.models import (
     BenchmarkReport,
     BenchmarkResult,
     CompressionLayerConfig,
     ExternalToolBenchmarkConfig,
+    GraphifyLaneConfig,
+    GraphifyLaneName,
     HeadToHeadManifest,
     Strategy,
 )
@@ -66,6 +72,133 @@ def _result(strategy: Strategy, *, label: str | None = None) -> BenchmarkResult:
         timestamp="2026-06-19T00:00:00Z",
         provenance={"external_tool": label or strategy.value},
     )
+
+
+def _write_graphify_artifact(
+    artifact_dir: Path,
+    *,
+    lane: str,
+    includes_build_cost: bool,
+) -> None:
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "task_id": "httpx_pooling",
+        "lane": lane,
+        "graphify_package": "graphifyy",
+        "graphify_version": "0.8.44",
+        "command": "graphify query --graph graphify-out/graph.json",
+        "includes_build_cost": includes_build_cost,
+        "tokens_total": 320,
+        "tokens_input": 800,
+        "tokens_output": 320,
+        "tool_calls": 2 if includes_build_cost else 1,
+        "files_accessed": 2,
+        "recall": 0.9,
+        "precision": 0.5,
+        "f1_score": 0.64,
+        "mrr": 1.0,
+        "ndcg": 1.0,
+        "map_score": 1.0,
+        "required_file_recall": 0.9,
+        "missed_required_file_rate": 0.0,
+        "missed_required_task_rate": 0.0,
+        "all_required_files_present": True,
+        "required_files_present": ["src/main.py"],
+        "required_files_missing": [],
+        "result_files": ["src/main.py"],
+        "task_completion_result": "pass",
+        "bundle_completion_tokens": 0,
+        "bundle_completion_files": [],
+        "token_efficiency": 0.6,
+        "token_efficiency_with_completion": 0.6,
+        "cold_start_ms": 4200.0 if includes_build_cost else 0.0,
+        "warm_latency_ms": 315.0,
+        "wall_time_ms": 4515.0 if includes_build_cost else 315.0,
+        "cache_state": "cold" if includes_build_cost else "warm",
+        "cached": not includes_build_cost,
+        "freshness_latency_ms": 0.0,
+        "freshness_measured": False,
+        "freshness_correct": False,
+        "region_recall": None,
+        "line_recall": None,
+        "context_noise_ratio": None,
+        "local_offline_posture": "local code graph only",
+        "backend": "local-ast",
+        "timestamp": "2026-06-19T00:00:00Z",
+    }
+    (artifact_dir / "httpx_pooling.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_reports_with_graphify_lanes_imports_artifacts() -> None:
+    build_dir = _RESULTS_DIR.parent / "tmp-graphify-build"
+    warm_dir = _RESULTS_DIR.parent / "tmp-graphify-warm"
+    try:
+        _write_graphify_artifact(
+            build_dir,
+            lane="graphify_build_plus_query",
+            includes_build_cost=True,
+        )
+        _write_graphify_artifact(
+            warm_dir,
+            lane="graphify_query_warm",
+            includes_build_cost=False,
+        )
+        manifest = HeadToHeadManifest(
+            name="competitive",
+            task_subset=["httpx_pooling"],
+            hardware_notes="M1 Pro",
+            external_tools=[
+                ExternalToolBenchmarkConfig(
+                    name="ccc",
+                    version="0.2.35",
+                    command="ccc",
+                    args=["mcp"],
+                    embedder="Snowflake/snowflake-arctic-embed-xs",
+                )
+            ],
+            graphify_lanes=[
+                GraphifyLaneConfig(
+                    name=GraphifyLaneName.GRAPHIFY_BUILD_PLUS_QUERY,
+                    version="0.8.44",
+                    command="graphify",
+                    includes_build_cost=True,
+                    artifact_dir=str(build_dir),
+                ),
+                GraphifyLaneConfig(
+                    name=GraphifyLaneName.GRAPHIFY_QUERY_WARM,
+                    version="0.8.44",
+                    command="graphify",
+                    includes_build_cost=False,
+                    artifact_dir=str(warm_dir),
+                ),
+            ],
+        )
+        reports = [
+            BenchmarkReport(
+                task_id="httpx_pooling",
+                repo="encode/httpx",
+                question="How?",
+                baseline_tokens=400,
+                results=[
+                    _result(Strategy.ARCHEX_QUERY),
+                    _result(Strategy.EXTERNAL_MCP, label="ccc"),
+                    _result(Strategy.RAW_RIPGREP),
+                ],
+            )
+        ]
+
+        augmented = reports_with_graphify_lanes(manifest, reports)
+        output = format_competitive_markdown(manifest, augmented)
+
+        assert "| graphify_build_plus_query | graph-memory |" in output
+        assert "| graphify_query_warm | graph-memory |" in output
+        assert "mode=build+query; run=artifact" in output
+    finally:
+        for path in (build_dir, warm_dir):
+            if path.is_dir():
+                for file in path.glob("*.json"):
+                    file.unlink()
+                path.rmdir()
 
 
 def test_load_compression_results_from_fixture() -> None:

@@ -160,6 +160,7 @@ def _ordered_retrieval_labels(
 ) -> list[str]:
     preferred = ["archex", *(s.value for s in manifest.archex.candidate_strategies)]
     preferred += [tool.name for tool in manifest.external_tools]
+    preferred += [lane.name.value for lane in manifest.graphify_lanes]
     preferred.append("raw-ripgrep/read")
     ordered = [label for label in preferred if label in lanes]
     ordered += sorted(label for label in lanes if label not in preferred)
@@ -246,6 +247,12 @@ def format_competitive_markdown(
         "retrieval engine. Compression lanes contribute a compression ratio only; "
         "retrieval-quality columns are `n/a` for them.",
         "",
+        "Graphify is evaluated as a graph / memory layer. "
+        "`graphify_build_plus_query` includes graph construction/setup plus the first "
+        "graph-backed answer; `graphify_query_warm` measures only the warm graph-query "
+        "path against a prebuilt graph. These lanes are reported separately and are not "
+        "framed as direct retrieval-equivalent wins.",
+        "",
         "Metrics are reported per repo/task family and in aggregate. No aggregate-only "
         "winner is claimed; every lane and cell is shown.",
         "",
@@ -318,21 +325,31 @@ def format_competitive_markdown(
         )
         lines.append("")
 
-    lines.extend(_operational_dimensions(manifest, retrieval_order, compression_order, layers))
+    lines.extend(
+        _operational_dimensions(
+            manifest,
+            retrieval_order,
+            retrieval_lanes,
+            compression_order,
+            layers,
+        )
+    )
     return "\n".join(lines)
 
 
 def _operational_dimensions(
     manifest: HeadToHeadManifest,
     retrieval_order: list[str],
+    retrieval_lanes: dict[str, list[BenchmarkResult]],
     compression_order: list[str],
     layers: dict[str, ComparisonLayerType],
 ) -> list[str]:
     tool_by_name = {tool.name: tool for tool in manifest.external_tools}
+    graphify_by_name = {lane.name.value: lane for lane in manifest.graphify_lanes}
     lines = [
         "## Operational dimensions",
         "",
-        "| Lane | Layer | Local/offline posture | Setup steps | Embedder |",
+        "| Lane | Layer | Local/offline posture | Setup steps | Embedder / backend |",
         "| --- | --- | --- | --- | --- |",
     ]
     for label in retrieval_order:
@@ -340,21 +357,34 @@ def _operational_dimensions(
         if label == "archex":
             posture = "local models only" if manifest.archex.local_models_only else "configurable"
             steps = "index build"
-            embedder = manifest.archex.embedder
+            backend = manifest.archex.embedder
         elif label == "raw-ripgrep/read":
             posture = "local files only"
             steps = "none"
-            embedder = "n/a"
+            backend = "n/a"
         elif label in tool_by_name:
             tool = tool_by_name[label]
             posture = f"operator-configured (embedder={tool.embedder})"
             steps = f"{len(tool.bootstrap_commands)} bootstrap command(s)"
-            embedder = tool.embedder
+            backend = tool.embedder
+        elif label in graphify_by_name:
+            lane = graphify_by_name[label]
+            provenance = retrieval_lanes[label][0].provenance
+            posture = provenance.get(
+                "graphify_local_offline_posture",
+                lane.operational_notes or "graph / memory layer",
+            )
+            steps = (
+                "graph build + first query"
+                if lane.includes_build_cost
+                else "warm query on prebuilt graph"
+            )
+            backend = provenance.get("graphify_backend", "n/a")
         else:
             posture = "local models only"
             steps = "index build"
-            embedder = manifest.archex.embedder
-        lines.append(f"| {label} | {layer.value} | {posture} | {steps} | {embedder} |")
+            backend = manifest.archex.embedder
+        lines.append(f"| {label} | {layer.value} | {posture} | {steps} | {backend} |")
     for label in compression_order:
         layer = layers.get(label, ComparisonLayerType.COMPRESSION)
         lines.append(f"| {label} | {layer.value} | post-selection compression layer | n/a | n/a |")
