@@ -17,6 +17,7 @@ from archex.benchmark.models import (
     BenchmarkResult,
     BenchmarkRetrievalOptions,
     BenchmarkTask,
+    ComparisonLayerType,
     HeadToHeadManifest,
     Strategy,
     TaskCategory,
@@ -67,13 +68,62 @@ def _reject_empty_text(path: Path, field: str, value: str) -> None:
         raise HeadToHeadManifestError(f"Invalid head-to-head manifest in {path}: {field}: empty")
 
 
-def _reject_unpinned_version(path: Path, tool_name: str, version: str) -> None:
+def _reject_unpinned_version(path: Path, field: str, version: str) -> None:
     normalized = version.strip().lower()
     if normalized in {"", "latest", "head", "main", "operator-pinned"}:
         raise HeadToHeadManifestError(
-            f"Invalid head-to-head manifest in {path}: external_tools.{tool_name}.version "
-            "must pin an exact released version"
+            f"Invalid head-to-head manifest in {path}: {field} must pin an exact released version"
         )
+
+
+def _validate_archex_candidate_lanes(path: Path, manifest: HeadToHeadManifest) -> None:
+    seen: set[Strategy] = {manifest.archex.strategy}
+    for candidate in manifest.archex.candidate_strategies:
+        if not candidate.value.startswith("archex_query"):
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: archex.candidate_strategies entry "
+                f"{candidate.value!r} must be an archex_query lane"
+            )
+        if candidate in seen:
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: archex.candidate_strategies repeats "
+                f"lane {candidate.value!r}"
+            )
+        seen.add(candidate)
+
+
+def _validate_compression_layers(path: Path, manifest: HeadToHeadManifest) -> None:
+    seen: set[str] = set()
+    for layer in manifest.compression_layers:
+        _reject_empty_text(path, f"compression_layers.{layer.name}.name", layer.name)
+        _reject_empty_text(path, f"compression_layers.{layer.name}.command", layer.command)
+        _reject_unpinned_version(path, f"compression_layers.{layer.name}.version", layer.version)
+        if layer.layer_type is not ComparisonLayerType.COMPRESSION:
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: "
+                f"compression_layers.{layer.name}.layer_type must be compression"
+            )
+        if not layer.modes:
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: "
+                f"compression_layers.{layer.name}.modes must not be empty"
+            )
+        if len(set(layer.modes)) != len(layer.modes):
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: "
+                f"compression_layers.{layer.name}.modes contains duplicates"
+            )
+        if layer.artifact_dir is not None and not layer.artifact_dir.strip():
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: "
+                f"compression_layers.{layer.name}.artifact_dir must not be empty"
+            )
+        if layer.name in seen:
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: "
+                f"duplicate compression layer {layer.name!r}"
+            )
+        seen.add(layer.name)
 
 
 def _validate_manifest_shape(path: Path, manifest: HeadToHeadManifest) -> None:
@@ -112,12 +162,19 @@ def _validate_manifest_shape(path: Path, manifest: HeadToHeadManifest) -> None:
         _reject_empty_text(path, f"external_tools.{tool.name}.name", tool.name)
         _reject_empty_text(path, f"external_tools.{tool.name}.command", tool.command)
         _reject_empty_text(path, f"external_tools.{tool.name}.embedder", tool.embedder)
-        _reject_unpinned_version(path, tool.name, tool.version)
+        _reject_unpinned_version(path, f"external_tools.{tool.name}.version", tool.version)
+        if tool.layer_type is not ComparisonLayerType.RETRIEVAL:
+            raise HeadToHeadManifestError(
+                f"Invalid head-to-head manifest in {path}: external_tools.{tool.name}.layer_type "
+                "must be retrieval; model compression tools under compression_layers"
+            )
         if tool.name in seen_tools:
             raise HeadToHeadManifestError(
                 f"Invalid head-to-head manifest in {path}: duplicate external tool {tool.name!r}"
             )
         seen_tools.add(tool.name)
+    _validate_archex_candidate_lanes(path, manifest)
+    _validate_compression_layers(path, manifest)
 
 
 def load_headtohead_manifest(path: Path) -> HeadToHeadManifest:
@@ -125,6 +182,25 @@ def load_headtohead_manifest(path: Path) -> HeadToHeadManifest:
     manifest = _validate_yaml_model(path, HeadToHeadManifest)
     _validate_manifest_shape(path, manifest)
     return manifest
+
+
+def comparison_lane_layers(manifest: HeadToHeadManifest) -> dict[str, ComparisonLayerType]:
+    """Map each modeled comparison lane label to its layer type.
+
+    Distinguishes retrieval engines (archex default + candidate lanes, external
+    retrieval tools) from compression layers (Headroom modes) and the raw baseline,
+    so reports never present a compression layer as a retrieval engine.
+    """
+    layers: dict[str, ComparisonLayerType] = {"archex": ComparisonLayerType.RETRIEVAL}
+    for candidate in manifest.archex.candidate_strategies:
+        layers[candidate.value] = ComparisonLayerType.RETRIEVAL
+    for tool in manifest.external_tools:
+        layers[tool.name] = tool.layer_type
+    for layer in manifest.compression_layers:
+        for mode in layer.modes:
+            layers[mode.value] = layer.layer_type
+    layers["raw-ripgrep/read"] = ComparisonLayerType.BASELINE
+    return layers
 
 
 def select_headtohead_tasks(

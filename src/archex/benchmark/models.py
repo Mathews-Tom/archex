@@ -262,6 +262,32 @@ class BenchmarkRetrievalOptions(BaseModel):
     summary_sidecar_path: str | None = None
 
 
+class ComparisonLayerType(StrEnum):
+    """Where a comparison lane operates.
+
+    ``retrieval`` lanes are retrieval/selection engines (archex, cocoindex-code).
+    ``compression`` lanes are post-selection context-management layers (Headroom);
+    they are not retrieval engines and the comparison must label the difference.
+    ``baseline`` is the raw filesystem read/grep lane.
+    """
+
+    RETRIEVAL = "retrieval"
+    COMPRESSION = "compression"
+    BASELINE = "baseline"
+
+
+class CompressionLayerMode(StrEnum):
+    """How a compression layer is composed with retrieval in the comparison.
+
+    ``headroom_only_on_raw_context`` compresses raw/broad context with no archex
+    selection (does compression alone rescue broad context?). ``archex_plus_headroom``
+    compresses an archex-selected bundle after selection (is the pair composable?).
+    """
+
+    HEADROOM_ONLY_ON_RAW_CONTEXT = "headroom_only_on_raw_context"
+    ARCHEX_PLUS_HEADROOM = "archex_plus_headroom"
+
+
 class ExternalToolCommandConfig(BenchmarkSpecModel):
     command: str
     args: list[str] = []
@@ -274,6 +300,10 @@ class ExternalToolBenchmarkConfig(BenchmarkSpecModel):
     command: str
     args: list[str] = []
     embedder: str
+    # External MCP tools modeled here are retrieval/selection engines. The layer
+    # type is explicit metadata so reports never frame a retrieval engine and a
+    # compression layer as the same kind of system.
+    layer_type: ComparisonLayerType = ComparisonLayerType.RETRIEVAL
     cwd: str | None = None
     env: dict[str, str] = {}
     search_tool: str = "search"
@@ -287,8 +317,38 @@ class ExternalToolBenchmarkConfig(BenchmarkSpecModel):
     bootstrap_commands: list[ExternalToolCommandConfig] = []
 
 
+class CompressionLayerConfig(BenchmarkSpecModel):
+    """A post-selection compression layer (Headroom-style) in the comparison.
+
+    This is a compression/context-management layer, not a retrieval engine, so
+    ``layer_type`` defaults to ``compression`` and the manifest validator rejects
+    any other value. ``artifact_dir`` selects artifact-adapter mode: operator-run
+    compression outputs are imported instead of running the binary in-session.
+    """
+
+    name: str
+    version: str
+    command: str
+    args: list[str] = []
+    layer_type: ComparisonLayerType = ComparisonLayerType.COMPRESSION
+    modes: list[CompressionLayerMode] = Field(
+        default_factory=lambda: [
+            CompressionLayerMode.HEADROOM_ONLY_ON_RAW_CONTEXT,
+            CompressionLayerMode.ARCHEX_PLUS_HEADROOM,
+        ]
+    )
+    compression_settings: dict[str, str] = {}
+    env: dict[str, str] = {}
+    timeout_seconds: float = 120.0
+    artifact_dir: str | None = None
+
+
 class HeadToHeadArchexConfig(BenchmarkSpecModel):
     strategy: Strategy = Strategy.ARCHEX_QUERY
+    # Improved/benchmark-only archex lanes compared beside the current default
+    # (e.g. archex_query_compressed, archex_query_efficiency_packed). Empty keeps
+    # the historical single-lane behavior.
+    candidate_strategies: list[Strategy] = []
     embedder: str = "jina-v2"
     local_models_only: bool = True
 
@@ -301,6 +361,7 @@ class HeadToHeadManifest(BenchmarkSpecModel):
     archex: HeadToHeadArchexConfig = Field(default_factory=HeadToHeadArchexConfig)
     raw_read_strategy: Strategy = Strategy.RAW_RIPGREP
     external_tools: list[ExternalToolBenchmarkConfig]
+    compression_layers: list[CompressionLayerConfig] = []
 
 
 class TaskCompletionResult(StrEnum):
