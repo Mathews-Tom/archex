@@ -18,7 +18,7 @@ from archex.client_setup import (
 @click.command("install-client")
 @click.argument(
     "client",
-    type=click.Choice(["claude-code", "codex", "cursor", "opencode", "pi"]),
+    type=click.Choice(["claude-code", "codex", "cursor", "opencode", "pi", "omp"]),
 )
 @click.argument("source", required=False, default=None)
 @click.option(

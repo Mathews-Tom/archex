@@ -7,10 +7,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
-ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi"]
+ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
 ClientScope = Literal["project", "user"]
 
-_USER_ONLY_CLIENTS: frozenset[ClientName] = frozenset({"pi"})
+_USER_ONLY_CLIENTS: frozenset[ClientName] = frozenset({"pi", "omp"})
+_OMP_SCHEMA = (
+    "https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
+    "packages/coding-agent/src/config/mcp-schema.json"
+)
+_CLIENT_SCHEMA: dict[ClientName, str] = {
+    "opencode": "https://opencode.ai/config.json",
+    "omp": _OMP_SCHEMA,
+}
 
 
 @dataclass(frozen=True)
@@ -101,8 +109,9 @@ def write_client_install_plan(plan: ClientInstallPlan) -> Path:
             return target
         raise ValueError(f"archex already configured in {target}")
     container["archex"] = archex_entry
-    if plan.client == "opencode" and "$schema" not in existing_payload:
-        existing_payload["$schema"] = "https://opencode.ai/config.json"
+    schema = _CLIENT_SCHEMA.get(plan.client)
+    if schema is not None and "$schema" not in existing_payload:
+        existing_payload["$schema"] = schema
     target.write_text(json.dumps(existing_payload, indent=2) + "\n", encoding="utf-8")
     return target
 
@@ -157,6 +166,8 @@ def _target_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Pat
         )
     if client == "pi":
         return home / ".pi" / "agent" / "mcp.json"
+    if client == "omp":
+        return home / ".omp" / "agent" / "mcp.json"
     raise ValueError(f"unsupported client: {client}")
 
 
@@ -185,6 +196,17 @@ def _render_content(client: ClientName) -> str:
             }
         }
         return json.dumps(payload, indent=2) + "\n"
+    if client == "omp":
+        payload = {
+            "$schema": _OMP_SCHEMA,
+            "mcpServers": {
+                "archex": {
+                    "command": "archex",
+                    "args": ["mcp"],
+                }
+            },
+        }
+        return json.dumps(payload, indent=2) + "\n"
     payload = {
         "mcpServers": {
             "archex": {
@@ -211,6 +233,8 @@ def _description(client: ClientName, scope: ClientScope) -> str:
         return f"OpenCode {'project' if scope == 'project' else 'user'} config"
     if client == "pi":
         return "Pi agent MCP config"
+    if client == "omp":
+        return "oh-my-pi agent MCP config"
     if client == "cursor":
         return f"Cursor {'project' if scope == 'project' else 'user'} MCP config"
     return f"Claude Code {'project' if scope == 'project' else 'user'} MCP config"
@@ -225,4 +249,6 @@ def _tested_status(client: ClientName) -> str:
         return "config-shape verified; client smoke unverified"
     if client == "codex":
         return "unverified client smoke"
+    if client == "omp":
+        return "config-shape verified; client smoke unverified"
     return "config-shape verified; client smoke unverified"
