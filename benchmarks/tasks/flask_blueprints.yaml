@@ -15,7 +15,7 @@ expected_regions:
   - path: src/flask/sansio/blueprints.py
     granularity: symbol
     symbol: BlueprintSetupState
-    start_line: 39
+    start_line: 34
     end_line: 118
     notes: "Registration state for blueprint deferred setup; pinned to Flask 3.1.0."
   - path: src/flask/sansio/blueprints.py

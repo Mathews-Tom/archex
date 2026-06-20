@@ -18,8 +18,8 @@ expected_regions:
   - path: fastapi/routing.py
     granularity: symbol
     symbol: APIRoute
-    start_line: 426
-    end_line: 591
+    start_line: 428
+    end_line: 592
     notes: "Route object setup, path regex conversion, dependant construction, and handler wiring; pinned to FastAPI 0.115.6."
   - path: fastapi/routing.py
     granularity: symbol

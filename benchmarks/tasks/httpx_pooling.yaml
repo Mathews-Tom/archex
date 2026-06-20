@@ -21,7 +21,7 @@ expected_regions:
   - path: httpx/_transports/default.py
     granularity: block
     symbol: HTTPTransport/AsyncHTTPTransport
-    start_line: 137
+    start_line: 135
     end_line: 406
     notes: "httpcore-backed connection pools and keep-alive handling; pinned to httpx 0.28.1."
 token_budget: 8192
