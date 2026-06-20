@@ -287,6 +287,12 @@ TurboQuant evidence is measured separately with `archex_query_hybrid_quantized_4
 | `ccc` | 0.32 | 0.32 | 0.79 | 0.31 | 0.48 | 0.41 | 521 |
 | `raw-ripgrep/read` | 1.00 | 1.00 | 0.00 | 0.05 | 0.00 | 0.00 | 773 |
 
+### What this means for your workflow
+
+- **Coverage stays close to raw search without paying raw-search token cost.** `raw-ripgrep/read` reaches `1.00` required-file recall, but it does so at `0.00` token efficiency. archex lands at `0.95` required-file recall with `0.76` token efficiency, so the returned bundle stays close to exhaustive file coverage without filling the prompt with every textual match.
+- **Missed-file failures drop sharply versus `ccc`.** archex's missed task rate is `0.16`; `ccc` lands at `0.79`. In the published C1 run, that is the difference between usually returning the files an agent needs and often requiring a second pass before the task can finish.
+- **Vector storage got much smaller without a measured retrieval-quality change.** The published 4-bit TurboQuant run reports `7.07×` mean vector `.npz` compression (`6.98×` minimum) with recall Δ `+0.000`, MRR Δ `+0.000`, and F1 Δ `+0.000`, so local vector indexes take far less disk without a measured quality regression in that benchmark.
+
 ## Advanced workflows
 
 ```bash
