@@ -22,6 +22,9 @@ from archex.benchmark.models import (
     ExpectedRegion,
 )
 
+TASKS_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "tasks"
+LABELED_SELF_TASK = TASKS_DIR / "archex_delta_indexing.yaml"
+
 
 @pytest.fixture
 def sample_yaml(tmp_path: Path) -> Path:
@@ -347,6 +350,33 @@ expected_regions:
 
         with pytest.raises(ValueError, match=r"region_bad_gran\.yaml.*granularity"):
             load_task(p)
+
+    def test_load_real_self_task_regions(self) -> None:
+        task = load_task(LABELED_SELF_TASK)
+
+        assert task.expected_regions
+        assert {region.path for region in task.expected_regions} <= set(task.expected_files)
+        compute_delta_regions = [
+            region for region in task.expected_regions if region.symbol == "compute_delta"
+        ]
+        assert len(compute_delta_regions) == 1
+        assert compute_delta_regions[0].start_line is not None
+        assert compute_delta_regions[0].end_line is not None
+        assert compute_delta_regions[0].start_line <= compute_delta_regions[0].end_line
+
+    def test_real_task_rejects_malformed_region(self, tmp_path: Path) -> None:
+        malformed = tmp_path / LABELED_SELF_TASK.name
+        malformed.write_text(
+            LABELED_SELF_TASK.read_text(encoding="utf-8").replace(
+                "    end_line: 334",
+                "    end_line: 281",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match=r"archex_delta_indexing\.yaml.*end_line"):
+            load_task(malformed)
 
 
 class TestLoadArchTask:

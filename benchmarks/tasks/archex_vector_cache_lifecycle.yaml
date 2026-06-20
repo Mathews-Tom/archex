@@ -17,6 +17,31 @@ expected_symbols:
   - vector_path
   - VectorIndex
   - Embedder
+expected_regions:
+  - path: src/archex/api.py
+    granularity: symbol
+    symbol: _vector_search_precomputed
+    start_line: 1173
+    end_line: 1209
+    notes: "Reloads and searches persisted vector indexes."
+  - path: src/archex/cache.py
+    granularity: symbol
+    symbol: CacheManager.vector_path
+    start_line: 134
+    end_line: 151
+    notes: "Vector-cache path derivation."
+  - path: src/archex/index/vector.py
+    granularity: symbol
+    symbol: VectorIndex
+    start_line: 60
+    end_line: 419
+    notes: "Dense vector index build, save/load, and search."
+  - path: src/archex/index/embeddings/base.py
+    granularity: symbol
+    symbol: Embedder
+    start_line: 9
+    end_line: 15
+    notes: "Embedding-provider protocol used by vector retrieval."
 token_budget: 8192
 keywords:
   - vector

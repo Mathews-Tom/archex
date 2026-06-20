@@ -12,6 +12,25 @@ expected_symbols:
   - query
   - BM25Index
   - assemble_context
+expected_regions:
+  - path: src/archex/api.py
+    granularity: symbol
+    symbol: query
+    start_line: 1689
+    end_line: 2346
+    notes: "Public query orchestration from indexing through retrieval and context finalization."
+  - path: src/archex/index/bm25.py
+    granularity: symbol
+    symbol: BM25Index
+    start_line: 127
+    end_line: 344
+    notes: "BM25 FTS index build and search behavior."
+  - path: src/archex/serve/context.py
+    granularity: symbol
+    symbol: assemble_context
+    start_line: 904
+    end_line: 1633
+    notes: "Bundle assembly and ranked context packing."
 token_budget: 8192
 keywords:
   - query

@@ -11,6 +11,25 @@ expected_symbols:
   - detect_patterns
   - PatternRegistry
   - PatternMatch
+expected_regions:
+  - path: src/archex/analyze/patterns.py
+    granularity: symbol
+    symbol: PatternRegistry
+    start_line: 30
+    end_line: 72
+    notes: "Pattern detector registry and entry-point loading."
+  - path: src/archex/analyze/patterns.py
+    granularity: symbol
+    symbol: detect_patterns
+    start_line: 496
+    end_line: 518
+    notes: "Public pattern-detection entry point."
+  - path: src/archex/models.py
+    granularity: symbol
+    symbol: DetectedPattern
+    start_line: 506
+    end_line: 512
+    notes: "Pattern result model corresponding to the task's pattern-match expectation."
 token_budget: 8192
 keywords:
   - pattern

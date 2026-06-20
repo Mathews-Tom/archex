@@ -10,6 +10,19 @@ expected_files:
 expected_symbols:
   - DependencyGraph.from_parsed_files
   - assemble_context
+expected_regions:
+  - path: src/archex/index/graph.py
+    granularity: symbol
+    symbol: DependencyGraph.from_parsed_files
+    start_line: 84
+    end_line: 118
+    notes: "Dependency graph construction from parsed files and resolved imports."
+  - path: src/archex/serve/context.py
+    granularity: symbol
+    symbol: assemble_context
+    start_line: 904
+    end_line: 1633
+    notes: "Context assembly, graph expansion, ranking, and packing."
 token_budget: 8192
 keywords:
   - graph

@@ -16,6 +16,31 @@ expected_symbols:
   - init_cmd
   - init_project
   - load_config
+expected_regions:
+  - path: src/archex/cli/main.py
+    granularity: symbol
+    symbol: cli
+    start_line: 34
+    end_line: 36
+    notes: "Root command group that registers project lifecycle commands."
+  - path: src/archex/cli/init_cmd.py
+    granularity: symbol
+    symbol: init_cmd
+    start_line: 10
+    end_line: 37
+    notes: "CLI option handling and init result rendering."
+  - path: src/archex/project.py
+    granularity: symbol
+    symbol: init_project
+    start_line: 122
+    end_line: 159
+    notes: "Repo-local state creation, settings writing, and gitignore update."
+  - path: src/archex/config.py
+    granularity: symbol
+    symbol: load_config
+    start_line: 115
+    end_line: 138
+    notes: "Runtime config loading from user, project, and environment settings."
 token_budget: 8192
 keywords:
   - init
