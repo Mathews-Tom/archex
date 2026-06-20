@@ -24,6 +24,18 @@ from archex.benchmark.models import (
 
 TASKS_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "tasks"
 LABELED_SELF_TASK = TASKS_DIR / "archex_delta_indexing.yaml"
+LABELED_EXTERNAL_TASKS = (
+    "click_decorators",
+    "django_middleware",
+    "django_orm_queries",
+    "fastapi_dependency_injection",
+    "fastapi_routing",
+    "flask_blueprints",
+    "httpx_pooling",
+    "pydantic_validators",
+    "requests_sessions",
+)
+ALLOWED_REGION_GRANULARITIES = {"file", "symbol", "block", "line_range"}
 
 
 @pytest.fixture
@@ -376,6 +388,31 @@ expected_regions:
         )
 
         with pytest.raises(ValueError, match=r"archex_delta_indexing\.yaml.*end_line"):
+            load_task(malformed)
+
+    def test_load_real_external_task_regions(self) -> None:
+        for task_id in LABELED_EXTERNAL_TASKS:
+            task = load_task(TASKS_DIR / f"{task_id}.yaml")
+
+            assert task.expected_regions, f"{task_id} declares no expected_regions"
+            assert {region.path for region in task.expected_regions} <= set(task.expected_files)
+            assert {region.granularity.value for region in task.expected_regions} <= (
+                ALLOWED_REGION_GRANULARITIES
+            )
+
+    def test_real_external_task_rejects_invalid_region_granularity(self, tmp_path: Path) -> None:
+        source = TASKS_DIR / "fastapi_routing.yaml"
+        malformed = tmp_path / source.name
+        malformed.write_text(
+            source.read_text(encoding="utf-8").replace(
+                "    granularity: symbol",
+                "    granularity: paragraph",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match=r"fastapi_routing\.yaml.*granularity"):
             load_task(malformed)
 
 
