@@ -198,6 +198,9 @@ def test_metrics_summary_surface_mix_split(
     assert by_surface["cli"]["event_count"] == 1
     assert by_surface["mcp"]["event_count"] == 1
     assert by_surface["python_api"]["event_count"] == 0
+    assert by_surface["cli"]["tokens_saved"] == 90
+    assert by_surface["mcp"]["tokens_saved"] == 100
+    assert by_surface["python_api"]["tokens_saved"] == 0
     assert "Surface mix:            cli 1, mcp 1, python_api 0" in summary_text.output
 
 
