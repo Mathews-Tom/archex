@@ -10,6 +10,8 @@ from typing import Literal, cast
 ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi"]
 ClientScope = Literal["project", "user"]
 
+_USER_ONLY_CLIENTS: frozenset[ClientName] = frozenset({"pi"})
+
 
 @dataclass(frozen=True)
 class ClientInstallPlan:
@@ -24,14 +26,14 @@ class ClientInstallPlan:
 
 def build_client_install_plan(
     client: ClientName,
-    source: str | Path = ".",
+    source: str | Path | None = None,
     *,
     scope: ClientScope | None = None,
 ) -> ClientInstallPlan:
-    repo_root = Path(source).expanduser().resolve()
-    selected_scope = scope or _default_scope(client)
-    if client == "pi" and selected_scope != "user":
-        raise ValueError("pi client config supports only --scope user")
+    selected_scope = _resolve_scope(client, source, scope)
+    if client in _USER_ONLY_CLIENTS and selected_scope != "user":
+        raise ValueError(f"{client} client config supports only --scope user")
+    repo_root = Path(source if source is not None else ".").expanduser().resolve()
     target_path = _target_path(client, repo_root, selected_scope)
     content = _render_content(client)
     return ClientInstallPlan(
@@ -49,9 +51,12 @@ def write_client_install_plan(plan: ClientInstallPlan) -> Path:
     target = plan.target_path
     target.parent.mkdir(parents=True, exist_ok=True)
     if _is_toml_plan(plan):
+        block = plan.content.strip()
         if target.exists():
             existing = target.read_text(encoding="utf-8")
             if "[mcp_servers.archex]" in existing:
+                if block in existing:
+                    return target
                 raise ValueError(f"archex already configured in {target}")
             if existing.strip():
                 new_content = existing.rstrip() + "\n\n" + plan.content
@@ -90,7 +95,10 @@ def write_client_install_plan(plan: ClientInstallPlan) -> Path:
     if not isinstance(archex_entry_obj, dict):
         raise ValueError(f"expected archex entry in generated content for {plan.client}")
     archex_entry = cast("dict[str, object]", archex_entry_obj)
-    if "archex" in container:
+    existing_archex = container.get("archex")
+    if existing_archex is not None:
+        if existing_archex == archex_entry:
+            return target
         raise ValueError(f"archex already configured in {target}")
     container["archex"] = archex_entry
     if plan.client == "opencode" and "$schema" not in existing_payload:
@@ -108,17 +116,21 @@ def render_client_install_preview(plan: ClientInstallPlan) -> str:
         f"Last verified: {plan.last_verified}",
         f"Description: {plan.description}",
         "",
-        "Preview only. Re-run with --write to persist this config.",
+        "Dry run. Re-run without --dry-run to write this config.",
         "",
         plan.content.rstrip(),
     ]
     return "\n".join(lines) + "\n"
 
 
-def _default_scope(client: ClientName) -> ClientScope:
-    if client == "pi":
+def _resolve_scope(
+    client: ClientName, source: str | Path | None, scope: ClientScope | None
+) -> ClientScope:
+    if scope is not None:
+        return scope
+    if client in _USER_ONLY_CLIENTS:
         return "user"
-    return "project"
+    return "project" if source is not None else "user"
 
 
 def _target_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:

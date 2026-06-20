@@ -39,7 +39,7 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 | Claude Code or MCP | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts, and an in-repo skill that teaches doctor → scout → fetch. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
 | Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, raw-ripgrep/read baseline, bundle-only evaluator reports, required-file trust gates, and TurboQuant storage/recall evidence. |
-| Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Preview-first client bootstrap paths for Claude Code, Codex, Pi, OpenCode, and Cursor. |
+| Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Client bootstrap paths for Claude Code, Codex, Pi, OpenCode, and Cursor (global/user scope by default; `--dry-run` previews). |
 
 ## 30-second quickstart
 
@@ -170,11 +170,12 @@ uv tool install "archex[mcp]"
 }
 ```
 
-Preview the exact client config before writing it:
+Install the client config (global/user scope by default; pass a SOURCE path or `--scope project` for a repo-local install). Add `--dry-run` to preview the exact target and config without writing:
 
 ```bash
-archex install-client claude-code .
-archex install-client claude-code . --write
+archex install-client claude-code            # global, writes immediately
+archex install-client claude-code --dry-run  # preview only, no changes
+archex install-client claude-code . --scope project
 ```
 
 For warm local sessions, keep the MCP process alive and optionally watch the repo:
@@ -185,7 +186,7 @@ archex mcp --watch --watch-path .
 
 The in-repo Claude Code skill lives at [`skills/archex/`](skills/archex/). Its `/archex` command runs `archex doctor`, initializes/indexes when needed, scouts first for broad questions, then fetches exact `symbol:` or `chunk:` handles before a larger bundle query.
 
-Exact install, MCP, Docker, cache, uninstall, and trust semantics are documented in the [installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md). Client-specific config targets and preview-first bootstrap paths live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md).
+Exact install, MCP, Docker, cache, uninstall, and trust semantics are documented in the [installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md). Client-specific config targets and bootstrap paths live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md).
 
 Local usage metrics are off by default. If a user explicitly enables them with `archex metrics enable`, `ARCHEX_USAGE_METRICS=on`, or the persisted metrics setting, archex writes a machine-local ledger at `~/.archex/usage.sqlite`. That ledger records anonymous counters only: tool name, category, token counts, file count, repo-local random ID, freshness, and index revision. It does not store query text, file paths, symbols, handles, rendered outputs, prompt bodies, remote URLs, org names, or repo names in event rows. Headline savings are always `tokens_saved = max(returned full-file baseline - returned tokens, 0)`. Whole-repo avoided tokens are tracked separately as an upper-bound/context metric when the indexed repo total is available.
 
@@ -262,9 +263,9 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 | --- | --- |
 | Security policy | Supported versions, disclosure workflow, no-telemetry posture, secret-handling guidance, and model remote-code policy live in [SECURITY](SECURITY.md). |
 | Context receipts | Field contract, freshness/completeness semantics, output surfaces, and benchmark linkage live in [CONTEXT_RECEIPTS](docs/CONTEXT_RECEIPTS.md). |
-| Compatibility matrix | Tested vs unverified clients, exact config shapes, preview-first bootstrap commands, and verification steps live in [CLIENT_COMPATIBILITY_MATRIX](docs/CLIENT_COMPATIBILITY_MATRIX.md). |
+| Compatibility matrix | Tested vs unverified clients, exact config shapes, bootstrap commands, and verification steps live in [CLIENT_COMPATIBILITY_MATRIX](docs/CLIENT_COMPATIBILITY_MATRIX.md). |
 | Installation trust contract | Exact CLI, MCP, Docker, skill, cache, network, freshness, benchmark, and uninstall semantics live in [INSTALLATION_TRUST_CONTRACT](docs/INSTALLATION_TRUST_CONTRACT.md). |
-| `archex install-client` | Preview-first client config writer for Claude Code, Codex, Pi, OpenCode, and Cursor. |
+| `archex install-client` | Client config writer for Claude Code, Codex, Pi, OpenCode, and Cursor. Global/user scope by default; `--dry-run` previews without writing. |
 | `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, model security, and `.archex/` disk usage. |
 | Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
 | Local usage metrics | Calculation rules, privacy boundaries, default-off versus opt-in behavior, export/delete controls, and retention live in [LOCAL_METRICS](docs/LOCAL_METRICS.md). |

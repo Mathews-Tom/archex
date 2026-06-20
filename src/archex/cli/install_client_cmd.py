@@ -20,31 +20,31 @@ from archex.client_setup import (
     "client",
     type=click.Choice(["claude-code", "codex", "cursor", "opencode", "pi"]),
 )
-@click.argument("source", required=False, default=".")
+@click.argument("source", required=False, default=None)
 @click.option(
     "--scope",
     type=click.Choice(["project", "user"]),
     default=None,
-    help="Install scope.",
+    help="Install scope. Default user/global; a SOURCE path or --scope project is repo-local.",
 )
 @click.option(
-    "--write",
+    "--dry-run",
     is_flag=True,
     default=False,
-    help="Write config instead of previewing it.",
+    help="Preview the target path and config without writing anything.",
 )
-def install_client_cmd(client: str, source: str, scope: str | None, write: bool) -> None:
-    """Preview or write MCP client configuration for archex."""
+def install_client_cmd(client: str, source: str | None, scope: str | None, dry_run: bool) -> None:
+    """Install MCP client configuration for archex (preview with --dry-run)."""
     try:
         plan = build_client_install_plan(
             cast("ClientName", client),
             source,
             scope=cast("ClientScope | None", scope),
         )
-        if write:
+        if dry_run:
+            click.echo(render_client_install_preview(plan), nl=False)
+        else:
             target = write_client_install_plan(plan)
             click.echo(f"Wrote {client} config: {target}")
-        else:
-            click.echo(render_client_install_preview(plan), nl=False)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
