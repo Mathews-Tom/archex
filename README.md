@@ -39,7 +39,7 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 | Claude Code or MCP | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts, and an in-repo skill that teaches doctor → scout → fetch. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
 | Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, raw-ripgrep/read baseline, bundle-only evaluator reports, required-file trust gates, and TurboQuant storage/recall evidence. |
-| Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Client bootstrap paths for Claude Code, Codex, Pi, OpenCode, and Cursor (global/user scope by default; `--dry-run` previews). |
+| Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Client bootstrap paths for Claude Code, Codex, Pi, OpenCode, Cursor, and oh-my-pi (`omp`); global/user scope by default, `--dry-run` previews. |
 
 ## 30-second quickstart
 
@@ -273,7 +273,7 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 | Context receipts | Field contract, freshness/completeness semantics, output surfaces, and benchmark linkage live in [CONTEXT_RECEIPTS](docs/CONTEXT_RECEIPTS.md). |
 | Compatibility matrix | Tested vs unverified clients, exact config shapes, bootstrap commands, and verification steps live in [CLIENT_COMPATIBILITY_MATRIX](docs/CLIENT_COMPATIBILITY_MATRIX.md). |
 | Installation trust contract | Exact CLI, MCP, Docker, skill, cache, network, freshness, benchmark, and uninstall semantics live in [INSTALLATION_TRUST_CONTRACT](docs/INSTALLATION_TRUST_CONTRACT.md). |
-| `archex install-client` | Client config writer for Claude Code, Codex, Pi, OpenCode, and Cursor. Global/user scope by default; `--dry-run` previews without writing. |
+| `archex install-client` | Client config writer for Claude Code, Codex, Pi, OpenCode, Cursor, and oh-my-pi (`omp`). Global/user scope by default; `--dry-run` previews without writing. |
 | `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, model security, and `.archex/` disk usage. |
 | Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
 | Local usage metrics | Calculation rules, privacy boundaries, default-off versus opt-in behavior, export/delete controls, and retention live in [LOCAL_METRICS](docs/LOCAL_METRICS.md). |
