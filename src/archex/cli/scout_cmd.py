@@ -10,7 +10,7 @@ import click
 from archex.api import get_files_token_count, get_repo_total_tokens, scout
 from archex.exceptions import ArchexError
 from archex.metrics.capture import record_scout_usage
-from archex.metrics.health import record_metrics_failure
+from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.reporting import count_tokens
 from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, render_scout
@@ -85,11 +85,7 @@ def _record_metrics(repo_source: RepoSource, result: ScoutResult, rendered: str)
             whole_repo_tokens=whole_repo_tokens,
         )
     except Exception as exc:
-        logger.debug("scout metrics recording failed", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("scout metrics health recording failed", exc_info=True)
+        note_metrics_recording_failure(exc)
 
 
 def _scout_file_paths(result: ScoutResult) -> list[str]:

@@ -10,7 +10,7 @@ import click
 from archex.api import get_files_token_count, get_repo_total_tokens, query
 from archex.exceptions import ArchexError
 from archex.metrics.capture import record_query_usage
-from archex.metrics.health import record_metrics_failure
+from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.reporting import print_savings, print_timing
 from archex.serve.intent import DEFAULT_TOKEN_BUDGET
@@ -175,22 +175,14 @@ def _record_metrics(
             whole_repo_tokens=whole_repo_tokens,
         )
     except Exception as exc:
-        logger.debug("query metrics recording failed", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("query metrics health recording failed", exc_info=True)
+        note_metrics_recording_failure(exc)
 
 
 def _repo_total_tokens(repo_source: RepoSource, config: Config) -> int | None:
     try:
         return get_repo_total_tokens(repo_source, config)
-    except Exception as exc:
+    except Exception:
         logger.debug("query metrics whole-repo tokens unavailable", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("query metrics health recording failed", exc_info=True)
         return None
 
 

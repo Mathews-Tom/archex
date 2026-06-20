@@ -10,7 +10,7 @@ import click
 from archex.api import compare, get_repo_total_tokens
 from archex.exceptions import ArchexError
 from archex.metrics.capture import record_structural_usage
-from archex.metrics.health import record_metrics_failure
+from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.models import Config, RepoSource
 from archex.reporting import count_tokens, print_savings
@@ -171,8 +171,4 @@ def _record_metrics(
             whole_repo_tokens=raw,
         )
     except Exception as exc:
-        logger.debug("compare metrics recording failed", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("compare metrics health recording failed", exc_info=True)
+        note_metrics_recording_failure(exc)

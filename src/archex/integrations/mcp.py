@@ -40,7 +40,7 @@ from archex.graph_query import (
     GraphStatsResult,
 )
 from archex.metrics.capture import record_query_usage, record_scout_usage, record_structural_usage
-from archex.metrics.health import record_metrics_failure
+from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.models import ContextBundle, PipelineTiming, RepoSource
 from archex.reporting import compute_meta, count_tokens
@@ -216,11 +216,7 @@ def _record_query_metrics(
             whole_repo_tokens=whole_repo_tokens,
         )
     except Exception as exc:
-        logger.debug("MCP query metrics recording failed", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("MCP query metrics health recording failed", exc_info=True)
+        note_metrics_recording_failure(exc)
 
 
 def _record_scout_metrics(
@@ -244,22 +240,14 @@ def _record_scout_metrics(
             whole_repo_tokens=whole_repo_tokens,
         )
     except Exception as exc:
-        logger.debug("MCP scout metrics recording failed", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("MCP scout metrics health recording failed", exc_info=True)
+        note_metrics_recording_failure(exc)
 
 
 def _whole_repo_tokens(source: RepoSource) -> int | None:
     try:
         return get_repo_total_tokens(source)
-    except Exception as exc:
+    except Exception:
         logger.debug("MCP metrics whole-repo tokens unavailable", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("MCP metrics health recording failed", exc_info=True)
         return None
 
 
@@ -299,11 +287,7 @@ def _record_structural_metrics(
             file_count=file_count,
         )
     except Exception as exc:
-        logger.debug("MCP structural metrics recording failed", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("MCP structural metrics health recording failed", exc_info=True)
+        note_metrics_recording_failure(exc)
 
 
 def handle_compare_repos(

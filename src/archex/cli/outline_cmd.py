@@ -10,7 +10,7 @@ import click
 from archex.api import file_outline
 from archex.exceptions import ArchexError
 from archex.metrics.capture import record_structural_usage
-from archex.metrics.health import record_metrics_failure
+from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.models import PipelineTiming, RepoSource
 from archex.reporting import count_tokens, print_savings, print_timing
@@ -80,8 +80,4 @@ def _record_metrics(source: RepoSource, output: str, raw_tokens: int) -> None:
             file_count=1,
         )
     except Exception as exc:
-        logger.debug("outline metrics recording failed", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("outline metrics health recording failed", exc_info=True)
+        note_metrics_recording_failure(exc)
