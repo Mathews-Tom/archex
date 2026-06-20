@@ -344,6 +344,27 @@ class TestRegionQualityReporting:
         assert data["results"][0]["context_noise_ratio"] == 0.25
         assert data["results"][0]["useful_tokens"] == 75
 
+    def test_json_renders_labeled_metrics_and_unlabeled_nulls(self) -> None:
+        import json
+
+        report = _make_report(
+            [
+                _region_result(Strategy.ARCHEX_QUERY),
+                _make_result(Strategy.RAW_FILES),
+            ]
+        )
+        data = json.loads(format_json(report))
+
+        labeled, unlabeled = data["results"]
+        assert labeled["region_recall"] == 0.5
+        assert labeled["line_recall"] == 0.3
+        assert labeled["context_noise_ratio"] == 0.25
+        assert labeled["relevance_per_1k_tokens"] == 5.0
+        assert unlabeled["region_recall"] is None
+        assert unlabeled["line_recall"] is None
+        assert unlabeled["context_noise_ratio"] is None
+        assert unlabeled["relevance_per_1k_tokens"] is None
+
 
 def _task_aware_result() -> BenchmarkResult:
     result = _make_result(Strategy.ARCHEX_QUERY_TASK_AWARE, tokens=600)
