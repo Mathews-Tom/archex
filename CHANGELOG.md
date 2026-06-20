@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`omp` install-client target:** Added oh-my-pi (`omp`) as a first-class `archex install-client` client. `archex install-client omp` writes `~/.omp/agent/mcp.json` (user scope) with the standard `mcpServers.archex = {command: "archex", args: ["mcp"]}` payload plus the oh-my-pi `$schema`, merged non-destructively and idempotently.
+
 ### Changed
 
 - **README adoption refresh:** Reframed the opening around context-window burn, kept the quickstart as the one always-visible happy path, collapsed only the secondary Docker/extras blocks, and added a metric-anchored workflow translation under Measured results without changing product behavior or benchmark numbers.

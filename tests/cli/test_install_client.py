@@ -188,3 +188,91 @@ def test_install_client_pi_rejects_project_scope(tmp_path: Path) -> None:
 
     assert result.exit_code != 0
     assert "supports only --scope user" in result.output
+
+
+def test_install_client_omp_user_scope_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "omp", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Scope: user" in result.output
+    assert f"Target: {tmp_path / '.omp' / 'agent' / 'mcp.json'}" in result.output
+    assert "mcp-schema.json" in result.output
+
+
+def test_install_client_omp_writes_expected_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / ".omp" / "agent" / "mcp.json"
+    runner = CliRunner()
+
+    preview = runner.invoke(cli, ["install-client", "omp", "--dry-run"])
+    written = runner.invoke(cli, ["install-client", "omp"])
+    after_first = target.read_text(encoding="utf-8")
+    rerun = runner.invoke(cli, ["install-client", "omp"])
+    after_second = target.read_text(encoding="utf-8")
+
+    assert preview.exit_code == 0, preview.output
+    assert written.exit_code == 0, written.output
+    assert rerun.exit_code == 0, rerun.output
+    previewed_payload = json.loads(preview.output[preview.output.index("{") :])
+    written_payload = json.loads(after_first)
+    # The written file must agree with what --dry-run previewed (single source of truth).
+    assert written_payload["mcpServers"]["archex"] == previewed_payload["mcpServers"]["archex"]
+    assert written_payload["$schema"] == previewed_payload["$schema"]
+    # The payload is the standard archex stdio entry plus the oh-my-pi schema.
+    assert written_payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
+    assert "oh-my-pi" in written_payload["$schema"]
+    # Writing is idempotent.
+    assert after_first == after_second
+
+
+def test_install_client_omp_rejects_project_scope(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "omp", str(tmp_path), "--scope", "project"],
+    )
+
+    assert result.exit_code != 0
+    assert "supports only --scope user" in result.output
+
+
+def test_install_client_opencode_write_injects_schema(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / "opencode.json"
+
+    result = CliRunner().invoke(cli, ["install-client", "opencode", str(repo)])
+    after_first = target.read_text(encoding="utf-8")
+    second = CliRunner().invoke(cli, ["install-client", "opencode", str(repo)])
+    after_second = target.read_text(encoding="utf-8")
+
+    assert result.exit_code == 0, result.output
+    assert second.exit_code == 0, second.output
+    payload = json.loads(after_first)
+    assert payload["$schema"] == "https://opencode.ai/config.json"
+    assert payload["mcp"]["archex"]["command"] == ["archex", "mcp"]
+    assert after_first == after_second
+
+
+def test_install_client_omp_preserves_existing_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / ".omp" / "agent" / "mcp.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        json.dumps({"$schema": "https://example.com/custom.json", "mcpServers": {}}),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(cli, ["install-client", "omp"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["$schema"] == "https://example.com/custom.json"
+    assert payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
