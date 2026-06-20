@@ -34,13 +34,13 @@ expected_regions:
     granularity: symbol
     symbol: VectorIndex
     start_line: 60
-    end_line: 284
+    end_line: 419
     notes: "Dense vector index build, save/load, and search."
   - path: src/archex/index/embeddings/base.py
     granularity: symbol
     symbol: Embedder
     start_line: 9
-    end_line: 12
+    end_line: 15
     notes: "Embedding-provider protocol used by vector retrieval."
 token_budget: 8192
 keywords:

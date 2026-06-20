@@ -21,8 +21,20 @@ expected_regions:
     granularity: symbol
     symbol: status_cmd
     start_line: 22
-    end_line: 73
-    notes: "Status CLI rendering and strict-mode exit behavior."
+    end_line: 35
+    notes: "Status command dispatch, output-format selection, and strict-mode exit behavior."
+  - path: src/archex/cli/status_cmd.py
+    granularity: symbol
+    symbol: _status_payload
+    start_line: 38
+    end_line: 56
+    notes: "JSON status payload rendering."
+  - path: src/archex/cli/status_cmd.py
+    granularity: symbol
+    symbol: _render_text
+    start_line: 59
+    end_line: 80
+    notes: "Human-readable status output rendering."
   - path: src/archex/status.py
     granularity: symbol
     symbol: inspect_project_status

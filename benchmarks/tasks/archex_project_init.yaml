@@ -26,7 +26,7 @@ expected_regions:
   - path: src/archex/cli/init_cmd.py
     granularity: symbol
     symbol: init_cmd
-    start_line: 18
+    start_line: 10
     end_line: 37
     notes: "CLI option handling and init result rendering."
   - path: src/archex/project.py

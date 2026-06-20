@@ -28,7 +28,7 @@ expected_regions:
     granularity: symbol
     symbol: DetectedPattern
     start_line: 506
-    end_line: 518
+    end_line: 512
     notes: "Pattern result model corresponding to the task's pattern-match expectation."
 token_budget: 8192
 keywords:

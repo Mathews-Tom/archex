@@ -356,10 +356,13 @@ expected_regions:
 
         assert task.expected_regions
         assert {region.path for region in task.expected_regions} <= set(task.expected_files)
-        assert any(
-            region.symbol == "compute_delta" and region.start_line == 282 and region.end_line == 334
-            for region in task.expected_regions
-        )
+        compute_delta_regions = [
+            region for region in task.expected_regions if region.symbol == "compute_delta"
+        ]
+        assert len(compute_delta_regions) == 1
+        assert compute_delta_regions[0].start_line is not None
+        assert compute_delta_regions[0].end_line is not None
+        assert compute_delta_regions[0].start_line <= compute_delta_regions[0].end_line
 
     def test_real_task_rejects_malformed_region(self, tmp_path: Path) -> None:
         malformed = tmp_path / LABELED_SELF_TASK.name

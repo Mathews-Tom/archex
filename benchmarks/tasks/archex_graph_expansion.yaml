@@ -21,7 +21,7 @@ expected_regions:
     granularity: symbol
     symbol: assemble_context
     start_line: 904
-    end_line: 1538
+    end_line: 1633
     notes: "Context assembly, graph expansion, ranking, and packing."
 token_budget: 8192
 keywords:
