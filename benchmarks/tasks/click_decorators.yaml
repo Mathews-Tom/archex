@@ -11,6 +11,19 @@ expected_files:
   - src/click/core.py
   - src/click/types.py
 expected_symbols: []
+expected_regions:
+  - path: src/click/decorators.py
+    granularity: block
+    symbol: command/group/argument/option decorators
+    start_line: 163
+    end_line: 364
+    notes: "Decorator factories attach parameters and build Command/Group objects; pinned to Click 8.1.8."
+  - path: src/click/core.py
+    granularity: block
+    symbol: Command and Parameter classes
+    start_line: 1161
+    end_line: 3037
+    notes: "Concrete Command, Parameter, Option, and Argument classes used by decorators; pinned to Click 8.1.8."
 token_budget: 8192
 keywords:
   - decorator

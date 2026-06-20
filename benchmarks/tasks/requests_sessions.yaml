@@ -11,6 +11,19 @@ expected_files:
   - src/requests/adapters.py
   - src/requests/models.py
 expected_symbols: []
+expected_regions:
+  - path: src/requests/sessions.py
+    granularity: symbol
+    symbol: Session
+    start_line: 358
+    end_line: 824
+    notes: "Session persistence, adapter mounting, request preparation, redirects, and cookie handling; pinned to requests v2.32.3."
+  - path: src/requests/adapters.py
+    granularity: symbol
+    symbol: HTTPAdapter
+    start_line: 167
+    end_line: 719
+    notes: "urllib3-backed connection-pool adapter including pool manager setup and send; pinned to requests v2.32.3."
 token_budget: 8192
 keywords:
   - session

@@ -11,6 +11,19 @@ expected_files:
   - httpx/_client.py
   - httpx/_config.py
 expected_symbols: []
+expected_regions:
+  - path: httpx/_client.py
+    granularity: block
+    symbol: BaseClient/Client/AsyncClient
+    start_line: 183
+    end_line: 1470
+    notes: "Client-side pool, proxy, and transport configuration for sync and async clients; pinned to httpx 0.28.1."
+  - path: httpx/_transports/default.py
+    granularity: block
+    symbol: HTTPTransport/AsyncHTTPTransport
+    start_line: 137
+    end_line: 406
+    notes: "httpcore-backed connection pools and keep-alive handling; pinned to httpx 0.28.1."
 token_budget: 8192
 keywords:
   - pool

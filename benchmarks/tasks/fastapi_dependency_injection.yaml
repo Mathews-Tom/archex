@@ -19,6 +19,32 @@ expected_symbols:
   - solve_dependencies
   - Dependant
   - get_dependant
+expected_regions:
+  - path: fastapi/dependencies/models.py
+    granularity: symbol
+    symbol: Dependant
+    start_line: 1
+    end_line: 31
+    notes: "Dependency graph node with request parameter buckets and cache key; pinned to FastAPI 0.115.6."
+  - path: fastapi/dependencies/utils.py
+    granularity: symbol
+    symbol: get_dependant
+    start_line: 259
+    end_line: 336
+    notes: "Builds a dependency tree from an endpoint callable signature; pinned to FastAPI 0.115.6."
+  - path: fastapi/dependencies/utils.py
+    granularity: symbol
+    symbol: solve_dependencies
+    start_line: 556
+    end_line: 724
+    notes: "Resolves nested dependencies, parameters, and body values before handler invocation; pinned to FastAPI 0.115.6."
+  - path: fastapi/routing.py
+    granularity: symbol
+    symbol: APIRoute.get_route_handler
+    start_line: 569
+    end_line: 590
+    notes: "Connects route execution to dependency solving and request handling; pinned to FastAPI 0.115.6."
+    weight: 0.9
 token_budget: 8192
 keywords:
   - dependency

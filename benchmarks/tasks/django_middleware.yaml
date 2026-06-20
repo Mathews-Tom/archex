@@ -20,6 +20,13 @@ expected_files:
   - django/core/handlers/wsgi.py
   - django/middleware/common.py
 expected_symbols: []
+expected_regions:
+  - path: django/core/handlers/base.py
+    granularity: symbol
+    symbol: BaseHandler
+    start_line: 25
+    end_line: 260
+    notes: "Middleware stack loading plus sync/async request-response execution; pinned to Django 5.1.4."
 token_budget: 8192
 keywords:
   - middleware

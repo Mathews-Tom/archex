@@ -11,6 +11,19 @@ expected_files:
   - src/flask/blueprints.py
   - src/flask/app.py
 expected_symbols: []
+expected_regions:
+  - path: src/flask/sansio/blueprints.py
+    granularity: symbol
+    symbol: BlueprintSetupState
+    start_line: 39
+    end_line: 118
+    notes: "Registration state for blueprint deferred setup; pinned to Flask 3.1.0."
+  - path: src/flask/sansio/blueprints.py
+    granularity: symbol
+    symbol: Blueprint
+    start_line: 123
+    end_line: 560
+    notes: "Deferred registration, nested blueprints, and blueprint URL rule wiring; pinned to Flask 3.1.0."
 token_budget: 8192
 keywords:
   - blueprint
