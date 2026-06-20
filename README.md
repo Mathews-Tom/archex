@@ -1,7 +1,7 @@
 # archex
 
 [![CI](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/archex?cacheSeconds=60&cacheBuster=v0.13.0)](https://pypi.org/project/archex/)
+[![PyPI](https://img.shields.io/pypi/v/archex?cacheBuster=v0.13.2)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -396,4 +396,4 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&legend=top-left&cache=v0.13.0)](https://www.star-history.com/?repos=Mathews-Tom%2Farchex&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=Mathews-Tom/archex&type=date&legend=top-left&cache=v0.13.2)](https://www.star-history.com/?repos=Mathews-Tom%2Farchex&type=date&legend=top-left)
