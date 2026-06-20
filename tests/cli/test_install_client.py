@@ -361,3 +361,19 @@ def test_install_client_agent_file_preview_already_present(
     assert result.exit_code == 0, result.output
     assert "already present; no change." in result.output
     assert agent_file.read_text(encoding="utf-8") == seeded
+
+
+def test_install_client_agent_file_directory_errors_cleanly(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    agent_path = repo / "AGENTS.md"
+    agent_path.mkdir()  # a directory where an agent file is expected
+
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "claude-code", str(repo), "--agent-file", str(agent_path)],
+    )
+
+    assert result.exit_code != 0
+    assert "Error" in result.output
+    assert "Traceback" not in result.output
