@@ -6,6 +6,10 @@
 
 - **README adoption refresh:** Reframed the opening around context-window burn, kept the quickstart as the one always-visible happy path, collapsed only the secondary Docker/extras blocks, and added a metric-anchored workflow translation under Measured results without changing product behavior or benchmark numbers.
 
+### Fixed
+
+- **Sticky global metrics-health warning:** `archex metrics` could surface a permanent `Metrics warning: record: Path does not exist: /repo` (or similar) on every repo, because the machine-local health flag in `~/.archex/usage.sqlite` is global and was never cleared once set. Two root causes are fixed: (1) successful recording now self-heals the health flag, so any later successful query/scout on any repo clears a stale warning; (2) expected source-unavailability when computing the optional whole-repo/raw token baselines (an `AcquireError`/missing path for a source that is not a usable local repo) is no longer latched as a metrics failure. Added `archex metrics repair` to clear a stale warning manually without deleting accumulated savings data.
+
 ## [0.13.2] - 2026-06-19
 
 ### Fixed
