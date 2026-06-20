@@ -117,11 +117,15 @@ ln -s "$PWD/skills/archex" ~/.claude/skills/archex
 ```
 
 
-Preview or write a client config with:
+Install (or preview) a client config with:
 
 ```bash
-archex install-client claude-code .
-archex install-client claude-code . --write
+# Global (user-scope) install by default — writes immediately, non-destructively.
+archex install-client claude-code
+# Preview the exact target + config without writing anything.
+archex install-client claude-code --dry-run
+# Repo-local install: pass a SOURCE path or --scope project.
+archex install-client claude-code . --scope project
 ```
 Then use:
 

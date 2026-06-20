@@ -5,6 +5,7 @@
 ### Changed
 
 - **README adoption refresh:** Reframed the opening around context-window burn, kept the quickstart as the one always-visible happy path, collapsed only the secondary Docker/extras blocks, and added a metric-anchored workflow translation under Measured results without changing product behavior or benchmark numbers.
+- **install-client default-global + `--dry-run`:** `archex install-client <client>` now installs at global (user) scope by default; pass a `[SOURCE]` repo path or `--scope project` for a repo-local install. Removed the `--write` flag — configs are written by default and `--dry-run` previews the exact target and config without touching the filesystem. Writes stay non-destructive (merge into existing config, never clobber unrelated sections) and are idempotent: re-running with an identical `archex` entry is a no-op, while a different existing entry is left untouched and refused. Updated the installation trust contract, compatibility matrix, and README to match.
 
 ### Fixed
 
