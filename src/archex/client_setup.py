@@ -15,8 +15,9 @@ _OMP_SCHEMA = (
     "https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
     "packages/coding-agent/src/config/mcp-schema.json"
 )
+_OPENCODE_SCHEMA = "https://opencode.ai/config.json"
 _CLIENT_SCHEMA: dict[ClientName, str] = {
-    "opencode": "https://opencode.ai/config.json",
+    "opencode": _OPENCODE_SCHEMA,
     "omp": _OMP_SCHEMA,
 }
 
@@ -176,7 +177,7 @@ def _render_content(client: ClientName) -> str:
         return '[mcp_servers.archex]\ncommand = "archex"\nargs = ["mcp"]\n'
     if client == "opencode":
         payload = {
-            "$schema": "https://opencode.ai/config.json",
+            "$schema": _OPENCODE_SCHEMA,
             "mcp": {
                 "archex": {
                     "type": "local",

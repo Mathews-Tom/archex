@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from click.testing import CliRunner
 
 from archex.cli.main import cli
+from archex.client_setup import _OMP_SCHEMA  # pyright: ignore[reportPrivateUsage]
 
 if TYPE_CHECKING:
     import pytest
@@ -218,7 +219,7 @@ def test_install_client_omp_writes_expected_payload(
     assert second.exit_code == 0, second.output
     payload = json.loads(after_first)
     assert payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
-    assert payload["$schema"].endswith("mcp-schema.json")
+    assert payload["$schema"] == _OMP_SCHEMA
     assert after_first == after_second
 
 
@@ -248,3 +249,22 @@ def test_install_client_opencode_write_injects_schema(tmp_path: Path) -> None:
     assert payload["$schema"] == "https://opencode.ai/config.json"
     assert payload["mcp"]["archex"]["command"] == ["archex", "mcp"]
     assert after_first == after_second
+
+
+def test_install_client_omp_preserves_existing_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / ".omp" / "agent" / "mcp.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        json.dumps({"$schema": "https://example.com/custom.json", "mcpServers": {}}),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(cli, ["install-client", "omp"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["$schema"] == "https://example.com/custom.json"
+    assert payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
