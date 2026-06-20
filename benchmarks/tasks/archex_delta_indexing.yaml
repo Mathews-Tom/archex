@@ -11,6 +11,19 @@ expected_symbols:
   - compute_delta
   - apply_delta
   - DeltaManifest
+expected_regions:
+  - path: src/archex/index/delta.py
+    granularity: symbol
+    symbol: compute_delta
+    start_line: 282
+    end_line: 334
+    notes: "Git commit delta detection and manifest construction."
+  - path: src/archex/index/delta.py
+    granularity: symbol
+    symbol: apply_delta
+    start_line: 337
+    end_line: 490
+    notes: "Delta application against store, graph, and cache metadata."
 token_budget: 8192
 keywords:
   - delta

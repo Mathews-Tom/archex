@@ -16,6 +16,31 @@ expected_symbols:
   - inspect_project_status
   - ProjectState
   - compute_working_tree_signature
+expected_regions:
+  - path: src/archex/cli/status_cmd.py
+    granularity: symbol
+    symbol: status_cmd
+    start_line: 22
+    end_line: 73
+    notes: "Status CLI rendering and strict-mode exit behavior."
+  - path: src/archex/status.py
+    granularity: symbol
+    symbol: inspect_project_status
+    start_line: 35
+    end_line: 145
+    notes: "Fresh, stale, missing, and corrupt index-state inspection."
+  - path: src/archex/project.py
+    granularity: symbol
+    symbol: ProjectState
+    start_line: 37
+    end_line: 100
+    notes: "Repo-local state path resolution."
+  - path: src/archex/index/delta.py
+    granularity: symbol
+    symbol: compute_working_tree_signature
+    start_line: 51
+    end_line: 93
+    notes: "Working-tree content signature for freshness checks."
 token_budget: 8192
 keywords:
   - status

@@ -12,6 +12,31 @@ expected_symbols:
   - AdapterRegistry
   - PythonAdapter
   - LanguageAdapter
+expected_regions:
+  - path: src/archex/parse/adapters/__init__.py
+    granularity: symbol
+    symbol: AdapterRegistry
+    start_line: 24
+    end_line: 79
+    notes: "Registry construction, lookup, instantiation, and entry-point loading."
+  - path: src/archex/parse/adapters/__init__.py
+    granularity: block
+    symbol: default_adapter_registry
+    start_line: 82
+    end_line: 94
+    notes: "Built-in adapter registration table."
+  - path: src/archex/parse/adapters/python.py
+    granularity: symbol
+    symbol: PythonAdapter
+    start_line: 331
+    end_line: 451
+    notes: "Concrete Python language adapter implementation."
+  - path: src/archex/parse/adapters/base.py
+    granularity: symbol
+    symbol: LanguageAdapter
+    start_line: 12
+    end_line: 48
+    notes: "Adapter protocol contract."
 token_budget: 8192
 keywords:
   - adapter
