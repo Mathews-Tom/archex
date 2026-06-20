@@ -16,6 +16,19 @@ expected_files:
   - django/db/models/sql/compiler.py
   - django/db/models/query.py
 expected_symbols: []
+expected_regions:
+  - path: django/db/models/sql/query.py
+    granularity: symbol
+    symbol: Query
+    start_line: 219
+    end_line: 2631
+    notes: "Query state, joins, filtering, cloning, and SQL compilation entrypoints; pinned to Django 5.1.4."
+  - path: django/db/models/sql/compiler.py
+    granularity: symbol
+    symbol: SQLCompiler
+    start_line: 39
+    end_line: 1635
+    notes: "Translates Query state into SQL and executes it; pinned to Django 5.1.4."
 token_budget: 8192
 keywords:
   - queryset

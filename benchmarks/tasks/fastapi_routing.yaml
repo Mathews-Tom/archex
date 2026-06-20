@@ -14,6 +14,32 @@ expected_files:
   - fastapi/applications.py
   - fastapi/params.py
 expected_symbols: []
+expected_regions:
+  - path: fastapi/routing.py
+    granularity: symbol
+    symbol: APIRoute
+    start_line: 428
+    end_line: 592
+    notes: "Route object setup, path regex conversion, dependant construction, and handler wiring; pinned to FastAPI 0.115.6."
+  - path: fastapi/routing.py
+    granularity: symbol
+    symbol: APIRouter.add_api_route
+    start_line: 881
+    end_line: 962
+    notes: "Registers APIRoute instances onto the router stack; pinned to FastAPI 0.115.6."
+  - path: fastapi/applications.py
+    granularity: symbol
+    symbol: FastAPI.add_api_route
+    start_line: 1056
+    end_line: 1114
+    notes: "App-level route-registration wrapper over APIRouter.add_api_route; pinned to FastAPI 0.115.6."
+    weight: 0.9
+  - path: fastapi/params.py
+    granularity: symbol
+    symbol: Path
+    start_line: 139
+    end_line: 224
+    notes: "Required path-parameter metadata and validation inputs; pinned to FastAPI 0.115.6."
 token_budget: 8192
 keywords:
   - route
