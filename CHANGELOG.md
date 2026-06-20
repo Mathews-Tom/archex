@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **README adoption refresh:** Reframed the opening around context-window burn, kept the quickstart as the one always-visible happy path, collapsed only the secondary Docker/extras blocks, and added a metric-anchored workflow translation under Measured results without changing product behavior or benchmark numbers.
+
 ## [0.13.2] - 2026-06-19
 
 ### Fixed
