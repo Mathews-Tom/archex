@@ -202,7 +202,7 @@ archex metrics trace enable
 ARCHEX_USAGE_METRICS=on archex query "Where is auth handled?"
 ```
 
-Detailed traces stay opt-in via `archex metrics trace enable` or `ARCHEX_USAGE_TRACE=on`. Traces remain local-only and still never store source code or rendered outputs. Metrics code paths make no LLM calls, no hosted upload calls, and no background network calls in v1.
+Detailed traces stay opt-in via `archex metrics trace enable` or `ARCHEX_USAGE_TRACE=on`. Traces remain local-only and still do not store source code or rendered outputs. Metrics code paths make no LLM calls, no hosted upload calls, and no background network calls in v1.
 ### Python API
 
 ```python
