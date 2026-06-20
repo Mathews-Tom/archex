@@ -139,7 +139,7 @@ The command procedure runs `archex doctor`, initializes/indexes when needed, run
 
 Registering the MCP server is necessary but not sufficient. Three steps must all happen for an agent to use archex over MCP:
 
-- **Registration** — `archex install-client <client>` writes the server entry. The default scope is global (user); a `[SOURCE]` path or `--scope project` installs repo-local. Writes merge into existing config non-destructively and are idempotent; `--dry-run` previews the exact target and config with zero filesystem changes.
+- **Registration** — `archex install-client <client>` writes the server entry. The default scope is global (user); a `[SOURCE]` path or `--scope project` installs repo-local (except Pi and oh-my-pi, which are user-scope only). Writes merge into existing config non-destructively and are idempotent; `--dry-run` previews the exact target and config with zero filesystem changes.
 - **Surfacing** — the harness must expose the registered tools. Harnesses with on-demand tool discovery (e.g. oh-my-pi / Pi) keep a registered server's tools discoverable but out of the default tool set until the agent activates them.
 - **Invocation** — the agent must call `query_repo` / `scout_repo` / `analyze_repo` rather than reading files by hand.
 
