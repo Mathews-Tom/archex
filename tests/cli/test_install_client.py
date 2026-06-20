@@ -133,6 +133,41 @@ def test_install_client_writes_codex_project_toml(tmp_path: Path) -> None:
     assert config_path.read_text(encoding="utf-8") == content
 
 
+def test_install_client_refuses_conflicting_codex_entry(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    codex_dir = repo / ".codex"
+    codex_dir.mkdir(parents=True)
+    config_path = codex_dir / "config.toml"
+    config_path.write_text(
+        '[mcp_servers.archex]\ncommand = "other"\nargs = []\n',
+        encoding="utf-8",
+    )
+    before = config_path.read_text(encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["install-client", "codex", str(repo)])
+
+    assert result.exit_code != 0
+    assert "already configured" in result.output
+    assert config_path.read_text(encoding="utf-8") == before
+
+
+def test_install_client_default_global_write_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / ".claude.json"
+
+    first = CliRunner().invoke(cli, ["install-client", "claude-code"])
+    after_first = target.read_text(encoding="utf-8")
+    second = CliRunner().invoke(cli, ["install-client", "claude-code"])
+    after_second = target.read_text(encoding="utf-8")
+
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    assert json.loads(after_first)["mcpServers"]["archex"]["args"] == ["mcp"]
+    assert after_first == after_second
+
+
 def test_install_client_pi_user_scope_uses_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
