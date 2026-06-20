@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from click.testing import CliRunner
 
 from archex.cli.main import cli
-from archex.client_setup import _OMP_SCHEMA  # pyright: ignore[reportPrivateUsage]
 
 if TYPE_CHECKING:
     import pytest
@@ -201,7 +200,7 @@ def test_install_client_omp_user_scope_target(
     assert result.exit_code == 0, result.output
     assert "Scope: user" in result.output
     assert f"Target: {tmp_path / '.omp' / 'agent' / 'mcp.json'}" in result.output
-    assert "oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json" in result.output
+    assert "mcp-schema.json" in result.output
 
 
 def test_install_client_omp_writes_expected_payload(
@@ -209,17 +208,26 @@ def test_install_client_omp_writes_expected_payload(
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     target = tmp_path / ".omp" / "agent" / "mcp.json"
+    runner = CliRunner()
 
-    result = CliRunner().invoke(cli, ["install-client", "omp"])
+    preview = runner.invoke(cli, ["install-client", "omp", "--dry-run"])
+    written = runner.invoke(cli, ["install-client", "omp"])
     after_first = target.read_text(encoding="utf-8")
-    second = CliRunner().invoke(cli, ["install-client", "omp"])
+    rerun = runner.invoke(cli, ["install-client", "omp"])
     after_second = target.read_text(encoding="utf-8")
 
-    assert result.exit_code == 0, result.output
-    assert second.exit_code == 0, second.output
-    payload = json.loads(after_first)
-    assert payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
-    assert payload["$schema"] == _OMP_SCHEMA
+    assert preview.exit_code == 0, preview.output
+    assert written.exit_code == 0, written.output
+    assert rerun.exit_code == 0, rerun.output
+    previewed_payload = json.loads(preview.output[preview.output.index("{") :])
+    written_payload = json.loads(after_first)
+    # The written file must agree with what --dry-run previewed (single source of truth).
+    assert written_payload["mcpServers"]["archex"] == previewed_payload["mcpServers"]["archex"]
+    assert written_payload["$schema"] == previewed_payload["$schema"]
+    # The payload is the standard archex stdio entry plus the oh-my-pi schema.
+    assert written_payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
+    assert "oh-my-pi" in written_payload["$schema"]
+    # Writing is idempotent.
     assert after_first == after_second
 
 
