@@ -18,6 +18,8 @@ _CO_DIRECTORY_EVIDENCE = [
     "same directory package scope; added only when no direct import edge exists"
 ]
 
+_CENTRALITY_WEIGHT_ATTR = "centrality_weight"
+
 
 def _resolved_import_evidence(file_path: str, imported_module: str, line: int) -> list[str]:
     return [f"resolved import {imported_module!r} at {file_path}:{line}"]
@@ -76,6 +78,11 @@ class DependencyGraph:
         self._file_graph: nx.DiGraph[str] = nx.DiGraph()  # type: ignore[type-arg]
         self._symbol_graph: nx.DiGraph[str] = nx.DiGraph()  # type: ignore[type-arg]
         self._centrality_cache: dict[str, float] | None = None
+        self._weighted_directional_centrality_cache: dict[str, float] | None = None
+
+    def _invalidate_centrality_caches(self) -> None:
+        self._centrality_cache = None
+        self._weighted_directional_centrality_cache = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -166,7 +173,7 @@ class DependencyGraph:
                         added += 1
 
         if added > 0:
-            self._centrality_cache = None
+            self._invalidate_centrality_caches()
 
         return added
 
@@ -195,12 +202,12 @@ class DependencyGraph:
     def add_file_node(self, path: str) -> None:
         """Add a file node to the file-level graph."""
         self._file_graph.add_node(path)  # type: ignore[misc]
-        self._centrality_cache = None
+        self._invalidate_centrality_caches()
 
     def add_file_edge(self, source: str, target: str, kind: str = "imports") -> None:
         """Add an edge to the file-level graph."""
         self._file_graph.add_edge(source, target, **_edge_attrs(kind=kind))  # type: ignore[misc]
-        self._centrality_cache = None
+        self._invalidate_centrality_caches()
 
     def update_files(
         self,
@@ -241,7 +248,7 @@ class DependencyGraph:
                 ),
             )
 
-        self._centrality_cache = None
+        self._invalidate_centrality_caches()
 
     @property
     def file_count(self) -> int:
@@ -331,6 +338,42 @@ class DependencyGraph:
         raw: dict[Any, float] = nx.pagerank(graph)  # type: ignore[misc]
         self._centrality_cache = {str(k): v for k, v in raw.items()}
         return self._centrality_cache
+
+    def _weighted_directional_graph(self) -> nx.DiGraph[str]:  # type: ignore[type-arg]
+        """Return traversable graph with confidence weights and ranking direction.
+
+        Import edges are stored as importer -> imported (see ``from_parsed_files`` and
+        ``imports_of``). PageRank transfers rank along outgoing edges, so this
+        orientation already makes importance flow from importing files to imported
+        files; no reversal is needed for import edges.
+        """
+        graph: nx.DiGraph[str] = nx.DiGraph()  # type: ignore[type-arg]
+        graph.add_nodes_from(str(node) for node in self._file_graph.nodes())  # type: ignore[misc]
+        for src, tgt, data in self._file_graph.edges(data=True):  # type: ignore[misc]
+            if not data.get("traversable", True):
+                continue
+            src_str = str(src)
+            tgt_str = str(tgt)
+            confidence_score = float(data.get("confidence_score", 1.0))
+            if confidence_score <= 0.0:
+                continue
+            graph.add_edge(  # type: ignore[misc]
+                src_str,
+                tgt_str,
+                **{_CENTRALITY_WEIGHT_ATTR: confidence_score},
+            )
+        return graph
+
+    def weighted_directional_centrality(self) -> dict[str, float]:
+        """Return cacheable PageRank using edge confidence and import direction."""
+        if self._weighted_directional_centrality_cache is not None:
+            return self._weighted_directional_centrality_cache
+        if self._file_graph.number_of_nodes() == 0:  # type: ignore[misc]
+            return {}
+        graph = self._weighted_directional_graph()
+        raw: dict[Any, float] = nx.pagerank(graph, weight=_CENTRALITY_WEIGHT_ATTR)  # type: ignore[misc]
+        self._weighted_directional_centrality_cache = {str(k): v for k, v in raw.items()}
+        return self._weighted_directional_centrality_cache
 
     # ------------------------------------------------------------------
     # Persistence

@@ -146,6 +146,77 @@ def test_structural_centrality() -> None:
         assert isinstance(val, float)
 
 
+def test_weighted_directional_centrality_uses_edge_confidence() -> None:
+    graph = DependencyGraph.from_edges(
+        [
+            Edge(
+                source="router.py",
+                target="target.py",
+                kind=EdgeKind.IMPORTS,
+                confidence_score=0.1,
+            ),
+            Edge(
+                source="router.py",
+                target="other.py",
+                kind=EdgeKind.IMPORTS,
+                confidence_score=1.0,
+            ),
+            Edge(
+                source="caller.py",
+                target="router.py",
+                kind=EdgeKind.IMPORTS,
+                confidence_score=1.0,
+            ),
+        ]
+    )
+
+    unweighted = graph.structural_centrality()
+    weighted = graph.weighted_directional_centrality()
+
+    assert weighted != unweighted
+    assert weighted["other.py"] > weighted["target.py"]
+
+
+def test_directional_centrality_rewards_heavily_imported_files() -> None:
+    importer_to_imported = DependencyGraph.from_edges(
+        [
+            Edge(source="api.py", target="core.py", kind=EdgeKind.IMPORTS),
+            Edge(source="cli.py", target="core.py", kind=EdgeKind.IMPORTS),
+            Edge(source="worker.py", target="core.py", kind=EdgeKind.IMPORTS),
+        ]
+    )
+    reversed_imports = DependencyGraph.from_edges(
+        [
+            Edge(source="core.py", target="api.py", kind=EdgeKind.IMPORTS),
+            Edge(source="core.py", target="cli.py", kind=EdgeKind.IMPORTS),
+            Edge(source="core.py", target="worker.py", kind=EdgeKind.IMPORTS),
+        ]
+    )
+
+    directional = importer_to_imported.weighted_directional_centrality()
+    reversed_scores = reversed_imports.weighted_directional_centrality()
+
+    assert directional["core.py"] > directional["api.py"]
+    assert directional["core.py"] > reversed_scores["core.py"]
+
+
+def test_weighted_directional_centrality_does_not_mutate_global_cache() -> None:
+    graph = DependencyGraph.from_edges(
+        [
+            Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS),
+            Edge(source="c.py", target="b.py", kind=EdgeKind.IMPORTS),
+        ]
+    )
+
+    global_before = graph.structural_centrality()
+    assert graph._centrality_cache == global_before  # pyright: ignore[reportPrivateUsage]
+
+    _ = graph.weighted_directional_centrality()
+
+    assert graph.structural_centrality() == global_before
+    assert graph._centrality_cache == global_before  # pyright: ignore[reportPrivateUsage]
+
+
 def test_sqlite_round_trip(tmp_path: Path) -> None:
     parsed = _make_parsed_files()
     import_map = _make_import_map()
@@ -273,9 +344,12 @@ class TestUpdateFiles:
         graph = DependencyGraph.from_parsed_files(parsed, {})
         _ = graph.structural_centrality()  # populate cache
         assert graph._centrality_cache is not None  # pyright: ignore[reportPrivateUsage]
+        _ = graph.weighted_directional_centrality()
+        assert graph._weighted_directional_centrality_cache is not None  # pyright: ignore[reportPrivateUsage]
 
         graph.update_files({"a.py"}, [])
         assert graph._centrality_cache is None  # pyright: ignore[reportPrivateUsage]
+        assert graph._weighted_directional_centrality_cache is None  # pyright: ignore[reportPrivateUsage]
 
     def test_empty_inputs(self) -> None:
         parsed = [ParsedFile(path="a.py", language="python")]
