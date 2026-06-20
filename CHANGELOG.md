@@ -5,6 +5,7 @@
 ### Added
 
 - **`omp` install-client target:** Added oh-my-pi (`omp`) as a first-class `archex install-client` client. `archex install-client omp` writes `~/.omp/agent/mcp.json` (user scope) with the standard `mcpServers.archex = {command: "archex", args: ["mcp"]}` payload plus the oh-my-pi `$schema`, merged non-destructively and idempotently.
+- **Agent-file MCP guidance prompt:** Added a ready-to-paste prompt that points an agent at the archex MCP tools (`scout_repo`, `query_repo`, `analyze_repo`, `search_symbols`, `get_symbol`) and the discovery/activation step for tool-gated harnesses. `archex install-client --agent-file <path>` appends it to a global or repo-specific agent file (`CLAUDE.md`, `AGENTS.md`, ...) inside a delimited block — non-destructive and idempotent — and `--dry-run` previews it without writing.
 
 ### Changed
 

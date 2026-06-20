@@ -276,3 +276,104 @@ def test_install_client_omp_preserves_existing_schema(
     payload = json.loads(target.read_text(encoding="utf-8"))
     assert payload["$schema"] == "https://example.com/custom.json"
     assert payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
+
+
+_MCP_TOOLS = ("query_repo", "scout_repo", "analyze_repo", "search_symbols", "get_symbol")
+_GUIDANCE_MARKER = "<!-- archex:mcp-guidance start -->"
+
+
+def test_install_client_agent_file_preview_under_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    agent_file = tmp_path / "AGENTS.md"
+
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "claude-code", "--agent-file", str(agent_file), "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    for tool in _MCP_TOOLS:
+        assert tool in result.output
+    assert f"Agent file: {agent_file}" in result.output
+    assert not agent_file.exists()
+    assert not (tmp_path / ".claude.json").exists()
+
+
+def test_install_client_agent_file_appends_once_non_destructive(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    agent_file = repo / "CLAUDE.md"
+    agent_file.write_text("# Project\n\nExisting guidance.\n", encoding="utf-8")
+
+    first = CliRunner().invoke(
+        cli, ["install-client", "claude-code", str(repo), "--agent-file", str(agent_file)]
+    )
+    after_first = agent_file.read_text(encoding="utf-8")
+    second = CliRunner().invoke(
+        cli, ["install-client", "claude-code", str(repo), "--agent-file", str(agent_file)]
+    )
+    after_second = agent_file.read_text(encoding="utf-8")
+
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    assert "Existing guidance." in after_first
+    assert after_first.count(_GUIDANCE_MARKER) == 1
+    assert after_second == after_first
+    assert "query_repo" in after_first
+    assert "Appended archex MCP guidance" in first.output
+    assert "already present" in second.output
+
+
+def test_install_client_agent_file_global_write_creates_parents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    agent_file = tmp_path / ".claude" / "CLAUDE.md"
+
+    result = CliRunner().invoke(
+        cli, ["install-client", "claude-code", "--agent-file", str(agent_file)]
+    )
+
+    assert result.exit_code == 0, result.output
+    content = agent_file.read_text(encoding="utf-8")
+    assert _GUIDANCE_MARKER in content
+    for tool in _MCP_TOOLS:
+        assert tool in content
+
+
+def test_install_client_agent_file_preview_already_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    agent_file = repo / "AGENTS.md"
+    seeded = f"# Repo\n\n{_GUIDANCE_MARKER}\nseeded block\n"
+    agent_file.write_text(seeded, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "claude-code", str(repo), "--agent-file", str(agent_file), "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "already present; no change." in result.output
+    assert agent_file.read_text(encoding="utf-8") == seeded
+
+
+def test_install_client_agent_file_directory_errors_cleanly(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    agent_path = repo / "AGENTS.md"
+    agent_path.mkdir()  # a directory where an agent file is expected
+
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "claude-code", str(repo), "--agent-file", str(agent_path)],
+    )
+
+    assert result.exit_code != 0
+    assert "Error" in result.output
+    assert "Traceback" not in result.output
