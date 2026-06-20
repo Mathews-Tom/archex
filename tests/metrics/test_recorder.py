@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from archex.metrics.health import read_metrics_health
+from archex.metrics.health import read_metrics_health, record_metrics_failure
 from archex.metrics.policy import METRICS_ENV, TRACE_ENV, set_metrics_enabled
 from archex.metrics.recorder import MetricsRecorder, TraceDetails, UsageEvent
 from archex.metrics.registry import RepoRegistry
@@ -130,6 +130,19 @@ def test_recorder_failures_are_non_fatal_and_record_health(
     assert health.status == "warning"
     assert health.last_failure_operation == "record"
     assert health.last_failure_message == "registry unavailable"
+
+
+def test_successful_record_clears_prior_health_warning(tmp_path: Path) -> None:
+    db_path = tmp_path / "usage.sqlite"
+    set_metrics_enabled(True, db_path=db_path)
+    record_metrics_failure("record", "Path does not exist: /repo", db_path=db_path)
+    assert read_metrics_health(db_path=db_path).status == "warning"
+
+    MetricsRecorder(db_path).record(_event(_repo(tmp_path)))
+
+    health = read_metrics_health(db_path=db_path)
+    assert health.status == "ok"
+    assert health.last_failure_message is None
 
 
 def _event(

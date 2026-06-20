@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from archex.exceptions import AcquireError
 from archex.metrics.storage import MetricsStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,26 @@ def clear_metrics_health(*, db_path: Path | None = None) -> None:
             WHERE id = 1
             """
         )
+
+
+_EXPECTED_BASELINE_FAILURES = (AcquireError, FileNotFoundError, NotADirectoryError)
+
+
+def note_metrics_recording_failure(exc: Exception, *, db_path: Path | None = None) -> None:
+    """Record a non-fatal metrics wrapper failure, suppressing expected source-unavailability.
+
+    CLI/MCP metrics wrappers compute token baselines by walking the source tree. When the
+    source is not a usable local repo (path gone, not a directory, no ``.git``), that is
+    expected degradation rather than a broken metrics subsystem, so it must not latch a
+    sticky, repo-global warning. Genuine failures still latch for the operator to see.
+    """
+    logger.debug("metrics recording failed", exc_info=True)
+    if isinstance(exc, _EXPECTED_BASELINE_FAILURES):
+        return
+    try:
+        record_metrics_failure("record", str(exc), db_path=db_path)
+    except Exception:  # pragma: no cover - health write is best-effort
+        logger.debug("metrics health recording failed", exc_info=True)
 
 
 def _optional_str(value: object) -> str | None:

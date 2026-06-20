@@ -140,12 +140,28 @@ class MetricsRecorder:
                     occurred_at + timedelta(days=policy.trace_retention_days),
                 )
             self._prune(conn, policy, now=occurred_at)
+            self._clear_health(conn)
 
     def _record_failure(self, operation: str, exc: Exception) -> None:
         try:
             record_metrics_failure(operation, str(exc), db_path=self._db_path)
         except Exception:
             logger.debug("metrics health recording failed", exc_info=True)
+
+    @staticmethod
+    def _clear_health(conn: sqlite3.Connection) -> None:
+        """Reset a prior warning once recording succeeds so health reflects current state."""
+        conn.execute(
+            """
+            UPDATE metrics_health
+            SET status = 'ok',
+                last_failure_at = NULL,
+                last_failure_operation = NULL,
+                last_failure_message = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1 AND status != 'ok'
+            """
+        )
 
     @staticmethod
     def _insert_event(

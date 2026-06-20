@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from archex.metrics.health import clear_metrics_health, read_metrics_health
 from archex.metrics.policy import set_metrics_enabled, set_trace_enabled
 from archex.metrics.reporter import (
     MetricsReporter,
@@ -117,6 +118,17 @@ def disable_cmd() -> None:
     """Disable anonymous local metrics counters."""
     set_metrics_enabled(False)
     click.echo("Metrics recording disabled")
+
+
+@metrics_cmd.command("repair")
+def repair_cmd() -> None:
+    """Clear a stale metrics health warning once recording is working again."""
+    health = read_metrics_health()
+    if health.status == "ok":
+        click.echo("Metrics health: ok (nothing to repair)")
+        return
+    clear_metrics_health()
+    click.echo("Cleared metrics health warning")
 
 
 @metrics_cmd.command("delete")

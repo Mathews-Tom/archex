@@ -9,7 +9,7 @@ import click
 from archex.api import get_file_token_count, get_symbol
 from archex.exceptions import ArchexError
 from archex.metrics.capture import record_structural_usage
-from archex.metrics.health import record_metrics_failure
+from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.models import PipelineTiming, RepoSource
 from archex.reporting import count_tokens, print_savings, print_timing
@@ -74,11 +74,7 @@ def _record_metrics(
             file_count=1,
         )
     except Exception as exc:
-        logger.debug("symbol metrics recording failed", exc_info=True)
-        try:
-            record_metrics_failure("record", str(exc))
-        except Exception:
-            logger.debug("symbol metrics health recording failed", exc_info=True)
+        note_metrics_recording_failure(exc)
 
 
 def _source_and_symbol_id(args: tuple[str, ...]) -> tuple[str, str]:

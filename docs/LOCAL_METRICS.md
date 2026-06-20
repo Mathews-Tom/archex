@@ -203,8 +203,20 @@ Metrics recording must never break query, scout, or MCP operations.
 
 If recording fails:
 - the user-facing operation still succeeds
-- metrics health is updated with the failure
-- `archex metrics` surfaces the warning
+- a genuine metrics-subsystem failure (storage, registry, or writer error) latches a
+  warning that `archex metrics` surfaces
+- the warning is **self-healing**: because health reflects the current state of the
+  writer rather than its history, the next successful record on any repo clears it
+- `archex metrics repair` clears a stale warning manually once recording works again,
+  without deleting any accumulated savings data
+
+The health flag lives in the single machine-local ledger (`~/.archex/usage.sqlite`), so
+it is shared across every repo on the machine.
+
+Expected, non-actionable conditions are **not** treated as failures. The optional
+whole-repo and raw-equivalent token baselines are computed by walking the source tree;
+when a source is not a usable local repo (path gone, not a directory, no `.git`), that
+baseline is simply omitted (`whole_repo_tokens` becomes null) without latching a warning.
 
 ## Reading the output
 
