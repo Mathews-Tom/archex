@@ -135,6 +135,23 @@ Then use:
 
 The command procedure runs `archex doctor`, initializes/indexes when needed, runs `archex scout`, and fetches exact `symbol:` or `chunk:` handles before a broader query.
 
+## MCP surfacing and agent guidance
+
+Registering the MCP server is necessary but not sufficient. Three steps must all happen for an agent to use archex over MCP:
+
+- **Registration** — `archex install-client <client>` writes the server entry. The default scope is global (user); a `[SOURCE]` path or `--scope project` installs repo-local. Writes merge into existing config non-destructively and are idempotent; `--dry-run` previews the exact target and config with zero filesystem changes.
+- **Surfacing** — the harness must expose the registered tools. Harnesses with on-demand tool discovery (e.g. oh-my-pi / Pi) keep a registered server's tools discoverable but out of the default tool set until the agent activates them.
+- **Invocation** — the agent must call `query_repo` / `scout_repo` / `analyze_repo` rather than reading files by hand.
+
+archex ships a ready-to-paste guidance prompt naming the MCP tools and the activation step. `install-client --agent-file <path>` appends it to a global or repo-specific agent file (`CLAUDE.md`, `AGENTS.md`, ...) inside a delimited, idempotent `archex:mcp-guidance` block; `--dry-run` previews it without writing:
+
+```bash
+archex install-client omp --agent-file ~/.omp/agent/AGENTS.md
+archex install-client claude-code . --scope project --agent-file ./CLAUDE.md --dry-run
+```
+
+The guidance prompt and agent-file append touch only the chosen agent file and make no network or LLM calls. Use `archex metrics` (the CLI-vs-MCP surface split) to confirm agents are actually invoking the MCP tools.
+
 ## What archex reads
 
 archex reads only paths you point it at or paths implied by the current repository:
@@ -172,6 +189,13 @@ Generated local state:
 - cache entries under the configured cache directory; before `archex init`, the default is `~/.archex/cache`; after repo-local initialization, the default project setting is `.archex`
 
 Do not commit `.archex/`. The project initializer adds `.archex/` to the repository gitignore path it manages.
+
+Explicit, user-initiated config writes happen only when you run `archex install-client`:
+
+- the selected client's MCP config (for example `~/.claude.json`, `.mcp.json`, `~/.codex/config.toml`, `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.pi/agent/mcp.json`, or `~/.omp/agent/mcp.json`) — merged non-destructively, never clobbering unrelated entries
+- the agent file passed to `--agent-file` (for example `CLAUDE.md` or `AGENTS.md`) — a delimited `archex:mcp-guidance` block appended idempotently
+
+`--dry-run` previews both without writing.
 
 ## Network behavior by feature
 

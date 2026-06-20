@@ -184,6 +184,14 @@ For warm local sessions, keep the MCP process alive and optionally watch the rep
 archex mcp --watch --watch-path .
 ```
 
+archex is a first-class `install-client` target for Claude Code, Codex, Cursor, OpenCode, Pi, and oh-my-pi (`omp` → `~/.omp/agent/mcp.json`). Registration alone is not enough: harnesses with on-demand tool discovery surface a registered server's tools only after the agent activates them, and agent guidance that names only the CLI never produces MCP calls. Append the ready-to-paste guidance prompt to a global or repo-specific agent file so agents reach for the MCP tools first:
+
+```bash
+archex install-client omp --agent-file ~/.omp/agent/AGENTS.md
+```
+
+`archex metrics` then reports a CLI-vs-MCP surface split so you can see whether agents actually route context through archex. The [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) explains the registration → surfacing → invocation distinction.
+
 The in-repo Claude Code skill lives at [`skills/archex/`](skills/archex/). Its `/archex` command runs `archex doctor`, initializes/indexes when needed, scouts first for broad questions, then fetches exact `symbol:` or `chunk:` handles before a larger bundle query.
 
 Exact install, MCP, Docker, cache, uninstall, and trust semantics are documented in the [installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md). Client-specific config targets and bootstrap paths live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md).

@@ -14,6 +14,7 @@ This matrix separates config-shape verification from actual client smoke tests. 
 | Generic MCP stdio client | Unverified | Use a JSON config shaped like `{ "mcpServers": { "archex": { "command": "archex", "args": ["mcp"] }}}`. `archex install-client claude-code --dry-run` prints a compatible snippet. | Client-dependent | Same server-side freshness semantics as Claude Code / Cursor. | No live generic-client smoke in this stack. | 2026-06-16 |
 | Codex headless | Unverified | `archex install-client codex` writes `~/.codex/config.toml` (global); `archex install-client codex . --scope project` writes `.codex/config.toml`, appending `[mcp_servers.archex]`, `command = "archex"`, `args = ["mcp"]` without overwriting existing sections. `--dry-run` previews. | Yes — via `archex mcp --watch --watch-path .` after Codex launches the server. | Inline query refresh by default; warm watch is server-side, not Codex-specific. | Config shape verified against OpenAI Codex MCP docs; no Codex client smoke in this stack. | 2026-06-16 |
 | Pi | Config shape verified; client smoke unverified | `archex install-client pi` writes `~/.pi/agent/mcp.json` with a stdio `mcpServers.archex` entry (`--dry-run` previews). User scope only. | Client-dependent; server supports `--watch`. | Same server-side freshness semantics as other stdio clients. | No Pi client smoke in this stack. | 2026-06-16 |
+| oh-my-pi (omp) | Config shape verified; client smoke unverified | `archex install-client omp` writes `~/.omp/agent/mcp.json` (user scope only) with `mcpServers.archex.command = "archex"`, `args = ["mcp"]`, plus the oh-my-pi `$schema` (`--dry-run` previews). | Client-dependent; server supports `--watch`. | Same server-side freshness semantics as other stdio clients. | No oh-my-pi client smoke in this stack. Discovery-gated harness — tools must be activated before use (see below). | 2026-06-20 |
 | OpenCode | Config shape verified; client smoke unverified | `archex install-client opencode` writes `~/.config/opencode/opencode.json` (global); `archex install-client opencode . --scope project` writes `opencode.json`, setting `mcp.archex = { type = "local", command = ["archex", "mcp"], enabled = true }`. `--dry-run` previews. | Client-dependent; server supports `--watch`. | Same server-side freshness semantics as other stdio clients. | No OpenCode client smoke in this stack. | 2026-06-16 |
 | Cursor | Config shape verified; client smoke unverified | `archex install-client cursor` writes `~/.cursor/mcp.json` (global); `archex install-client cursor . --scope project` writes `.cursor/mcp.json` with `mcpServers.archex.command = "archex"`, `args = ["mcp"]`. `--dry-run` previews. | Yes — with a warm `archex mcp --watch --watch-path .` process. | Inline query refresh by default; watch keeps a warm process subscribed to file events. | No Cursor UI smoke in this stack. | 2026-06-16 |
 | Dockerized MCP server | Server path tested; client smoke unverified | Run `docker run -d --name archex-mcp -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim sleep infinity` then point the client to `docker exec -i archex-mcp archex mcp`. | Yes — run the MCP process with `--watch`. | Same server-side freshness semantics as stdio. | Client-specific Docker registration varies; use the same client config shapes above, but replace the command with `docker` / `exec`. | 2026-06-16 |
@@ -28,6 +29,7 @@ archex install-client cursor
 archex install-client opencode
 archex install-client codex
 archex install-client pi
+archex install-client omp
 ```
 
 Preview any of them without writing:
@@ -49,7 +51,26 @@ archex install-client claude-code . --scope project
 - JSON clients merge an `archex` entry into the existing top-level server map without clobbering unrelated sections.
 - Codex appends one `[mcp_servers.archex]` section to `config.toml`.
 - Re-running an install with an identical `archex` entry already present is an idempotent no-op; a different existing `archex` entry is left untouched and the command fails instead of overwriting it.
-- Pi only supports `--scope user`.
+- Pi and oh-my-pi (omp) only support `--scope user`.
+
+## Registration is not surfacing is not invocation
+
+Registering an MCP server is necessary but not sufficient for an agent to actually use archex. Three distinct steps must all happen:
+
+- **Registration** — `install-client` writes the MCP server entry into the client config (this command).
+- **Surfacing** — the client/harness must expose the registered tools to the agent. Harnesses with on-demand tool discovery (e.g. oh-my-pi / Pi) treat a registered server's tools as *discoverable* but keep them out of the default tool set; the agent must activate them before the first call.
+- **Invocation** — the agent must choose to call `query_repo` / `scout_repo` / `analyze_repo` instead of reading files by hand.
+
+archex cannot change a harness's tool-gating, but it ships a ready-to-paste agent-file guidance prompt that names the MCP tools and the activation step. Append it to a global or repo-specific agent file (`CLAUDE.md`, `AGENTS.md`, ...):
+
+```bash
+archex install-client omp --agent-file ~/.omp/agent/AGENTS.md
+archex install-client claude-code . --scope project --agent-file ./CLAUDE.md --dry-run
+```
+
+The append is non-destructive and idempotent (a delimited `archex:mcp-guidance` block, never duplicated on re-run), and `--dry-run` previews the block without writing.
+
+To check whether agents actually route through MCP, `archex metrics` reports a CLI-vs-MCP surface split; a near-zero `mcp` count means the tools are registered but not being invoked.
 
 ## Verification commands
 
@@ -65,3 +86,4 @@ For Codex, open the TUI and run `/mcp` after writing `.codex/config.toml`.
 For Cursor, inspect `.cursor/mcp.json` or `~/.cursor/mcp.json` and restart the client.
 For OpenCode, inspect `opencode.json` and run `opencode mcp list` if available in your installed version.
 For Pi, inspect `~/.pi/agent/mcp.json` and open the MCP panel documented by your Pi build.
+For oh-my-pi, inspect `~/.omp/agent/mcp.json` and confirm the archex tools are activated in your session (discovery-gated harnesses require explicit activation).
