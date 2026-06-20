@@ -47,6 +47,7 @@ In practice, AST parsing gives archex three advantages over raw file stuffing:
 
 That is the core idea behind archex's context reduction story. The goal is not to send a giant serialized AST to the model. The goal is to use structure up front so the final bundle contains original code and type context that is smaller, better targeted, and easier for an agent to act on.
 
+Structure is not the whole story. Comments, configuration, and dynamic runtime behavior still matter. That is why archex returns a context bundle assembled from code chunks, type definitions, dependency evidence, and metadata, rather than pretending syntax alone can answer every question.
 
 ## Token Efficiency: Measured, Not Claimed
 
