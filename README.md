@@ -222,6 +222,9 @@ print(bundle.to_prompt(format="xml"))
 
 Two local-first images are built in CI:
 
+<details>
+<summary>Docker and warm-container MCP examples</summary>
+
 ```bash
 # BM25-only, no torch
 docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim archex doctor
@@ -251,6 +254,7 @@ MCP client config for that container:
 ```
 
 The mounted repository owns `.archex/`, so indexes survive container restarts and stay out of source control.
+</details>
 
 ## Trust and operations
 
@@ -313,7 +317,12 @@ archex dogfood --all --baseline benchmarks/dogfood_baseline.json --format dogfoo
 ```bash
 uv tool install archex                    # CLI, system-wide
 uv add archex                             # project dependency
+```
 
+<details>
+<summary>Optional extras and integrations</summary>
+
+```bash
 # Agent integrations
 uv tool install "archex[mcp]"             # MCP server
 uv add "archex[langchain]"                # LangChain retriever
@@ -328,6 +337,8 @@ uv add "archex[graph]"                    # Leiden graph clustering
 # Core extras bundle: graph, MCP, LangChain, LlamaIndex
 uv add "archex[all]"
 ```
+
+</details>
 
 For the full trust contract, including exact MCP JSON, Docker commands, cache locations, network behavior, and uninstall steps, see [Installation and Trust Contract](docs/INSTALLATION_TRUST_CONTRACT.md).
 
