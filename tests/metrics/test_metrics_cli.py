@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from click.testing import CliRunner
 
 from archex.cli.main import cli
+from archex.metrics.health import read_metrics_health, record_metrics_failure
 from archex.metrics.policy import set_metrics_enabled
 from archex.metrics.recorder import MetricsRecorder, TraceDetails, UsageEvent
 from archex.metrics.storage import metrics_db_path
@@ -143,6 +144,24 @@ def test_metrics_controls_enable_disable_trace_and_delete(
     assert trace_disable.exit_code == 0, trace_disable.output
     assert delete.exit_code == 0, delete.output
     assert not metrics_db_path(home=tmp_path).exists()
+
+
+def test_metrics_repair_clears_stale_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    db_path = metrics_db_path(home=tmp_path)
+    record_metrics_failure("record", "Path does not exist: /repo", db_path=db_path)
+    runner = CliRunner()
+
+    cleared = runner.invoke(cli, ["metrics", "repair"])
+    repeated = runner.invoke(cli, ["metrics", "repair"])
+
+    assert cleared.exit_code == 0, cleared.output
+    assert "Cleared metrics health warning" in cleared.output
+    assert read_metrics_health(db_path=db_path).status == "ok"
+    assert "nothing to repair" in repeated.output
 
 
 def _record(repo_root: Path, tmp_path: Path) -> None:
