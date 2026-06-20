@@ -226,6 +226,13 @@ baseline is simply omitted (`whole_repo_tokens` becomes null) without latching a
 - raw-equivalent token total
 - percentage savings
 - whole-repo avoided tokens as context only
+- a per-surface event split (`cli` / `mcp` / `python_api`)
+
+The surface split shows how many events each surface contributed. A near-zero `mcp`
+count next to a healthy `cli` count means archex is registered but agents are not
+invoking the MCP tools — see the MCP surfacing notes in the
+[compatibility matrix](CLIENT_COMPATIBILITY_MATRIX.md). The JSON summary exposes the
+same split as `totals.by_surface`.
 
 `archex metrics inspect` reports recent event rows.
 
