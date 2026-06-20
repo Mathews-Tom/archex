@@ -69,5 +69,5 @@ def install_client_cmd(
                     click.echo(f"Appended archex MCP guidance: {resolved}")
                 else:
                     click.echo(f"archex MCP guidance already present: {resolved}")
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc

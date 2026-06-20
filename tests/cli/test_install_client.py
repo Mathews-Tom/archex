@@ -341,3 +341,23 @@ def test_install_client_agent_file_global_write_creates_parents(
     assert _GUIDANCE_MARKER in content
     for tool in _MCP_TOOLS:
         assert tool in content
+
+
+def test_install_client_agent_file_preview_already_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    agent_file = repo / "AGENTS.md"
+    seeded = f"# Repo\n\n{_GUIDANCE_MARKER}\nseeded block\n"
+    agent_file.write_text(seeded, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "claude-code", str(repo), "--agent-file", str(agent_file), "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "already present; no change." in result.output
+    assert agent_file.read_text(encoding="utf-8") == seeded
