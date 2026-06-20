@@ -35,6 +35,20 @@ archex indexes a codebase once using AST parsing (tree-sitter), builds a depende
 
 ---
 
+## Why Structure Beats Raw File Reading
+
+An AST, or Abstract Syntax Tree, is just a parsed view of code structure. Instead of seeing a file as undifferentiated text, archex can see "this is a function," "this is an import," "this is a type definition," and "this call points at that dependency." That matters because coding agents usually waste context on everything around the code they actually need.
+
+In practice, AST parsing gives archex three advantages over raw file stuffing:
+
+1. **It keeps natural code boundaries intact.** archex can chunk at functions, classes, and modules instead of slicing a file at arbitrary token limits.
+2. **It follows relationships, not just words.** archex can connect a function to the types it references, the imports it depends on, and the files those imports resolve to.
+3. **It trims the prompt to task-scoped context.** Instead of handing the agent whole files "just in case," archex can return the target code, its direct dependencies, and the structural metadata needed to use them correctly.
+
+That is the core idea behind archex's context reduction story. The goal is not to send a giant serialized AST to the model. The goal is to use structure up front so the final bundle contains original code and type context that is smaller, better targeted, and easier for an agent to act on.
+
+Structure is not the whole story. Comments, configuration, and dynamic runtime behavior still matter. That is why archex returns a context bundle assembled from code chunks, type definitions, dependency evidence, and metadata, rather than pretending syntax alone can answer every question.
+
 ## Token Efficiency: Measured, Not Claimed
 
 Every archex tool response includes a `_meta` block reporting exactly how many tokens were saved compared to raw file access.
