@@ -11,7 +11,9 @@
 
 **Verified local code context for agents.**
 
-archex turns a repository into a ranked, token-budgeted context bundle plus a context receipt with freshness, index revision, skipped candidates, omitted dependency edges, and a recommended next action. It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.13 line adds stronger benchmark trust surfaces, bundle-only evaluator support, and default 4-bit TurboQuant vector storage for local vector indexes.
+AI coding agents usually start by opening a file, following an import, checking a type definition, and backtracking through the repo until the context window is partly spent before the real task starts. archex does that retrieval and structural expansion up front and returns a ranked, token-budgeted context bundle plus a receipt that records what was included, what was skipped, and whether the bundle is complete enough to act on.
+
+It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.13 line adds stronger benchmark trust surfaces, bundle-only evaluator support, and default 4-bit TurboQuant vector storage for local vector indexes.
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Local metrics](docs/LOCAL_METRICS.md) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
