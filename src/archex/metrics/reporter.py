@@ -20,6 +20,9 @@ class TimeWindow:
     cutoff: str
 
 
+_SURFACES: tuple[str, ...] = ("cli", "mcp", "python_api")
+
+
 class MetricsReporter:
     """Builds summaries, repo lists, inspect rows, and export payloads."""
 
@@ -171,12 +174,16 @@ class MetricsReporter:
 
 def render_summary_text(payload: dict[str, Any]) -> str:
     totals = payload["totals"]
+    surface_mix = ", ".join(
+        f"{surface} {totals['by_surface'][surface]['event_count']}" for surface in _SURFACES
+    )
     lines = [
         "archex metrics",
         f"Window:                 {payload['window']}",
         f"Recording:              {_on_off(payload['recording_enabled'])}",
         f"Trace:                  {_on_off(payload['trace_enabled'])}",
         f"Events:                 {payload['event_count']}",
+        f"Surface mix:            {surface_mix}",
         f"Saved tokens:           {totals['tokens_saved']} vs returned full files",
         f"Returned tokens:        {totals['tokens_returned']}",
         f"Raw-equivalent tokens:  {totals['tokens_raw_equivalent']}",
@@ -291,6 +298,7 @@ def _totals(conn: Any, window: TimeWindow, repo_ids: list[str] | None) -> dict[s
         "whole_repo_tokens_avoided": int(row["whole_repo_tokens_avoided"]),
     }
     totals["savings_pct"] = _savings_pct(totals["tokens_saved"], totals["tokens_raw_equivalent"])
+    totals["by_surface"] = _surface_mix(conn, clauses, params)
     return totals
 
 
@@ -302,7 +310,35 @@ def _empty_totals() -> dict[str, Any]:
         "tokens_saved": 0,
         "whole_repo_tokens_avoided": 0,
         "savings_pct": 0.0,
+        "by_surface": _empty_surface_mix(),
     }
+
+
+def _surface_mix(conn: Any, clauses: list[str], params: list[object]) -> dict[str, dict[str, int]]:
+    rows = conn.execute(
+        f"""
+        SELECT surface, COUNT(*) AS event_count,
+            COALESCE(SUM(tokens_saved), 0) AS tokens_saved
+        FROM usage_events
+        WHERE {" AND ".join(clauses)}
+        GROUP BY surface
+        """,
+        params,
+    ).fetchall()
+    counts = {
+        str(row["surface"]): {
+            "event_count": int(row["event_count"]),
+            "tokens_saved": int(row["tokens_saved"]),
+        }
+        for row in rows
+    }
+    return {
+        surface: counts.get(surface, {"event_count": 0, "tokens_saved": 0}) for surface in _SURFACES
+    }
+
+
+def _empty_surface_mix() -> dict[str, dict[str, int]]:
+    return {surface: {"event_count": 0, "tokens_saved": 0} for surface in _SURFACES}
 
 
 def _repo_payload(row: Any) -> dict[str, Any]:

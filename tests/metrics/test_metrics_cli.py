@@ -164,6 +164,43 @@ def test_metrics_repair_clears_stale_warning(
     assert "nothing to repair" in repeated.output
 
 
+def test_metrics_summary_surface_mix_split(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_root = tmp_path / "workspace" / "repo-mix"
+    repo_root.mkdir(parents=True)
+    _record(repo_root, tmp_path)
+    MetricsRecorder(metrics_db_path(home=tmp_path)).record(
+        UsageEvent(
+            repo_root=repo_root,
+            surface="mcp",
+            tool_name="query_repo",
+            category="context_retrieval",
+            tokens_returned=20,
+            tokens_raw_equivalent=120,
+            whole_repo_tokens=1000,
+            occurred_at=datetime.now(UTC),
+            file_count=2,
+            freshness="clean",
+            index_revision="rev",
+        )
+    )
+    runner = CliRunner()
+
+    summary_json = runner.invoke(cli, ["metrics", "summary", str(repo_root), "--format", "json"])
+    summary_text = runner.invoke(cli, ["metrics", "summary", str(repo_root)])
+
+    assert summary_json.exit_code == 0, summary_json.output
+    assert summary_text.exit_code == 0, summary_text.output
+    by_surface = json.loads(summary_json.output)["totals"]["by_surface"]
+    assert by_surface["cli"]["event_count"] == 1
+    assert by_surface["mcp"]["event_count"] == 1
+    assert by_surface["python_api"]["event_count"] == 0
+    assert "Surface mix:            cli 1, mcp 1, python_api 0" in summary_text.output
+
+
 def _record(repo_root: Path, tmp_path: Path) -> None:
     set_metrics_enabled(True, db_path=metrics_db_path(home=tmp_path))
     MetricsRecorder(metrics_db_path(home=tmp_path)).record(
