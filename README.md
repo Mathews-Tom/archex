@@ -39,7 +39,7 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 | Claude Code or MCP | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts, and an in-repo skill that teaches doctor → scout → fetch. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
 | Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, raw-ripgrep/read baseline, bundle-only evaluator reports, required-file trust gates, and TurboQuant storage/recall evidence. |
-| Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Preview-first client bootstrap paths for Claude Code, Codex, Pi, OpenCode, and Cursor. |
+| Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Client bootstrap paths for Claude Code, Codex, Pi, OpenCode, and Cursor (global/user scope by default; `--dry-run` previews). |
 
 ## 30-second quickstart
 
