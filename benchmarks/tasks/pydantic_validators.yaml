@@ -25,14 +25,14 @@ expected_regions:
   - path: pydantic/functional_validators.py
     granularity: symbol
     symbol: model_validator
-    start_line: 642
-    end_line: 705
+    start_line: 641
+    end_line: 723
     notes: "Model-validator decorator overloads and descriptor proxy construction; pinned to Pydantic v2.10.5."
   - path: pydantic/_internal/_validators.py
     granularity: block
     symbol: standard validators
-    start_line: 25
-    end_line: 257
+    start_line: 20
+    end_line: 388
     notes: "Low-level standard/container/value validators composed by the validation pipeline; pinned to Pydantic v2.10.5."
     weight: 0.9
 token_budget: 8192

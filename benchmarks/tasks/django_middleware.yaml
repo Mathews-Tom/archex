@@ -24,8 +24,8 @@ expected_regions:
   - path: django/core/handlers/base.py
     granularity: symbol
     symbol: BaseHandler
-    start_line: 25
-    end_line: 260
+    start_line: 20
+    end_line: 367
     notes: "Middleware stack loading plus sync/async request-response execution; pinned to Django 5.1.4."
 token_budget: 8192
 keywords:

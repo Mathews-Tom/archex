@@ -15,8 +15,8 @@ expected_regions:
   - path: src/requests/sessions.py
     granularity: symbol
     symbol: Session
-    start_line: 358
-    end_line: 824
+    start_line: 356
+    end_line: 818
     notes: "Session persistence, adapter mounting, request preparation, redirects, and cookie handling; pinned to requests v2.32.3."
   - path: src/requests/adapters.py
     granularity: symbol

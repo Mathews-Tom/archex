@@ -21,8 +21,8 @@ expected_regions:
   - path: src/flask/sansio/blueprints.py
     granularity: symbol
     symbol: Blueprint
-    start_line: 123
-    end_line: 560
+    start_line: 119
+    end_line: 633
     notes: "Deferred registration, nested blueprints, and blueprint URL rule wiring; pinned to Flask 3.1.0."
 token_budget: 8192
 keywords:

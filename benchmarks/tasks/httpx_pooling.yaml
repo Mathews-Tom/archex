@@ -15,8 +15,8 @@ expected_regions:
   - path: httpx/_client.py
     granularity: block
     symbol: BaseClient/Client/AsyncClient
-    start_line: 183
-    end_line: 1470
+    start_line: 188
+    end_line: 2020
     notes: "Client-side pool, proxy, and transport configuration for sync and async clients; pinned to httpx 0.28.1."
   - path: httpx/_transports/default.py
     granularity: block
