@@ -1,0 +1,34 @@
+task_id: loc_requests_redirect_auth
+repo: psf/requests
+commit: "v2.32.3"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - src/requests
+question: "Bug report: when a request is redirected to a different host or scheme, the Authorization header can be forwarded to the new origin and leak credentials. To fix the redirect auth-stripping behavior, where does requests decide whether the Authorization header should be removed on a redirect, and where is that decision applied to the prepared request?"
+expected_files:
+  - src/requests/sessions.py
+expected_symbols:
+  - should_strip_auth
+  - rebuild_auth
+expected_regions:
+  - path: src/requests/sessions.py
+    granularity: symbol
+    symbol: SessionRedirectMixin.should_strip_auth
+    start_line: 127
+    end_line: 157
+    notes: "Decides whether the Authorization header is stripped on redirect across host/scheme/port; pinned to requests v2.32.3."
+  - path: src/requests/sessions.py
+    granularity: symbol
+    symbol: SessionRedirectMixin.rebuild_auth
+    start_line: 282
+    end_line: 300
+    notes: "Applies the should_strip_auth decision and reapplies .netrc auth on the new host; pinned to requests v2.32.3."
+token_budget: 8192
+keywords:
+  - redirect
+  - authorization
+  - strip
+  - credentials
+  - rebuild_auth

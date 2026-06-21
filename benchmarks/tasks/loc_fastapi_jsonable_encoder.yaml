@@ -1,0 +1,27 @@
+task_id: loc_fastapi_jsonable_encoder
+repo: tiangolo/fastapi
+commit: "0.115.6"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - fastapi
+question: "Issue: serializing a response object fails because jsonable_encoder does not honor a registered custom encoder for a particular type and mishandles the recursive conversion. Which function implements the recursive JSON-able conversion of arbitrary objects that must be edited?"
+expected_files:
+  - fastapi/encoders.py
+expected_symbols:
+  - jsonable_encoder
+expected_regions:
+  - path: fastapi/encoders.py
+    granularity: symbol
+    symbol: jsonable_encoder
+    start_line: 102
+    end_line: 343
+    notes: "Recursive JSON-able conversion: include/exclude handling, custom_encoder dispatch, Pydantic model and dataclass handling, and the dict/vars fallback; pinned to FastAPI 0.115.6."
+token_budget: 8192
+keywords:
+  - encoder
+  - jsonable
+  - serialize
+  - custom_encoder
+  - recursive

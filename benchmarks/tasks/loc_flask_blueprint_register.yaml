@@ -1,0 +1,35 @@
+task_id: loc_flask_blueprint_register
+repo: pallets/flask
+commit: "3.1.0"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - src/flask
+question: "Issue: registering nested blueprints does not combine the child blueprint's url_prefix and dotted name with the parent correctly. To fix nested blueprint registration, where is the blueprint registration logic that creates the setup state and recurses into nested blueprints applying their url_prefix and name prefix?"
+expected_files:
+  - src/flask/sansio/blueprints.py
+expected_symbols:
+  - Blueprint.register
+  - Blueprint.register_blueprint
+expected_regions:
+  - path: src/flask/sansio/blueprints.py
+    granularity: symbol
+    symbol: Blueprint.register
+    start_line: 273
+    end_line: 377
+    notes: "Registers the blueprint and recurses into nested blueprints, merging url_prefix/subdomain/name_prefix; pinned to Flask 3.1.0."
+  - path: src/flask/sansio/blueprints.py
+    granularity: symbol
+    symbol: Blueprint.register_blueprint
+    start_line: 256
+    end_line: 271
+    notes: "Records a child blueprint to be registered later by register(); pinned to Flask 3.1.0."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - blueprint
+  - register
+  - nested
+  - url_prefix
+  - name_prefix
