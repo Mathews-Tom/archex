@@ -118,6 +118,7 @@ if TYPE_CHECKING:
 
     import numpy as np
 
+    from archex.index.churn import ChurnPriors
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
     from archex.models import ComparisonResult
@@ -1700,6 +1701,7 @@ def query(
     refresh: bool = True,
     handles: list[str] | None = None,
     centrality_mode: str = "global",
+    churn_priors: ChurnPriors | None = None,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -1956,6 +1958,7 @@ def query(
                     rerank_candidate_limit=index_config.rerank_candidate_limit,
                     apply_intent_budget=False,
                     centrality_mode=centrality_mode,
+                    churn_priors=churn_priors,
                 )
                 return _finalize_context_bundle(
                     bundle,
@@ -2327,6 +2330,7 @@ def query(
                 rerank_candidate_limit=index_config.rerank_candidate_limit,
                 apply_intent_budget=False,
                 centrality_mode=centrality_mode,
+                churn_priors=churn_priors,
             )
             logger.info("Search + assemble in %.0fms", _elapsed_ms(t6))
         finally:

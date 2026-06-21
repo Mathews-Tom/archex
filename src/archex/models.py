@@ -685,6 +685,11 @@ class RetrievalMetadata(BaseModel):
     centrality_latency_ms: float = 0.0
     centrality_subgraph_nodes: int = 0
     centrality_subgraph_edges: int = 0
+    # Recency/churn ranking prior (benchmark-only candidate; default leaves these
+    # at their neutral values).
+    churn_source: str = ""
+    churn_intent_gated: bool = False
+    churn_priors_applied: dict[str, float] = {}
     # Expansion diagnostics
     seed_files_found: int = 0
     seed_file_paths: list[str] = []
