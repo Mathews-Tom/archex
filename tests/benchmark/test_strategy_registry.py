@@ -54,6 +54,9 @@ class TestStrategyRegistry:
         assert Strategy.CROSS_LAYER_FUSION.value in names
         assert Strategy.ARCHEX_QUERY_FUSION_RERANK.value in names
 
+        assert Strategy.ARCHEX_QUERY_PPR.value in names
+        assert default_strategy_registry.get(Strategy.ARCHEX_QUERY_PPR) is not None
+
     def test_load_entry_points_registers_runner(self) -> None:
         reg = StrategyRegistry()
         mock_ep = MagicMock()

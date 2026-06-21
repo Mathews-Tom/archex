@@ -1699,6 +1699,7 @@ def query(
     explicit_token_budget: bool = False,
     refresh: bool = True,
     handles: list[str] | None = None,
+    centrality_mode: str = "global",
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -1954,6 +1955,7 @@ def query(
                     reranker=_reranker,
                     rerank_candidate_limit=index_config.rerank_candidate_limit,
                     apply_intent_budget=False,
+                    centrality_mode=centrality_mode,
                 )
                 return _finalize_context_bundle(
                     bundle,
@@ -2324,6 +2326,7 @@ def query(
                 reranker=_reranker_miss,
                 rerank_candidate_limit=index_config.rerank_candidate_limit,
                 apply_intent_budget=False,
+                centrality_mode=centrality_mode,
             )
             logger.info("Search + assemble in %.0fms", _elapsed_ms(t6))
         finally:
