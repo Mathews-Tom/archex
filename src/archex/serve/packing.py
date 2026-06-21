@@ -523,17 +523,19 @@ class DiversityPackingPlan(PackingPlan):
     deselected_for_diversity: int
     protected_regions: int
 
+    def diversity_provenance(self) -> dict[str, str]:
+        """The diversity-specific provenance keys (single source for all consumers)."""
+        return {
+            "diversity_applied": str(self.diversity_applied).lower(),
+            "query_aspects": str(self.query_aspects),
+            "diversity_lambda": f"{self.diversity_lambda:.2f}",
+            "deselected_for_diversity": str(self.deselected_for_diversity),
+            "protected_regions": str(self.protected_regions),
+        }
+
     def to_provenance(self) -> dict[str, str]:
         provenance = super().to_provenance()
-        provenance.update(
-            {
-                "diversity_applied": str(self.diversity_applied).lower(),
-                "query_aspects": str(self.query_aspects),
-                "diversity_lambda": f"{self.diversity_lambda:.2f}",
-                "deselected_for_diversity": str(self.deselected_for_diversity),
-                "protected_regions": str(self.protected_regions),
-            }
-        )
+        provenance.update(self.diversity_provenance())
         return provenance
 
 
