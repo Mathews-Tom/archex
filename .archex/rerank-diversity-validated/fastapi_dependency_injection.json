@@ -1,0 +1,530 @@
+{
+  "task_id": "fastapi_dependency_injection",
+  "repo": "tiangolo/fastapi",
+  "question": "How does FastAPI implement dependency injection for route handlers?",
+  "results": [
+    {
+      "task_id": "fastapi_dependency_injection",
+      "strategy": "archex_query",
+      "strategy_label": null,
+      "tokens_total": 4968,
+      "tool_calls": 1,
+      "files_accessed": 4,
+      "recall": 0.6666666666666666,
+      "precision": 0.5,
+      "f1_score": 0.5714285714285715,
+      "mrr": 1.0,
+      "ndcg": 0.6713860725233041,
+      "map_score": 0.5,
+      "symbol_recall": 0.3333333333333333,
+      "tokens_input": 35661,
+      "tokens_output": 4968,
+      "token_efficiency": 0.8606881467148986,
+      "tokens_raw_baseline": 40336,
+      "savings_vs_raw": 0.0,
+      "wall_time_ms": 276.4814579859376,
+      "cached": false,
+      "timing": {
+        "acquire_ms": 0.0612910371273756,
+        "parse_ms": 17.50483294017613,
+        "index_ms": 200.18375013023615,
+        "search_ms": 3.583500161767006,
+        "assemble_ms": 1.931833103299141,
+        "total_ms": 275.7246249821037,
+        "cached": false,
+        "delta_ms": 0.0,
+        "delta_meta": null,
+        "delta_attempted": false,
+        "delta_succeeded": false,
+        "parse_failure_count": 0,
+        "vector_used": false,
+        "vector_build_ms": 0.0,
+        "vector_index_ms": 0.0,
+        "strategy": ""
+      },
+      "timestamp": "2026-06-21T21:14:52.299688+00:00",
+      "unique_ranked_files": 4,
+      "seed_files": [
+        "fastapi/routing.py",
+        "fastapi/dependencies/models.py",
+        "fastapi/dependencies/utils.py"
+      ],
+      "expanded_files": [
+        "fastapi/utils.py",
+        "fastapi/security/base.py",
+        "fastapi/exceptions.py",
+        "fastapi/security/oauth2.py",
+        "fastapi/security/open_id_connect_url.py",
+        "fastapi/security/utils.py"
+      ],
+      "expansion_ratio": 2.0,
+      "seed_recall": 1.0,
+      "seed_precision": 1.0,
+      "expansion_eligible_seeds": 3,
+      "expansion_candidates_found": 5,
+      "expansion_import_neighbor_edges": 8,
+      "expansion_same_module_candidates": 0,
+      "expansion_hub_candidates": 2,
+      "expansion_test_candidates_skipped": 0,
+      "expansion_zero_candidate_reason": "",
+      "category": "framework-semantic",
+      "family": "comprehension",
+      "vector_mode": "raw",
+      "surrogate_version": "v1",
+      "cache_state": "cold",
+      "expansion_reason_counts": {
+        "hub": 2,
+        "import_target": 6,
+        "importer": 1
+      },
+      "expanded_file_reasons": {
+        "fastapi/utils.py": [
+          "import_target",
+          "importer"
+        ],
+        "fastapi/security/base.py": [
+          "hub",
+          "import_target"
+        ],
+        "fastapi/exceptions.py": [
+          "import_target"
+        ],
+        "fastapi/security/oauth2.py": [
+          "hub",
+          "import_target"
+        ],
+        "fastapi/security/open_id_connect_url.py": [
+          "import_target"
+        ],
+        "fastapi/security/utils.py": [
+          "import_target"
+        ]
+      },
+      "result_files": [
+        "fastapi/routing.py",
+        "fastapi/exceptions.py",
+        "fastapi/utils.py",
+        "fastapi/dependencies/models.py"
+      ],
+      "required_file_recall": 0.6666666666666666,
+      "missed_required_file_rate": 0.3333333333333333,
+      "missed_required_task_rate": 1.0,
+      "all_required_files_present": false,
+      "required_files_present": [
+        "fastapi/dependencies/models.py",
+        "fastapi/routing.py"
+      ],
+      "required_files_missing": [
+        "fastapi/dependencies/utils.py"
+      ],
+      "bundle_only_success": null,
+      "needed_files_outside_returned": null,
+      "needed_files_in_frontier_cut": null,
+      "needed_files_in_top_candidates": null,
+      "safe_to_act_false_positive": null,
+      "post_bundle_search_turns": null,
+      "post_bundle_read_turns": 1,
+      "task_completion_result": "fail",
+      "completion_preserved": null,
+      "receipt_accuracy": true,
+      "bundle_completion_tokens": 7579,
+      "bundle_completion_files": [
+        "fastapi/dependencies/utils.py"
+      ],
+      "token_efficiency_with_completion": 0.7098288621646623,
+      "cold_start_ms": 0.0,
+      "warm_latency_ms": 0.0,
+      "provenance": {},
+      "freshness_latency_ms": 0.0,
+      "freshness_measured": false,
+      "freshness_correct": false,
+      "chunker": "default",
+      "index_chunk_count": 309,
+      "mean_chunk_tokens": 325.97411003236243,
+      "region_recall": 0.48717948717948717,
+      "region_precision": 0.17647058823529413,
+      "region_f1": 0.2590909090909091,
+      "line_recall": 0.17727272727272728,
+      "line_precision": 0.08091286307053942,
+      "ranked_region_mrr": 0.2,
+      "ranked_region_ndcg": 0.23346077762848266,
+      "context_noise_ratio": 0.8886876006441223,
+      "useful_tokens": 553,
+      "wasted_tokens": 4415,
+      "relevance_per_1k_tokens": 0.0980635038606053,
+      "bundle_tokens_uncompressed": null,
+      "bundle_tokens_compressed": null,
+      "bundle_compression_ratio": null,
+      "required_context_compressed_tokens": null,
+      "required_context_passthrough_tokens": null,
+      "compression_hidden_required_region_count": null,
+      "token_efficiency_with_compression_and_completion": null,
+      "packed_relevance_per_1k_tokens": null,
+      "packing_included_regions": null,
+      "packing_compressed_regions": null,
+      "packing_elided_regions": null,
+      "packing_skipped_regions": null,
+      "rerank_model_storage_bytes": null,
+      "diversity_deselected_regions": null
+    },
+    {
+      "task_id": "fastapi_dependency_injection",
+      "strategy": "archex_query_conditional_rerank",
+      "strategy_label": null,
+      "tokens_total": 4968,
+      "tool_calls": 1,
+      "files_accessed": 4,
+      "recall": 0.6666666666666666,
+      "precision": 0.5,
+      "f1_score": 0.5714285714285715,
+      "mrr": 1.0,
+      "ndcg": 0.6713860725233041,
+      "map_score": 0.5,
+      "symbol_recall": 0.3333333333333333,
+      "tokens_input": 35661,
+      "tokens_output": 4968,
+      "token_efficiency": 0.8606881467148986,
+      "tokens_raw_baseline": 40336,
+      "savings_vs_raw": 0.0,
+      "wall_time_ms": 475.43541714549065,
+      "cached": false,
+      "timing": {
+        "acquire_ms": 0.0663751270622015,
+        "parse_ms": 17.85562513396144,
+        "index_ms": 196.39316713437438,
+        "search_ms": 3.4548339899629354,
+        "assemble_ms": 2.108624903485179,
+        "total_ms": 268.63266713917255,
+        "cached": false,
+        "delta_ms": 0.0,
+        "delta_meta": null,
+        "delta_attempted": false,
+        "delta_succeeded": false,
+        "parse_failure_count": 0,
+        "vector_used": false,
+        "vector_build_ms": 0.0,
+        "vector_index_ms": 0.0,
+        "strategy": ""
+      },
+      "timestamp": "2026-06-21T21:14:52.816698+00:00",
+      "unique_ranked_files": 4,
+      "seed_files": [
+        "fastapi/routing.py",
+        "fastapi/dependencies/models.py",
+        "fastapi/dependencies/utils.py"
+      ],
+      "expanded_files": [
+        "fastapi/utils.py",
+        "fastapi/security/base.py",
+        "fastapi/exceptions.py",
+        "fastapi/security/oauth2.py",
+        "fastapi/security/open_id_connect_url.py",
+        "fastapi/security/utils.py"
+      ],
+      "expansion_ratio": 2.0,
+      "seed_recall": 1.0,
+      "seed_precision": 1.0,
+      "expansion_eligible_seeds": 3,
+      "expansion_candidates_found": 5,
+      "expansion_import_neighbor_edges": 8,
+      "expansion_same_module_candidates": 0,
+      "expansion_hub_candidates": 2,
+      "expansion_test_candidates_skipped": 0,
+      "expansion_zero_candidate_reason": "",
+      "category": "framework-semantic",
+      "family": "comprehension",
+      "vector_mode": "raw",
+      "surrogate_version": "v1",
+      "cache_state": "cold",
+      "expansion_reason_counts": {
+        "hub": 2,
+        "import_target": 6,
+        "importer": 1
+      },
+      "expanded_file_reasons": {
+        "fastapi/utils.py": [
+          "import_target",
+          "importer"
+        ],
+        "fastapi/security/base.py": [
+          "hub",
+          "import_target"
+        ],
+        "fastapi/exceptions.py": [
+          "import_target"
+        ],
+        "fastapi/security/oauth2.py": [
+          "hub",
+          "import_target"
+        ],
+        "fastapi/security/open_id_connect_url.py": [
+          "import_target"
+        ],
+        "fastapi/security/utils.py": [
+          "import_target"
+        ]
+      },
+      "result_files": [
+        "fastapi/routing.py",
+        "fastapi/utils.py",
+        "fastapi/exceptions.py",
+        "fastapi/dependencies/models.py"
+      ],
+      "required_file_recall": 0.6666666666666666,
+      "missed_required_file_rate": 0.3333333333333333,
+      "missed_required_task_rate": 1.0,
+      "all_required_files_present": false,
+      "required_files_present": [
+        "fastapi/dependencies/models.py",
+        "fastapi/routing.py"
+      ],
+      "required_files_missing": [
+        "fastapi/dependencies/utils.py"
+      ],
+      "bundle_only_success": null,
+      "needed_files_outside_returned": null,
+      "needed_files_in_frontier_cut": null,
+      "needed_files_in_top_candidates": null,
+      "safe_to_act_false_positive": null,
+      "post_bundle_search_turns": null,
+      "post_bundle_read_turns": 1,
+      "task_completion_result": "fail",
+      "completion_preserved": null,
+      "receipt_accuracy": true,
+      "bundle_completion_tokens": 7579,
+      "bundle_completion_files": [
+        "fastapi/dependencies/utils.py"
+      ],
+      "token_efficiency_with_completion": 0.7098288621646623,
+      "cold_start_ms": 0.0,
+      "warm_latency_ms": 0.0,
+      "provenance": {
+        "bm25_cv": "0.0921",
+        "bm25_ambiguous": "true",
+        "ambiguity_reason": "flat_bm25:cv=0.092",
+        "cross_encoder_status": "applied",
+        "rerank_invoked": "true",
+        "rerank_ms": "205.70",
+        "candidates_reranked": "17",
+        "candidates_total": "17",
+        "latency_cap_ms": "1500.0",
+        "rerank_model_storage_bytes": "unmeasured"
+      },
+      "freshness_latency_ms": 0.0,
+      "freshness_measured": false,
+      "freshness_correct": false,
+      "chunker": "default",
+      "index_chunk_count": 309,
+      "mean_chunk_tokens": 325.97411003236243,
+      "region_recall": 0.48717948717948717,
+      "region_precision": 0.17647058823529413,
+      "region_f1": 0.2590909090909091,
+      "line_recall": 0.17727272727272728,
+      "line_precision": 0.08091286307053942,
+      "ranked_region_mrr": 0.2,
+      "ranked_region_ndcg": 0.24554146886133993,
+      "context_noise_ratio": 0.8886876006441223,
+      "useful_tokens": 553,
+      "wasted_tokens": 4415,
+      "relevance_per_1k_tokens": 0.0980635038606053,
+      "bundle_tokens_uncompressed": null,
+      "bundle_tokens_compressed": null,
+      "bundle_compression_ratio": null,
+      "required_context_compressed_tokens": null,
+      "required_context_passthrough_tokens": null,
+      "compression_hidden_required_region_count": null,
+      "token_efficiency_with_compression_and_completion": null,
+      "packed_relevance_per_1k_tokens": null,
+      "packing_included_regions": null,
+      "packing_compressed_regions": null,
+      "packing_elided_regions": null,
+      "packing_skipped_regions": null,
+      "rerank_model_storage_bytes": null,
+      "diversity_deselected_regions": null
+    },
+    {
+      "task_id": "fastapi_dependency_injection",
+      "strategy": "archex_query_diversity_packed",
+      "strategy_label": null,
+      "tokens_total": 4944,
+      "tool_calls": 1,
+      "files_accessed": 4,
+      "recall": 0.6666666666666666,
+      "precision": 0.5,
+      "f1_score": 0.5714285714285715,
+      "mrr": 1.0,
+      "ndcg": 0.6713860725233041,
+      "map_score": 0.5,
+      "symbol_recall": 0.3333333333333333,
+      "tokens_input": 35661,
+      "tokens_output": 4944,
+      "token_efficiency": 0.8613611508370489,
+      "tokens_raw_baseline": 40336,
+      "savings_vs_raw": 0.0,
+      "wall_time_ms": 294.0454159397632,
+      "cached": false,
+      "timing": {
+        "acquire_ms": 0.06204098463058472,
+        "parse_ms": 18.552792025730014,
+        "index_ms": 199.84925002790987,
+        "search_ms": 3.5167080350220203,
+        "assemble_ms": 1.8261659424751997,
+        "total_ms": 285.4945419821888,
+        "cached": false,
+        "delta_ms": 0.0,
+        "delta_meta": null,
+        "delta_attempted": false,
+        "delta_succeeded": false,
+        "parse_failure_count": 0,
+        "vector_used": false,
+        "vector_build_ms": 0.0,
+        "vector_index_ms": 0.0,
+        "strategy": ""
+      },
+      "timestamp": "2026-06-21T21:14:53.148954+00:00",
+      "unique_ranked_files": 4,
+      "seed_files": [
+        "fastapi/routing.py",
+        "fastapi/dependencies/models.py",
+        "fastapi/dependencies/utils.py"
+      ],
+      "expanded_files": [
+        "fastapi/utils.py",
+        "fastapi/security/base.py",
+        "fastapi/exceptions.py",
+        "fastapi/security/oauth2.py",
+        "fastapi/security/open_id_connect_url.py",
+        "fastapi/security/utils.py"
+      ],
+      "expansion_ratio": 2.0,
+      "seed_recall": 1.0,
+      "seed_precision": 1.0,
+      "expansion_eligible_seeds": 3,
+      "expansion_candidates_found": 5,
+      "expansion_import_neighbor_edges": 8,
+      "expansion_same_module_candidates": 0,
+      "expansion_hub_candidates": 2,
+      "expansion_test_candidates_skipped": 0,
+      "expansion_zero_candidate_reason": "",
+      "category": "framework-semantic",
+      "family": "comprehension",
+      "vector_mode": "raw",
+      "surrogate_version": "v1",
+      "cache_state": "cold",
+      "expansion_reason_counts": {
+        "hub": 2,
+        "import_target": 6,
+        "importer": 1
+      },
+      "expanded_file_reasons": {
+        "fastapi/utils.py": [
+          "import_target",
+          "importer"
+        ],
+        "fastapi/security/base.py": [
+          "hub",
+          "import_target"
+        ],
+        "fastapi/exceptions.py": [
+          "import_target"
+        ],
+        "fastapi/security/oauth2.py": [
+          "hub",
+          "import_target"
+        ],
+        "fastapi/security/open_id_connect_url.py": [
+          "import_target"
+        ],
+        "fastapi/security/utils.py": [
+          "import_target"
+        ]
+      },
+      "result_files": [
+        "fastapi/routing.py",
+        "fastapi/exceptions.py",
+        "fastapi/utils.py",
+        "fastapi/dependencies/models.py"
+      ],
+      "required_file_recall": 0.6666666666666666,
+      "missed_required_file_rate": 0.3333333333333333,
+      "missed_required_task_rate": 1.0,
+      "all_required_files_present": false,
+      "required_files_present": [
+        "fastapi/dependencies/models.py",
+        "fastapi/routing.py"
+      ],
+      "required_files_missing": [
+        "fastapi/dependencies/utils.py"
+      ],
+      "bundle_only_success": null,
+      "needed_files_outside_returned": null,
+      "needed_files_in_frontier_cut": null,
+      "needed_files_in_top_candidates": null,
+      "safe_to_act_false_positive": null,
+      "post_bundle_search_turns": null,
+      "post_bundle_read_turns": 1,
+      "task_completion_result": "fail",
+      "completion_preserved": null,
+      "receipt_accuracy": true,
+      "bundle_completion_tokens": 7579,
+      "bundle_completion_files": [
+        "fastapi/dependencies/utils.py"
+      ],
+      "token_efficiency_with_completion": 0.7103839037927844,
+      "cold_start_ms": 0.0,
+      "warm_latency_ms": 0.0,
+      "provenance": {
+        "budget_tier": "standard",
+        "query_intent": "general",
+        "protect_code": "false",
+        "include_count": "15",
+        "compress_count": "2",
+        "elide_count": "0",
+        "skip_count": "0",
+        "direct_match_count": "12",
+        "hidden_required_count": "0",
+        "bundle_compression_ratio": "0.9952",
+        "relevance_per_1k_tokens": "3.0553",
+        "diversity_applied": "true",
+        "query_aspects": "6",
+        "diversity_lambda": "0.70",
+        "deselected_for_diversity": "0",
+        "protected_regions": "12"
+      },
+      "freshness_latency_ms": 0.0,
+      "freshness_measured": false,
+      "freshness_correct": false,
+      "chunker": "default",
+      "index_chunk_count": 309,
+      "mean_chunk_tokens": 325.97411003236243,
+      "region_recall": 0.48717948717948717,
+      "region_precision": 0.17647058823529413,
+      "region_f1": 0.2590909090909091,
+      "line_recall": 0.17727272727272728,
+      "line_precision": 0.08091286307053942,
+      "ranked_region_mrr": 0.2,
+      "ranked_region_ndcg": 0.23346077762848266,
+      "context_noise_ratio": 0.8881472491909385,
+      "useful_tokens": 553,
+      "wasted_tokens": 4391,
+      "relevance_per_1k_tokens": 0.0985395402871131,
+      "bundle_tokens_uncompressed": 4968,
+      "bundle_tokens_compressed": 4944,
+      "bundle_compression_ratio": 0.9951690821256038,
+      "required_context_compressed_tokens": 0,
+      "required_context_passthrough_tokens": 4183,
+      "compression_hidden_required_region_count": 0,
+      "token_efficiency_with_compression_and_completion": 0.7103839037927844,
+      "packed_relevance_per_1k_tokens": 3.0553235038478443,
+      "packing_included_regions": 15,
+      "packing_compressed_regions": 2,
+      "packing_elided_regions": 0,
+      "packing_skipped_regions": 0,
+      "rerank_model_storage_bytes": null,
+      "diversity_deselected_regions": 0
+    }
+  ],
+  "baseline_tokens": 0,
+  "median_latency_ms": 294.0454159397632,
+  "p95_latency_ms": 457.2964170249179
+}
