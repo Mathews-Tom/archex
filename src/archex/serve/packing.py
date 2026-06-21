@@ -455,3 +455,184 @@ def pack_efficiently(
         budget_tier=budget_tier,
         token_budget=token_budget,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Query-adaptive diversity packing (benchmark-only experimental lane)
+# --------------------------------------------------------------------------- #
+#
+# Pointwise packing can still spend budget on cross-file/cross-chunk redundancy
+# (re-imported symbols, near-duplicate code). Maximal-marginal-relevance (MMR)
+# de-selection trims that redundant tail to lift relevance-per-token, but MMR is
+# a diversity control, not a guaranteed precision win, so the lane is
+# benchmark-only and conservative:
+#
+# - lambda is query-adaptive: narrow single-aspect lookups keep lambda at 1.0
+#   (diversity off; identical to pack_efficiently); multi-aspect queries lower it.
+# - required/direct/high-confidence regions are never de-selected.
+# - a redundant optional region is dropped only when its file is already
+#   represented by another kept region, so the kept-file set is a superset of
+#   pack_efficiently's and file recall never regresses.
+#
+# Similarity is a deterministic, local token-signature Jaccard — no model, no
+# network — consistent with the local-first no-inference posture.
+
+# Query-adaptive MMR lambda schedule (DF-RAG style). A single-aspect query keeps
+# lambda at 1.0 so diversity is off and the pack is pure relevance; multi-aspect
+# queries lower lambda to apply diversity pressure on the redundant tail.
+_DIVERSITY_LAMBDA_NARROW = 1.0
+_DIVERSITY_LAMBDA_BROAD = 0.7
+
+# Two optional regions are "redundant" when their token signatures overlap at or
+# above this Jaccard similarity. Only a redundant region whose file is already
+# represented may be de-selected, so file recall is preserved.
+_REDUNDANCY_SIMILARITY_THRESHOLD = 0.8
+
+
+def jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    """Jaccard similarity of two token signatures (0 when either is empty)."""
+    if not a or not b:
+        return 0.0
+    union = len(a | b)
+    return len(a & b) / union if union else 0.0
+
+
+def query_adaptive_lambda(query_aspects: int) -> float:
+    """Resolve the MMR lambda from the query's aspect count.
+
+    A single-aspect (narrow) query keeps lambda at 1.0 so diversity is off and the
+    pack is pure relevance; a multi-aspect query lowers lambda to apply diversity.
+    """
+    return _DIVERSITY_LAMBDA_NARROW if query_aspects <= 1 else _DIVERSITY_LAMBDA_BROAD
+
+
+@dataclass(frozen=True)
+class DiversityPackingPlan(PackingPlan):
+    """A :class:`PackingPlan` produced with query-adaptive diversity de-selection.
+
+    Adds the diversity provenance: whether diversity ran, the query aspect count
+    and resolved lambda, how many optional regions were de-selected for
+    redundancy, and how many protected (direct/high-confidence) regions were
+    retained. ``deselected_for_diversity`` counts only redundant-tail de-selection;
+    a protected region is never counted because it is never de-selected.
+    """
+
+    diversity_applied: bool
+    query_aspects: int
+    diversity_lambda: float
+    deselected_for_diversity: int
+    protected_regions: int
+
+    def to_provenance(self) -> dict[str, str]:
+        provenance = super().to_provenance()
+        provenance.update(
+            {
+                "diversity_applied": str(self.diversity_applied).lower(),
+                "query_aspects": str(self.query_aspects),
+                "diversity_lambda": f"{self.diversity_lambda:.2f}",
+                "deselected_for_diversity": str(self.deselected_for_diversity),
+                "protected_regions": str(self.protected_regions),
+            }
+        )
+        return provenance
+
+
+def pack_with_diversity(
+    candidates: list[PackingCandidate],
+    signatures: dict[str, frozenset[str]],
+    *,
+    token_budget: int,
+    budget_tier: BudgetTier,
+    query_aspects: int,
+) -> DiversityPackingPlan:
+    """Pack with query-adaptive MMR diversity over the low-confidence tail.
+
+    Behaves exactly like :func:`pack_efficiently` for narrow single-aspect queries
+    (diversity off). For multi-aspect queries it applies MMR de-selection: a
+    non-protected optional region is dropped only when it is a near-duplicate
+    (token-signature Jaccard at or above the redundancy threshold) of an
+    already-kept content region AND its file is already represented by another kept
+    region. A required/direct/high-confidence region is therefore never
+    de-selected, and because candidates are processed in the same order as
+    :func:`pack_efficiently` while diversity only converts optional regions to
+    SKIP (never charging more budget), the diversity kept-file set is a superset of
+    pack_efficiently's — file recall never regresses.
+
+    ``signatures`` maps candidate id to a deterministic token signature used for
+    redundancy scoring; a missing or empty signature is treated as non-redundant.
+    """
+    lam = query_adaptive_lambda(query_aspects)
+    diversity_applied = lam < _DIVERSITY_LAMBDA_NARROW
+
+    by_id = {candidate.signals.candidate_id: candidate for candidate in candidates}
+    scores = [
+        score_candidate(candidate.signals, budget_tier=budget_tier) for candidate in candidates
+    ]
+    ordered = order_candidates(scores)
+
+    used = 0
+    regions: list[PackedRegion] = []
+    kept_signatures: list[frozenset[str]] = []
+    file_kept_counts: dict[str, int] = {}
+    deselected = 0
+    protected = 0
+    for score in ordered:
+        candidate = by_id[score.candidate_id]
+        is_protected = score.direct_match
+        if is_protected:
+            protected += 1
+        signature = signatures.get(score.candidate_id, frozenset())
+        if diversity_applied and not is_protected and signature:
+            max_similarity = max(
+                (jaccard(signature, kept) for kept in kept_signatures), default=0.0
+            )
+            file_represented = file_kept_counts.get(candidate.signals.file_path, 0) > 0
+            # MMR de-selection: drop a redundant optional region only when its file
+            # stays represented, so file recall never regresses.
+            if max_similarity >= _REDUNDANCY_SIMILARITY_THRESHOLD and file_represented:
+                deselected += 1
+                regions.append(
+                    PackedRegion(
+                        candidate_id=score.candidate_id,
+                        decision=PackDecision.SKIP,
+                        score=score,
+                        tokens_charged=0,
+                        retrieval_score=candidate.signals.retrieval_score,
+                    )
+                )
+                continue
+        allow_skip = not is_protected
+        decision = _fit_decision(
+            candidate, score.decision, token_budget - used, allow_skip=allow_skip
+        )
+        cost = _decision_cost(decision, candidate)
+        charged = 0 if decision is PackDecision.SKIP else cost
+        used += charged
+        if decision is not PackDecision.SKIP:
+            file_kept_counts[candidate.signals.file_path] = (
+                file_kept_counts.get(candidate.signals.file_path, 0) + 1
+            )
+            # Only content-bearing regions anchor redundancy comparisons; an ELIDE
+            # keeps an anchor, not the body, so it does not represent content here.
+            if decision in (PackDecision.INCLUDE, PackDecision.COMPRESS):
+                kept_signatures.append(signature)
+        regions.append(
+            PackedRegion(
+                candidate_id=score.candidate_id,
+                decision=decision,
+                score=score,
+                tokens_charged=charged,
+                retrieval_score=candidate.signals.retrieval_score,
+            )
+        )
+    return DiversityPackingPlan(
+        regions=regions,
+        included_tokens=used,
+        budget_tier=budget_tier,
+        token_budget=token_budget,
+        diversity_applied=diversity_applied,
+        query_aspects=query_aspects,
+        diversity_lambda=lam,
+        deselected_for_diversity=deselected,
+        protected_regions=protected,
+    )
