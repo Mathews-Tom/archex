@@ -230,6 +230,86 @@ def test_sqlite_round_trip(tmp_path: Path) -> None:
     assert restored.file_edge_count == graph.file_edge_count
 
 
+def test_personalized_centrality_differs_from_global() -> None:
+    graph = DependencyGraph.from_edges(
+        [
+            Edge(source="a.py", target="shared.py", kind=EdgeKind.IMPORTS),
+            Edge(source="b.py", target="shared.py", kind=EdgeKind.IMPORTS),
+            Edge(source="seed.py", target="local.py", kind=EdgeKind.IMPORTS),
+            Edge(source="local.py", target="leaf.py", kind=EdgeKind.IMPORTS),
+        ]
+    )
+
+    global_scores = graph.structural_centrality()
+    personalized = graph.personalized_centrality({"seed.py": 1.0})
+
+    assert personalized.personalized is True
+    assert personalized.variant == "personalized_weighted_directional"
+    assert personalized.scores != global_scores
+    assert "shared.py" not in personalized.scores
+    assert personalized.scores["local.py"] > 0.0
+    assert personalized.latency_ms >= 0.0
+    assert personalized.subgraph_nodes > 0
+
+
+def test_personalized_centrality_respects_node_cap() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("seed.py")
+    for index in range(20):
+        graph.add_file_edge("seed.py", f"dep_{index}.py", kind=EdgeKind.IMPORTS)
+        graph.add_file_edge(f"dep_{index}.py", f"leaf_{index}.py", kind=EdgeKind.IMPORTS)
+
+    personalized = graph.personalized_centrality(
+        {"seed.py": 1.0},
+        max_nodes=6,
+        frontier_cap=4,
+        hops=2,
+    )
+
+    assert personalized.personalized is True
+    assert personalized.subgraph_nodes <= 6
+    assert len(personalized.scores) <= 6
+
+
+def test_personalized_centrality_falls_back_to_global_without_seeds() -> None:
+    graph = DependencyGraph.from_edges(
+        [
+            Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS),
+            Edge(source="c.py", target="b.py", kind=EdgeKind.IMPORTS),
+        ]
+    )
+
+    global_scores = graph.structural_centrality()
+    personalized = graph.personalized_centrality({})
+
+    assert personalized.personalized is False
+    assert personalized.variant == "global"
+    assert personalized.fallback_reason == "no_usable_seeds"
+    assert personalized.scores == global_scores
+    assert personalized.scores is not graph._centrality_cache  # pyright: ignore[reportPrivateUsage]
+    assert graph._centrality_cache == global_scores  # pyright: ignore[reportPrivateUsage]
+
+
+def test_personalized_centrality_latency_stays_bounded_on_large_graph() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("seed.py")
+    for index in range(1_000):
+        node = f"node_{index}.py"
+        graph.add_file_edge("seed.py", node, kind=EdgeKind.IMPORTS)
+        graph.add_file_edge(node, f"leaf_{index}.py", kind=EdgeKind.IMPORTS)
+
+    personalized = graph.personalized_centrality(
+        {"seed.py": 1.0},
+        max_nodes=64,
+        frontier_cap=16,
+        hops=2,
+    )
+
+    assert personalized.personalized is True
+    assert personalized.subgraph_nodes <= 64
+    assert personalized.latency_ms < 3_000.0
+
+
 def test_sqlite_round_trip_preserves_edge_confidence(tmp_path: Path) -> None:
     edge = Edge(
         source="a.py",
