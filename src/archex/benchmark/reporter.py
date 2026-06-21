@@ -609,6 +609,89 @@ def format_bucketed_summary(reports: list[BenchmarkReport]) -> str:
     return "\n".join(lines)
 
 
+_LOCALIZATION_FAMILY = "localization"
+_FAMILY_ORDER = ("localization", "comprehension")
+_FAMILY_LABELS = {
+    "localization": "Localization (issue-to-edit)",
+    "comprehension": "Comprehension",
+}
+
+
+def _report_family(report: BenchmarkReport) -> str:
+    """Family of a report's task: localization if any result is labeled as such.
+
+    A report is one task, so every strategy result it holds (including baselines
+    that do not carry the task family) belongs to the task's family.
+    """
+    for result in report.results:
+        if result.family.value == _LOCALIZATION_FAMILY:
+            return _LOCALIZATION_FAMILY
+    return "comprehension"
+
+
+def format_localization_summary(reports: list[BenchmarkReport]) -> str:
+    """Render file- and region-level localization grouped by task family.
+
+    Rendered only when at least one task belongs to the localization family, so
+    pure-comprehension runs are unaffected. Grouping is per task (per report):
+    every strategy result for a localization task is reported under localization,
+    and the localization and comprehension families are always tabulated
+    separately so this report never collapses the two into a single cross-family
+    aggregate winner.
+    """
+    by_family: dict[str, list[BenchmarkReport]] = defaultdict(list)
+    for report in reports:
+        by_family[_report_family(report)].append(report)
+    if _LOCALIZATION_FAMILY not in by_family:
+        return ""
+
+    lines: list[str] = ["# Localization vs Comprehension", ""]
+    lines.append(
+        "Task families are graded separately: localization (issue-to-edit) tasks "
+        "and comprehension tasks are never combined into a single aggregate winner. "
+        "File-level columns measure whether the files to edit were returned and "
+        "well ordered; region-level columns measure the same over the labeled "
+        "symbol/line regions (``unknown`` when a family has no region labels)."
+    )
+    lines.append("")
+
+    ordered = [family for family in _FAMILY_ORDER if family in by_family]
+    ordered += [family for family in sorted(by_family) if family not in _FAMILY_ORDER]
+
+    for family in ordered:
+        family_reports = by_family[family]
+        results = [result for report in family_reports for result in report.results]
+        label = _FAMILY_LABELS.get(family, family)
+        lines.append(f"## {label} ({len(family_reports)} tasks)")
+        lines.append("")
+        lines.append(
+            "| Strategy | File Recall | File MRR | File nDCG | Region Recall "
+            "| Region MRR | Region nDCG | Labeled | Tasks |"
+        )
+        lines.append(
+            "|----------|------------:|---------:|----------:|--------------:"
+            "|-----------:|------------:|--------:|------:|"
+        )
+        by_strategy: dict[str, list[BenchmarkResult]] = defaultdict(list)
+        for result in results:
+            by_strategy[result.strategy.value].append(result)
+        for name in sorted(by_strategy):
+            rows = by_strategy[name]
+            labeled = [result for result in rows if result.region_recall is not None]
+            lines.append(
+                f"| {name} "
+                f"| {_mean([r.required_file_recall for r in rows]):.3f} "
+                f"| {_mean([r.mrr for r in rows]):.3f} "
+                f"| {_mean([r.ndcg for r in rows]):.3f} "
+                f"| {_fmt_opt(_mean_optional([r.region_recall for r in labeled]))} "
+                f"| {_fmt_opt(_mean_optional([r.ranked_region_mrr for r in labeled]))} "
+                f"| {_fmt_opt(_mean_optional([r.ranked_region_ndcg for r in labeled]))} "
+                f"| {len(labeled)} | {len(rows)} |"
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
 def _result_for_strategy(report: BenchmarkReport, strategy: str) -> BenchmarkResult | None:
     for result in report.results:
         if result.strategy.value == strategy:

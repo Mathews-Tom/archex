@@ -62,6 +62,7 @@ from archex.benchmark.reporter import (
     format_chunker_frontier_table,
     format_delta_summary,
     format_json,
+    format_localization_summary,
     format_markdown,
     format_summary,
 )
@@ -404,6 +405,9 @@ def report_cmd(output_format: str, input_dir: str, baseline_dir: str | None) -> 
             click.echo(format_markdown(report))
         click.echo(format_summary(reports))
         click.echo(format_bucketed_summary(reports))
+        localization_summary = format_localization_summary(reports)
+        if localization_summary:
+            click.echo(localization_summary)
         if baseline_reports:
             click.echo(
                 format_baseline_comparison(
