@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from archex.exceptions import ArchexIndexError
+from archex.exceptions import ArchexIndexError, ConfigError
+from archex.index.fusion import bm25_score_cv
 from archex.index.huggingface import resolve_hf_model_path
 from archex.index.model_policy import (
     JINA_RERANKER_MODEL,
@@ -242,3 +247,247 @@ class CrossEncoderReranker:
             reverse=True,
         )
         return [(chunk, float(ce_score)) for (chunk, _), ce_score in scored[:top_k]]
+
+
+# --------------------------------------------------------------------------- #
+# Low-latency conditional reranker (opt-in, benchmark/experimental lane)
+# --------------------------------------------------------------------------- #
+#
+# Full cross-encoder rerank on every query missed the p95 budget (Jina v3 16.5 s,
+# MiniLM 3.9 s; see docs/RETRIEVAL_DEFAULT_DECISIONS.md). The conditional reranker
+# spends the cross-encoder only where it can pay off: when the BM25 ranking is
+# *ambiguous*. It reuses the same query-performance-prediction signals the fusion
+# gate uses (BM25 score CV and AvgIDF, ``index/fusion.py``), so the heavy path
+# runs rarely and the common confident-BM25 query stays model-free and fast. A
+# hard per-stage latency cap aborts a slow model pass and falls back to the
+# original order, so the rerank stage is bounded regardless of model or
+# candidate-set surprises. It is opt-in only and never on the default path; the
+# remote-code policy is enforced by the wrapped ``CrossEncoderReranker``.
+#
+# It is designed for a small distilled cross-encoder (Ettin-17M/68M class) loaded
+# through the local sentence-transformers path (``trust_remote_code=False``,
+# optionally an ONNX/INT8 backend), but it is model-agnostic: the operator
+# supplies the model via ``rerank_model``.
+
+# Hard wall-clock ceiling (ms) for one conditional rerank stage. The model pass
+# runs in a worker thread and the caller is released at this cap, so the rerank
+# stage the pipeline observes is bounded even when the model misbehaves; the
+# orphaned pass finishes in the background and its result is discarded.
+CONDITIONAL_RERANK_LATENCY_CAP_MS = 1500.0
+
+# BM25 is treated as ambiguous — and the cross-encoder fires — when score
+# separation is weak (CV at or below this) or query terms are too common for BM25
+# to discriminate (AvgIDF below this). The thresholds mirror the fusion QPP gate
+# (``index/fusion.py``: ``should_fuse`` uses cv_threshold=0.8, idf_threshold=2.0)
+# so the conditional rerank fires on the same low-confidence-BM25 queries fusion
+# already treats as needing help.
+AMBIGUOUS_BM25_CV_THRESHOLD = 0.8
+AMBIGUOUS_BM25_IDF_THRESHOLD = 2.0
+
+# Default head size sent through the model when the lane fires. The remaining
+# candidates keep their retrieval order, bounding model work structurally.
+CONDITIONAL_RERANK_CANDIDATE_LIMIT = 30
+
+
+@dataclass(frozen=True)
+class ConditionalRerankDecision:
+    """Whether BM25 is ambiguous enough to spend the cross-encoder, and why."""
+
+    should_rerank: bool
+    reason: str
+    bm25_cv: float
+    avg_idf: float | None
+
+
+def bm25_is_ambiguous(
+    bm25_results: list[tuple[CodeChunk, float]],
+    *,
+    avg_idf: float | None = None,
+    cv_threshold: float = AMBIGUOUS_BM25_CV_THRESHOLD,
+    idf_threshold: float = AMBIGUOUS_BM25_IDF_THRESHOLD,
+    min_results: int = 2,
+) -> ConditionalRerankDecision:
+    """Decide whether BM25 is ambiguous enough to invoke the cross-encoder.
+
+    Reuses the fusion QPP signals (``index/fusion.py``): AvgIDF is a pre-retrieval
+    gate (common query terms flatten BM25 scores) and the BM25 score CV measures
+    post-retrieval separation. BM25 is ambiguous (rerank) when AvgIDF is low or
+    the score CV is weak; it is confident (skip the model) only when terms are
+    discriminative and the top scores separate clearly. With too few results the
+    rerank cannot help, so it is skipped.
+    """
+    cv = bm25_score_cv(bm25_results)
+    if len(bm25_results) < min_results:
+        return ConditionalRerankDecision(
+            should_rerank=False,
+            reason=f"too_few_results:{len(bm25_results)}",
+            bm25_cv=cv,
+            avg_idf=avg_idf,
+        )
+    if avg_idf is not None and avg_idf < idf_threshold:
+        return ConditionalRerankDecision(
+            should_rerank=True,
+            reason=f"low_idf:avg_idf={avg_idf:.3f}",
+            bm25_cv=cv,
+            avg_idf=avg_idf,
+        )
+    if cv <= cv_threshold:
+        return ConditionalRerankDecision(
+            should_rerank=True,
+            reason=f"flat_bm25:cv={cv:.3f}",
+            bm25_cv=cv,
+            avg_idf=avg_idf,
+        )
+    return ConditionalRerankDecision(
+        should_rerank=False,
+        reason=f"confident_bm25:cv={cv:.3f}",
+        bm25_cv=cv,
+        avg_idf=avg_idf,
+    )
+
+
+@dataclass(frozen=True)
+class ConditionalRerankResult:
+    """Outcome of a conditional rerank pass over a candidate set.
+
+    ``results`` is the (possibly reordered) full candidate list; ``invoked`` is
+    whether the cross-encoder ran; ``status`` records the disposition
+    (``skipped:confident_bm25`` / ``skipped:no_candidates`` / ``applied`` /
+    ``aborted:latency``); ``rerank_ms`` is the measured model-stage wall time
+    (``0.0`` when the model did not run).
+    """
+
+    results: list[tuple[CodeChunk, float]]
+    decision: ConditionalRerankDecision
+    invoked: bool
+    status: str
+    rerank_ms: float
+
+
+class ConditionalReranker:
+    """Invoke a cross-encoder only when BM25 is ambiguous, under a latency cap.
+
+    Wraps a :class:`CrossEncoderReranker`. The confident-BM25 path returns the
+    candidates unchanged without touching the model (no load, no scoring), so the
+    common query stays fast; the model is spent only on the ambiguous tail. The
+    cross-encoder reorders the top ``candidate_limit`` candidates; the rest keep
+    their retrieval order. The model pass runs in a worker thread and the caller
+    is released at ``latency_cap_ms``, so the rerank stage is wall-clock bounded;
+    on a latency abort the original retrieval order is kept.
+    """
+
+    def __init__(
+        self,
+        reranker: CrossEncoderReranker,
+        *,
+        latency_cap_ms: float = CONDITIONAL_RERANK_LATENCY_CAP_MS,
+        candidate_limit: int = CONDITIONAL_RERANK_CANDIDATE_LIMIT,
+    ) -> None:
+        self._reranker = reranker
+        self._latency_cap_ms = latency_cap_ms
+        self._candidate_limit = candidate_limit
+
+    @property
+    def latency_cap_ms(self) -> float:
+        return self._latency_cap_ms
+
+    def rerank_if_ambiguous(
+        self,
+        query: str,
+        candidates: list[tuple[CodeChunk, float]],
+        bm25_results: list[tuple[CodeChunk, float]],
+        *,
+        avg_idf: float | None = None,
+    ) -> ConditionalRerankResult:
+        """Rerank ``candidates`` only when ``bm25_results`` look ambiguous.
+
+        ``bm25_results`` are the BM25-ranked candidates used for the ambiguity
+        decision (typically the same retrieval pool as ``candidates``). The model
+        never runs on a confident-BM25 query, so the default fast path is free.
+        """
+        decision = bm25_is_ambiguous(bm25_results, avg_idf=avg_idf)
+        if not decision.should_rerank:
+            return ConditionalRerankResult(
+                results=candidates,
+                decision=decision,
+                invoked=False,
+                status="skipped:confident_bm25",
+                rerank_ms=0.0,
+            )
+        head = candidates[: self._candidate_limit]
+        tail = candidates[self._candidate_limit :]
+        if not head:
+            return ConditionalRerankResult(
+                results=candidates,
+                decision=decision,
+                invoked=False,
+                status="skipped:no_candidates",
+                rerank_ms=0.0,
+            )
+        start = time.perf_counter()
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="conditional-rerank")
+        future = executor.submit(self._reranker.rerank, query, head, len(head))
+        try:
+            reranked = future.result(timeout=self._latency_cap_ms / 1000.0)
+        except FuturesTimeoutError:
+            # The caller is released at the cap; the orphaned model pass keeps
+            # running in the background and its result is discarded, so the rerank
+            # stage the pipeline observes never exceeds the cap. The orphan still
+            # holds the process-global cached model, so a benchmark lane that aborts
+            # often can perturb a later task's timing — but a lane that aborts often
+            # already fails its p95 promotion gate, so this does not affect a
+            # promotable (fast-model) configuration.
+            rerank_ms = (time.perf_counter() - start) * 1000.0
+            return ConditionalRerankResult(
+                results=candidates,
+                decision=decision,
+                invoked=True,
+                status="aborted:latency",
+                rerank_ms=rerank_ms,
+            )
+        finally:
+            executor.shutdown(wait=False)
+        rerank_ms = (time.perf_counter() - start) * 1000.0
+        return ConditionalRerankResult(
+            results=reranked + tail,
+            decision=decision,
+            invoked=True,
+            status="applied",
+            rerank_ms=rerank_ms,
+        )
+
+
+def maybe_conditional_reranker(
+    *,
+    enabled: bool,
+    model_name: str | None = None,
+    allow_remote_code: bool = False,
+    latency_cap_ms: float = CONDITIONAL_RERANK_LATENCY_CAP_MS,
+    candidate_limit: int = CONDITIONAL_RERANK_CANDIDATE_LIMIT,
+) -> ConditionalReranker | None:
+    """Build a :class:`ConditionalReranker` only when the lane is opted in.
+
+    Returns ``None`` when ``enabled`` is false, so callers that leave the lane off
+    (every default path) never construct a reranker. When enabled, an explicit
+    ``model_name`` is required: the lane is designed for an operator-supplied small
+    distilled local cross-encoder, so it never silently falls back to the
+    remote-code default reranker. The wrapped ``CrossEncoderReranker`` still
+    enforces the remote-code opt-in policy at load time.
+    """
+    if not enabled:
+        return None
+    if not model_name:
+        raise ConfigError(
+            "Conditional reranker is enabled but no rerank model was supplied. "
+            "Set an explicit model (a small distilled local cross-encoder is "
+            "recommended), e.g. via --rerank-model."
+        )
+    reranker = CrossEncoderReranker(
+        model_name=model_name,
+        allow_remote_code=allow_remote_code,
+    )
+    return ConditionalReranker(
+        reranker,
+        latency_cap_ms=latency_cap_ms,
+        candidate_limit=candidate_limit,
+    )
