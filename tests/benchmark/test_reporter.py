@@ -10,11 +10,13 @@ from archex.benchmark.models import (
     Strategy,
     TaskCategory,
     TaskCompletionResult,
+    TaskFamily,
 )
 from archex.benchmark.reporter import (
     format_bucketed_summary,
     format_chunker_frontier_table,
     format_json,
+    format_localization_summary,
     format_markdown,
     format_strategy_comparison,
     format_summary,
@@ -652,3 +654,142 @@ class TestAdvancedLanesReporting:
         md = format_strategy_comparison([report])
         assert "### Advanced Quality Lanes" in md
         assert "archex_query_dual_transform" in md
+
+
+def _loc_result(
+    task_id: str,
+    *,
+    strategy: Strategy = Strategy.ARCHEX_QUERY,
+    required_file_recall: float = 1.0,
+    mrr: float = 1.0,
+    ndcg: float = 1.0,
+    region_recall: float | None = 0.75,
+    ranked_region_mrr: float | None = 1.0,
+    ranked_region_ndcg: float | None = 0.9,
+) -> BenchmarkResult:
+    return _make_result(strategy, required_file_recall=required_file_recall).model_copy(
+        update={
+            "task_id": task_id,
+            "family": TaskFamily.LOCALIZATION,
+            "mrr": mrr,
+            "ndcg": ndcg,
+            "region_recall": region_recall,
+            "ranked_region_mrr": ranked_region_mrr,
+            "ranked_region_ndcg": ranked_region_ndcg,
+        }
+    )
+
+
+def _comprehension_report(task_id: str = "comp_task") -> BenchmarkReport:
+    result = _make_result(Strategy.ARCHEX_QUERY).model_copy(update={"task_id": task_id})
+    return BenchmarkReport(
+        task_id=task_id,
+        repo="owner/repo",
+        question="How does X work?",
+        results=[result],
+        baseline_tokens=2000,
+    )
+
+
+def _loc_report(result: BenchmarkResult) -> BenchmarkReport:
+    return BenchmarkReport(
+        task_id=result.task_id,
+        repo="owner/repo",
+        question="Issue: where is the bug?",
+        results=[result],
+        baseline_tokens=2000,
+    )
+
+
+class TestLocalizationSummary:
+    def test_empty_without_localization_results(self) -> None:
+        assert format_localization_summary([_comprehension_report()]) == ""
+
+    def test_groups_localization_and_comprehension_separately(self) -> None:
+        reports = [
+            _loc_report(_loc_result("loc_a")),
+            _comprehension_report("comp_a"),
+        ]
+
+        md = format_localization_summary(reports)
+
+        assert "# Localization vs Comprehension" in md
+        assert "graded separately" in md
+        # Both families get their own group; neither is folded into the other.
+        assert "## Localization (issue-to-edit) (1 tasks)" in md
+        assert "## Comprehension (1 tasks)" in md
+        # The localization group precedes the comprehension group.
+        assert md.index("## Localization (issue-to-edit)") < md.index("## Comprehension")
+
+    def test_surfaces_file_and_region_localization_metrics(self) -> None:
+        result = _loc_result(
+            "loc_a",
+            required_file_recall=0.5,
+            mrr=0.5,
+            ndcg=0.6,
+            region_recall=0.75,
+            ranked_region_mrr=1.0,
+            ranked_region_ndcg=0.9,
+        )
+        md = format_localization_summary([_loc_report(result)])
+
+        assert "File Recall" in md and "File MRR" in md and "File nDCG" in md
+        assert "Region Recall" in md and "Region MRR" in md and "Region nDCG" in md
+        # File-level localization metrics are rendered.
+        assert "0.500" in md
+        # Region-level ranking metrics over returned order are rendered.
+        assert "0.750" in md
+        assert "0.900" in md
+
+    def test_labeled_count_tracks_region_labels(self) -> None:
+        labeled = _loc_result("loc_labeled")
+        unlabeled = _loc_result(
+            "loc_unlabeled",
+            region_recall=None,
+            ranked_region_mrr=None,
+            ranked_region_ndcg=None,
+        )
+        md = format_localization_summary([_loc_report(labeled), _loc_report(unlabeled)])
+
+        # One strategy row aggregates two localization tasks; only one is labeled,
+        # so the Labeled/Tasks columns read 1/2 and region metrics still aggregate
+        # over the single labeled task.
+        assert "| 1 | 2 |" in md
+        assert "0.750" in md
+
+    def test_baseline_results_share_the_task_family(self) -> None:
+        # A localization task is run through several strategies; the baselines do
+        # not carry the task family, but every result belongs to the task, so the
+        # whole report is grouped under localization (not split across families).
+        archex = _loc_result("loc_a")
+        baseline = _make_result(Strategy.RAW_FILES).model_copy(update={"task_id": "loc_a"})
+        report = BenchmarkReport(
+            task_id="loc_a",
+            repo="owner/repo",
+            question="Issue: where is the bug?",
+            results=[baseline, archex],
+            baseline_tokens=2000,
+        )
+
+        md = format_localization_summary([report])
+
+        assert "## Localization (issue-to-edit) (1 tasks)" in md
+        assert "## Comprehension" not in md
+        # Both the archex lane and the baseline appear under the localization group.
+        assert "| archex_query " in md
+        assert "| raw_files " in md
+
+    def test_unlabeled_only_localization_region_columns_unknown(self) -> None:
+        unlabeled = _loc_result(
+            "loc_unlabeled",
+            region_recall=None,
+            ranked_region_mrr=None,
+            ranked_region_ndcg=None,
+        )
+        md = format_localization_summary([_loc_report(unlabeled)])
+
+        loc_section = md.split("## Comprehension")[0]
+        # With no region labels in the family, region columns read "unknown" while
+        # file-level columns still render, and the Labeled/Tasks columns read 0/1.
+        assert "unknown" in loc_section
+        assert "| 0 | 1 |" in loc_section

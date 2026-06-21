@@ -1201,6 +1201,7 @@ def _assemble_query_result(
         "index_chunk_count": af.index_chunk_count,
         "mean_chunk_tokens": af.mean_chunk_tokens,
         "category": task.category,
+        "family": task.family,
         "vector_mode": index_config.vector_mode,
         "surrogate_version": index_config.surrogate_version,
         "cache_state": _cache_state(timing),
@@ -2782,6 +2783,7 @@ def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkRes
         index_chunk_count=fetch_fields.index_chunk_count,
         mean_chunk_tokens=fetch_fields.mean_chunk_tokens,
         category=task.category,
+        family=task.family,
         cache_state=_cache_state(timing),
         provenance={
             "scout_token_budget": str(DEFAULT_SCOUT_TOKEN_BUDGET),
