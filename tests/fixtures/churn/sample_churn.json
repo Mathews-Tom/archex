@@ -1,0 +1,10 @@
+{
+  "schema": "archex.churn.v1",
+  "commit": "0fbd93c0000000000000000000000000000000aa",
+  "files": {
+    "src/app/hot.py": {"commits": 40, "recency": 1.0},
+    "src/app/warm.py": {"commits": 12, "recency": 0.6},
+    "src/app/cold.py": {"commits": 1, "recency": 0.0},
+    "src/app/stable_core.py": {"commits": 3, "recency": 0.1}
+  }
+}
