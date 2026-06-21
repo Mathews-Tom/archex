@@ -432,7 +432,11 @@ class ConditionalReranker:
         except FuturesTimeoutError:
             # The caller is released at the cap; the orphaned model pass keeps
             # running in the background and its result is discarded, so the rerank
-            # stage the pipeline observes never exceeds the cap.
+            # stage the pipeline observes never exceeds the cap. The orphan still
+            # holds the process-global cached model, so a benchmark lane that aborts
+            # often can perturb a later task's timing — but a lane that aborts often
+            # already fails its p95 promotion gate, so this does not affect a
+            # promotable (fast-model) configuration.
             rerank_ms = (time.perf_counter() - start) * 1000.0
             return ConditionalRerankResult(
                 results=candidates,
