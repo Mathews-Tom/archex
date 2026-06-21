@@ -10,11 +10,15 @@ import archex.serve.packing as packing
 from archex.models import CompressionLossRisk
 from archex.serve.modality import BudgetTier
 from archex.serve.packing import (
+    DiversityPackingPlan,
     PackDecision,
     PackingCandidate,
     PackingSignals,
+    jaccard,
     order_candidates,
     pack_efficiently,
+    pack_with_diversity,
+    query_adaptive_lambda,
     relevance_per_1k_tokens,
     score_candidate,
 )
@@ -521,3 +525,237 @@ class TestPackerEdgeCases:
         plan = pack_efficiently([wf], token_budget=2000, budget_tier=BudgetTier.STANDARD)
         assert plan.decision_for("wf") is PackDecision.ELIDE
         assert plan.included_tokens == 30
+
+
+def _div_candidate(
+    candidate_id: str,
+    *,
+    file_path: str,
+    retrieval_score: float,
+    direct_match: bool = False,
+    token_count: int = 100,
+) -> PackingCandidate:
+    return _candidate(
+        _signals(
+            candidate_id,
+            file_path=file_path,
+            retrieval_score=retrieval_score,
+            direct_match=direct_match,
+            token_count=token_count,
+        )
+    )
+
+
+_BIG_BUDGET = 100_000
+
+
+class TestJaccard:
+    def test_identical_signatures(self) -> None:
+        sig = frozenset({"auth", "login", "token"})
+        assert jaccard(sig, sig) == 1.0
+
+    def test_disjoint_signatures(self) -> None:
+        assert jaccard(frozenset({"a", "b"}), frozenset({"c", "d"})) == 0.0
+
+    def test_empty_signature_is_zero(self) -> None:
+        assert jaccard(frozenset(), frozenset({"a"})) == 0.0
+
+    def test_partial_overlap(self) -> None:
+        # |{a,b} & {b,c}| / |{a,b,c}| = 1/3
+        assert jaccard(frozenset({"a", "b"}), frozenset({"b", "c"})) == 1 / 3
+
+
+class TestQueryAdaptiveLambda:
+    def test_narrow_query_disables_diversity(self) -> None:
+        assert query_adaptive_lambda(1) == 1.0
+        assert query_adaptive_lambda(0) == 1.0
+
+    def test_multi_aspect_query_lowers_lambda(self) -> None:
+        assert query_adaptive_lambda(2) < 1.0
+        assert query_adaptive_lambda(5) < 1.0
+
+
+class TestDiversityNarrowBypass:
+    def test_narrow_query_matches_pack_efficiently(self) -> None:
+        # Two near-duplicate optional regions in the same file plus a direct hit:
+        # diversity WOULD de-select the redundant tail, but a narrow query must not.
+        sig = frozenset({"auth", "login", "token", "user"})
+        candidates = [
+            _div_candidate(
+                "direct", file_path="src/auth.py", retrieval_score=0.9, direct_match=True
+            ),
+            _div_candidate("opt_a", file_path="src/util.py", retrieval_score=0.5),
+            _div_candidate("opt_b", file_path="src/util.py", retrieval_score=0.5),
+        ]
+        signatures = {"direct": frozenset({"auth"}), "opt_a": sig, "opt_b": sig}
+        plan = pack_with_diversity(
+            candidates,
+            signatures,
+            token_budget=_BIG_BUDGET,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=1,
+        )
+        baseline = pack_efficiently(
+            candidates, token_budget=_BIG_BUDGET, budget_tier=BudgetTier.STANDARD
+        )
+        assert plan.diversity_applied is False
+        assert plan.deselected_for_diversity == 0
+        assert plan.kept_ids() == baseline.kept_ids()
+        assert plan.included_tokens == baseline.included_tokens
+
+
+class TestDiversityRequiredRegionsRetained:
+    def test_direct_region_never_deselected_even_when_redundant(self) -> None:
+        # A direct hit that is a near-duplicate of a kept optional region must
+        # still be retained: diversity only ever touches the optional tail.
+        sig = frozenset({"auth", "login", "token", "user"})
+        candidates = [
+            _div_candidate("opt_a", file_path="src/util.py", retrieval_score=0.6),
+            _div_candidate(
+                "direct_dup", file_path="src/auth.py", retrieval_score=0.55, direct_match=True
+            ),
+        ]
+        signatures = {"opt_a": sig, "direct_dup": sig}
+        plan = pack_with_diversity(
+            candidates,
+            signatures,
+            token_budget=_BIG_BUDGET,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=3,
+        )
+        assert plan.diversity_applied is True
+        assert "direct_dup" in plan.kept_ids()
+        assert plan.decision_for("direct_dup") is PackDecision.INCLUDE
+        assert plan.protected_regions == 1
+        # The direct region is never counted as a diversity de-selection.
+        deselected = [r.candidate_id for r in plan.regions if r.decision is PackDecision.SKIP]
+        assert "direct_dup" not in deselected
+
+
+class TestDiversityDeselectsRedundantTail:
+    def test_redundant_same_file_region_deselected(self) -> None:
+        sig = frozenset({"auth", "login", "token", "user"})
+        unique = frozenset({"parse", "ast", "node", "walk"})
+        candidates = [
+            _div_candidate(
+                "direct", file_path="src/auth.py", retrieval_score=0.9, direct_match=True
+            ),
+            _div_candidate("opt_a", file_path="src/util.py", retrieval_score=0.6),
+            _div_candidate("opt_b", file_path="src/util.py", retrieval_score=0.5),
+            _div_candidate("opt_unique", file_path="src/parse.py", retrieval_score=0.55),
+        ]
+        signatures = {
+            "direct": frozenset({"auth"}),
+            "opt_a": sig,
+            "opt_b": sig,
+            "opt_unique": unique,
+        }
+        plan = pack_with_diversity(
+            candidates,
+            signatures,
+            token_budget=_BIG_BUDGET,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=2,
+        )
+        assert plan.diversity_applied is True
+        # Redundant same-file tail region dropped; representative + unique + direct kept.
+        assert plan.decision_for("opt_b") is PackDecision.SKIP
+        assert plan.deselected_for_diversity == 1
+        assert {"direct", "opt_a", "opt_unique"} <= set(plan.kept_ids())
+        assert "opt_b" not in plan.kept_ids()
+        # The de-selected region's file stays represented (opt_a kept).
+        kept_files = {
+            c.signals.file_path
+            for c in candidates
+            if c.signals.candidate_id in set(plan.kept_ids())
+        }
+        assert "src/util.py" in kept_files
+
+    def test_deselection_only_touches_unprotected_regions(self) -> None:
+        sig = frozenset({"auth", "login", "token", "user"})
+        candidates = [
+            _div_candidate("opt_a", file_path="src/util.py", retrieval_score=0.6),
+            _div_candidate("opt_b", file_path="src/util.py", retrieval_score=0.5),
+        ]
+        signatures = {"opt_a": sig, "opt_b": sig}
+        plan = pack_with_diversity(
+            candidates,
+            signatures,
+            token_budget=_BIG_BUDGET,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=2,
+        )
+        deselected = [r for r in plan.regions if r.decision is PackDecision.SKIP]
+        assert all(not r.score.direct_match for r in deselected)
+
+
+class TestDiversityNeverRegressesRecall:
+    def test_cross_file_duplicate_keeps_file_representative(self) -> None:
+        # opt_b duplicates opt_a but is the only region of its file: it must be
+        # kept so file recall does not regress, even though it is redundant.
+        sig = frozenset({"auth", "login", "token", "user"})
+        candidates = [
+            _div_candidate("opt_a", file_path="src/x.py", retrieval_score=0.6),
+            _div_candidate("opt_b", file_path="src/y.py", retrieval_score=0.5),
+        ]
+        signatures = {"opt_a": sig, "opt_b": sig}
+        plan = pack_with_diversity(
+            candidates,
+            signatures,
+            token_budget=_BIG_BUDGET,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=2,
+        )
+        assert plan.deselected_for_diversity == 0
+        assert set(plan.kept_ids()) == {"opt_a", "opt_b"}
+
+    def test_diversity_kept_file_set_is_superset_of_baseline(self) -> None:
+        sig = frozenset({"auth", "login", "token", "user"})
+        unique = frozenset({"parse", "ast", "node", "walk"})
+        candidates = [
+            _div_candidate(
+                "direct", file_path="src/auth.py", retrieval_score=0.9, direct_match=True
+            ),
+            _div_candidate("opt_a", file_path="src/util.py", retrieval_score=0.6),
+            _div_candidate("opt_b", file_path="src/util.py", retrieval_score=0.5),
+            _div_candidate("opt_unique", file_path="src/parse.py", retrieval_score=0.55),
+        ]
+        signatures = {
+            "direct": frozenset({"auth"}),
+            "opt_a": sig,
+            "opt_b": sig,
+            "opt_unique": unique,
+        }
+        baseline = pack_efficiently(
+            candidates, token_budget=_BIG_BUDGET, budget_tier=BudgetTier.STANDARD
+        )
+        plan = pack_with_diversity(
+            candidates,
+            signatures,
+            token_budget=_BIG_BUDGET,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=2,
+        )
+        by_id = {c.signals.candidate_id: c for c in candidates}
+        baseline_files = {by_id[cid].signals.file_path for cid in baseline.kept_ids()}
+        diversity_files = {by_id[cid].signals.file_path for cid in plan.kept_ids()}
+        assert baseline_files <= diversity_files
+
+
+class TestDiversityPlanProvenance:
+    def test_to_provenance_includes_diversity_fields(self) -> None:
+        candidates = [_div_candidate("opt_a", file_path="src/util.py", retrieval_score=0.6)]
+        plan = pack_with_diversity(
+            candidates,
+            {"opt_a": frozenset({"a", "b"})},
+            token_budget=_BIG_BUDGET,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=2,
+        )
+        assert isinstance(plan, DiversityPackingPlan)
+        prov = plan.to_provenance()
+        assert prov["diversity_applied"] == "true"
+        assert prov["query_aspects"] == "2"
+        assert prov["diversity_lambda"] == "0.70"
+        assert "deselected_for_diversity" in prov
+        assert prov["protected_regions"] == "0"
