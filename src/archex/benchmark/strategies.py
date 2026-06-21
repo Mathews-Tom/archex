@@ -1933,8 +1933,8 @@ def run_archex_query_efficiency_packed(task: BenchmarkTask, repo_path: Path) -> 
 def _query_aspect_count(question: str) -> int:
     """Distinct significant query keywords, a deterministic proxy for aspect count.
 
-    A single-keyword lookup (one distinct non-stopword term) is treated as a
-    narrow single-aspect query, which turns diversity off; richer questions are
+    A lookup with at most one distinct non-stopword keyword is treated as a narrow
+    single-aspect query, which turns diversity off; richer questions are
     multi-aspect. Reuses the strategy keyword extractor so the count is consistent
     with the rest of the benchmark harness.
     """
