@@ -37,6 +37,8 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_SUMMARY_SIDECAR = "archex_query_summary_sidecar"
     ARCHEX_QUERY_GRAPH_MULTIHOP = "archex_query_graph_multihop"
     ARCHEX_QUERY_CHURN = "archex_query_churn"
+    ARCHEX_QUERY_CONDITIONAL_RERANK = "archex_query_conditional_rerank"
+    ARCHEX_QUERY_DIVERSITY_PACKED = "archex_query_diversity_packed"
     EXTERNAL_MCP = "external_mcp"
 
 
@@ -547,6 +549,14 @@ class BenchmarkResult(BaseModel):
     packing_compressed_regions: int | None = None
     packing_elided_regions: int | None = None
     packing_skipped_regions: int | None = None
+    # Optional low-latency conditional-rerank metric. Populated only by
+    # archex_query_conditional_rerank; the on-disk size (bytes) of the rerank
+    # model artifact when it resolves to a local path, else None ("unmeasured").
+    rerank_model_storage_bytes: int | None = None
+    # Optional query-adaptive diversity-packing metric. Populated only by
+    # archex_query_diversity_packed; the count of redundant regions de-selected by
+    # MMR diversity (distinct from budget skips). None for every other strategy.
+    diversity_deselected_regions: int | None = None
 
 
 class BenchmarkReport(BaseModel):
