@@ -793,3 +793,52 @@ class TestLocalizationSummary:
         # file-level columns still render, and the Labeled/Tasks columns read 0/1.
         assert "unknown" in loc_section
         assert "| 0 | 1 |" in loc_section
+
+
+class TestR4R5LaneReporting:
+    def _report(self, results: list[BenchmarkResult]) -> BenchmarkReport:
+        return BenchmarkReport(
+            task_id="t",
+            repo="r",
+            question="q",
+            results=results,
+            baseline_tokens=1000,
+        )
+
+    def test_conditional_rerank_note_in_markdown(self) -> None:
+        result = _make_result(Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK)
+        result.provenance = {
+            "bm25_ambiguous": "true",
+            "cross_encoder_status": "applied",
+            "rerank_ms": "12.34",
+            "rerank_model_storage_bytes": "unmeasured",
+        }
+        md = format_markdown(self._report([result]))
+        assert "archex_query_conditional_rerank" in md
+        assert "bm25_ambiguous=true" in md
+        assert "storage=unmeasured" in md
+
+    def test_diversity_packed_note_in_markdown(self) -> None:
+        result = _make_result(Strategy.ARCHEX_QUERY_DIVERSITY_PACKED)
+        result.provenance = {
+            "diversity_applied": "true",
+            "query_aspects": "4",
+            "diversity_lambda": "0.70",
+            "deselected_for_diversity": "2",
+        }
+        md = format_markdown(self._report([result]))
+        assert "archex_query_diversity_packed" in md
+        assert "diversity=true" in md
+        assert "deselected=2" in md
+
+    def test_diversity_packed_in_packing_lane_comparison(self) -> None:
+        # The packing comparison renders only when the efficiency-packed lane is
+        # present; the diversity lane appears alongside it as its own row.
+        results = [
+            _make_result(Strategy.ARCHEX_QUERY),
+            _make_result(Strategy.ARCHEX_QUERY_EFFICIENCY_PACKED),
+            _make_result(Strategy.ARCHEX_QUERY_DIVERSITY_PACKED),
+        ]
+        summary = format_summary([self._report(results)])
+        assert "diversity packing" in summary
+        assert "archex_query_diversity_packed" in summary

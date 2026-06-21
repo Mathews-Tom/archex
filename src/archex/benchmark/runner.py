@@ -56,6 +56,8 @@ AVAILABLE_STRATEGIES: list[Strategy] = [
     Strategy.ARCHEX_QUERY_GRAPH_MULTIHOP,
     Strategy.ARCHEX_QUERY_PPR,
     Strategy.ARCHEX_QUERY_CHURN,
+    Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK,
+    Strategy.ARCHEX_QUERY_DIVERSITY_PACKED,
 ]
 
 _VECTOR_STRATEGIES: frozenset[Strategy] = frozenset(

@@ -69,17 +69,21 @@ from archex.models import (
 )
 from archex.reporting import count_tokens
 from archex.serve.context import CENTRALITY_MODE_PERSONALIZED_WEIGHTED
-from archex.serve.modality import budget_tier, classify_query
+from archex.serve.modality import BudgetTier, budget_tier, classify_query
 from archex.serve.packing import (
     PackDecision,
     PackingCandidate,
+    PackingPlan,
     PackingSignals,
     pack_efficiently,
+    pack_with_diversity,
 )
 
 if TYPE_CHECKING:
     from archex.index.rerank import CrossEncoderReranker
     from archex.index.store import IndexStore
+    from archex.serve.compression import RegionCompression
+    from archex.serve.intent import QueryIntent
 
 logger = logging.getLogger(__name__)
 
@@ -1610,18 +1614,38 @@ class _BundlePacking:
     provenance: dict[str, str]
 
 
-def _pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
-    """Re-pack an assembled bundle for relevance-per-token within the same budget.
+@dataclass
+class _PackingPrep:
+    """Per-candidate packing inputs and rewrite bookkeeping shared by both lanes."""
 
-    Retrieval is untouched: the bundle's chunks are the candidate pool. The
-    efficiency-aware packer preserves direct/high-confidence targets, prefers
-    smaller enclosing evidence over whole-file context under non-large budgets,
-    compresses only low-risk regions, and skips or anchors low-value graph-distant
-    context. Receipts keep the original handle/hash for every shaped region so the
-    exact source stays retrievable; no benchmark ground truth is consulted.
+    candidates: list[PackingCandidate]
+    signatures: dict[str, frozenset[str]]
+    direct_by_id: dict[str, bool]
+    outcomes: dict[str, RegionCompression]
+    original_tokens_by_id: dict[str, int]
+    score_by_id: dict[str, float]
+    intent: QueryIntent
+    protect_code: bool
+    tier: BudgetTier
+
+
+_DIVERSITY_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+
+
+def _region_token_signature(content: str) -> frozenset[str]:
+    """Deterministic identifier-token signature of a region for redundancy scoring."""
+    return frozenset(token.lower() for token in _DIVERSITY_TOKEN_RE.findall(content))
+
+
+def _prepare_packing(bundle: ContextBundle, *, question: str) -> _PackingPrep:
+    """Build packing candidates, diversity signatures, and rewrite bookkeeping.
+
+    Retrieval is untouched: the bundle's chunks are the candidate pool. Every
+    signal is intrinsic to the bundle; no benchmark ground truth is consulted. The
+    same preparation feeds both the efficiency-aware and diversity packing lanes.
     """
     from archex.scout import chunk_handle
-    from archex.serve.compression import RegionCompression, compress_region
+    from archex.serve.compression import compress_region
     from archex.serve.intent import QueryIntent, classify_intent
 
     intent = classify_intent(question)
@@ -1648,6 +1672,7 @@ def _pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
             )
 
     candidates: list[PackingCandidate] = []
+    signatures: dict[str, frozenset[str]] = {}
     outcomes: dict[str, RegionCompression] = {}
     original_tokens_by_id: dict[str, int] = {}
     score_by_id: dict[str, float] = {}
@@ -1659,6 +1684,7 @@ def _pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
         original_tokens_by_id[chunk.id] = original_tokens
         normalized = (ranked.final_score / top_score) if top_score > 0 else 0.0
         score_by_id[chunk.id] = normalized
+        signatures[chunk.id] = _region_token_signature(chunk.content)
         elided_tokens = count_tokens(_elide_anchor(original_tokens, handle))
         outcome = compress_region(
             chunk.content,
@@ -1697,10 +1723,34 @@ def _pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
                 elided_token_count=elided_tokens,
             )
         )
+    return _PackingPrep(
+        candidates=candidates,
+        signatures=signatures,
+        direct_by_id=direct_by_id,
+        outcomes=outcomes,
+        original_tokens_by_id=original_tokens_by_id,
+        score_by_id=score_by_id,
+        intent=intent,
+        protect_code=protect_code,
+        tier=budget_tier(bundle.token_budget),
+    )
 
-    tier = budget_tier(bundle.token_budget)
-    plan = pack_efficiently(candidates, token_budget=bundle.token_budget, budget_tier=tier)
+
+def _apply_packing(bundle: ContextBundle, plan: PackingPlan, prep: _PackingPrep) -> _BundlePacking:
+    """Rewrite a bundle from a packing plan's decisions; compute fields + provenance.
+
+    Shared by the efficiency-aware and diversity packing lanes: it applies the
+    include/compress/elide/skip decisions, preserves receipts/handles for shaped
+    regions so the original source stays retrievable, and reports token reduction,
+    required-region passthrough, and the delivered relevance-per-token.
+    """
+    from archex.scout import chunk_handle
+
     decisions = {region.candidate_id: region.decision for region in plan.regions}
+    direct_by_id = prep.direct_by_id
+    outcomes = prep.outcomes
+    original_tokens_by_id = prep.original_tokens_by_id
+    score_by_id = prep.score_by_id
 
     packed = bundle.model_copy(deep=True)
     receipt_items = (
@@ -1796,9 +1846,9 @@ def _pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
         "packing_skipped_regions": actual_counts[PackDecision.SKIP],
     }
     provenance = {
-        "budget_tier": tier.value,
-        "query_intent": intent.value,
-        "protect_code": str(protect_code).lower(),
+        "budget_tier": prep.tier.value,
+        "query_intent": prep.intent.value,
+        "protect_code": str(prep.protect_code).lower(),
         "include_count": str(actual_counts[PackDecision.INCLUDE]),
         "compress_count": str(actual_counts[PackDecision.COMPRESS]),
         "elide_count": str(actual_counts[PackDecision.ELIDE]),
@@ -1809,6 +1859,23 @@ def _pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
         "relevance_per_1k_tokens": f"{relevance_per_1k:.4f}",
     }
     return _BundlePacking(bundle=packed, result_fields=result_fields, provenance=provenance)
+
+
+def _pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
+    """Re-pack an assembled bundle for relevance-per-token within the same budget.
+
+    Retrieval is untouched: the bundle's chunks are the candidate pool. The
+    efficiency-aware packer preserves direct/high-confidence targets, prefers
+    smaller enclosing evidence over whole-file context under non-large budgets,
+    compresses only low-risk regions, and skips or anchors low-value graph-distant
+    context. Receipts keep the original handle/hash for every shaped region so the
+    exact source stays retrievable; no benchmark ground truth is consulted.
+    """
+    prep = _prepare_packing(bundle, question=question)
+    plan = pack_efficiently(
+        prep.candidates, token_budget=bundle.token_budget, budget_tier=prep.tier
+    )
+    return _apply_packing(bundle, plan, prep)
 
 
 def run_archex_query_efficiency_packed(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
@@ -1858,6 +1925,94 @@ def run_archex_query_efficiency_packed(task: BenchmarkTask, repo_path: Path) -> 
         packing.provenance["bundle_compression_ratio"],
         packing.provenance["include_count"],
         packing.provenance["skip_count"],
+        wall_ms,
+    )
+    return result
+
+
+def _query_aspect_count(question: str) -> int:
+    """Distinct significant query keywords, a deterministic proxy for aspect count.
+
+    A lookup with at most one distinct non-stopword keyword is treated as a narrow
+    single-aspect query, which turns diversity off; richer questions are
+    multi-aspect. Reuses the strategy keyword extractor so the count is consistent
+    with the rest of the benchmark harness.
+    """
+    return len(set(extract_keywords(question, [])))
+
+
+def _diversity_pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
+    """Re-pack an assembled bundle with query-adaptive MMR diversity de-selection.
+
+    Shares the candidate preparation and bundle rewrite with the efficiency-aware
+    lane, but plans with ``pack_with_diversity``: a narrow single-aspect query is
+    identical to efficiency packing, while a multi-aspect query drops redundant
+    low-confidence tail regions. Required/direct regions are never de-selected and
+    file recall never regresses; the diversity provenance is recorded alongside the
+    packing provenance.
+    """
+    prep = _prepare_packing(bundle, question=question)
+    aspects = _query_aspect_count(question)
+    plan = pack_with_diversity(
+        prep.candidates,
+        prep.signatures,
+        token_budget=bundle.token_budget,
+        budget_tier=prep.tier,
+        query_aspects=aspects,
+    )
+    packing = _apply_packing(bundle, plan, prep)
+    result_fields = dict(packing.result_fields)
+    result_fields["diversity_deselected_regions"] = plan.deselected_for_diversity
+    provenance = dict(packing.provenance)
+    provenance.update(plan.diversity_provenance())
+    return _BundlePacking(bundle=packing.bundle, result_fields=result_fields, provenance=provenance)
+
+
+def run_archex_query_diversity_packed(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: archex query retrieval, then query-adaptive diversity packing.
+
+    Runs the exact ``archex_query`` retrieval path, then re-packs the assembled
+    bundle with the diversity packer. Narrow single-aspect queries are identical to
+    the efficiency-packed lane; multi-aspect queries trim the redundant tail. The
+    required-region invariant holds and file recall never regresses, so the lane is
+    a benchmark-only candidate; the product default is unchanged.
+    """
+    strategy = Strategy.ARCHEX_QUERY_DIVERSITY_PACKED
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    packing = _diversity_pack_bundle(bundle, question=task.question)
+    wall_ms = (time.perf_counter() - t0) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=packing.bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    fields = dict(packing.result_fields)
+    fields["token_efficiency_with_compression_and_completion"] = (
+        result.token_efficiency_with_completion
+    )
+    result = result.model_copy(update=fields)
+    result.provenance = packing.provenance
+    logger.info(
+        "Strategy %s for %s: diversity=%s deselected=%s aspects=%s ratio=%s wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        packing.provenance["diversity_applied"],
+        packing.provenance["deselected_for_diversity"],
+        packing.provenance["query_aspects"],
+        packing.provenance["bundle_compression_ratio"],
         wall_ms,
     )
     return result
@@ -2066,6 +2221,36 @@ def _normalize_ce_scores(results: list[tuple[CodeChunk, float]]) -> dict[str, fl
     return {chunk.id: (score - low) / span for chunk, score in results}
 
 
+def _reorder_bundle_with_receipt(
+    bundle: ContextBundle, new_chunks: list[RankedChunk]
+) -> ContextBundle:
+    """Return a copy of the bundle with chunks reordered and the receipt realigned.
+
+    Receipt rows are reordered to follow ``new_chunks`` (matched by chunk handle);
+    any receipt row without a matching chunk is preserved at the tail. Shared by the
+    bounded-rerank and conditional-rerank lanes so receipt alignment lives in one
+    place. Reordering to the same order is a safe no-op.
+    """
+    from archex.scout import chunk_handle
+
+    reordered = bundle.model_copy(update={"chunks": new_chunks})
+    if reordered.receipt is None:
+        return reordered
+    items_by_handle = {item.handle: item for item in reordered.receipt.returned_context}
+    ordered: list[ContextReceiptItem] = []
+    seen: set[str] = set()
+    for ranked in new_chunks:
+        handle = chunk_handle(ranked.chunk.id)
+        item = items_by_handle.get(handle)
+        if item is not None and handle not in seen:
+            ordered.append(item)
+            seen.add(handle)
+    # Preserve any receipt rows without a matching chunk (defensive).
+    ordered.extend(item for item in reordered.receipt.returned_context if item.handle not in seen)
+    reordered.receipt = reordered.receipt.model_copy(update={"returned_context": ordered})
+    return reordered
+
+
 @dataclass
 class _BoundedRerank:
     """Reordered bundle plus the provenance describing the bounded rerank."""
@@ -2086,7 +2271,6 @@ def _bounded_rerank_bundle(
     is skipped/aborted and the symbolic order stands. Receipt rows are realigned to
     the reordered chunk set so receipts stay aligned.
     """
-    from archex.scout import chunk_handle
 
     signals = query_signals(question)
     compact = bundle.chunks[: caps.candidate_cap]
@@ -2119,22 +2303,7 @@ def _bounded_rerank_bundle(
     order = sorted(range(candidate_count), key=lambda index: -scores[index])
     new_chunks = [compact[index] for index in order] + list(tail)
 
-    reordered = bundle.model_copy(update={"chunks": new_chunks})
-    if reordered.receipt is not None:
-        items_by_handle = {item.handle: item for item in reordered.receipt.returned_context}
-        ordered: list[ContextReceiptItem] = []
-        seen: set[str] = set()
-        for ranked in new_chunks:
-            handle = chunk_handle(ranked.chunk.id)
-            item = items_by_handle.get(handle)
-            if item is not None and handle not in seen:
-                ordered.append(item)
-                seen.add(handle)
-        # Preserve any receipt rows without a matching chunk (defensive).
-        ordered.extend(
-            item for item in reordered.receipt.returned_context if item.handle not in seen
-        )
-        reordered.receipt = reordered.receipt.model_copy(update={"returned_context": ordered})
+    reordered = _reorder_bundle_with_receipt(bundle, new_chunks)
 
     rerank_method = "symbolic+cross_encoder" if cross_encoder_status == "applied" else "symbolic"
     provenance = {
@@ -2191,6 +2360,137 @@ def run_archex_query_bounded_rerank(task: BenchmarkTask, repo_path: Path) -> Ben
         rerank.provenance["candidates_total"],
         rerank.provenance["rerank_method"],
         rerank.provenance["cross_encoder_status"],
+        wall_ms,
+    )
+    return result
+
+
+def _rerank_model_storage_bytes(model_name: str) -> int | None:
+    """On-disk size (bytes) of a locally-present rerank model, else None.
+
+    Measures only a model that resolves to an existing local directory; it never
+    triggers a download, so an HF-id model that is not a local path reports None
+    ("unmeasured") rather than reaching the network. For the conditional lane the
+    storage cost is the model artifact (contrast late interaction, whose cost is
+    precomputed per-token document vectors).
+    """
+    path = Path(model_name).expanduser()
+    if not path.is_dir():
+        return None
+    return sum(file.stat().st_size for file in path.rglob("*") if file.is_file())
+
+
+@dataclass
+class _ConditionalRerank:
+    """Reordered bundle plus provenance and the measured model storage cost."""
+
+    bundle: ContextBundle
+    provenance: dict[str, str]
+    storage_bytes: int | None
+
+
+def _conditional_rerank_bundle(bundle: ContextBundle, *, question: str) -> _ConditionalRerank:
+    """Conditionally rerank a bundle's candidates only when BM25 is ambiguous.
+
+    Reuses an in-process cross-encoder (never loads or downloads a model), gates
+    the model on the BM25 score CV (the fusion QPP signal in ``index/fusion.py``),
+    and bounds the model stage by a wall-clock cap. When no local model is loaded
+    the bundle is returned unchanged with explicit provenance, so the lane adds no
+    network behaviour and stays deterministic on model-free benchmark clones.
+    """
+    from archex.index.rerank import (
+        CONDITIONAL_RERANK_CANDIDATE_LIMIT,
+        CONDITIONAL_RERANK_LATENCY_CAP_MS,
+        ConditionalReranker,
+        bm25_is_ambiguous,
+        loaded_reranker_model_names,
+    )
+
+    candidates = [(ranked.chunk, ranked.final_score) for ranked in bundle.chunks]
+    decision = bm25_is_ambiguous(candidates)
+    reranker = _load_local_reranker()
+    storage_bytes: int | None = None
+    new_chunks = bundle.chunks
+    candidates_reranked = 0
+    rerank_ms = 0.0
+    if reranker is None:
+        status = "skipped:unavailable"
+        invoked = False
+    else:
+        model_name = loaded_reranker_model_names()[0]
+        storage_bytes = _rerank_model_storage_bytes(model_name)
+        conditional = ConditionalReranker(
+            reranker, candidate_limit=CONDITIONAL_RERANK_CANDIDATE_LIMIT
+        )
+        outcome = conditional.rerank_if_ambiguous(question, candidates, candidates)
+        status = outcome.status
+        invoked = outcome.invoked
+        rerank_ms = outcome.rerank_ms
+        if outcome.status == "applied":
+            rc_by_id = {ranked.chunk.id: ranked for ranked in bundle.chunks}
+            new_chunks = [rc_by_id[chunk.id] for chunk, _ in outcome.results]
+            candidates_reranked = min(len(bundle.chunks), CONDITIONAL_RERANK_CANDIDATE_LIMIT)
+
+    reordered = _reorder_bundle_with_receipt(bundle, new_chunks)
+
+    provenance = {
+        "bm25_cv": f"{decision.bm25_cv:.4f}",
+        "bm25_ambiguous": str(decision.should_rerank).lower(),
+        "ambiguity_reason": decision.reason,
+        "cross_encoder_status": status,
+        "rerank_invoked": str(invoked).lower(),
+        "rerank_ms": f"{rerank_ms:.2f}",
+        "candidates_reranked": str(candidates_reranked),
+        "candidates_total": str(len(bundle.chunks)),
+        "latency_cap_ms": f"{CONDITIONAL_RERANK_LATENCY_CAP_MS:.1f}",
+        "rerank_model_storage_bytes": (
+            "unmeasured" if storage_bytes is None else str(storage_bytes)
+        ),
+    }
+    return _ConditionalRerank(bundle=reordered, provenance=provenance, storage_bytes=storage_bytes)
+
+
+def run_archex_query_conditional_rerank(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: archex query retrieval, then conditional cross-encoder rerank.
+
+    Runs the ``archex_query`` BM25 retrieval path, then reranks only when the BM25
+    ranking is ambiguous (flat score CV), reusing an in-process cross-encoder under
+    a wall-clock latency cap. On confident BM25 the model never runs. When no local
+    model is loaded the bundle is unchanged. The product default is unchanged; the
+    lane reports the model-artifact storage cost when measurable.
+    """
+    strategy = Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    rerank = _conditional_rerank_bundle(bundle, question=task.question)
+    wall_ms = (time.perf_counter() - t0) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=rerank.bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = rerank.provenance
+    if rerank.storage_bytes is not None:
+        result = result.model_copy(update={"rerank_model_storage_bytes": rerank.storage_bytes})
+    logger.info(
+        "Strategy %s for %s: ambiguous=%s ce=%s rerank_ms=%s wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        rerank.provenance["bm25_ambiguous"],
+        rerank.provenance["cross_encoder_status"],
+        rerank.provenance["rerank_ms"],
         wall_ms,
     )
     return result
@@ -3254,5 +3554,11 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_GRAPH_MULTIHOP.value, run_archex_query_graph_multihop
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK.value, run_archex_query_conditional_rerank
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_DIVERSITY_PACKED.value, run_archex_query_diversity_packed
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)
