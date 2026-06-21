@@ -35,6 +35,14 @@ Decision rule: this lane is **not eligible for product-default promotion** unles
 
 No numeric churn results are claimed here. Any future promotion claim must come from checked-in benchmark artifacts comparing `archex_query_churn` to `archex_query` on the gated-intent subset.
 
+## Issue-to-edit localization family
+
+The benchmark corpus includes a small, maintained issue-to-edit localization family (Workstream R3 of `.docs/2026-06-20-retrieval-ranking-signal-enhancement-design.md`): hand-curated, SWE-bench-style tasks (`benchmarks/tasks/loc_*.yaml`), each an issue-style question plus expected edit locations at file and symbol granularity pinned to a public release tag. It measures the real downstream fault-localization job — given an issue, find the files and functions to edit — rather than the "how does X work" comprehension the rest of the corpus measures. Tasks carry a `family` axis (`comprehension` or `localization`) orthogonal to `category` (repo type). This is corpus and reporting work that reuses the existing region-metric computation; it changes no retrieval code path, no product default, and adds no hosted/LLM/network behavior.
+
+Reporting separation: `archex benchmark report` grades the localization family separately from the comprehension family. `reporter.format_localization_summary` groups tasks by family and surfaces file-level localization (required-file recall, MRR, and nDCG over returned file order) and region-level localization (region recall and ranked-region MRR/nDCG over returned context order) per strategy. Grouping is per task, so every strategy result for a localization task — including the raw baselines — is reported under localization, and the report never publishes a single cross-family aggregate winner that mixes the two families. Region columns read `unknown` for any lane that produces no region metrics (for example the raw baselines).
+
+No numeric localization results are claimed here. Any localization win or regression claim must come from checked-in benchmark artifacts that contain the file-level and region-level fields needed to verify it.
+
 ## Task-aware candidate lane
 
 `archex_query_task_aware` is a benchmark-only retrieval lane (Workstream 2 of `.docs/2026-06-18-retrieval-quality-token-efficiency-enhancement-design.md`). It classifies query modality (`pl_to_pl`, `nl_to_pl`, `mixed`) and budget tier (`tight`, `standard`, `large`) and routes sparse-vs-dense retrieval accordingly: BM25-first for code-heavy and mixed queries with a single confidence-gated dense expansion, and a bounded hybrid pass for natural-language queries. Confidence-aware fusion runs only on the hybrid/dense pass, the cross-encoder reranker is never run, and total work is bounded to at most two retrieval passes.
