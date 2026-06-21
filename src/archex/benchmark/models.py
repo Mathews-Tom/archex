@@ -477,6 +477,7 @@ class BenchmarkResult(BaseModel):
     expansion_test_candidates_skipped: int = 0
     expansion_zero_candidate_reason: str = ""
     category: TaskCategory | None = None
+    family: TaskFamily = TaskFamily.COMPREHENSION
     vector_mode: VectorMode = VectorMode.RAW
     surrogate_version: str | None = None
     cache_state: str = "cold"
