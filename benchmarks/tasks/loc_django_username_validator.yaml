@@ -1,0 +1,38 @@
+task_id: loc_django_username_validator
+repo: django/django
+commit: "5.1.4"
+category: external-large
+family: localization
+languages: [python]
+include_paths:
+  - django/contrib/auth
+question: "Issue: the set of characters accepted in account usernames during authentication needs to change (the allowed-character pattern is too permissive and accepts inputs it should reject). Which classes define the username validation pattern that must be edited?"
+expected_files:
+  - django/contrib/auth/validators.py
+expected_symbols:
+  - ASCIIUsernameValidator
+  - UnicodeUsernameValidator
+expected_regions:
+  - path: django/contrib/auth/validators.py
+    granularity: file
+    notes: "The whole module defines username character validation; pinned to Django 5.1.4."
+    weight: 0.5
+  - path: django/contrib/auth/validators.py
+    granularity: symbol
+    symbol: ASCIIUsernameValidator
+    start_line: 8
+    end_line: 15
+    notes: "ASCII username regex/message/flags; the regex pattern is the edit target. Pinned to Django 5.1.4."
+  - path: django/contrib/auth/validators.py
+    granularity: symbol
+    symbol: UnicodeUsernameValidator
+    start_line: 18
+    end_line: 25
+    notes: "Unicode username regex/message/flags; the regex pattern is the edit target. Pinned to Django 5.1.4."
+token_budget: 8192
+keywords:
+  - username
+  - validator
+  - regex
+  - auth
+  - pattern

@@ -19,6 +19,7 @@ from archex.benchmark.models import (
     RegionGranularity,
     Strategy,
     TaskCategory,
+    TaskFamily,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "RegionGranularity",
     "Strategy",
     "TaskCategory",
+    "TaskFamily",
 ]

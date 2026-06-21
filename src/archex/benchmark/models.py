@@ -48,6 +48,20 @@ class TaskCategory(StrEnum):
     FRAMEWORK_SEMANTIC = "framework-semantic"
 
 
+class TaskFamily(StrEnum):
+    """Task shape, orthogonal to ``TaskCategory`` (which is repo type).
+
+    ``comprehension`` tasks ask "how does X work?" and are graded on whole-bundle
+    retrieval quality. ``localization`` tasks are issue-to-edit fault-localization
+    tasks graded on file- and symbol-level localization of the regions to edit.
+    The reporting layer can group the two families separately so a localization
+    result is never folded into a comprehension-mixed aggregate.
+    """
+
+    COMPREHENSION = "comprehension"
+    LOCALIZATION = "localization"
+
+
 class BenchmarkSpecModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -162,6 +176,7 @@ class BenchmarkTask(BenchmarkSpecModel):
     languages: list[str] | None = None
     include_paths: list[str] = []
     category: TaskCategory | None = None
+    family: TaskFamily = TaskFamily.COMPREHENSION
     bundle_only_eval: BundleOnlyEvaluation | None = None
     expected_regions: list[ExpectedRegion] = []
 

@@ -1,0 +1,35 @@
+task_id: loc_httpx_redirect_headers
+repo: encode/httpx
+commit: "0.28.1"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - httpx
+question: "Bug report: on a cross-origin redirect the Authorization header is forwarded to the new origin instead of being removed (it should only survive a direct HTTP to HTTPS upgrade), and the redirect target URL must be resolved correctly. Where does httpx build the redirect request headers and compute the redirect URL?"
+expected_files:
+  - httpx/_client.py
+expected_symbols:
+  - _redirect_headers
+  - _redirect_url
+expected_regions:
+  - path: httpx/_client.py
+    granularity: symbol
+    symbol: BaseClient._redirect_headers
+    start_line: 546
+    end_line: 571
+    notes: "Strips Authorization on cross-origin redirect except direct http->https, updates Host, drops body headers on GET; pinned to httpx 0.28.1."
+  - path: httpx/_client.py
+    granularity: symbol
+    symbol: BaseClient._redirect_url
+    start_line: 517
+    end_line: 545
+    notes: "Resolves the absolute redirect target URL from the Location header; pinned to httpx 0.28.1."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - redirect
+  - authorization
+  - headers
+  - cross-origin
+  - location
