@@ -5,10 +5,12 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from archex.exceptions import ArchexIndexError
+from archex.exceptions import ArchexIndexError, ConfigError
 from archex.index.fusion import bm25_score_cv
 from archex.index.huggingface import resolve_hf_model_path
 from archex.index.model_policy import (
@@ -267,9 +269,10 @@ class CrossEncoderReranker:
 # optionally an ONNX/INT8 backend), but it is model-agnostic: the operator
 # supplies the model via ``rerank_model``.
 
-# Hard wall-clock ceiling (ms) for one conditional rerank stage. A model pass
-# slower than this is aborted and the original order is kept, so the rerank stage
-# can never blow the latency budget even when the model misbehaves.
+# Hard wall-clock ceiling (ms) for one conditional rerank stage. The model pass
+# runs in a worker thread and the caller is released at this cap, so the rerank
+# stage the pipeline observes is bounded even when the model misbehaves; the
+# orphaned pass finishes in the background and its result is discarded.
 CONDITIONAL_RERANK_LATENCY_CAP_MS = 1500.0
 
 # BM25 is treated as ambiguous — and the cross-encoder fires — when score
@@ -368,8 +371,9 @@ class ConditionalReranker:
     candidates unchanged without touching the model (no load, no scoring), so the
     common query stays fast; the model is spent only on the ambiguous tail. The
     cross-encoder reorders the top ``candidate_limit`` candidates; the rest keep
-    their retrieval order. A model pass slower than ``latency_cap_ms`` is aborted
-    and the original order is kept, bounding the rerank stage.
+    their retrieval order. The model pass runs in a worker thread and the caller
+    is released at ``latency_cap_ms``, so the rerank stage is wall-clock bounded;
+    on a latency abort the original retrieval order is kept.
     """
 
     def __init__(
@@ -421,9 +425,15 @@ class ConditionalReranker:
                 rerank_ms=0.0,
             )
         start = time.perf_counter()
-        reranked = self._reranker.rerank(query, head, top_k=len(head))
-        rerank_ms = (time.perf_counter() - start) * 1000.0
-        if rerank_ms > self._latency_cap_ms:
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="conditional-rerank")
+        future = executor.submit(self._reranker.rerank, query, head, len(head))
+        try:
+            reranked = future.result(timeout=self._latency_cap_ms / 1000.0)
+        except FuturesTimeoutError:
+            # The caller is released at the cap; the orphaned model pass keeps
+            # running in the background and its result is discarded, so the rerank
+            # stage the pipeline observes never exceeds the cap.
+            rerank_ms = (time.perf_counter() - start) * 1000.0
             return ConditionalRerankResult(
                 results=candidates,
                 decision=decision,
@@ -431,6 +441,9 @@ class ConditionalReranker:
                 status="aborted:latency",
                 rerank_ms=rerank_ms,
             )
+        finally:
+            executor.shutdown(wait=False)
+        rerank_ms = (time.perf_counter() - start) * 1000.0
         return ConditionalRerankResult(
             results=reranked + tail,
             decision=decision,
@@ -451,14 +464,22 @@ def maybe_conditional_reranker(
     """Build a :class:`ConditionalReranker` only when the lane is opted in.
 
     Returns ``None`` when ``enabled`` is false, so callers that leave the lane off
-    (every default path) never construct a reranker. The wrapped
-    ``CrossEncoderReranker`` enforces the remote-code opt-in policy at load time,
-    so an unset ``allow_remote_code`` still rejects remote-code models.
+    (every default path) never construct a reranker. When enabled, an explicit
+    ``model_name`` is required: the lane is designed for an operator-supplied small
+    distilled local cross-encoder, so it never silently falls back to the
+    remote-code default reranker. The wrapped ``CrossEncoderReranker`` still
+    enforces the remote-code opt-in policy at load time.
     """
     if not enabled:
         return None
+    if not model_name:
+        raise ConfigError(
+            "Conditional reranker is enabled but no rerank model was supplied. "
+            "Set an explicit model (a small distilled local cross-encoder is "
+            "recommended), e.g. via --rerank-model."
+        )
     reranker = CrossEncoderReranker(
-        model_name=model_name or DEFAULT_MODEL,
+        model_name=model_name,
         allow_remote_code=allow_remote_code,
     )
     return ConditionalReranker(

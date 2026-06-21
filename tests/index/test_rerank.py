@@ -519,6 +519,10 @@ class TestMaybeConditionalReranker:
         )
         assert isinstance(reranker, ConditionalReranker)
 
+    def test_enabled_without_model_raises(self) -> None:
+        with pytest.raises(ConfigError, match="no rerank model was supplied"):
+            maybe_conditional_reranker(enabled=True)
+
 
 class TestConditionalRerank:
     def test_confident_bm25_skips_model(self) -> None:
@@ -564,14 +568,30 @@ class TestConditionalRerank:
         assert ids[:2] == ["c1", "c0"]
         assert ids[2:] == ["c2", "c3"]
 
-    def test_rerank_stage_latency_is_bounded(self) -> None:
+    def test_applied_rerank_ms_within_cap(self) -> None:
         stub = _StubReranker()
         conditional = ConditionalReranker(stub)  # type: ignore[arg-type]
         candidates = _bm25([1.0, 0.99, 0.98, 0.97])
         result = conditional.rerank_if_ambiguous("q", candidates, candidates)
         assert result.status == "applied"
-        # The applied rerank stage must stay within the configured cap.
         assert 0.0 <= result.rerank_ms <= conditional.latency_cap_ms
+
+    def test_rerank_stage_wall_clock_is_bounded_when_model_is_slow(self) -> None:
+        # The model pass sleeps far longer than the cap; the caller must be
+        # released at the cap rather than blocking for the whole model runtime,
+        # so the rerank stage the pipeline observes is genuinely wall-clock bounded.
+        model_sleep_s = 0.1
+        cap_ms = 10.0
+        stub = _StubReranker(sleep_s=model_sleep_s)
+        conditional = ConditionalReranker(stub, latency_cap_ms=cap_ms)  # type: ignore[arg-type]
+        candidates = _bm25([1.0, 0.99, 0.98, 0.97])
+        start = time.perf_counter()
+        result = conditional.rerank_if_ambiguous("q", candidates, candidates)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        assert result.status == "aborted:latency"
+        # Caller released near the cap, well before the model's full runtime.
+        assert elapsed_ms < model_sleep_s * 1000.0
+        assert result.results == candidates
 
     def test_slow_model_pass_aborts_and_preserves_order(self) -> None:
         stub = _StubReranker(sleep_s=0.02)
