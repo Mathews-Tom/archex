@@ -1,0 +1,42 @@
+task_id: loc_flask_full_dispatch
+repo: pallets/flask
+commit: "3.1.0"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - src/flask
+question: "Issue: an exception raised inside a view is not routed through the registered error handlers, so the user sees a raw 500 instead of the handler's response. Where does Flask run the full request cycle (preprocess, dispatch, error handling) and where is a raised exception handed to the user error handlers?"
+expected_files:
+  - src/flask/app.py
+expected_symbols:
+  - full_dispatch_request
+  - dispatch_request
+  - handle_user_exception
+expected_regions:
+  - path: src/flask/app.py
+    granularity: symbol
+    symbol: Flask.full_dispatch_request
+    start_line: 904
+    end_line: 920
+    notes: "Runs preprocessing and dispatch, routing any exception to handle_user_exception before finalizing; pinned to Flask 3.1.0."
+  - path: src/flask/app.py
+    granularity: symbol
+    symbol: Flask.dispatch_request
+    start_line: 879
+    end_line: 902
+    notes: "Matches the URL rule and invokes the view function; pinned to Flask 3.1.0."
+    weight: 0.8
+  - path: src/flask/app.py
+    granularity: symbol
+    symbol: Flask.handle_user_exception
+    start_line: 779
+    end_line: 809
+    notes: "Selects and invokes the registered handler for a raised exception; pinned to Flask 3.1.0."
+token_budget: 8192
+keywords:
+  - dispatch
+  - request
+  - error handler
+  - exception
+  - view

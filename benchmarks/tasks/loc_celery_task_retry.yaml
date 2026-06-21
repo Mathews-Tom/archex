@@ -1,0 +1,27 @@
+task_id: loc_celery_task_retry
+repo: celery/celery
+commit: "v5.4.0"
+category: external-large
+family: localization
+languages: [python]
+include_paths:
+  - celery/app
+question: "Issue: when a task calls self.retry() the countdown/eta and max_retries handling is wrong — the retry is re-queued even after the maximum number of retries is exceeded, and the default retry delay is not applied. Which method re-sends the task for retry and enforces the max-retries limit?"
+expected_files:
+  - celery/app/task.py
+expected_symbols:
+  - retry
+expected_regions:
+  - path: celery/app/task.py
+    granularity: symbol
+    symbol: Task.retry
+    start_line: 647
+    end_line: 758
+    notes: "Computes retries/countdown, enforces max_retries (raising MaxRetriesExceededError), builds the retry signature, and re-sends it; pinned to Celery v5.4.0."
+token_budget: 8192
+keywords:
+  - retry
+  - countdown
+  - max_retries
+  - eta
+  - task

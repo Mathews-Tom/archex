@@ -1,0 +1,27 @@
+task_id: loc_httpx_pool_transport
+repo: encode/httpx
+commit: "0.28.1"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - httpx
+question: "Issue: the synchronous transport does not translate httpcore connection-pool errors into httpx exceptions and the request extensions are not forwarded to the connection pool. Which method on the sync transport converts an httpx Request into an httpcore request, dispatches it through the connection pool, and maps the errors back?"
+expected_files:
+  - httpx/_transports/default.py
+expected_symbols:
+  - handle_request
+expected_regions:
+  - path: httpx/_transports/default.py
+    granularity: symbol
+    symbol: HTTPTransport.handle_request
+    start_line: 230
+    end_line: 259
+    notes: "Builds the httpcore request, dispatches via the connection pool under map_httpcore_exceptions, and wraps the response; pinned to httpx 0.28.1."
+token_budget: 8192
+keywords:
+  - transport
+  - handle_request
+  - connection pool
+  - httpcore
+  - exceptions

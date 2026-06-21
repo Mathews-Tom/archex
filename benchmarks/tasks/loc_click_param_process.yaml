@@ -1,0 +1,35 @@
+task_id: loc_click_param_process
+repo: pallets/click
+commit: "8.1.8"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - src/click
+question: "Bug report: a required option backed by a callback is accepted even when its value is missing, because the missing-value check and the callback are not applied during parameter processing. Where does Click type-cast a parameter value, enforce the required/missing check, run the callback, and store the processed value during parse?"
+expected_files:
+  - src/click/core.py
+expected_symbols:
+  - process_value
+  - handle_parse_result
+expected_regions:
+  - path: src/click/core.py
+    granularity: symbol
+    symbol: Parameter.process_value
+    start_line: 2358
+    end_line: 2367
+    notes: "Type-casts the value, enforces the required/missing check, and runs the callback; pinned to Click 8.1.8."
+  - path: src/click/core.py
+    granularity: symbol
+    symbol: Parameter.handle_parse_result
+    start_line: 2395
+    end_line: 2413
+    notes: "Consumes the raw value, calls process_value, and stores the processed value into ctx.params; pinned to Click 8.1.8."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - option
+  - parameter
+  - process_value
+  - callback
+  - required

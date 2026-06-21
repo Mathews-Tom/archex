@@ -1,0 +1,34 @@
+task_id: loc_sqlalchemy_session_merge
+repo: sqlalchemy/sqlalchemy
+commit: "rel_2_0_36"
+category: external-large
+family: localization
+languages: [python]
+include_paths:
+  - lib/sqlalchemy/orm
+question: "Bug report: Session.merge() does not reconcile an incoming detached instance with an existing row by primary key, and the merge cascade into associated objects misbehaves. Where does the Session run the merge (handling autoflush) and recurse the merge into related instances?"
+expected_files:
+  - lib/sqlalchemy/orm/session.py
+expected_symbols:
+  - merge
+  - _merge
+expected_regions:
+  - path: lib/sqlalchemy/orm/session.py
+    granularity: symbol
+    symbol: Session.merge
+    start_line: 3883
+    end_line: 3968
+    notes: "Public entry point: verifies the mapping, manages autoflush, and delegates to _merge; pinned to SQLAlchemy rel_2_0_36."
+  - path: lib/sqlalchemy/orm/session.py
+    granularity: symbol
+    symbol: Session._merge
+    start_line: 3970
+    end_line: 4134
+    notes: "Reconciles primary-key identity, loads the existing row, copies attribute state, and cascades the merge; pinned to SQLAlchemy rel_2_0_36."
+token_budget: 8192
+keywords:
+  - session
+  - merge
+  - cascade
+  - identity
+  - primary key
