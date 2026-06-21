@@ -1964,15 +1964,7 @@ def _diversity_pack_bundle(bundle: ContextBundle, *, question: str) -> _BundlePa
     result_fields = dict(packing.result_fields)
     result_fields["diversity_deselected_regions"] = plan.deselected_for_diversity
     provenance = dict(packing.provenance)
-    provenance.update(
-        {
-            "diversity_applied": str(plan.diversity_applied).lower(),
-            "query_aspects": str(plan.query_aspects),
-            "diversity_lambda": f"{plan.diversity_lambda:.2f}",
-            "deselected_for_diversity": str(plan.deselected_for_diversity),
-            "protected_regions": str(plan.protected_regions),
-        }
-    )
+    provenance.update(plan.diversity_provenance())
     return _BundlePacking(bundle=packing.bundle, result_fields=result_fields, provenance=provenance)
 
 
@@ -2229,6 +2221,36 @@ def _normalize_ce_scores(results: list[tuple[CodeChunk, float]]) -> dict[str, fl
     return {chunk.id: (score - low) / span for chunk, score in results}
 
 
+def _reorder_bundle_with_receipt(
+    bundle: ContextBundle, new_chunks: list[RankedChunk]
+) -> ContextBundle:
+    """Return a copy of the bundle with chunks reordered and the receipt realigned.
+
+    Receipt rows are reordered to follow ``new_chunks`` (matched by chunk handle);
+    any receipt row without a matching chunk is preserved at the tail. Shared by the
+    bounded-rerank and conditional-rerank lanes so receipt alignment lives in one
+    place. Reordering to the same order is a safe no-op.
+    """
+    from archex.scout import chunk_handle
+
+    reordered = bundle.model_copy(update={"chunks": new_chunks})
+    if reordered.receipt is None:
+        return reordered
+    items_by_handle = {item.handle: item for item in reordered.receipt.returned_context}
+    ordered: list[ContextReceiptItem] = []
+    seen: set[str] = set()
+    for ranked in new_chunks:
+        handle = chunk_handle(ranked.chunk.id)
+        item = items_by_handle.get(handle)
+        if item is not None and handle not in seen:
+            ordered.append(item)
+            seen.add(handle)
+    # Preserve any receipt rows without a matching chunk (defensive).
+    ordered.extend(item for item in reordered.receipt.returned_context if item.handle not in seen)
+    reordered.receipt = reordered.receipt.model_copy(update={"returned_context": ordered})
+    return reordered
+
+
 @dataclass
 class _BoundedRerank:
     """Reordered bundle plus the provenance describing the bounded rerank."""
@@ -2249,7 +2271,6 @@ def _bounded_rerank_bundle(
     is skipped/aborted and the symbolic order stands. Receipt rows are realigned to
     the reordered chunk set so receipts stay aligned.
     """
-    from archex.scout import chunk_handle
 
     signals = query_signals(question)
     compact = bundle.chunks[: caps.candidate_cap]
@@ -2282,22 +2303,7 @@ def _bounded_rerank_bundle(
     order = sorted(range(candidate_count), key=lambda index: -scores[index])
     new_chunks = [compact[index] for index in order] + list(tail)
 
-    reordered = bundle.model_copy(update={"chunks": new_chunks})
-    if reordered.receipt is not None:
-        items_by_handle = {item.handle: item for item in reordered.receipt.returned_context}
-        ordered: list[ContextReceiptItem] = []
-        seen: set[str] = set()
-        for ranked in new_chunks:
-            handle = chunk_handle(ranked.chunk.id)
-            item = items_by_handle.get(handle)
-            if item is not None and handle not in seen:
-                ordered.append(item)
-                seen.add(handle)
-        # Preserve any receipt rows without a matching chunk (defensive).
-        ordered.extend(
-            item for item in reordered.receipt.returned_context if item.handle not in seen
-        )
-        reordered.receipt = reordered.receipt.model_copy(update={"returned_context": ordered})
+    reordered = _reorder_bundle_with_receipt(bundle, new_chunks)
 
     rerank_method = "symbolic+cross_encoder" if cross_encoder_status == "applied" else "symbolic"
     provenance = {
@@ -2399,7 +2405,6 @@ def _conditional_rerank_bundle(bundle: ContextBundle, *, question: str) -> _Cond
         bm25_is_ambiguous,
         loaded_reranker_model_names,
     )
-    from archex.scout import chunk_handle
 
     candidates = [(ranked.chunk, ranked.final_score) for ranked in bundle.chunks]
     decision = bm25_is_ambiguous(candidates)
@@ -2426,22 +2431,7 @@ def _conditional_rerank_bundle(bundle: ContextBundle, *, question: str) -> _Cond
             new_chunks = [rc_by_id[chunk.id] for chunk, _ in outcome.results]
             candidates_reranked = min(len(bundle.chunks), CONDITIONAL_RERANK_CANDIDATE_LIMIT)
 
-    reordered = bundle.model_copy(update={"chunks": new_chunks})
-    if reordered.receipt is not None and new_chunks is not bundle.chunks:
-        items_by_handle = {item.handle: item for item in reordered.receipt.returned_context}
-        ordered: list[ContextReceiptItem] = []
-        seen: set[str] = set()
-        for ranked in new_chunks:
-            handle = chunk_handle(ranked.chunk.id)
-            item = items_by_handle.get(handle)
-            if item is not None and handle not in seen:
-                ordered.append(item)
-                seen.add(handle)
-        # Preserve any receipt rows without a matching chunk (defensive).
-        ordered.extend(
-            item for item in reordered.receipt.returned_context if item.handle not in seen
-        )
-        reordered.receipt = reordered.receipt.model_copy(update={"returned_context": ordered})
+    reordered = _reorder_bundle_with_receipt(bundle, new_chunks)
 
     provenance = {
         "bm25_cv": f"{decision.bm25_cv:.4f}",

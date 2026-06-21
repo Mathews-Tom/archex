@@ -337,7 +337,7 @@ def _advanced_lanes_appendix(report: BenchmarkReport) -> list[str]:
     """Per-task advanced-lane comparison: latency, token impact, and quality.
 
     Rendered only when an advanced lane ran. These lanes are benchmark-only
-    experiments (Workstreams 5, R1, and R2); none changes the product default.
+    experiments (Workstreams 5, R1, R2, R4, and R5); none changes the product default.
     """
     rows = [result for result in report.results if result.strategy.value in _ADVANCED_LANES]
     if not rows:
