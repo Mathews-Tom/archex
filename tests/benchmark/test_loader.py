@@ -44,6 +44,16 @@ LOCALIZATION_TASK_IDS = (
     "loc_flask_blueprint_register",
     "loc_httpx_redirect_headers",
     "loc_fastapi_jsonable_encoder",
+    "loc_celery_task_retry",
+    "loc_click_param_process",
+    "loc_django_queryset_filter",
+    "loc_fastapi_solve_dependencies",
+    "loc_flask_full_dispatch",
+    "loc_httpx_pool_transport",
+    "loc_pydantic_validate_call",
+    "loc_pytest_fixture_resolution",
+    "loc_requests_adapter_send",
+    "loc_sqlalchemy_session_merge",
 )
 
 
@@ -489,6 +499,30 @@ expected_regions:
         assert region.symbol == "App.handle"
         assert region.start_line is None
         assert region.end_line is None
+
+    def test_localization_task_ids_cover_every_loc_file(self) -> None:
+        on_disk = {path.stem for path in TASKS_DIR.glob("loc_*.yaml")}
+        # No duplicate ids in the roster, and the roster matches the files on disk.
+        assert len(LOCALIZATION_TASK_IDS) == len(set(LOCALIZATION_TASK_IDS))
+        assert set(LOCALIZATION_TASK_IDS) == on_disk
+        assert 15 <= len(on_disk) <= 25
+
+    def test_real_python_loc_task_rejects_malformed_region(self, tmp_path: Path) -> None:
+        # Inverting a real symbol region's line range must fail loudly at load
+        # time rather than silently scoring against a malformed label.
+        source = TASKS_DIR / "loc_django_queryset_filter.yaml"
+        malformed = tmp_path / source.name
+        malformed.write_text(
+            source.read_text(encoding="utf-8").replace(
+                "    end_line: 1495",
+                "    end_line: 1485",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match=r"loc_django_queryset_filter\.yaml.*start_line"):
+            load_task(malformed)
 
 
 class TestLoadArchTask:
