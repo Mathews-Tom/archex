@@ -17,6 +17,14 @@ The benchmark eval frontier adds optional retrieval-quality signals that are ava
 
 These inputs do not change the current switch rule. They are optional and ignored when a task has no region labels, and they enforce a threshold only when the label exists. A checked-in labeled baseline (`.archex/r0-labeled-baseline`, generated with `uv run archex benchmark run --tasks-dir benchmarks/tasks --output .archex/r0-labeled-baseline`) now populates region recall, region precision, line recall, context noise ratio, and relevance per 1k tokens for the labeled subset. Treat those values as active candidate-gate inputs for future benchmark-only lanes, not as a default switch or an improvement claim.
 
+## Personalized structural-centrality candidate lane
+
+`archex_query_ppr` is a benchmark-only retrieval lane (Workstream R1 of `.docs/2026-06-20-retrieval-ranking-signal-enhancement-design.md`). It keeps the `archex_query` BM25 retrieval, graph expansion, packing, and default scoring weights, but replaces only the `structural` scoring term with a query-personalized, edge-weighted, direction-aware PageRank over a bounded seed neighborhood. The product `archex_query` path continues to call `graph.structural_centrality()` and its cached global PageRank unchanged.
+
+Decision rule: this lane is **not eligible for product-default promotion** unless a clean warm labeled run shows mean F1 at least `+0.05` over `archex_query`, token efficiency after completion at least as high as `archex_query`, p95 latency at or below `3000 ms`, and no regression in required-file recall or region metrics (`region_recall`, `region_precision`, line metrics, `context_noise_ratio`, and `relevance_per_1k_tokens`) where labels exist. The lane must also keep centrality provenance populated (`centrality_variant`, personalization/fallback status, subgraph node/edge counts, and centrality latency) so any latency or quality change is attributable.
+
+No numeric PPR results are claimed here. Any future promotion claim must come from checked-in benchmark artifacts comparing `archex_query_ppr` to `archex_query` on required-file recall, region/line metrics, `context_noise_ratio`, `relevance_per_1k_tokens`, F1, median latency, and p95 latency.
+
 ## Task-aware candidate lane
 
 `archex_query_task_aware` is a benchmark-only retrieval lane (Workstream 2 of `.docs/2026-06-18-retrieval-quality-token-efficiency-enhancement-design.md`). It classifies query modality (`pl_to_pl`, `nl_to_pl`, `mixed`) and budget tier (`tight`, `standard`, `large`) and routes sparse-vs-dense retrieval accordingly: BM25-first for code-heavy and mixed queries with a single confidence-gated dense expansion, and a bounded hybrid pass for natural-language queries. Confidence-aware fusion runs only on the hybrid/dense pass, the cross-encoder reranker is never run, and total work is bounded to at most two retrieval passes.

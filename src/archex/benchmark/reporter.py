@@ -266,6 +266,7 @@ _ADVANCED_LANES = (
     "archex_query_bounded_rerank",
     "archex_query_summary_sidecar",
     "archex_query_graph_multihop",
+    "archex_query_ppr",
 )
 
 
@@ -294,6 +295,17 @@ def _advanced_lane_note(result: BenchmarkResult) -> str:
             f"{prov.get('frontier_cuts', 'unknown')}/{prov.get('budget_cuts', 'unknown')}/"
             f"{prov.get('suppressed_low_confidence', 'unknown')})"
         )
+    if strategy == "archex_query_ppr":
+        personalized = prov.get("centrality_personalized", "unknown")
+        fallback = prov.get("centrality_fallback_reason", "")
+        fallback_note = f", fallback={fallback}" if fallback and personalized == "false" else ""
+        return (
+            f"centrality={prov.get('centrality_variant', 'unknown')} "
+            f"(personalized={personalized}{fallback_note}, "
+            f"subgraph={prov.get('centrality_subgraph_nodes', 'unknown')}/"
+            f"{prov.get('centrality_subgraph_edges', 'unknown')}, "
+            f"ms={prov.get('centrality_latency_ms', 'unknown')})"
+        )
     return ""
 
 
@@ -301,18 +313,19 @@ def _advanced_lanes_appendix(report: BenchmarkReport) -> list[str]:
     """Per-task advanced-lane comparison: latency, token impact, and quality.
 
     Rendered only when an advanced lane ran. These lanes are benchmark-only
-    experiments (Workstream 5); none changes the product default.
+    experiments (Workstreams 5 and R1); none changes the product default.
     """
     rows = [result for result in report.results if result.strategy.value in _ADVANCED_LANES]
     if not rows:
         return []
     lines = ["", "### Advanced Quality Lanes", ""]
     lines.append(
-        "Benchmark-only experimental lanes (Workstream 5): query transformation, bounded "
-        "rerank, summary sidecars, and graph multihop. Each is gated behind the default "
-        "switch rule and never changes the product default. Compare added latency and token "
-        "impact against `archex_query` in the table above; the summary-sidecar lane also "
-        "carries an offline storage/index cost (the prebuilt sidecar)."
+        "Benchmark-only experimental lanes (Workstreams 5 and R1): query transformation, "
+        "bounded rerank, summary sidecars, graph multihop, and personalized structural "
+        "centrality. Each is gated behind the default switch rule and never changes the "
+        "product default. Compare added latency and token impact against `archex_query` "
+        "in the table above; the summary-sidecar lane also carries an offline "
+        "storage/index cost (the prebuilt sidecar)."
     )
     lines.append("")
     lines.append(
