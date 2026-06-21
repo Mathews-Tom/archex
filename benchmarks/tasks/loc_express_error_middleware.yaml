@@ -1,0 +1,34 @@
+task_id: loc_express_error_middleware
+repo: expressjs/express
+commit: "4.21.2"
+category: external-framework
+family: localization
+languages: [javascript]
+include_paths:
+  - lib
+question: "Bug report: an error-handling middleware (a function taking four arguments err, req, res, next) is not invoked when a route handler throws, while a non-error handler with too many arguments is also mis-dispatched. Where does a router layer decide, from a handler's arity, whether to invoke it as an error handler or as a normal request handler?"
+expected_files:
+  - lib/router/layer.js
+expected_symbols:
+  - handle_error
+  - handle_request
+expected_regions:
+  - path: lib/router/layer.js
+    granularity: symbol
+    symbol: handle_error
+    start_line: 62
+    end_line: 75
+    notes: "Invokes the layer handler as an error handler only when its arity is exactly 4, otherwise forwards the error to next(); pinned to Express 4.21.2."
+  - path: lib/router/layer.js
+    granularity: line_range
+    start_line: 86
+    end_line: 99
+    notes: "Layer.prototype.handle_request: invokes the handler as a normal request handler only when its arity is <= 3; pinned to Express 4.21.2."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - middleware
+  - error handler
+  - arity
+  - layer
+  - next

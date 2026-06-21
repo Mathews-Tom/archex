@@ -1,0 +1,37 @@
+task_id: loc_react_dispatch_set_state
+repo: facebook/react
+commit: "v19.0.0"
+category: external-large
+family: localization
+languages: [javascript]
+include_paths:
+  - packages/react-reconciler/src/ReactFiberHooks.js
+  - packages/react-reconciler/src/ReactFiberWorkLoop.js
+  - packages/react-reconciler/src/ReactFiberLane.js
+question: "Issue: a useState setter called with a value equal to the current state still schedules a re-render instead of taking the eager-state bail-out fast path. Which function enqueues a useState update, and where is the eager-state bail-out (comparing the eagerly computed next state to the current state) implemented?"
+expected_files:
+  - packages/react-reconciler/src/ReactFiberHooks.js
+expected_symbols:
+  - dispatchSetState
+  - dispatchSetStateInternal
+expected_regions:
+  - path: packages/react-reconciler/src/ReactFiberHooks.js
+    granularity: symbol
+    symbol: dispatchSetState
+    start_line: 3506
+    end_line: 3532
+    notes: "useState dispatch entry: requests an update lane and delegates to dispatchSetStateInternal; pinned to React v19.0.0."
+    weight: 0.8
+  - path: packages/react-reconciler/src/ReactFiberHooks.js
+    granularity: symbol
+    symbol: dispatchSetStateInternal
+    start_line: 3534
+    end_line: 3603
+    notes: "Builds the update, computes the eager state, and bails out without scheduling a render when the eager state equals the current state; pinned to React v19.0.0."
+token_budget: 8192
+keywords:
+  - useState
+  - dispatch
+  - eager state
+  - bailout
+  - reducer

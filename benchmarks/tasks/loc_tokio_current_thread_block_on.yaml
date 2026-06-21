@@ -1,0 +1,34 @@
+task_id: loc_tokio_current_thread_block_on
+repo: tokio-rs/tokio
+commit: "tokio-1.42.0"
+category: external-large
+family: localization
+languages: [rust]
+include_paths:
+  - tokio/src/runtime/scheduler/current_thread
+question: "Bug report: on the current-thread runtime, block_on does not correctly take ownership of the scheduler core (or wait for it to become available) before driving the future, so the future can stall. Where does the current-thread scheduler block on a future by stealing the core, and where is the core actually taken from its shared cell?"
+expected_files:
+  - tokio/src/runtime/scheduler/current_thread/mod.rs
+expected_symbols:
+  - block_on
+  - take_core
+expected_regions:
+  - path: tokio/src/runtime/scheduler/current_thread/mod.rs
+    granularity: line_range
+    start_line: 181
+    end_line: 220
+    notes: "CurrentThread::block_on: enters the runtime, steals the scheduler core to block on the future, otherwise parks on a notification until the core is free or the future completes; pinned to tokio-1.42.0."
+  - path: tokio/src/runtime/scheduler/current_thread/mod.rs
+    granularity: symbol
+    symbol: take_core
+    start_line: 222
+    end_line: 233
+    notes: "Takes the scheduler core out of its shared cell and wraps it in a CoreGuard; pinned to tokio-1.42.0."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - runtime
+  - current_thread
+  - block_on
+  - scheduler
+  - core

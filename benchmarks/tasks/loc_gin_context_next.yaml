@@ -1,0 +1,38 @@
+task_id: loc_gin_context_next
+repo: gin-gonic/gin
+commit: "v1.10.0"
+category: external-framework
+family: localization
+languages: [go]
+include_paths:
+  - gin.go
+  - context.go
+  - routergroup.go
+  - logger.go
+question: "Issue: calling c.Abort() inside a middleware does not prevent the remaining handlers in the chain from running, and c.Next() advances through the handler chain incorrectly. Where does the request context advance through the middleware/handler chain, and where does Abort stop further handlers from being called?"
+expected_files:
+  - context.go
+expected_symbols:
+  - Next
+  - Abort
+expected_regions:
+  - path: context.go
+    granularity: symbol
+    symbol: Context.Next
+    start_line: 182
+    end_line: 188
+    notes: "Advances the handler index and runs the pending handlers in the chain; pinned to Gin v1.10.0."
+  - path: context.go
+    granularity: symbol
+    symbol: Context.Abort
+    start_line: 199
+    end_line: 201
+    notes: "Sets the index past the chain (abortIndex) so pending handlers are skipped; pinned to Gin v1.10.0."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - middleware
+  - context
+  - Next
+  - Abort
+  - handlers
