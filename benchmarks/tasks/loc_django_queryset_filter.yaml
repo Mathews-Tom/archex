@@ -1,0 +1,42 @@
+task_id: loc_django_queryset_filter
+repo: django/django
+commit: "5.1.4"
+category: external-large
+family: localization
+languages: [python]
+include_paths:
+  - django/db/models
+question: "Issue: calling QuerySet.filter()/exclude() after a slice has been taken should raise, and the negated exclude() must wrap the lookup in NOT, but the conditions are added to the wrong query. Where does the QuerySet add the filter/exclude conditions to the underlying query (chaining a clone and ANDing or negating the Q)?"
+expected_files:
+  - django/db/models/query.py
+expected_symbols:
+  - filter
+  - _filter_or_exclude
+  - _filter_or_exclude_inplace
+expected_regions:
+  - path: django/db/models/query.py
+    granularity: symbol
+    symbol: QuerySet.filter
+    start_line: 1470
+    end_line: 1476
+    notes: "Public filter entry: rejects combined queries and delegates to _filter_or_exclude; pinned to Django 5.1.4."
+    weight: 0.8
+  - path: django/db/models/query.py
+    granularity: symbol
+    symbol: QuerySet._filter_or_exclude
+    start_line: 1486
+    end_line: 1495
+    notes: "Guards against filtering a sliced query and chains a clone before applying the conditions; pinned to Django 5.1.4."
+  - path: django/db/models/query.py
+    granularity: symbol
+    symbol: QuerySet._filter_or_exclude_inplace
+    start_line: 1497
+    end_line: 1501
+    notes: "Adds the Q to the query, negating it for exclude(); pinned to Django 5.1.4."
+token_budget: 8192
+keywords:
+  - queryset
+  - filter
+  - exclude
+  - add_q
+  - negate

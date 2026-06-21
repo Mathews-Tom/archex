@@ -1,0 +1,35 @@
+task_id: loc_requests_adapter_send
+repo: psf/requests
+commit: "v2.32.3"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - src/requests
+question: "Bug report: a (connect, read) timeout tuple passed to a request is not honored and urllib3 errors are not translated into the requests exception hierarchy. Where does the HTTP adapter open the connection, build the urllib3 timeout, send the request, and map low-level errors before constructing the Response?"
+expected_files:
+  - src/requests/adapters.py
+expected_symbols:
+  - send
+  - build_response
+expected_regions:
+  - path: src/requests/adapters.py
+    granularity: symbol
+    symbol: HTTPAdapter.send
+    start_line: 613
+    end_line: 719
+    notes: "Opens the connection, normalizes the timeout tuple, calls urlopen, and maps urllib3 errors to requests exceptions; pinned to requests v2.32.3."
+  - path: src/requests/adapters.py
+    granularity: symbol
+    symbol: HTTPAdapter.build_response
+    start_line: 359
+    end_line: 394
+    notes: "Builds the requests.Response from the urllib3 response; pinned to requests v2.32.3."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - adapter
+  - send
+  - timeout
+  - urlopen
+  - response

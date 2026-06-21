@@ -1,0 +1,38 @@
+task_id: loc_pydantic_validate_call
+repo: pydantic/pydantic
+commit: "v2.10.5"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - pydantic/_internal
+question: "Issue: a function decorated with @validate_call no longer validates its arguments against the generated schema, and when validate_return is enabled the return value is not validated either. Which wrapper builds the argument validator (and the optional return validator) and applies them when the decorated callable is invoked?"
+expected_files:
+  - pydantic/_internal/_validate_call.py
+expected_symbols:
+  - ValidateCallWrapper
+expected_regions:
+  - path: pydantic/_internal/_validate_call.py
+    granularity: file
+    notes: "The whole module wraps a callable with argument and return validation; pinned to pydantic v2.10.5."
+    weight: 0.5
+  - path: pydantic/_internal/_validate_call.py
+    granularity: symbol
+    symbol: ValidateCallWrapper.__init__
+    start_line: 53
+    end_line: 108
+    notes: "Builds the pydantic-core argument validator and the optional return validator; pinned to pydantic v2.10.5."
+  - path: pydantic/_internal/_validate_call.py
+    granularity: symbol
+    symbol: ValidateCallWrapper.__call__
+    start_line: 110
+    end_line: 115
+    notes: "Validates call arguments and applies the return validator on the result; pinned to pydantic v2.10.5."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - validate_call
+  - validator
+  - arguments
+  - return
+  - schema

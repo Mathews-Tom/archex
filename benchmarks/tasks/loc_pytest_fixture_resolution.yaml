@@ -1,0 +1,36 @@
+task_id: loc_pytest_fixture_resolution
+repo: pytest-dev/pytest
+commit: "8.3.4"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - src/_pytest/fixtures.py
+  - src/_pytest/python.py
+question: "Issue: a fixture defined on a plugin class is not bound to the requesting test instance, so the wrong callable is invoked during fixture setup. Which function resolves the actual fixture callable (binding it to request.instance when appropriate), and where is it invoked during fixture setup?"
+expected_files:
+  - src/_pytest/fixtures.py
+expected_symbols:
+  - resolve_fixture_function
+  - pytest_fixture_setup
+expected_regions:
+  - path: src/_pytest/fixtures.py
+    granularity: symbol
+    symbol: resolve_fixture_function
+    start_line: 1105
+    end_line: 1126
+    notes: "Resolves the fixture callable and binds it to request.instance when the fixture lives on a class; pinned to pytest 8.3.4."
+  - path: src/_pytest/fixtures.py
+    granularity: symbol
+    symbol: pytest_fixture_setup
+    start_line: 1129
+    end_line: 1150
+    notes: "Computes fixture argument values and calls the resolved fixture function; pinned to pytest 8.3.4."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - fixture
+  - resolve
+  - setup
+  - instance
+  - fixturedef

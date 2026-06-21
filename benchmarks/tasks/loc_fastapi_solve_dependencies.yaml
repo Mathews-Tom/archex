@@ -1,0 +1,27 @@
+task_id: loc_fastapi_solve_dependencies
+repo: tiangolo/fastapi
+commit: "0.115.6"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - fastapi/dependencies
+question: "Bug report: a dependency override registered via app.dependency_overrides is ignored, and sub-dependency results are not cached/reused within a single request. Which function recursively resolves a dependant's sub-dependencies, applies dependency overrides, and populates the dependency cache?"
+expected_files:
+  - fastapi/dependencies/utils.py
+expected_symbols:
+  - solve_dependencies
+expected_regions:
+  - path: fastapi/dependencies/utils.py
+    granularity: symbol
+    symbol: solve_dependencies
+    start_line: 572
+    end_line: 695
+    notes: "Recursively resolves sub-dependencies, applies dependency_overrides, caches results, and assembles request param values; pinned to FastAPI 0.115.6."
+token_budget: 8192
+keywords:
+  - dependency
+  - solve_dependencies
+  - override
+  - cache
+  - dependant
