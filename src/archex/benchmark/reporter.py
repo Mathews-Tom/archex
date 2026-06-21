@@ -268,6 +268,8 @@ _ADVANCED_LANES = (
     "archex_query_graph_multihop",
     "archex_query_ppr",
     "archex_query_churn",
+    "archex_query_conditional_rerank",
+    "archex_query_diversity_packed",
 )
 
 
@@ -314,6 +316,20 @@ def _advanced_lane_note(result: BenchmarkResult) -> str:
             f"boosted={prov.get('churn_files_boosted', 'unknown')}, "
             f"max_mult={prov.get('churn_max_multiplier', 'unknown')})"
         )
+    if strategy == "archex_query_conditional_rerank":
+        return (
+            f"bm25_ambiguous={prov.get('bm25_ambiguous', 'unknown')} "
+            f"(ce={prov.get('cross_encoder_status', 'unknown')}, "
+            f"rerank_ms={prov.get('rerank_ms', 'unknown')}, "
+            f"storage={prov.get('rerank_model_storage_bytes', 'unknown')})"
+        )
+    if strategy == "archex_query_diversity_packed":
+        return (
+            f"diversity={prov.get('diversity_applied', 'unknown')} "
+            f"(aspects={prov.get('query_aspects', 'unknown')}, "
+            f"lambda={prov.get('diversity_lambda', 'unknown')}, "
+            f"deselected={prov.get('deselected_for_diversity', 'unknown')})"
+        )
     return ""
 
 
@@ -328,13 +344,14 @@ def _advanced_lanes_appendix(report: BenchmarkReport) -> list[str]:
         return []
     lines = ["", "### Advanced Quality Lanes", ""]
     lines.append(
-        "Benchmark-only experimental lanes (Workstreams 5, R1, and R2): query "
+        "Benchmark-only experimental lanes (Workstreams 5, R1, R2, R4, and R5): query "
         "transformation, bounded rerank, summary sidecars, graph multihop, personalized "
-        "structural centrality, and an intent-gated recency/churn prior. Each is gated "
-        "behind the default switch rule and never changes the product default. Compare "
+        "structural centrality, an intent-gated recency/churn prior, a low-latency "
+        "conditional cross-encoder rerank, and query-adaptive diversity packing. Each is "
+        "gated behind the default switch rule and never changes the product default. Compare "
         "added latency and token impact against `archex_query` in the table above; the "
-        "summary-sidecar lane also carries an offline storage/index cost (the prebuilt "
-        "sidecar)."
+        "summary-sidecar lane carries an offline storage/index cost (the prebuilt sidecar) "
+        "and the conditional-rerank lane carries the rerank model-artifact storage cost."
     )
     lines.append("")
     lines.append(
@@ -361,11 +378,13 @@ _PACKING_LANES = (
     "archex_query",
     "archex_query_compressed",
     "archex_query_efficiency_packed",
+    "archex_query_diversity_packed",
 )
 _PACKING_LANE_LABELS = {
     "archex_query": "normal packing",
     "archex_query_compressed": "compressed packing",
     "archex_query_efficiency_packed": "efficiency-aware packing",
+    "archex_query_diversity_packed": "diversity packing",
 }
 
 
