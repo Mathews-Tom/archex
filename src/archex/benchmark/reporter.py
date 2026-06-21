@@ -267,6 +267,7 @@ _ADVANCED_LANES = (
     "archex_query_summary_sidecar",
     "archex_query_graph_multihop",
     "archex_query_ppr",
+    "archex_query_churn",
 )
 
 
@@ -306,6 +307,13 @@ def _advanced_lane_note(result: BenchmarkResult) -> str:
             f"{prov.get('centrality_subgraph_edges', 'unknown')}, "
             f"ms={prov.get('centrality_latency_ms', 'unknown')})"
         )
+    if strategy == "archex_query_churn":
+        return (
+            f"churn={prov.get('churn_source', 'unknown')} "
+            f"(gated={prov.get('churn_intent_gated', 'unknown')}, "
+            f"boosted={prov.get('churn_files_boosted', 'unknown')}, "
+            f"max_mult={prov.get('churn_max_multiplier', 'unknown')})"
+        )
     return ""
 
 
@@ -313,19 +321,20 @@ def _advanced_lanes_appendix(report: BenchmarkReport) -> list[str]:
     """Per-task advanced-lane comparison: latency, token impact, and quality.
 
     Rendered only when an advanced lane ran. These lanes are benchmark-only
-    experiments (Workstreams 5 and R1); none changes the product default.
+    experiments (Workstreams 5, R1, and R2); none changes the product default.
     """
     rows = [result for result in report.results if result.strategy.value in _ADVANCED_LANES]
     if not rows:
         return []
     lines = ["", "### Advanced Quality Lanes", ""]
     lines.append(
-        "Benchmark-only experimental lanes (Workstreams 5 and R1): query transformation, "
-        "bounded rerank, summary sidecars, graph multihop, and personalized structural "
-        "centrality. Each is gated behind the default switch rule and never changes the "
-        "product default. Compare added latency and token impact against `archex_query` "
-        "in the table above; the summary-sidecar lane also carries an offline "
-        "storage/index cost (the prebuilt sidecar)."
+        "Benchmark-only experimental lanes (Workstreams 5, R1, and R2): query "
+        "transformation, bounded rerank, summary sidecars, graph multihop, personalized "
+        "structural centrality, and an intent-gated recency/churn prior. Each is gated "
+        "behind the default switch rule and never changes the product default. Compare "
+        "added latency and token impact against `archex_query` in the table above; the "
+        "summary-sidecar lane also carries an offline storage/index cost (the prebuilt "
+        "sidecar)."
     )
     lines.append("")
     lines.append(
