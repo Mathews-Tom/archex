@@ -46,6 +46,7 @@ from archex.benchmark.summary_sidecar import SummarySidecar, file_content_hash
 from archex.benchmark.task_aware import DenseTrigger, TaskAwarePolicy, policy_for
 from archex.cache import CacheManager
 from archex.exceptions import ArchexError, ConfigError
+from archex.index.churn import ChurnPriors, load_churn_priors
 from archex.models import (
     ChunkerName,
     CodeChunk,
@@ -1093,6 +1094,7 @@ def _query_bundle(
     index_config: IndexConfig,
     cache: bool,
     centrality_mode: str = "global",
+    churn_priors: ChurnPriors | None = None,
 ) -> tuple[ContextBundle, IndexConfig, PipelineTiming]:
     """Run the query pipeline once; return the bundle and effective index config."""
     from archex.api import query
@@ -1111,6 +1113,7 @@ def _query_bundle(
         index_config=effective_config,
         timing=timing,
         centrality_mode=centrality_mode,
+        churn_priors=churn_priors,
     )
     return bundle, effective_config, timing
 
@@ -1212,6 +1215,15 @@ def _assemble_query_result(
             "centrality_subgraph_nodes": str(meta.centrality_subgraph_nodes),
             "centrality_subgraph_edges": str(meta.centrality_subgraph_edges),
         }
+    if strategy == Strategy.ARCHEX_QUERY_CHURN:
+        meta = bundle.retrieval_metadata
+        applied = meta.churn_priors_applied
+        result_fields["provenance"] = {
+            "churn_source": meta.churn_source,
+            "churn_intent_gated": str(meta.churn_intent_gated).lower(),
+            "churn_files_boosted": str(len(applied)),
+            "churn_max_multiplier": f"{max(applied.values(), default=1.0):.4f}",
+        }
     if include_completion:
         completion_tokens, completion_files = compute_bundle_completion_penalty(
             repo_path, result_files, task.expected_files
@@ -1255,6 +1267,7 @@ def _run_query_strategy(
     include_completion: bool = True,
     measure_freshness: bool = False,
     centrality_mode: str = "global",
+    churn_priors: ChurnPriors | None = None,
 ) -> BenchmarkResult:
     t0 = time.perf_counter()
     bundle, effective_config, timing = _query_bundle(
@@ -1264,6 +1277,7 @@ def _run_query_strategy(
         index_config=index_config,
         cache=cache,
         centrality_mode=centrality_mode,
+        churn_priors=churn_priors,
     )
     wall_ms = (time.perf_counter() - t0) * 1000
     logger.info(
@@ -1310,6 +1324,32 @@ def run_archex_query_ppr(task: BenchmarkTask, repo_path: Path) -> BenchmarkResul
         include_completion=True,
         measure_freshness=True,
         centrality_mode=CENTRALITY_MODE_PERSONALIZED_WEIGHTED,
+    )
+
+
+# Operators may check a precomputed per-file churn fixture into the cloned repo
+# at this path to drive the lane deterministically on shallow benchmark clones.
+_CHURN_FIXTURE_RELPATH = ".archex/churn.json"
+
+
+def run_archex_query_churn(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: BM25 retrieval with an intent-gated recency/churn prior.
+
+    The prior is read from a checked-in churn fixture (``.archex/churn.json`` in
+    the cloned repo) when present, else from the repo's real git history, else a
+    neutral fallback. On a shallow benchmark clone with no fixture the prior is
+    neutral, so this lane's ranking is identical to ``archex_query``.
+    """
+    churn_priors = load_churn_priors(repo_path, fixture_path=repo_path / _CHURN_FIXTURE_RELPATH)
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_CHURN,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+        include_completion=True,
+        measure_freshness=True,
+        churn_priors=churn_priors,
     )
 
 
@@ -3178,6 +3218,7 @@ default_strategy_registry.register(Strategy.RAW_GREPPED.value, run_raw_grepped)
 default_strategy_registry.register(Strategy.RAW_RIPGREP.value, run_raw_ripgrep)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY.value, run_archex_query)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_PPR.value, run_archex_query_ppr)
+default_strategy_registry.register(Strategy.ARCHEX_QUERY_CHURN.value, run_archex_query_churn)
 default_strategy_registry.register(Strategy.ARCHEX_SCOUT_FETCH.value, run_archex_scout_fetch)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_VECTOR.value, run_archex_query_vector)
 default_strategy_registry.register(Strategy.SURROGATE_VECTOR.value, run_surrogate_vector)

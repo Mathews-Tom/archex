@@ -48,6 +48,8 @@ class TestAvailableStrategies:
         assert Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY_PPR in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY_PPR not in DEFAULT_STRATEGIES
+        assert Strategy.ARCHEX_QUERY_CHURN in AVAILABLE_STRATEGIES
+        assert Strategy.ARCHEX_QUERY_CHURN not in DEFAULT_STRATEGIES
 
 
 class TestBenchmarkPreflight:
@@ -279,10 +281,12 @@ class TestRunBenchmark:
             config: object,
             index_config: IndexConfig,
             centrality_mode: str = "global",
+            churn_priors: object = None,
         ) -> ContextBundle:
             del config
             del explicit_token_budget
             del centrality_mode
+            del churn_priors
             captured.append(
                 (
                     index_config.embedder,

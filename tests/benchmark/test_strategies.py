@@ -37,6 +37,7 @@ from archex.benchmark.strategies import (
     measure_archex_freshness,
     reset_benchmark_retrieval_options,
     run_archex_query,
+    run_archex_query_churn,
     run_archex_query_fusion,
     run_archex_query_fusion_rerank,
     run_archex_query_hybrid,
@@ -752,6 +753,33 @@ class TestRunArchexQuery:
         assert int(result.provenance["centrality_subgraph_nodes"]) >= 0
         assert float(result.provenance["centrality_latency_ms"]) >= 0.0
 
+    def test_archex_query_churn_neutral_fallback_matches_archex_query(
+        self,
+        python_simple_repo: Path,
+    ) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="abc",
+            question="How does the main module work?",
+            expected_files=["main.py"],
+            token_budget=128,
+        )
+        base = run_archex_query(task, python_simple_repo)
+        churn = run_archex_query_churn(task, python_simple_repo)
+
+        assert churn.strategy == Strategy.ARCHEX_QUERY_CHURN
+        assert churn.tool_calls == 1
+        # The fixture repo has a single commit and no churn fixture => neutral.
+        assert churn.provenance["churn_source"] == "neutral_fallback"
+        assert churn.provenance["churn_intent_gated"] in {"true", "false"}
+        assert "churn_files_boosted" in churn.provenance
+        assert "churn_max_multiplier" in churn.provenance
+        # Neutral prior leaves the ranking identical to archex_query.
+        assert churn.result_files == base.result_files
+        assert churn.recall == base.recall
+        assert churn.f1_score == base.f1_score
+
     def test_archex_query_without_regions_leaves_region_fields_none(
         self,
         python_simple_repo: Path,
@@ -1243,8 +1271,9 @@ def test_vector_strategies_read_configured_embedder(
         index_config: IndexConfig,
         timing: object | None = None,
         centrality_mode: str = "global",
+        churn_priors: object = None,
     ) -> ContextBundle:
-        del config, explicit_token_budget, timing, centrality_mode
+        del config, explicit_token_budget, timing, centrality_mode, churn_priors
         captured.append(index_config.embedder)
         return ContextBundle(
             query=question,

@@ -56,6 +56,8 @@ class TestStrategyRegistry:
 
         assert Strategy.ARCHEX_QUERY_PPR.value in names
         assert default_strategy_registry.get(Strategy.ARCHEX_QUERY_PPR) is not None
+        assert Strategy.ARCHEX_QUERY_CHURN.value in names
+        assert default_strategy_registry.get(Strategy.ARCHEX_QUERY_CHURN) is not None
 
     def test_load_entry_points_registers_runner(self) -> None:
         reg = StrategyRegistry()
