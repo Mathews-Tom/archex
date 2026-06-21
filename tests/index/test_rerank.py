@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -11,14 +12,19 @@ import pytest
 from archex.exceptions import ConfigError
 from archex.index import rerank as rerank_module
 from archex.index.rerank import (
+    AMBIGUOUS_BM25_CV_THRESHOLD,
+    AMBIGUOUS_BM25_IDF_THRESHOLD,
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
     JINA_RERANKER_MODEL,
     MAX_CONTENT_CHARS,
     RERANK_CANDIDATE_LIMIT,
+    ConditionalReranker,
     CrossEncoderReranker,
     _best_device,  # pyright: ignore[reportPrivateUsage]
+    bm25_is_ambiguous,
     is_available,
+    maybe_conditional_reranker,
 )
 from archex.models import CodeChunk, IndexConfig, SymbolKind
 
@@ -433,3 +439,167 @@ class TestCrossEncoderReranker:
         assert result[1][1] == 0.5
         assert result[2][0].id == "a"
         assert result[2][1] == 0.1
+
+
+def _bm25(scores: list[float]) -> list[tuple[CodeChunk, float]]:
+    """Build a BM25-ranked candidate list with the given scores."""
+    return [(_make_chunk(f"c{i}"), score) for i, score in enumerate(scores)]
+
+
+class _StubReranker:
+    """Fake cross-encoder recording invocations and optionally sleeping."""
+
+    def __init__(self, *, sleep_s: float = 0.0) -> None:
+        self.calls = 0
+        self._sleep_s = sleep_s
+
+    def rerank(
+        self,
+        query: str,
+        candidates: list[tuple[CodeChunk, float]],
+        top_k: int = DEFAULT_TOP_K,
+    ) -> list[tuple[CodeChunk, float]]:
+        self.calls += 1
+        if self._sleep_s:
+            time.sleep(self._sleep_s)
+        # Reverse the candidate order so a reorder is observable.
+        reordered = list(reversed(candidates))
+        return [(chunk, float(rank)) for rank, (chunk, _) in enumerate(reordered)][:top_k]
+
+
+class TestBm25IsAmbiguous:
+    def test_flat_scores_are_ambiguous(self) -> None:
+        decision = bm25_is_ambiguous(_bm25([1.0, 0.99, 0.98, 0.97]))
+        assert decision.should_rerank is True
+        assert decision.reason.startswith("flat_bm25")
+        assert decision.bm25_cv <= AMBIGUOUS_BM25_CV_THRESHOLD
+
+    def test_clear_separation_is_confident(self) -> None:
+        decision = bm25_is_ambiguous(_bm25([10.0, 1.0, 1.0, 1.0]))
+        assert decision.should_rerank is False
+        assert decision.reason.startswith("confident_bm25")
+        assert decision.bm25_cv > AMBIGUOUS_BM25_CV_THRESHOLD
+
+    def test_low_idf_forces_rerank_despite_clear_separation(self) -> None:
+        # Clear BM25 separation, but query terms are too common to discriminate.
+        decision = bm25_is_ambiguous(
+            _bm25([10.0, 1.0, 1.0, 1.0]),
+            avg_idf=AMBIGUOUS_BM25_IDF_THRESHOLD - 0.5,
+        )
+        assert decision.should_rerank is True
+        assert decision.reason.startswith("low_idf")
+
+    def test_high_idf_keeps_confident_decision(self) -> None:
+        decision = bm25_is_ambiguous(
+            _bm25([10.0, 1.0, 1.0, 1.0]),
+            avg_idf=AMBIGUOUS_BM25_IDF_THRESHOLD + 1.0,
+        )
+        assert decision.should_rerank is False
+
+    def test_too_few_results_skip(self) -> None:
+        decision = bm25_is_ambiguous(_bm25([1.0]))
+        assert decision.should_rerank is False
+        assert decision.reason.startswith("too_few_results")
+
+
+class TestMaybeConditionalReranker:
+    def test_disabled_returns_none(self) -> None:
+        assert maybe_conditional_reranker(enabled=False) is None
+
+    def test_enabled_returns_conditional_reranker(self) -> None:
+        reranker = maybe_conditional_reranker(enabled=True, model_name="custom/model")
+        assert isinstance(reranker, ConditionalReranker)
+
+    def test_enabled_does_not_load_model_at_construction(self) -> None:
+        # Construction must not touch the model: a remote-code model with the
+        # opt-in unset only fails when an ambiguous query actually invokes it.
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        reranker = maybe_conditional_reranker(
+            enabled=True, model_name=JINA_RERANKER_MODEL, allow_remote_code=False
+        )
+        assert isinstance(reranker, ConditionalReranker)
+
+
+class TestConditionalRerank:
+    def test_confident_bm25_skips_model(self) -> None:
+        stub = _StubReranker()
+        conditional = ConditionalReranker(stub)  # type: ignore[arg-type]
+        candidates = _bm25([10.0, 1.0, 1.0, 1.0])
+        result = conditional.rerank_if_ambiguous("q", candidates, candidates)
+        assert stub.calls == 0
+        assert result.invoked is False
+        assert result.status == "skipped:confident_bm25"
+        assert result.results == candidates
+        assert result.rerank_ms == 0.0
+
+    def test_ambiguous_bm25_invokes_model_and_reorders(self) -> None:
+        stub = _StubReranker()
+        conditional = ConditionalReranker(stub)  # type: ignore[arg-type]
+        candidates = _bm25([1.0, 0.99, 0.98, 0.97])
+        result = conditional.rerank_if_ambiguous("q", candidates, candidates)
+        assert stub.calls == 1
+        assert result.invoked is True
+        assert result.status == "applied"
+        # Stub reverses order; the full candidate set is preserved.
+        assert [c.id for c, _ in result.results] == [c.id for c, _ in reversed(candidates)]
+        assert {c.id for c, _ in result.results} == {c.id for c, _ in candidates}
+
+    def test_low_idf_invokes_model_even_when_separated(self) -> None:
+        stub = _StubReranker()
+        conditional = ConditionalReranker(stub)  # type: ignore[arg-type]
+        candidates = _bm25([10.0, 1.0, 1.0, 1.0])
+        result = conditional.rerank_if_ambiguous(
+            "q", candidates, candidates, avg_idf=AMBIGUOUS_BM25_IDF_THRESHOLD - 0.5
+        )
+        assert stub.calls == 1
+        assert result.status == "applied"
+
+    def test_tail_beyond_candidate_limit_keeps_order(self) -> None:
+        stub = _StubReranker()
+        conditional = ConditionalReranker(stub, candidate_limit=2)  # type: ignore[arg-type]
+        candidates = _bm25([1.0, 0.99, 0.98, 0.97])
+        result = conditional.rerank_if_ambiguous("q", candidates, candidates)
+        # Head (first 2) reordered; tail (last 2) keeps retrieval order.
+        ids = [c.id for c, _ in result.results]
+        assert ids[:2] == ["c1", "c0"]
+        assert ids[2:] == ["c2", "c3"]
+
+    def test_rerank_stage_latency_is_bounded(self) -> None:
+        stub = _StubReranker()
+        conditional = ConditionalReranker(stub)  # type: ignore[arg-type]
+        candidates = _bm25([1.0, 0.99, 0.98, 0.97])
+        result = conditional.rerank_if_ambiguous("q", candidates, candidates)
+        assert result.status == "applied"
+        # The applied rerank stage must stay within the configured cap.
+        assert 0.0 <= result.rerank_ms <= conditional.latency_cap_ms
+
+    def test_slow_model_pass_aborts_and_preserves_order(self) -> None:
+        stub = _StubReranker(sleep_s=0.02)
+        conditional = ConditionalReranker(stub, latency_cap_ms=1.0)  # type: ignore[arg-type]
+        candidates = _bm25([1.0, 0.99, 0.98, 0.97])
+        result = conditional.rerank_if_ambiguous("q", candidates, candidates)
+        assert stub.calls == 1
+        assert result.invoked is True
+        assert result.status == "aborted:latency"
+        assert result.rerank_ms > conditional.latency_cap_ms
+        # Aborted rerank falls back to the original retrieval order.
+        assert result.results == candidates
+
+    def test_empty_candidates_skip_without_invocation(self) -> None:
+        stub = _StubReranker()
+        conditional = ConditionalReranker(stub)  # type: ignore[arg-type]
+        result = conditional.rerank_if_ambiguous("q", [], _bm25([1.0, 0.99, 0.98]))
+        assert stub.calls == 0
+        assert result.invoked is False
+        assert result.status == "skipped:no_candidates"
+
+    def test_respects_remote_code_policy_on_invocation(self) -> None:
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+        conditional = maybe_conditional_reranker(
+            enabled=True, model_name=JINA_RERANKER_MODEL, allow_remote_code=False
+        )
+        assert conditional is not None
+        candidates = _bm25([1.0, 0.99, 0.98, 0.97])
+        with pytest.raises(ConfigError, match="Remote code is disabled.*jina-reranker-v3"):
+            conditional.rerank_if_ambiguous("q", candidates, candidates)
+        rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
