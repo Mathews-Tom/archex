@@ -1,0 +1,38 @@
+task_id: loc_gin_tree_route
+repo: gin-gonic/gin
+commit: "v1.10.0"
+category: external-framework
+family: localization
+languages: [go]
+include_paths:
+  - tree.go
+  - routergroup.go
+  - gin.go
+  - context.go
+question: "Bug report: registering a route containing a named parameter or wildcard (for example /user/:id/*action) builds the radix tree incorrectly, so later lookups miss the route. Where does the router insert a path and its handlers into the radix tree, splitting nodes on the common prefix and creating the wildcard child nodes?"
+expected_files:
+  - tree.go
+expected_symbols:
+  - addRoute
+  - insertChild
+expected_regions:
+  - path: tree.go
+    granularity: symbol
+    symbol: addRoute
+    start_line: 152
+    end_line: 266
+    notes: "Inserts a path and its handlers into the radix tree, splitting on the longest common prefix; pinned to Gin v1.10.0."
+  - path: tree.go
+    granularity: symbol
+    symbol: insertChild
+    start_line: 293
+    end_line: 402
+    notes: "Creates the child nodes for the named-parameter/wildcard segments of the path; pinned to Gin v1.10.0."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - router
+  - radix tree
+  - wildcard
+  - addRoute
+  - param

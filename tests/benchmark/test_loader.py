@@ -38,6 +38,14 @@ LABELED_EXTERNAL_TASKS = (
     "requests_sessions",
 )
 ALLOWED_REGION_GRANULARITIES = {"file", "symbol", "block", "line_range"}
+MULTILANG_LOCALIZATION_TASK_IDS = (
+    "loc_express_error_middleware",
+    "loc_react_dispatch_set_state",
+    "loc_gin_tree_route",
+    "loc_gin_context_next",
+    "loc_tokio_current_thread_block_on",
+    "loc_mini_redis_command_from_frame",
+)
 LOCALIZATION_TASK_IDS = (
     "loc_requests_redirect_auth",
     "loc_django_username_validator",
@@ -54,6 +62,7 @@ LOCALIZATION_TASK_IDS = (
     "loc_pytest_fixture_resolution",
     "loc_requests_adapter_send",
     "loc_sqlalchemy_session_merge",
+    *MULTILANG_LOCALIZATION_TASK_IDS,
 )
 
 
@@ -522,6 +531,49 @@ expected_regions:
         )
 
         with pytest.raises(ValueError, match=r"loc_django_queryset_filter\.yaml.*start_line"):
+            load_task(malformed)
+
+
+class TestLoadMultiLanguageLocalizationTasks:
+    def test_multilang_tasks_load_and_validate(self) -> None:
+        for task_id in MULTILANG_LOCALIZATION_TASK_IDS:
+            task = load_task(TASKS_DIR / f"{task_id}.yaml")
+
+            assert task.family is TaskFamily.LOCALIZATION, task_id
+            assert task.languages, f"{task_id} declares no languages"
+            # The multi-language family covers the non-Python repos in the corpus.
+            assert task.languages != ["python"], task_id
+            assert task.expected_regions, f"{task_id} declares no expected_regions"
+            region_paths = {region.path for region in task.expected_regions}
+            assert region_paths <= set(task.expected_files), task_id
+
+    def test_multilang_region_granularities_are_in_allowed_set(self) -> None:
+        for task_id in MULTILANG_LOCALIZATION_TASK_IDS:
+            task = load_task(TASKS_DIR / f"{task_id}.yaml")
+
+            granularities = {region.granularity.value for region in task.expected_regions}
+            assert granularities <= ALLOWED_REGION_GRANULARITIES, (task_id, granularities)
+
+    def test_multilang_languages_cover_js_go_and_rust(self) -> None:
+        languages: set[str] = set()
+        for task_id in MULTILANG_LOCALIZATION_TASK_IDS:
+            languages.update(load_task(TASKS_DIR / f"{task_id}.yaml").languages or [])
+
+        assert {"javascript", "go", "rust"} <= languages
+
+    def test_real_multilang_loc_task_rejects_invalid_granularity(self, tmp_path: Path) -> None:
+        source = TASKS_DIR / "loc_gin_tree_route.yaml"
+        malformed = tmp_path / source.name
+        malformed.write_text(
+            source.read_text(encoding="utf-8").replace(
+                "    granularity: symbol",
+                "    granularity: paragraph",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match=r"loc_gin_tree_route\.yaml.*granularity"):
             load_task(malformed)
 
 

@@ -1,0 +1,34 @@
+task_id: loc_mini_redis_command_from_frame
+repo: tokio-rs/mini-redis
+commit: "e186482ca00f8d884ddcbe20417f3654d03315a4"
+category: external-framework
+family: localization
+languages: [rust]
+include_paths:
+  - src
+question: "Issue: an unrecognized command name is rejected with an error instead of being parsed into an Unknown command, and after parsing a known command the leftover frame fields are not checked. Where is a received frame parsed into a Command by reading the command name and dispatching to the per-command parser?"
+expected_files:
+  - src/cmd/mod.rs
+expected_symbols:
+  - from_frame
+  - apply
+expected_regions:
+  - path: src/cmd/mod.rs
+    granularity: symbol
+    symbol: from_frame
+    start_line: 44
+    end_line: 84
+    notes: "Reads the command name, dispatches to the per-command parser, returns an Unknown command for unrecognized names, and verifies no leftover frame fields; pinned to mini-redis commit e186482."
+  - path: src/cmd/mod.rs
+    granularity: line_range
+    start_line: 90
+    end_line: 109
+    notes: "Command::apply: dispatches the parsed command to its per-command apply implementation; pinned to mini-redis commit e186482."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - command
+  - from_frame
+  - parse
+  - unknown
+  - dispatch
