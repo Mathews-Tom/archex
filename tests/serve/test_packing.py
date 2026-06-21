@@ -759,3 +759,100 @@ class TestDiversityPlanProvenance:
         assert prov["diversity_lambda"] == "0.70"
         assert "deselected_for_diversity" in prov
         assert prov["protected_regions"] == "0"
+
+
+class TestDiversityTightBudget:
+    def test_recall_superset_holds_when_deselection_frees_budget(self) -> None:
+        # Regression guard: de-selecting a redundant region must not let a later
+        # region upgrade and starve a downstream single-region file. Baseline keeps
+        # fileP (x2), fileU (elided), fileK; diversity must keep all three files.
+        sig = frozenset({"a", "b", "c", "d", "e"})
+        candidates = [
+            _candidate(
+                _signals(
+                    "P",
+                    file_path="src/fileP.py",
+                    retrieval_score=0.50,
+                    token_count=100,
+                    handle_priority=1.0,
+                ),
+                elided_token_count=5,
+            ),
+            _candidate(
+                _signals(
+                    "R",
+                    file_path="src/fileP.py",
+                    retrieval_score=0.50,
+                    token_count=100,
+                    handle_priority=0.8,
+                ),
+                elided_token_count=5,
+            ),
+            _candidate(
+                _signals(
+                    "U",
+                    file_path="src/fileU.py",
+                    retrieval_score=0.41,
+                    token_count=205,
+                    handle_priority=0.6,
+                ),
+                elided_token_count=5,
+            ),
+            _candidate(
+                _signals(
+                    "K",
+                    file_path="src/fileK.py",
+                    retrieval_score=0.30,
+                    token_count=100,
+                    handle_priority=0.0,
+                ),
+                elided_token_count=5,
+            ),
+        ]
+        signatures = {"P": sig, "R": sig}
+        baseline = pack_efficiently(candidates, token_budget=305, budget_tier=BudgetTier.STANDARD)
+        plan = pack_with_diversity(
+            candidates,
+            signatures,
+            token_budget=305,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=2,
+        )
+        by_id = {c.signals.candidate_id: c for c in candidates}
+        baseline_files = {by_id[cid].signals.file_path for cid in baseline.kept_ids()}
+        diversity_files = {by_id[cid].signals.file_path for cid in plan.kept_ids()}
+        assert plan.deselected_for_diversity == 1
+        assert plan.decision_for("R") is PackDecision.SKIP
+        # The redundant de-selection must not drop fileK that the baseline kept.
+        assert "src/fileK.py" in diversity_files
+        assert baseline_files <= diversity_files
+        # Diversity never re-spends freed budget on a richer representation.
+        assert plan.included_tokens <= baseline.included_tokens
+
+    def test_direct_region_never_skipped_under_tight_budget(self) -> None:
+        candidates = [
+            _candidate(
+                _signals(
+                    "direct",
+                    file_path="src/auth.py",
+                    retrieval_score=0.9,
+                    direct_match=True,
+                    token_count=1000,
+                ),
+                elided_token_count=5,
+            ),
+            _candidate(
+                _signals("opt", file_path="src/util.py", retrieval_score=0.5, token_count=200),
+                elided_token_count=5,
+            ),
+        ]
+        plan = pack_with_diversity(
+            candidates,
+            {"opt": frozenset({"a", "b"})},
+            token_budget=10,
+            budget_tier=BudgetTier.STANDARD,
+            query_aspects=2,
+        )
+        # A direct/required region is kept (at least as an anchor), never skipped.
+        assert plan.decision_for("direct") is not PackDecision.SKIP
+        assert "direct" in plan.kept_ids()

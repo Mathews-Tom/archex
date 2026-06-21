@@ -547,16 +547,19 @@ def pack_with_diversity(
 ) -> DiversityPackingPlan:
     """Pack with query-adaptive MMR diversity over the low-confidence tail.
 
-    Behaves exactly like :func:`pack_efficiently` for narrow single-aspect queries
-    (diversity off). For multi-aspect queries it applies MMR de-selection: a
-    non-protected optional region is dropped only when it is a near-duplicate
-    (token-signature Jaccard at or above the redundancy threshold) of an
-    already-kept content region AND its file is already represented by another kept
-    region. A required/direct/high-confidence region is therefore never
-    de-selected, and because candidates are processed in the same order as
-    :func:`pack_efficiently` while diversity only converts optional regions to
-    SKIP (never charging more budget), the diversity kept-file set is a superset of
-    pack_efficiently's — file recall never regresses.
+    Derived from :func:`pack_efficiently`: the baseline plan is computed first,
+    then for a multi-aspect query a redundant non-protected optional region is
+    flipped to SKIP. Every other region keeps its baseline decision verbatim — the
+    diversity plan never upgrades a region to a richer (costlier) representation, so
+    it can never re-spend freed budget and starve a later region. A region is
+    de-selected only when it is a near-duplicate (token-signature Jaccard at or
+    above the redundancy threshold) of an already-kept content region AND its file
+    is already represented by another kept region. Because every region's decision
+    is the baseline's or SKIP, the per-region charged cost never exceeds the
+    baseline's and the first kept region of each file is never de-selected, so the
+    diversity kept-file set is a superset of pack_efficiently's — file recall never
+    regresses. A required/direct/high-confidence region is never de-selected, and a
+    narrow single-aspect query (lambda 1.0) returns the baseline plan unchanged.
 
     ``signatures`` maps candidate id to a deterministic token signature used for
     redundancy scoring; a missing or empty signature is treated as non-redundant.
@@ -564,11 +567,10 @@ def pack_with_diversity(
     lam = query_adaptive_lambda(query_aspects)
     diversity_applied = lam < _DIVERSITY_LAMBDA_NARROW
 
-    by_id = {candidate.signals.candidate_id: candidate for candidate in candidates}
-    scores = [
-        score_candidate(candidate.signals, budget_tier=budget_tier) for candidate in candidates
-    ]
-    ordered = order_candidates(scores)
+    baseline = pack_efficiently(candidates, token_budget=token_budget, budget_tier=budget_tier)
+    file_by_id = {
+        candidate.signals.candidate_id: candidate.signals.file_path for candidate in candidates
+    }
 
     used = 0
     regions: list[PackedRegion] = []
@@ -576,55 +578,44 @@ def pack_with_diversity(
     file_kept_counts: dict[str, int] = {}
     deselected = 0
     protected = 0
-    for score in ordered:
-        candidate = by_id[score.candidate_id]
-        is_protected = score.direct_match
+    for region in baseline.regions:
+        # Baseline already dropped this region; carry the SKIP through untouched.
+        if region.decision is PackDecision.SKIP:
+            regions.append(region)
+            continue
+        is_protected = region.score.direct_match
         if is_protected:
             protected += 1
-        signature = signatures.get(score.candidate_id, frozenset())
+        signature = signatures.get(region.candidate_id, frozenset())
+        file_path = file_by_id[region.candidate_id]
         if diversity_applied and not is_protected and signature:
             max_similarity = max(
                 (jaccard(signature, kept) for kept in kept_signatures), default=0.0
             )
-            file_represented = file_kept_counts.get(candidate.signals.file_path, 0) > 0
+            file_represented = file_kept_counts.get(file_path, 0) > 0
             # MMR de-selection: drop a redundant optional region only when its file
             # stays represented, so file recall never regresses.
             if max_similarity >= _REDUNDANCY_SIMILARITY_THRESHOLD and file_represented:
                 deselected += 1
                 regions.append(
                     PackedRegion(
-                        candidate_id=score.candidate_id,
+                        candidate_id=region.candidate_id,
                         decision=PackDecision.SKIP,
-                        score=score,
+                        score=region.score,
                         tokens_charged=0,
-                        retrieval_score=candidate.signals.retrieval_score,
+                        retrieval_score=region.retrieval_score,
                     )
                 )
                 continue
-        allow_skip = not is_protected
-        decision = _fit_decision(
-            candidate, score.decision, token_budget - used, allow_skip=allow_skip
-        )
-        cost = _decision_cost(decision, candidate)
-        charged = 0 if decision is PackDecision.SKIP else cost
-        used += charged
-        if decision is not PackDecision.SKIP:
-            file_kept_counts[candidate.signals.file_path] = (
-                file_kept_counts.get(candidate.signals.file_path, 0) + 1
-            )
-            # Only content-bearing regions anchor redundancy comparisons; an ELIDE
-            # keeps an anchor, not the body, so it does not represent content here.
-            if decision in (PackDecision.INCLUDE, PackDecision.COMPRESS):
-                kept_signatures.append(signature)
-        regions.append(
-            PackedRegion(
-                candidate_id=score.candidate_id,
-                decision=decision,
-                score=score,
-                tokens_charged=charged,
-                retrieval_score=candidate.signals.retrieval_score,
-            )
-        )
+        # Keep the baseline decision verbatim — never richer, so budget is never
+        # re-spent and a downstream baseline-kept region is never starved.
+        regions.append(region)
+        used += region.tokens_charged
+        file_kept_counts[file_path] = file_kept_counts.get(file_path, 0) + 1
+        # Only content-bearing regions anchor redundancy comparisons; an ELIDE
+        # keeps an anchor, not the body, so it does not represent content here.
+        if region.decision in (PackDecision.INCLUDE, PackDecision.COMPRESS):
+            kept_signatures.append(signature)
     return DiversityPackingPlan(
         regions=regions,
         included_tokens=used,
