@@ -20,6 +20,8 @@ from archex.benchmark.models import (
     BenchmarkTask,
     DeltaBenchmarkTask,
     ExpectedRegion,
+    RegionGranularity,
+    TaskFamily,
 )
 
 TASKS_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "tasks"
@@ -36,6 +38,13 @@ LABELED_EXTERNAL_TASKS = (
     "requests_sessions",
 )
 ALLOWED_REGION_GRANULARITIES = {"file", "symbol", "block", "line_range"}
+LOCALIZATION_TASK_IDS = (
+    "loc_requests_redirect_auth",
+    "loc_django_username_validator",
+    "loc_flask_blueprint_register",
+    "loc_httpx_redirect_headers",
+    "loc_fastapi_jsonable_encoder",
+)
 
 
 @pytest.fixture
@@ -414,6 +423,72 @@ expected_regions:
 
         with pytest.raises(ValueError, match=r"fastapi_routing\.yaml.*granularity"):
             load_task(malformed)
+
+
+class TestLoadLocalizationTasks:
+    def test_localization_tasks_load_with_localization_family(self) -> None:
+        for task_id in LOCALIZATION_TASK_IDS:
+            task = load_task(TASKS_DIR / f"{task_id}.yaml")
+
+            assert task.family is TaskFamily.LOCALIZATION, task_id
+            assert task.expected_regions, f"{task_id} declares no expected_regions"
+            region_paths = {region.path for region in task.expected_regions}
+            assert region_paths <= set(task.expected_files), task_id
+
+    def test_localization_tasks_accept_symbol_granularity_regions(self) -> None:
+        for task_id in LOCALIZATION_TASK_IDS:
+            task = load_task(TASKS_DIR / f"{task_id}.yaml")
+
+            symbol_regions = [
+                region
+                for region in task.expected_regions
+                if region.granularity is RegionGranularity.SYMBOL
+            ]
+            assert symbol_regions, f"{task_id} declares no symbol-granularity region"
+            for region in symbol_regions:
+                # Symbol regions may also pin an explicit line range; when they do,
+                # the bounds must round-trip as a valid inclusive range.
+                if region.start_line is not None:
+                    assert region.end_line is not None, (task_id, region.symbol)
+                    assert region.start_line <= region.end_line, (task_id, region.symbol)
+
+    def test_localization_family_includes_file_granularity_region(self) -> None:
+        task = load_task(TASKS_DIR / "loc_django_username_validator.yaml")
+
+        file_regions = [
+            region for region in task.expected_regions if region.granularity.value == "file"
+        ]
+        assert file_regions, "expected at least one file-granularity localization region"
+        assert all(region.start_line is None and region.symbol is None for region in file_regions)
+
+    def test_comprehension_is_the_default_family(self) -> None:
+        task = load_task(TASKS_DIR / "fastapi_routing.yaml")
+
+        assert task.family is TaskFamily.COMPREHENSION
+
+    def test_symbol_region_without_line_range_accepted(self, tmp_path: Path) -> None:
+        p = tmp_path / "loc_symbol_only.yaml"
+        p.write_text("""\
+task_id: loc_symbol_only
+repo: owner/repo
+commit: "v1.2.3"
+family: localization
+question: "Issue: where is the handler defined?"
+expected_files:
+  - src/app.py
+expected_regions:
+  - path: src/app.py
+    granularity: symbol
+    symbol: App.handle
+""")
+
+        task = load_task(p)
+
+        assert task.family is TaskFamily.LOCALIZATION
+        region = task.expected_regions[0]
+        assert region.symbol == "App.handle"
+        assert region.start_line is None
+        assert region.end_line is None
 
 
 class TestLoadArchTask:
