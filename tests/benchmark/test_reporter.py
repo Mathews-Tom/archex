@@ -583,6 +583,18 @@ def _summary_sidecar_result() -> BenchmarkResult:
     return result
 
 
+def _ppr_result() -> BenchmarkResult:
+    result = _make_result(Strategy.ARCHEX_QUERY_PPR, tokens=625)
+    result.provenance = {
+        "centrality_variant": "personalized_weighted_directional",
+        "centrality_personalized": "true",
+        "centrality_subgraph_nodes": "12",
+        "centrality_subgraph_edges": "18",
+        "centrality_latency_ms": "4.250",
+    }
+    return result
+
+
 class TestAdvancedLanesReporting:
     def test_appendix_rendered_for_advanced_lane(self) -> None:
         report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _dual_transform_result()])
@@ -602,6 +614,7 @@ class TestAdvancedLanesReporting:
                 _bounded_rerank_result(),
                 _summary_sidecar_result(),
                 _graph_multihop_result(),
+                _ppr_result(),
             ]
         )
         section = format_markdown(report).split("### Advanced Quality Lanes", 1)[1]
@@ -611,6 +624,9 @@ class TestAdvancedLanesReporting:
         assert "summary_first=true, stale=2" in section
         assert "expanded 3" in section
         assert "frontier/budget/low-conf=1/2/4" in section
+        assert "centrality=personalized_weighted_directional" in section
+        assert "personalized=true" in section
+        assert "subgraph=12/18" in section
 
     def test_appendix_absent_without_advanced_lane(self) -> None:
         report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
