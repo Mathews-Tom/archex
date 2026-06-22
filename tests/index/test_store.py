@@ -356,7 +356,7 @@ def test_fresh_store_does_not_need_reindex(store: IndexStore) -> None:
 
 
 def test_fresh_store_has_schema_version(store: IndexStore) -> None:
-    assert store.get_metadata("schema_version") == "4"
+    assert store.get_metadata("schema_version") == "5"
 
 
 def test_fresh_store_has_edge_confidence_columns(store: IndexStore) -> None:
@@ -399,7 +399,7 @@ def test_migrated_store_with_null_symbol_ids_needs_reindex(tmp_path: Path) -> No
 
     with IndexStore(db) as s:
         assert s.needs_reindex() is True
-        assert s.get_metadata("schema_version") == "4"
+        assert s.get_metadata("schema_version") == "5"
         columns = {row[1] for row in s.conn.execute("PRAGMA table_info(edges)")}
         assert {"confidence", "confidence_score", "evidence"} <= columns
 
@@ -502,43 +502,140 @@ def test_get_file_metadata_empty_store(store: IndexStore) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _file_states(token_counts: dict[str, int]) -> dict[str, dict[str, int | str]]:
+    return {
+        path: {
+            "size_bytes": 100,
+            "mtime_ns": 1,
+            "sha256": "0" * 64,
+            "token_count": tokens,
+        }
+        for path, tokens in token_counts.items()
+    }
+
+
+def _legacy_file_states(paths: list[str]) -> dict[str, dict[str, int | str]]:
+    """File-state rows without a per-file token total, as a pre-migration index has."""
+    return {path: {"size_bytes": 100, "mtime_ns": 1, "sha256": "0" * 64} for path in paths}
+
+
 def test_get_total_tokens(store: IndexStore) -> None:
-    store.insert_chunks(SAMPLE_CHUNKS)
-    # utils.py=20 + auth.py=25 + models.py=35
-    assert store.get_total_tokens() == 80
+    store.replace_file_states(_file_states({"utils.py": 12, "auth.py": 18, "models.py": 31}))
+    assert store.get_total_tokens() == 61
 
 
 def test_get_total_tokens_empty(store: IndexStore) -> None:
-    assert store.get_total_tokens() == 0
+    # No file_states rows: no true baseline available -> omit rather than report 0.
+    assert store.get_total_tokens() is None
+
+
+def test_get_total_tokens_legacy_omits(store: IndexStore) -> None:
+    # A legacy index whose file_states predate token_count must omit the baseline,
+    # never fall back to the inflated chunk sum and never latch a warning.
+    store.replace_file_states(_legacy_file_states(["utils.py", "auth.py"]))
+    assert store.get_total_tokens() is None
+
+
+def test_get_total_tokens_partial_population_omits(store: IndexStore) -> None:
+    # After a delta on a legacy index only changed files carry token totals; until a
+    # full reindex repopulates every row, the whole-repo baseline is omitted.
+    store.replace_file_states(
+        {
+            "utils.py": {"size_bytes": 100, "mtime_ns": 1, "sha256": "0" * 64, "token_count": 12},
+            "auth.py": {"size_bytes": 100, "mtime_ns": 1, "sha256": "0" * 64},
+        }
+    )
+    assert store.get_total_tokens() is None
 
 
 def test_get_file_tokens(store: IndexStore) -> None:
-    store.insert_chunks(SAMPLE_CHUNKS)
-    assert store.get_file_tokens("utils.py") == 20
-    assert store.get_file_tokens("auth.py") == 25
-    assert store.get_file_tokens("models.py") == 35
+    store.replace_file_states(_file_states({"utils.py": 12, "auth.py": 18}))
+    assert store.get_file_tokens("utils.py") == 12
+    assert store.get_file_tokens("auth.py") == 18
 
 
 def test_get_file_tokens_missing_file(store: IndexStore) -> None:
-    store.insert_chunks(SAMPLE_CHUNKS)
-    assert store.get_file_tokens("nonexistent.py") == 0
+    store.replace_file_states(_file_states({"utils.py": 12}))
+    assert store.get_file_tokens("nonexistent.py") is None
+
+
+def test_get_file_tokens_legacy_omits(store: IndexStore) -> None:
+    store.replace_file_states(_legacy_file_states(["utils.py"]))
+    assert store.get_file_tokens("utils.py") is None
 
 
 def test_get_files_tokens(store: IndexStore) -> None:
-    store.insert_chunks(SAMPLE_CHUNKS)
-    assert store.get_files_tokens(["utils.py", "auth.py"]) == 45
-    assert store.get_files_tokens(["models.py"]) == 35
+    store.replace_file_states(_file_states({"utils.py": 12, "auth.py": 18, "models.py": 31}))
+    assert store.get_files_tokens(["utils.py", "auth.py"]) == 30
+    assert store.get_files_tokens(["models.py"]) == 31
 
 
 def test_get_files_tokens_deduplicates(store: IndexStore) -> None:
-    store.insert_chunks(SAMPLE_CHUNKS)
-    # Duplicate paths should be deduplicated
-    assert store.get_files_tokens(["utils.py", "utils.py", "auth.py"]) == 45
+    store.replace_file_states(_file_states({"utils.py": 12, "auth.py": 18}))
+    assert store.get_files_tokens(["utils.py", "utils.py", "auth.py"]) == 30
 
 
 def test_get_files_tokens_empty_list(store: IndexStore) -> None:
-    store.insert_chunks(SAMPLE_CHUNKS)
+    store.replace_file_states(_file_states({"utils.py": 12}))
     assert store.get_files_tokens([]) == 0
+
+
+def test_get_files_tokens_unknown_file_omits(store: IndexStore) -> None:
+    store.replace_file_states(_file_states({"utils.py": 12}))
+    assert store.get_files_tokens(["utils.py", "ghost.py"]) is None
+
+
+def test_get_files_tokens_legacy_file_omits(store: IndexStore) -> None:
+    store.replace_file_states(_legacy_file_states(["utils.py"]))
+    assert store.get_files_tokens(["utils.py"]) is None
+
+
+def test_token_baseline_reads_file_states_not_chunks(store: IndexStore) -> None:
+    # Chunk token_count intentionally includes synthetic imports_context, so the
+    # baseline must read the true per-file total from file_states, not the chunk sum.
+    store.insert_chunks(SAMPLE_CHUNKS)  # utils.py chunk token_count == 20
+    store.replace_file_states(_file_states({"utils.py": 12, "auth.py": 18, "models.py": 31}))
+    assert store.get_file_tokens("utils.py") == 12
+    # Chunk token_count is left untouched (it still drives budgeting and packing).
+    utils_chunks = store.get_chunks_for_file("utils.py")
+    assert sum(c.token_count for c in utils_chunks) == 20
+
+
+def test_file_states_token_count_forward_migration(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE file_states (
+            file_path TEXT PRIMARY KEY,
+            size_bytes INTEGER NOT NULL,
+            mtime_ns INTEGER NOT NULL,
+            sha256 TEXT NOT NULL
+        );
+        INSERT INTO file_states(file_path, size_bytes, mtime_ns, sha256)
+        VALUES ('legacy.py', 10, 1, 'abc');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = IndexStore(db)
+    try:
+        columns = {row[1] for row in store.conn.execute("PRAGMA table_info(file_states)")}
+        assert "token_count" in columns
+        # Legacy row survives the migration without data loss; token_count is NULL.
+        row = store.conn.execute(
+            "SELECT size_bytes, token_count FROM file_states WHERE file_path = 'legacy.py'"
+        ).fetchone()
+        assert row[0] == 10
+        assert row[1] is None
+        # NULL per-file total -> baseline omitted until a reindex repopulates it.
+        assert store.get_file_tokens("legacy.py") is None
+        assert store.get_total_tokens() is None
+    finally:
+        store.close()
 
 
 def test_get_chunks_for_files(store: IndexStore) -> None:

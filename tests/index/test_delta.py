@@ -227,6 +227,54 @@ class TestApplyDelta:
         bm25.build(chunks)
         return store, graph
 
+    def test_file_token_totals_below_chunk_sum(self, delta_test_repo: Path, tmp_path: Path) -> None:
+        from archex.reporting import count_tokens
+
+        store, _ = self.build_initial_index(delta_test_repo, tmp_path)
+        try:
+            # models.py splits into multiple chunks whose token_count includes synthetic
+            # context, so SUM(chunk.token_count) overstates a true `cat` of the file.
+            chunks = store.get_chunks_for_file("models.py")
+            assert len(chunks) >= 2
+            chunk_sum = sum(c.token_count for c in chunks)
+            true_total = count_tokens((delta_test_repo / "models.py").read_text())
+            assert store.get_file_tokens("models.py") == true_total
+            assert true_total < chunk_sum
+            # The whole-repo baseline equals the sum of the true per-file totals.
+            total = store.get_total_tokens()
+            assert total is not None
+            rows = store.conn.execute("SELECT token_count FROM file_states").fetchall()
+            assert total == sum(int(r[0]) for r in rows)
+        finally:
+            store.close()
+
+    def test_token_totals_survive_delta_reindex(
+        self, delta_test_repo: Path, tmp_path: Path
+    ) -> None:
+        from archex.index.graph import DependencyGraph
+        from archex.reporting import count_tokens
+
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
+        assert isinstance(graph, DependencyGraph)
+        try:
+            base = _git_head(delta_test_repo)
+            new_source = "def brand_new_util():\n    return 42\n\n\ndef another():\n    return 7\n"
+            (delta_test_repo / "utils.py").write_text(new_source)
+            _git(delta_test_repo, "add", ".")
+            _git(delta_test_repo, "commit", "-m", "modify utils")
+            current = _git_head(delta_test_repo)
+
+            manifest = compute_delta(delta_test_repo, base, current)
+            apply_delta(store, graph, manifest, delta_test_repo, Config(cache=False))
+
+            # The changed file's true total is recomputed from its new content.
+            assert store.get_file_tokens("utils.py") == count_tokens(new_source)
+            # Unchanged files keep their populated totals, so the baseline stays available.
+            assert store.get_file_tokens("models.py") is not None
+            assert store.get_total_tokens() is not None
+        finally:
+            store.close()
+
     def test_modified_replaces_chunks(self, delta_test_repo: Path, tmp_path: Path) -> None:
         from archex.index.graph import DependencyGraph
 
