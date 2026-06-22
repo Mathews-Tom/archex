@@ -171,9 +171,11 @@ def _targeted_read_tokens(
     Per returned file, take the union of ``[start_line - K, end_line + K]`` line
     spans (merged, deduped) and estimate their cost from the indexed chunk content's
     per-line token density. Deterministic and index-only: no file-system read and no
-    model call. The estimate is clamped to ``<= full_file`` and floored at
-    ``returned`` (the lower bound is prioritized), so ``returned <= targeted_read <=
-    full_file`` holds for every realistic input where ``returned <= full_file``.
+    model call. The estimate is floored at ``returned`` and capped at ``full_file``
+    (``targeted_read`` never exceeds the full-file baseline), so
+    ``returned <= targeted_read <= full_file`` holds for every realistic input where
+    ``returned <= full_file``; in the degenerate ``returned > full_file`` case
+    (a tiny file whose rendered chunks exceed its source) it reports ``full_file``.
     """
     by_file: dict[str, list[CodeChunk]] = {}
     for ranked in chunks:
@@ -183,7 +185,7 @@ def _targeted_read_tokens(
     estimate = sum(
         _targeted_file_tokens(file_chunks, context_lines) for file_chunks in by_file.values()
     )
-    return max(returned_tokens, min(estimate, full_file_tokens))
+    return min(full_file_tokens, max(returned_tokens, estimate))
 
 
 def _targeted_file_tokens(file_chunks: list[CodeChunk], context_lines: int) -> int:

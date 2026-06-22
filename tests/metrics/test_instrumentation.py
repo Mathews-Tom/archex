@@ -509,3 +509,5 @@ def test_targeted_read_helper_is_deterministic_and_bounded() -> None:
     assert 8 <= first <= 500
     # No chunks -> no spans -> baseline omitted.
     assert _targeted_read_tokens([], full_file_tokens=500, returned_tokens=8) is None
+    # Degenerate returned > full_file: targeted is capped at full_file, never above it.
+    assert _targeted_read_tokens(chunks, full_file_tokens=3, returned_tokens=50) == 3
