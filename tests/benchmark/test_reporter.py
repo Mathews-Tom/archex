@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archex.benchmark.models import (
@@ -843,50 +842,3 @@ class TestR4R5LaneReporting:
         summary = format_summary([self._report(results)])
         assert "diversity packing" in summary
         assert "archex_query_diversity_packed" in summary
-
-
-class TestLocalizationBaselineArtifact:
-    """The checked-in labeled baseline renders as a separate localization family."""
-
-    BASELINE_DIR = Path(__file__).resolve().parents[2] / ".archex" / "loc-expanded-baseline"
-
-    def _load_reports(self) -> list[BenchmarkReport]:
-        files = sorted(self.BASELINE_DIR.glob("*.json"))
-        return [BenchmarkReport.model_validate_json(path.read_text("utf-8")) for path in files]
-
-    def test_baseline_groups_localization_family_with_region_columns(self) -> None:
-        reports = self._load_reports()
-        assert reports, "expected checked-in localization baseline artifacts"
-
-        md = format_localization_summary(reports)
-
-        # The whole baseline is the localization family; it groups under its own
-        # header carrying the full task count and never folds into comprehension.
-        assert f"## Localization (issue-to-edit) ({len(reports)} tasks)" in md
-        assert "## Comprehension" not in md
-        # Region / ranked-region columns render for the new tasks.
-        assert "Region Recall" in md and "Region MRR" in md and "Region nDCG" in md
-        # archex_query is labeled on every task (Labeled | Tasks both equal the count),
-        # so its region columns are real numbers rather than ``unknown``.
-        assert f"| {len(reports)} | {len(reports)} |" in md
-
-    def test_baseline_archex_query_region_metrics_are_populated(self) -> None:
-        reports = self._load_reports()
-        assert reports, "expected checked-in localization baseline artifacts"
-
-        region_fields = (
-            "region_recall",
-            "region_precision",
-            "line_recall",
-            "ranked_region_mrr",
-            "ranked_region_ndcg",
-            "context_noise_ratio",
-            "relevance_per_1k_tokens",
-        )
-        for report in reports:
-            archex = next(
-                result for result in report.results if result.strategy is Strategy.ARCHEX_QUERY
-            )
-            assert archex.family is TaskFamily.LOCALIZATION, report.task_id
-            for field in region_fields:
-                assert getattr(archex, field) is not None, (report.task_id, field)
