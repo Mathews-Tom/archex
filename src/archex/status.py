@@ -164,7 +164,9 @@ def _metrics_savings(repo_root: Path) -> dict[str, int | float] | None:
                 SELECT COUNT(*) AS event_count,
                     COALESCE(SUM(tokens_saved), 0) AS tokens_saved,
                     COALESCE(SUM(tokens_returned), 0) AS tokens_returned,
-                    COALESCE(SUM(tokens_raw_equivalent), 0) AS tokens_raw_equivalent
+                    COALESCE(SUM(tokens_raw_equivalent), 0) AS tokens_raw_equivalent,
+                    COALESCE(SUM(tokens_targeted_read), 0) AS tokens_targeted_read,
+                    COALESCE(SUM(tokens_saved_vs_targeted_read), 0) AS tokens_saved_vs_targeted_read
                 FROM usage_events
                 WHERE repo_id = ?
                 """,
@@ -176,12 +178,18 @@ def _metrics_savings(repo_root: Path) -> dict[str, int | float] | None:
         return None
     raw = int(row["tokens_raw_equivalent"])
     saved = int(row["tokens_saved"])
+    targeted = int(row["tokens_targeted_read"])
+    saved_vs_targeted = int(row["tokens_saved_vs_targeted_read"])
     return {
         "event_count": int(row["event_count"]),
         "tokens_saved": saved,
         "tokens_returned": int(row["tokens_returned"]),
         "tokens_raw_equivalent": raw,
+        "tokens_targeted_read": targeted,
         "savings_pct": (saved / raw * 100.0) if raw > 0 else 0.0,
+        "savings_pct_vs_targeted_read": (
+            (saved_vs_targeted / targeted * 100.0) if targeted > 0 else 0.0
+        ),
     }
 
 
