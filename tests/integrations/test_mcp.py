@@ -241,6 +241,19 @@ class TestHandleQueryRepo:
         assert parsed["_meta"]["tokens_returned"] == expected_tokens
         assert parsed["_meta"]["savings_pct"] == round((1 - expected_tokens / 100) * 100, 1)
 
+    def test_query_meta_reports_zero_savings_for_unknown_baseline(self) -> None:
+        # A legacy index without per-file token totals yields a None baseline; the
+        # meta must report 0% (not a bogus negative driven by a forced-1 denominator).
+        bundle = _make_context_bundle()
+        with (
+            patch("archex.integrations.mcp.query", return_value=bundle),
+            patch("archex.integrations.mcp.get_files_token_count", return_value=None),
+        ):
+            output = handle_query_repo("/fake/repo", "how does auth work?")
+        parsed = json.loads(output)
+        assert parsed["_meta"]["tokens_raw_equivalent"] == 0
+        assert parsed["_meta"]["savings_pct"] == 0.0
+
     def test_query_savings_keep_type_definition_payload(self) -> None:
         content = "class Selected:\n    pass"
         chunk = CodeChunk(

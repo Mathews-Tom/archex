@@ -601,6 +601,14 @@ def test_token_baseline_reads_file_states_not_chunks(store: IndexStore) -> None:
     assert sum(c.token_count for c in utils_chunks) == 20
 
 
+def test_get_chunk_token_total_reads_chunks(store: IndexStore) -> None:
+    # The dynamic-budget source stays on the chunk sum, independent of file_states,
+    # so retrieval is unaffected by the metrics baseline change.
+    store.insert_chunks(SAMPLE_CHUNKS)  # 20 + 25 + 35
+    assert store.get_chunk_token_total() == 80
+    assert store.get_total_tokens() is None  # metrics baseline omitted without file_states
+
+
 def test_file_states_token_count_forward_migration(tmp_path: Path) -> None:
     import sqlite3
 

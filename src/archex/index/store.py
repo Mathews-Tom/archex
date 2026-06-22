@@ -639,6 +639,16 @@ class IndexStore:
             chunks = [c for c in chunks if c.symbol_kind == kind]
         return chunks
 
+    def get_chunk_token_total(self) -> int:
+        """Sum of chunk ``token_count`` across the store.
+
+        This is the rendered-chunk cost (includes synthetic ``imports_context``) and
+        is the source for dynamic-budget decisions. It is deliberately distinct from
+        ``get_total_tokens`` (the true per-file baseline used for metrics).
+        """
+        row = self._conn.execute("SELECT COALESCE(SUM(token_count), 0) FROM chunks").fetchone()
+        return int(row[0])
+
     def get_total_tokens(self) -> int | None:
         """Sum of true per-file token totals from file_states.
 

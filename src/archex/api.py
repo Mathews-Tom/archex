@@ -1498,7 +1498,7 @@ def _query_by_scout_handles(
         chunks = _chunks_for_scout_handles(store, handles)
         stored_tokens = store.get_metadata("repo_total_tokens")
         total_repo_tokens = (
-            int(stored_tokens) if stored_tokens is not None else (store.get_total_tokens() or 0)
+            int(stored_tokens) if stored_tokens is not None else store.get_chunk_token_total()
         )
         stored_count = store.get_metadata("chunk_count")
         chunk_count = int(stored_count) if stored_count is not None else len(store.get_chunks())
@@ -1769,7 +1769,7 @@ def query(
                 total_repo_tokens = (
                     int(stored_tokens)
                     if stored_tokens is not None
-                    else (store.get_total_tokens() or 0)
+                    else store.get_chunk_token_total()
                 )
                 stored_count = store.get_metadata("chunk_count")
                 chunk_count = (
