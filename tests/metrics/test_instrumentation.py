@@ -420,3 +420,92 @@ def test_python_api_explicit_usage_event_respects_env_off(
     )
 
     assert not (tmp_path / ".archex" / "usage.sqlite").exists()
+
+
+def test_targeted_read_is_index_only_and_within_bounds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from archex.metrics.capture import record_query_usage
+    from archex.metrics.policy import set_metrics_enabled
+    from archex.models import CodeChunk, ContextBundle, RankedChunk
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    db_path = tmp_path / ".archex" / "usage.sqlite"
+    set_metrics_enabled(True, db_path=db_path)
+
+    chunk = CodeChunk(
+        id="m.py:f:3",
+        content="def f():\n    return compute()\n    # trailing body line",
+        file_path="m.py",
+        start_line=3,
+        end_line=5,
+        language="python",
+        token_count=12,
+    )
+    bundle = ContextBundle(
+        query="where is f",
+        chunks=[RankedChunk(chunk=chunk)],
+        token_count=12,
+    )
+    source = RepoSource(local_path=str(repo_root))
+
+    def _no_fs_read(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("metrics path read file contents")
+
+    with (
+        patch("pathlib.Path.read_bytes", _no_fs_read),
+        patch("pathlib.Path.read_text", _no_fs_read),
+    ):
+        record_query_usage(
+            source,
+            bundle,
+            surface="cli",
+            tokens_raw_equivalent=100,
+            whole_repo_tokens=1000,
+            db_path=db_path,
+        )
+
+    with MetricsStore(db_path).connect() as conn:
+        row = conn.execute(
+            "SELECT tokens_returned, tokens_targeted_read, tokens_raw_equivalent FROM usage_events"
+        ).fetchone()
+    assert row["tokens_targeted_read"] is not None
+    assert row["tokens_returned"] <= row["tokens_targeted_read"] <= row["tokens_raw_equivalent"]
+
+
+def test_targeted_read_helper_is_deterministic_and_bounded() -> None:
+    from archex.metrics.capture import _targeted_read_tokens  # pyright: ignore[reportPrivateUsage]
+    from archex.models import CodeChunk, RankedChunk
+
+    chunks = [
+        RankedChunk(
+            chunk=CodeChunk(
+                id="m.py:a:1",
+                content="def a():\n    return 1",
+                file_path="m.py",
+                start_line=1,
+                end_line=2,
+                language="python",
+            )
+        ),
+        RankedChunk(
+            chunk=CodeChunk(
+                id="m.py:b:40",
+                content="def b():\n    return 2",
+                file_path="m.py",
+                start_line=40,
+                end_line=41,
+                language="python",
+            )
+        ),
+    ]
+    first = _targeted_read_tokens(chunks, full_file_tokens=500, returned_tokens=8)
+    second = _targeted_read_tokens(chunks, full_file_tokens=500, returned_tokens=8)
+    assert first == second
+    assert first is not None
+    assert 8 <= first <= 500
+    # No chunks -> no spans -> baseline omitted.
+    assert _targeted_read_tokens([], full_file_tokens=500, returned_tokens=8) is None

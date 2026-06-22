@@ -145,11 +145,49 @@ def test_successful_record_clears_prior_health_warning(tmp_path: Path) -> None:
     assert health.last_failure_message is None
 
 
+def test_record_persists_targeted_read_baseline(tmp_path: Path) -> None:
+    db_path = tmp_path / "usage.sqlite"
+    repo_root = _repo(tmp_path)
+    set_metrics_enabled(True, db_path=db_path)
+
+    MetricsRecorder(db_path).record(_event(repo_root, targeted_read=40))
+
+    with MetricsStore(db_path).connect() as conn:
+        event = conn.execute("SELECT * FROM usage_events").fetchone()
+        daily = conn.execute("SELECT * FROM daily_usage").fetchone()
+    # returned=10, targeted=40, full_file=100: both baselines recorded.
+    assert event["tokens_raw_equivalent"] == 100
+    assert event["tokens_targeted_read"] == 40
+    assert event["tokens_saved_vs_targeted_read"] == 30
+    assert event["savings_pct_vs_targeted_read"] == 75.0
+    assert daily["tokens_targeted_read"] == 40
+    assert daily["tokens_saved_vs_targeted_read"] == 30
+
+
+def test_record_omits_targeted_read_when_absent(tmp_path: Path) -> None:
+    db_path = tmp_path / "usage.sqlite"
+    repo_root = _repo(tmp_path)
+    set_metrics_enabled(True, db_path=db_path)
+
+    MetricsRecorder(db_path).record(_event(repo_root))
+
+    with MetricsStore(db_path).connect() as conn:
+        event = conn.execute("SELECT * FROM usage_events").fetchone()
+        daily = conn.execute("SELECT * FROM daily_usage").fetchone()
+    # The full-file baseline still records; the targeted baseline is omitted (NULL).
+    assert event["tokens_raw_equivalent"] == 100
+    assert event["tokens_targeted_read"] is None
+    assert event["tokens_saved_vs_targeted_read"] is None
+    assert event["savings_pct_vs_targeted_read"] is None
+    assert daily["tokens_targeted_read"] == 0
+
+
 def _event(
     repo_root: Path,
     *,
     occurred_at: datetime | None = None,
     trace: TraceDetails | None = None,
+    targeted_read: int | None = None,
 ) -> UsageEvent:
     return UsageEvent(
         repo_root=repo_root,
@@ -159,6 +197,7 @@ def _event(
         tokens_returned=10,
         tokens_raw_equivalent=100,
         whole_repo_tokens=1000,
+        tokens_targeted_read=targeted_read,
         occurred_at=occurred_at,
         file_count=2,
         freshness="clean",
