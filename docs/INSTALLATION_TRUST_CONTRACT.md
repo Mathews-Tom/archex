@@ -260,7 +260,7 @@ ARCHEX_USAGE_TRACE=off
 
 Detailed traces are local-only and opt-in. They may store query text, returned file paths, symbols, handles, skipped counts, token math, repo ID, and index revision. They never store source code, rendered output bodies, or prompt bodies.
 
-Headline savings always mean saved tokens versus returned full files. Whole-repo avoided tokens are stored separately and must be treated as an upper-bound/context metric, not the headline savings number.
+archex records two labeled savings numbers per event: savings versus a full-file paste (compression vs naive full-file access) and savings versus a realistic targeted read (matched line ranges plus a small context window — the conservative number). The full-file baseline equals the true per-file token cost, so it is not inflated by synthetic per-chunk import breadcrumbs. Whole-repo avoided tokens are stored separately and must be treated as an upper-bound/context metric, demoted below the savings lines and never reported as the headline savings number. A defensible cross-tool number (versus grep / read / LSP) is not produced in-process; it is available only via the offline benchmark harness.
 Run `archex doctor --security --format json` to inspect selected providers, remote-code policy, revision pins, cache state, offline environment flags, and model-download implications.
 
 ## Remote-code policy
