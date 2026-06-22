@@ -842,3 +842,56 @@ class TestR4R5LaneReporting:
         summary = format_summary([self._report(results)])
         assert "diversity packing" in summary
         assert "archex_query_diversity_packed" in summary
+
+
+class TestSymbolicRerankLocalizationGrading:
+    """format_localization_summary grades the symbolic-rerank lane on the
+    localization family separately and renders its order metrics."""
+
+    SYMBOLIC = Strategy.ARCHEX_QUERY_SYMBOLIC_RERANK
+
+    def _loc_report_with_symbolic(self, task_id: str) -> BenchmarkReport:
+        base = _loc_result(task_id, strategy=Strategy.ARCHEX_QUERY)
+        symbolic = _loc_result(
+            task_id,
+            strategy=self.SYMBOLIC,
+            mrr=0.83,
+            ndcg=0.86,
+            ranked_region_mrr=0.74,
+            ranked_region_ndcg=0.70,
+        )
+        return BenchmarkReport(
+            task_id=task_id,
+            repo="owner/repo",
+            question="Issue: where is the bug?",
+            results=[base, symbolic],
+            baseline_tokens=2000,
+        )
+
+    def test_localization_family_graded_separately_with_symbolic_lane(self) -> None:
+        reports = [self._loc_report_with_symbolic("loc_a"), _comprehension_report("comp_a")]
+        md = format_localization_summary(reports)
+        assert "## Localization (issue-to-edit) (1 tasks)" in md
+        assert "## Comprehension (1 tasks)" in md
+        # Localization is graded before, and never folded into, comprehension.
+        assert md.index("## Localization (issue-to-edit)") < md.index("## Comprehension")
+        loc_section, comp_section = md.split("## Comprehension")
+        # The new lane is graded under localization, not comprehension.
+        assert self.SYMBOLIC.value in loc_section
+        assert self.SYMBOLIC.value not in comp_section
+
+    def test_symbolic_lane_order_metrics_render(self) -> None:
+        md = format_localization_summary([self._loc_report_with_symbolic("loc_a")])
+        loc_section = md.split("## Comprehension")[0]
+        assert "File MRR" in loc_section and "File nDCG" in loc_section
+        assert "Region MRR" in loc_section and "Region nDCG" in loc_section
+        sym_rows = [
+            line
+            for line in loc_section.splitlines()
+            if line.startswith(f"| {self.SYMBOLIC.value} ")
+        ]
+        assert len(sym_rows) == 1
+        # Order metrics render as real numbers, not "unknown".
+        assert "unknown" not in sym_rows[0]
+        assert "0.830" in sym_rows[0]  # file MRR
+        assert "0.740" in sym_rows[0]  # ranked-region MRR
