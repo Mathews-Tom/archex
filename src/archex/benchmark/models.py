@@ -38,6 +38,7 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_GRAPH_MULTIHOP = "archex_query_graph_multihop"
     ARCHEX_QUERY_CHURN = "archex_query_churn"
     ARCHEX_QUERY_CONDITIONAL_RERANK = "archex_query_conditional_rerank"
+    ARCHEX_QUERY_SYMBOLIC_RERANK = "archex_query_symbolic_rerank"
     ARCHEX_QUERY_DIVERSITY_PACKED = "archex_query_diversity_packed"
     EXTERNAL_MCP = "external_mcp"
 
@@ -265,6 +266,24 @@ class ArchitectureBenchmarkResult(BaseModel):
     advisory: bool = True
 
 
+class SymbolicRerankMode(StrEnum):
+    """Combination form for the ``archex_query_symbolic_rerank`` lane.
+
+    Both forms apply the same never-demote guard (a strong-symbolic-evidence
+    candidate can never fall below its pre-rerank rank); the mode only selects
+    the base reordering signal the guard is applied on top of:
+
+    - ``BLEND`` (default): order the head by ``alpha * norm(cross_encoder) +
+      (1 - alpha) * norm(symbolic_evidence)``, then floor. Validated winner: it
+      lets the symbolic evidence both lift and floor candidates.
+    - ``GUARD``: order the head by the cross-encoder score alone, then floor.
+      The conservative never-demote-only alternative.
+    """
+
+    GUARD = "guard"
+    BLEND = "blend"
+
+
 class BenchmarkRetrievalOptions(BaseModel):
     splade: bool = False
     module_prefilter: bool = False
@@ -279,6 +298,10 @@ class BenchmarkRetrievalOptions(BaseModel):
     # Explicit offline opt-in for the summary-sidecar lane: filesystem path of a
     # prebuilt sidecar. None disables summary-first selection (no auto-generation).
     summary_sidecar_path: str | None = None
+    # archex_query_symbolic_rerank lane: combination form (guard vs blend) and
+    # the blend weight on the cross-encoder vs the symbolic evidence signal.
+    symbolic_rerank_mode: SymbolicRerankMode = SymbolicRerankMode.BLEND
+    symbolic_rerank_alpha: float = 0.5
 
 
 class ComparisonLayerType(StrEnum):

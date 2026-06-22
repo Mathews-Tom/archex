@@ -269,6 +269,7 @@ _ADVANCED_LANES = (
     "archex_query_ppr",
     "archex_query_churn",
     "archex_query_conditional_rerank",
+    "archex_query_symbolic_rerank",
     "archex_query_diversity_packed",
 )
 
@@ -322,6 +323,14 @@ def _advanced_lane_note(result: BenchmarkResult) -> str:
             f"(ce={prov.get('cross_encoder_status', 'unknown')}, "
             f"rerank_ms={prov.get('rerank_ms', 'unknown')}, "
             f"storage={prov.get('rerank_model_storage_bytes', 'unknown')})"
+        )
+    if strategy == "archex_query_symbolic_rerank":
+        return (
+            f"mode={prov.get('symbolic_rerank_mode', 'unknown')} "
+            f"(ce={prov.get('cross_encoder_status', 'unknown')}, "
+            f"alpha={prov.get('blend_alpha', 'unknown')}, "
+            f"guard_fired={prov.get('guard_fired', 'unknown')}, "
+            f"rerank_ms={prov.get('rerank_ms', 'unknown')})"
         )
     if strategy == "archex_query_diversity_packed":
         return (

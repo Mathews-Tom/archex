@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from archex.benchmark.bounded_rerank import (
     RerankCaps,
+    evidence_components,
     query_signals,
     symbolic_scores,
 )
@@ -35,6 +36,7 @@ from archex.benchmark.models import (
     BenchmarkRetrievalOptions,
     BenchmarkTask,
     Strategy,
+    SymbolicRerankMode,
     TaskCompletionResult,
 )
 from archex.benchmark.query_transform import transform_query
@@ -2496,6 +2498,205 @@ def run_archex_query_conditional_rerank(task: BenchmarkTask, repo_path: Path) ->
     return result
 
 
+@dataclass
+class _SymbolicRerank:
+    """Reordered bundle plus the provenance describing the symbolic-blend rerank."""
+
+    bundle: ContextBundle
+    provenance: dict[str, str]
+
+
+def _minmax_normalize(values: list[float]) -> list[float]:
+    """Min-max scale values into [0, 1]; constant or empty inputs map to all 1.0."""
+    if not values:
+        return []
+    low, high = min(values), max(values)
+    span = high - low
+    if span <= 0:
+        return [1.0 for _ in values]
+    return [(value - low) / span for value in values]
+
+
+def _guarded_order(scores: list[float], protected: list[bool]) -> tuple[list[int], int]:
+    """Order indices by ``scores`` descending, never demoting a protected candidate.
+
+    A protected candidate at original index ``i`` (its pre-rerank rank) is
+    guaranteed a final position ``<= i``: it can never fall below its pre-rerank
+    rank. Earliest-deadline-first placement makes each protected candidate's
+    original index its deadline; a feasible ordering always exists (the identity
+    order satisfies every deadline). Ties in ``scores`` keep original order.
+    Returns the new index order and the number of protected candidates the guard
+    rescued from a demotion the base order would otherwise have made.
+    """
+    n = len(scores)
+    proposed = sorted(range(n), key=lambda index: (-scores[index], index))
+    proposed_position = {index: position for position, index in enumerate(proposed)}
+    placed = [False] * n
+    order: list[int] = []
+    pointer = 0
+    for position in range(n):
+        # The candidate whose deadline is this position is the one whose original
+        # index equals it; place it now if protected and unplaced, else it would
+        # fall below its pre-rerank rank. Deadlines are unique, so at most one
+        # candidate is forced per position and a missed deadline is impossible.
+        if protected[position] and not placed[position]:
+            order.append(position)
+            placed[position] = True
+            continue
+        while placed[proposed[pointer]]:
+            pointer += 1
+        pick = proposed[pointer]
+        order.append(pick)
+        placed[pick] = True
+    guard_fired = sum(
+        1 for index in range(n) if protected[index] and proposed_position[index] > index
+    )
+    return order, guard_fired
+
+
+def _symbolic_rerank_bundle(bundle: ContextBundle, *, question: str) -> _SymbolicRerank:
+    """Conditionally rerank, combining the model with the symbolic evidence signal.
+
+    Keeps the conditional ambiguity gate (fires only on flat BM25 CV) and the
+    1500 ms latency cap of ``archex_query_conditional_rerank``, reusing the same
+    in-process cross-encoder (it never downloads a model). When the model applies,
+    the candidate head is reordered by the configured combination form — pure
+    cross-encoder order (``guard``) or a blend of normalized cross-encoder and
+    symbolic evidence scores (``blend``) — and then a never-demote guard floors
+    the result: a candidate with strong symbolic evidence (a direct path or
+    symbol-name hit, from ``benchmark/bounded_rerank``) can never fall below its
+    pre-rerank rank. When no model is loaded, BM25 is confident, or the model
+    pass aborts on latency, the bundle is returned unchanged, so the lane equals
+    ``archex_query``.
+    """
+    from archex.index.rerank import (
+        CONDITIONAL_RERANK_CANDIDATE_LIMIT,
+        CONDITIONAL_RERANK_LATENCY_CAP_MS,
+        ConditionalReranker,
+        bm25_is_ambiguous,
+    )
+
+    options = current_benchmark_retrieval_options()
+    mode = options.symbolic_rerank_mode
+    alpha = options.symbolic_rerank_alpha
+    signals = query_signals(question)
+
+    candidates = [(ranked.chunk, ranked.final_score) for ranked in bundle.chunks]
+    decision = bm25_is_ambiguous(candidates)
+    reranker = _load_local_reranker()
+
+    limit = CONDITIONAL_RERANK_CANDIDATE_LIMIT
+    new_chunks = bundle.chunks
+    candidates_reranked = 0
+    rerank_ms = 0.0
+    guard_fired = 0
+    contributions: list[str] = []
+    if reranker is None:
+        status = "skipped:unavailable"
+        invoked = False
+    else:
+        conditional = ConditionalReranker(reranker, candidate_limit=limit)
+        outcome = conditional.rerank_if_ambiguous(question, candidates, candidates)
+        status = outcome.status
+        invoked = outcome.invoked
+        rerank_ms = outcome.rerank_ms
+        if outcome.status == "applied":
+            head = bundle.chunks[:limit]
+            tail = bundle.chunks[limit:]
+            head_count = len(head)
+            ce_by_id = {chunk.id: score for chunk, score in outcome.results[:head_count]}
+            ce_raw = [ce_by_id.get(ranked.chunk.id, 0.0) for ranked in head]
+            sym_components = [
+                evidence_components(ranked.chunk, signals, rank=index, total=head_count)
+                for index, ranked in enumerate(head)
+            ]
+            sym_raw = [component.score for component in sym_components]
+            protected = [component.has_strong_evidence for component in sym_components]
+            ce_norm = _minmax_normalize(ce_raw)
+            sym_norm = _minmax_normalize(sym_raw)
+            if mode is SymbolicRerankMode.BLEND:
+                base = [
+                    alpha * ce_norm[index] + (1.0 - alpha) * sym_norm[index]
+                    for index in range(head_count)
+                ]
+            else:
+                base = ce_norm
+            order, guard_fired = _guarded_order(base, protected)
+            new_chunks = [head[index] for index in order] + list(tail)
+            candidates_reranked = head_count
+            contributions = [
+                f"{index}:ce={ce_norm[index]:.3f},sym={sym_norm[index]:.3f},"
+                f"strong={int(protected[index])}"
+                for index in range(head_count)
+            ]
+
+    reordered = _reorder_bundle_with_receipt(bundle, new_chunks)
+    provenance = {
+        "symbolic_rerank_mode": mode.value,
+        "blend_alpha": f"{alpha:.2f}",
+        "guard_fired": str(guard_fired),
+        "bm25_cv": f"{decision.bm25_cv:.4f}",
+        "bm25_ambiguous": str(decision.should_rerank).lower(),
+        "ambiguity_reason": decision.reason,
+        "cross_encoder_status": status,
+        "rerank_invoked": str(invoked).lower(),
+        "rerank_ms": f"{rerank_ms:.2f}",
+        "candidates_reranked": str(candidates_reranked),
+        "candidates_total": str(len(bundle.chunks)),
+        "latency_cap_ms": f"{CONDITIONAL_RERANK_LATENCY_CAP_MS:.1f}",
+        "candidate_contributions": ";".join(contributions),
+    }
+    return _SymbolicRerank(bundle=reordered, provenance=provenance)
+
+
+def run_archex_query_symbolic_rerank(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only lane: archex query retrieval, then symbolic-blend rerank.
+
+    Runs the ``archex_query`` BM25 retrieval path, then conditionally reranks the
+    candidate head only when BM25 is ambiguous (flat score CV), reusing an
+    in-process cross-encoder under the 1500 ms latency cap. The model order is
+    combined with the deterministic symbolic evidence signal and floored by a
+    never-demote guard, so a strong-symbolic-evidence candidate can never fall
+    below its pre-rerank rank. When no local model is loaded the bundle is
+    unchanged. The product default is unchanged; this lane is opt-in and
+    benchmark-only.
+    """
+    strategy = Strategy.ARCHEX_QUERY_SYMBOLIC_RERANK
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    rerank = _symbolic_rerank_bundle(bundle, question=task.question)
+    wall_ms = (time.perf_counter() - t0) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=rerank.bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = rerank.provenance
+    logger.info(
+        "Strategy %s for %s: mode=%s ambiguous=%s ce=%s guard_fired=%s wall=%.1fms",
+        strategy.value,
+        task.task_id,
+        rerank.provenance["symbolic_rerank_mode"],
+        rerank.provenance["bm25_ambiguous"],
+        rerank.provenance["cross_encoder_status"],
+        rerank.provenance["guard_fired"],
+        wall_ms,
+    )
+    return result
+
+
 _SUMMARY_FILE_CAP = 10
 
 
@@ -3557,6 +3758,9 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK.value, run_archex_query_conditional_rerank
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_SYMBOLIC_RERANK.value, run_archex_query_symbolic_rerank
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_DIVERSITY_PACKED.value, run_archex_query_diversity_packed
