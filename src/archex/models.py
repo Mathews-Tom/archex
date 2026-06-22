@@ -679,12 +679,6 @@ class RetrievalMetadata(BaseModel):
     signal_agreement: float | None = None
     fusion_bm25_weight: float | None = None
     fusion_vector_weight: float | None = None
-    centrality_variant: str = "global"
-    centrality_personalized: bool = False
-    centrality_fallback_reason: str = ""
-    centrality_latency_ms: float = 0.0
-    centrality_subgraph_nodes: int = 0
-    centrality_subgraph_edges: int = 0
     # Expansion diagnostics
     seed_files_found: int = 0
     seed_file_paths: list[str] = []

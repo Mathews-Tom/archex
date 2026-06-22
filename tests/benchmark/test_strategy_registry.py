@@ -54,8 +54,6 @@ class TestStrategyRegistry:
         assert Strategy.CROSS_LAYER_FUSION.value in names
         assert Strategy.ARCHEX_QUERY_FUSION_RERANK.value in names
 
-        assert Strategy.ARCHEX_QUERY_PPR.value in names
-        assert default_strategy_registry.get(Strategy.ARCHEX_QUERY_PPR) is not None
         assert Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK.value in names
         assert default_strategy_registry.get(Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK) is not None
         assert Strategy.ARCHEX_QUERY_DIVERSITY_PACKED.value in names

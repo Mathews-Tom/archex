@@ -20,7 +20,6 @@ class Strategy(StrEnum):
     RAW_GREPPED = "raw_grepped"
     RAW_RIPGREP = "raw_ripgrep"
     ARCHEX_QUERY = "archex_query"
-    ARCHEX_QUERY_PPR = "archex_query_ppr"
     ARCHEX_SCOUT_FETCH = "archex_scout_fetch"
     ARCHEX_QUERY_VECTOR = "archex_query_vector"
     SURROGATE_VECTOR = "surrogate_vector"

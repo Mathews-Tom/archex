@@ -29,7 +29,7 @@ expected_regions:
     granularity: symbol
     symbol: assemble_context
     start_line: 904
-    end_line: 1633
+    end_line: 1632
     notes: "Bundle assembly and ranked context packing."
 token_budget: 8192
 keywords:

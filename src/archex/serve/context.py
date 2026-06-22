@@ -90,7 +90,6 @@ SEED_EXPANSION_MIN = 0.05
 # Files below this fraction of the top file's aggregate score are excluded.
 FILE_SCORE_CUTOFF = 0.10
 FUSION_FILE_SCORE_CUTOFF = 0.05
-CENTRALITY_MODE_PERSONALIZED_WEIGHTED = "personalized_weighted_directional"
 
 
 def estimate_tokens(chunk: CodeChunk) -> int:
@@ -918,7 +917,6 @@ def assemble_context(
     reranker: object | None = None,
     rerank_candidate_limit: int = 4,
     apply_intent_budget: bool = True,
-    centrality_mode: str = "global",
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
 
@@ -1393,29 +1391,7 @@ def assemble_context(
     # --- Scoring phase ---
     _scoring_start = time.perf_counter_ns()
 
-    centrality_variant = "global"
-    centrality_personalized = False
-    centrality_fallback_reason = ""
-    centrality_latency_ms = 0.0
-    centrality_subgraph_nodes = 0
-    centrality_subgraph_edges = 0
-
-    # Get structural centrality scores. The default product path deliberately
-    # keeps using cached global PageRank; benchmark-only PPR opts in explicitly.
-    if centrality_mode == CENTRALITY_MODE_PERSONALIZED_WEIGHTED:
-        centrality_seed_scores = {
-            fp: score for fp, score in norm_seed_scores.items() if score >= effective_expansion_min
-        }
-        centrality_result = graph.personalized_centrality(centrality_seed_scores)
-        centrality = centrality_result.scores
-        centrality_variant = centrality_result.variant
-        centrality_personalized = centrality_result.personalized
-        centrality_fallback_reason = centrality_result.fallback_reason
-        centrality_latency_ms = centrality_result.latency_ms
-        centrality_subgraph_nodes = centrality_result.subgraph_nodes
-        centrality_subgraph_edges = centrality_result.subgraph_edges
-    else:
-        centrality = graph.structural_centrality()
+    centrality = graph.structural_centrality()
 
     # Signal agreement was computed pre-fusion; carry it forward for metadata
     signal_agreement: float | None = signal_agreement_pre if vector_results else None
@@ -1558,11 +1534,6 @@ def assemble_context(
                     "files_selected": len(top_files),
                     "chunks_included": len(included),
                     "chunks_dropped": chunks_dropped,
-                    "centrality_variant": centrality_variant,
-                    "centrality_personalized": centrality_personalized,
-                    "centrality_subgraph_nodes": centrality_subgraph_nodes,
-                    "centrality_subgraph_edges": centrality_subgraph_edges,
-                    "centrality_latency_ms": f"{centrality_latency_ms:.3f}",
                 },
             )
         )
@@ -1627,12 +1598,6 @@ def assemble_context(
         splade_used=bool(effective_splade),
         splade_fusion_skipped=splade_fusion_skipped,
         splade_fusion_skip_reason=splade_fusion_skip_reason,
-        centrality_variant=centrality_variant,
-        centrality_personalized=centrality_personalized,
-        centrality_fallback_reason=centrality_fallback_reason,
-        centrality_latency_ms=centrality_latency_ms,
-        centrality_subgraph_nodes=centrality_subgraph_nodes,
-        centrality_subgraph_edges=centrality_subgraph_edges,
     )
 
     bundle = ContextBundle(
