@@ -10,7 +10,7 @@ from archex.cache import CacheManager
 from archex.config import load_config
 from archex.index.delta import compute_working_tree_signature
 from archex.index.store import IndexStore
-from archex.metrics.storage import metrics_db_path
+from archex.metrics.storage import MetricsStore, metrics_db_path
 from archex.project import ProjectState
 
 
@@ -150,9 +150,10 @@ def _metrics_savings(repo_root: Path) -> dict[str, int | float] | None:
     if not db_path.exists():
         return None
     try:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        try:
+        # Open through MetricsStore so the ledger is migrated before querying the
+        # targeted-read columns; a raw connection on a pre-migration ledger would
+        # raise and silently drop the savings line until another command migrates it.
+        with MetricsStore(db_path).connect() as conn:
             repo = conn.execute(
                 "SELECT repo_id FROM repos WHERE repo_root = ?",
                 (str(repo_root.resolve()),),
@@ -172,8 +173,6 @@ def _metrics_savings(repo_root: Path) -> dict[str, int | float] | None:
                 """,
                 (str(repo["repo_id"]),),
             ).fetchone()
-        finally:
-            conn.close()
     except sqlite3.Error:
         return None
     raw = int(row["tokens_raw_equivalent"])

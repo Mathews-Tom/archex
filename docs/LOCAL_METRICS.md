@@ -106,7 +106,7 @@ savings_pct_vs_targeted   = 0 if targeted_read <= 0 else (tokens_saved_vs_target
 whole_repo_tokens_avoided = max(whole_repo - returned, 0)      # null if whole_repo unavailable
 ```
 
-Invariant: `returned <= targeted_read <= full_file`.
+Invariant: `returned <= targeted_read <= full_file` for any input where `returned <= full_file` (the realistic case). On a tiny file whose rendered chunks exceed its source (`returned > full_file`), `targeted_read` is capped at `full_file`, so savings versus targeted reports 0.
 
 Example:
 
