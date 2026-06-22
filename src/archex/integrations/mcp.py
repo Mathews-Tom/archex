@@ -81,7 +81,7 @@ def handle_analyze_repo(repo_url: str, output_format: str = "json") -> str:
     meta = compute_meta(
         tool_name="analyze_repo",
         response_text=content,
-        raw_file_tokens=max(raw_tokens, 1),
+        raw_file_tokens=max(raw_tokens or 0, 1),
         strategy="full_analysis",
         cached=pt.cached,
         index_time_ms=pt.index_ms,
@@ -139,7 +139,7 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
     meta = compute_meta(
         tool_name="query_repo",
         response_text=content,
-        raw_file_tokens=max(raw_tokens, 1),
+        raw_file_tokens=max(raw_tokens or 0, 1),
         envelope_overhead_tokens=envelope_overhead,
         strategy="bm25+graph",
         cached=pt.cached,
@@ -182,7 +182,7 @@ def handle_scout_repo(
     meta = compute_meta(
         tool_name="scout_repo",
         response_text=rendered,
-        raw_file_tokens=raw,
+        raw_file_tokens=raw or 0,
         strategy="scout",
         cached=pt.cached,
         index_time_ms=pt.index_ms,
@@ -200,7 +200,7 @@ def handle_scout_repo(
 def _record_query_metrics(
     source: RepoSource,
     bundle: ContextBundle,
-    raw_tokens: int,
+    raw_tokens: int | None,
 ) -> None:
     try:
         policy = resolve_metrics_policy()
@@ -268,7 +268,7 @@ def _record_structural_metrics(
     source: RepoSource,
     tool_name: str,
     response_text: str,
-    raw_tokens: int,
+    raw_tokens: int | None,
     *,
     whole_repo_tokens: int | None = None,
     file_count: int = 0,
@@ -322,11 +322,11 @@ def handle_compare_repos(
     content = result.model_dump_json(indent=2)
     raw_a = get_repo_total_tokens(source_a)
     raw_b = get_repo_total_tokens(source_b)
-    raw_tokens = raw_a + raw_b
+    raw_tokens = raw_a + raw_b if raw_a is not None and raw_b is not None else None
     meta = compute_meta(
         tool_name="compare_repos",
         response_text=content,
-        raw_file_tokens=max(raw_tokens, 1),
+        raw_file_tokens=max(raw_tokens or 0, 1),
         strategy="full_comparison",
         query_time_ms=elapsed_ms,
     )
@@ -349,7 +349,7 @@ def handle_get_file_tree(repo_url: str, max_depth: int = 5, language: str | None
     meta = compute_meta(
         tool_name="get_file_tree",
         response_text=content,
-        raw_file_tokens=max(raw_tokens, 1),
+        raw_file_tokens=max(raw_tokens or 0, 1),
         strategy="file_tree",
         cached=pt.cached,
         index_time_ms=pt.index_ms,
@@ -408,7 +408,7 @@ def handle_search_symbols(
     meta = compute_meta(
         tool_name="search_symbols",
         response_text=content,
-        raw_file_tokens=max(raw_tokens, 1),
+        raw_file_tokens=max(raw_tokens or 0, 1),
         strategy="symbol_search",
         cached=pt.cached,
         index_time_ms=pt.index_ms,
@@ -435,7 +435,7 @@ def handle_get_symbol(repo_url: str, symbol_id: str) -> str:
     meta = compute_meta(
         tool_name="get_symbol",
         response_text=content,
-        raw_file_tokens=max(raw_tokens, 1),
+        raw_file_tokens=max(raw_tokens or 0, 1),
         strategy="symbol_lookup",
         cached=pt.cached,
         index_time_ms=pt.index_ms,
@@ -464,7 +464,7 @@ def handle_get_symbols_batch(repo_url: str, symbol_ids: list[str]) -> str:
     meta = compute_meta(
         tool_name="get_symbols_batch",
         response_text=content,
-        raw_file_tokens=max(raw_tokens, 1),
+        raw_file_tokens=max(raw_tokens or 0, 1),
         strategy="symbol_batch",
         cached=pt.cached,
         index_time_ms=pt.index_ms,

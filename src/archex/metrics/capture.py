@@ -18,13 +18,15 @@ def record_query_usage(
     bundle: ContextBundle,
     *,
     surface: Surface,
-    tokens_raw_equivalent: int,
+    tokens_raw_equivalent: int | None,
     whole_repo_tokens: int | None,
     tool_name: str = "query",
     db_path: Path | None = None,
 ) -> None:
     repo_root = _local_repo_root(source)
     if repo_root is None:
+        return
+    if tokens_raw_equivalent is None:
         return
     files = sorted({chunk.chunk.file_path for chunk in bundle.chunks})
     symbols = sorted(
@@ -59,13 +61,15 @@ def record_scout_usage(
     *,
     surface: Surface,
     tokens_returned: int,
-    tokens_raw_equivalent: int,
+    tokens_raw_equivalent: int | None,
     whole_repo_tokens: int | None,
     tool_name: str = "scout",
     db_path: Path | None = None,
 ) -> None:
     repo_root = _local_repo_root(source)
     if repo_root is None:
+        return
+    if tokens_raw_equivalent is None:
         return
     receipt = result.receipt
     MetricsRecorder(db_path).record(
@@ -102,13 +106,15 @@ def record_structural_usage(
     surface: Surface,
     tool_name: str,
     tokens_returned: int,
-    tokens_raw_equivalent: int,
+    tokens_raw_equivalent: int | None,
     whole_repo_tokens: int | None = None,
     file_count: int = 0,
     db_path: Path | None = None,
 ) -> None:
     repo_root = _local_repo_root(source)
     if repo_root is None:
+        return
+    if tokens_raw_equivalent is None:
         return
     MetricsRecorder(db_path).record(
         UsageEvent(

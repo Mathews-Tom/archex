@@ -58,7 +58,8 @@ def symbols_cmd(
         print_timing(pt)
         returned = count_tokens(output) if output_json else len(results)
         raw_tokens = get_files_token_count(source_obj, unique_files)
-        print_savings(returned, raw_tokens, pt.total_ms, file_count=len(unique_files))
+        if raw_tokens is not None:
+            print_savings(returned, raw_tokens, pt.total_ms, file_count=len(unique_files))
     _record_metrics(source_obj, output, raw_tokens, unique_files)
 
 

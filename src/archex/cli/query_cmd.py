@@ -130,13 +130,14 @@ def query_cmd(
     if timing and pt is not None:
         print_timing(pt)
         raw_tokens = get_files_token_count(repo_source, unique_files, config)
-        print_savings(
-            bundle.token_count,
-            raw_tokens,
-            pt.total_ms,
-            budget=token_budget,
-            file_count=len(unique_files),
-        )
+        if raw_tokens is not None:
+            print_savings(
+                bundle.token_count,
+                raw_tokens,
+                pt.total_ms,
+                budget=token_budget,
+                file_count=len(unique_files),
+            )
 
     if metrics and pt is not None:
         import json

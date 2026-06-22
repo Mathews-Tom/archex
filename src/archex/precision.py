@@ -269,8 +269,11 @@ def get_repo_total_tokens(
     source: RepoSource,
     config: Config | None,
     ensure_index: EnsureIndex,
-) -> int:
-    """Return the total token count across all indexed chunks for a repository."""
+) -> int | None:
+    """Return the true total file-token count for a repository.
+
+    Returns None for a legacy index whose per-file token totals are unpopulated.
+    """
     store = ensure_index(source, config)
     try:
         return store.get_total_tokens()
@@ -283,8 +286,8 @@ def get_file_token_count(
     file_path: str,
     config: Config | None,
     ensure_index: EnsureIndex,
-) -> int:
-    """Return the total token count for a single file in an indexed repository."""
+) -> int | None:
+    """Return the true token total for a single file (None if unpopulated)."""
     store = ensure_index(source, config)
     try:
         return store.get_file_tokens(file_path)
@@ -297,8 +300,8 @@ def get_files_token_count(
     file_paths: list[str],
     config: Config | None,
     ensure_index: EnsureIndex,
-) -> int:
-    """Return the total token count across unique files in an indexed repository."""
+) -> int | None:
+    """Return the true token total across unique files (None if any unpopulated)."""
     store = ensure_index(source, config)
     try:
         return store.get_files_tokens(file_paths)

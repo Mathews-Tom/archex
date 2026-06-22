@@ -194,7 +194,7 @@ def _risk_reasons(
     if any(_is_test_path(path) for path in changed_paths):
         reasons.add("test_surface_changed")
     for path in affected_files:
-        if store.get_file_tokens(path) >= 1000:
+        if (store.get_file_tokens(path) or 0) >= 1000:
             reasons.add("large_file_changed")
     fan_in = _fan_in(store.get_edges(), changed_paths)
     if fan_in >= 3:
