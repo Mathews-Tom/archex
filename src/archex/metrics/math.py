@@ -15,6 +15,9 @@ class TokenSavings:
     savings_pct: float
     whole_repo_tokens: int | None = None
     whole_repo_tokens_avoided: int | None = None
+    targeted_read_tokens: int | None = None
+    tokens_saved_vs_targeted_read: int | None = None
+    savings_pct_vs_targeted_read: float | None = None
     baseline_type: str = BASELINE_RETURNED_FULL_FILES
 
 
@@ -23,12 +26,21 @@ def compute_token_savings(
     tokens_returned: int,
     tokens_raw_equivalent: int,
     whole_repo_tokens: int | None = None,
+    targeted_read_tokens: int | None = None,
 ) -> TokenSavings:
-    """Compute conservative returned-full-files savings and context upper bound."""
+    """Compute savings against the full-file and (optional) targeted-read baselines.
+
+    The full-file baseline is compression vs a naive full-file paste. The
+    targeted-read baseline (when provided) is the realistic counterfactual of
+    reading the matched line ranges plus a small context window; it is omitted
+    (None) when spans are unavailable for the event.
+    """
     _validate_non_negative("tokens_returned", tokens_returned)
     _validate_non_negative("tokens_raw_equivalent", tokens_raw_equivalent)
     if whole_repo_tokens is not None:
         _validate_non_negative("whole_repo_tokens", whole_repo_tokens)
+    if targeted_read_tokens is not None:
+        _validate_non_negative("targeted_read_tokens", targeted_read_tokens)
 
     tokens_saved = max(tokens_raw_equivalent - tokens_returned, 0)
     savings_pct = (
@@ -37,6 +49,16 @@ def compute_token_savings(
     whole_repo_tokens_avoided = (
         max(whole_repo_tokens - tokens_returned, 0) if whole_repo_tokens is not None else None
     )
+    if targeted_read_tokens is not None:
+        tokens_saved_vs_targeted_read: int | None = max(targeted_read_tokens - tokens_returned, 0)
+        savings_pct_vs_targeted_read: float | None = (
+            (tokens_saved_vs_targeted_read / targeted_read_tokens * 100.0)
+            if targeted_read_tokens > 0
+            else 0.0
+        )
+    else:
+        tokens_saved_vs_targeted_read = None
+        savings_pct_vs_targeted_read = None
     return TokenSavings(
         tokens_returned=tokens_returned,
         tokens_raw_equivalent=tokens_raw_equivalent,
@@ -44,6 +66,9 @@ def compute_token_savings(
         savings_pct=savings_pct,
         whole_repo_tokens=whole_repo_tokens,
         whole_repo_tokens_avoided=whole_repo_tokens_avoided,
+        targeted_read_tokens=targeted_read_tokens,
+        tokens_saved_vs_targeted_read=tokens_saved_vs_targeted_read,
+        savings_pct_vs_targeted_read=savings_pct_vs_targeted_read,
     )
 
 

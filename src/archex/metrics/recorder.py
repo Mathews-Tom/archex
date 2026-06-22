@@ -65,6 +65,7 @@ class UsageEvent:
     tokens_returned: int
     tokens_raw_equivalent: int
     whole_repo_tokens: int | None = None
+    tokens_targeted_read: int | None = None
     occurred_at: datetime | None = None
     file_count: int = 0
     freshness: str | None = None
@@ -113,6 +114,7 @@ class MetricsRecorder:
             tokens_returned=event.tokens_returned,
             tokens_raw_equivalent=event.tokens_raw_equivalent,
             whole_repo_tokens=event.whole_repo_tokens,
+            targeted_read_tokens=event.tokens_targeted_read,
         )
         occurred_at = event.occurred_at or datetime.now(UTC)
         event_id = str(uuid4())
@@ -178,9 +180,11 @@ class MetricsRecorder:
             INSERT INTO usage_events(
                 event_id, occurred_at, repo_id, surface, tool_name, category,
                 tokens_returned, tokens_raw_equivalent, tokens_saved, savings_pct,
-                whole_repo_tokens, whole_repo_tokens_avoided, baseline_type, file_count,
+                whole_repo_tokens, whole_repo_tokens_avoided, baseline_type,
+                tokens_targeted_read, tokens_saved_vs_targeted_read,
+                savings_pct_vs_targeted_read, file_count,
                 freshness, index_revision, trace_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event_id,
@@ -196,6 +200,9 @@ class MetricsRecorder:
                 savings.whole_repo_tokens,
                 savings.whole_repo_tokens_avoided,
                 savings.baseline_type,
+                savings.targeted_read_tokens,
+                savings.tokens_saved_vs_targeted_read,
+                savings.savings_pct_vs_targeted_read,
                 event.file_count,
                 event.freshness,
                 event.index_revision,
@@ -217,14 +224,19 @@ class MetricsRecorder:
             INSERT INTO daily_usage(
                 day, repo_id, surface, tool_name, category,
                 tokens_returned, tokens_raw_equivalent, tokens_saved,
-                whole_repo_tokens_avoided, event_count, first_event_at, last_event_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                whole_repo_tokens_avoided, tokens_targeted_read,
+                tokens_saved_vs_targeted_read, event_count, first_event_at, last_event_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             ON CONFLICT(day, repo_id, surface, tool_name, category) DO UPDATE SET
                 tokens_returned = tokens_returned + excluded.tokens_returned,
                 tokens_raw_equivalent = tokens_raw_equivalent + excluded.tokens_raw_equivalent,
                 tokens_saved = tokens_saved + excluded.tokens_saved,
                 whole_repo_tokens_avoided = (
                     whole_repo_tokens_avoided + excluded.whole_repo_tokens_avoided
+                ),
+                tokens_targeted_read = tokens_targeted_read + excluded.tokens_targeted_read,
+                tokens_saved_vs_targeted_read = (
+                    tokens_saved_vs_targeted_read + excluded.tokens_saved_vs_targeted_read
                 ),
                 event_count = event_count + 1,
                 first_event_at = min(first_event_at, excluded.first_event_at),
@@ -240,6 +252,8 @@ class MetricsRecorder:
                 savings.tokens_raw_equivalent,
                 savings.tokens_saved,
                 savings.whole_repo_tokens_avoided or 0,
+                savings.targeted_read_tokens or 0,
+                savings.tokens_saved_vs_targeted_read or 0,
                 occurred,
                 occurred,
             ),
@@ -262,8 +276,9 @@ class MetricsRecorder:
                 trace_id, event_id, expires_at, query_text, returned_file_paths, symbols,
                 handles, skipped_counts, tokens_returned, tokens_raw_equivalent,
                 tokens_saved, savings_pct, whole_repo_tokens, whole_repo_tokens_avoided,
-                repo_id, index_revision
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tokens_targeted_read, tokens_saved_vs_targeted_read,
+                savings_pct_vs_targeted_read, repo_id, index_revision
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trace_id,
@@ -280,6 +295,9 @@ class MetricsRecorder:
                 savings.savings_pct,
                 savings.whole_repo_tokens,
                 savings.whole_repo_tokens_avoided,
+                savings.targeted_read_tokens,
+                savings.tokens_saved_vs_targeted_read,
+                savings.savings_pct_vs_targeted_read,
                 repo_id,
                 event.index_revision,
             ),
