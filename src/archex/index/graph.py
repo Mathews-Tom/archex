@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import time
-from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import networkx as nx
@@ -20,24 +17,6 @@ _CO_DIRECTORY_CONFIDENCE_SCORE = 0.6
 _CO_DIRECTORY_EVIDENCE = [
     "same directory package scope; added only when no direct import edge exists"
 ]
-
-_CENTRALITY_WEIGHT_ATTR = "centrality_weight"
-_PERSONALIZED_CENTRALITY_HOPS = 2
-_PERSONALIZED_CENTRALITY_MAX_NODES = 128
-_PERSONALIZED_CENTRALITY_FRONTIER_CAP = 32
-
-
-@dataclass(frozen=True)
-class PersonalizedCentralityResult:
-    """Per-query structural centrality scores plus bounded-walk provenance."""
-
-    scores: dict[str, float]
-    variant: str
-    personalized: bool
-    fallback_reason: str
-    latency_ms: float
-    subgraph_nodes: int
-    subgraph_edges: int
 
 
 def _resolved_import_evidence(file_path: str, imported_module: str, line: int) -> list[str]:
@@ -97,11 +76,9 @@ class DependencyGraph:
         self._file_graph: nx.DiGraph[str] = nx.DiGraph()  # type: ignore[type-arg]
         self._symbol_graph: nx.DiGraph[str] = nx.DiGraph()  # type: ignore[type-arg]
         self._centrality_cache: dict[str, float] | None = None
-        self._weighted_directional_centrality_cache: dict[str, float] | None = None
 
     def _invalidate_centrality_caches(self) -> None:
         self._centrality_cache = None
-        self._weighted_directional_centrality_cache = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -357,167 +334,6 @@ class DependencyGraph:
         raw: dict[Any, float] = nx.pagerank(graph)  # type: ignore[misc]
         self._centrality_cache = {str(k): v for k, v in raw.items()}
         return self._centrality_cache
-
-    def _bounded_personalization_nodes(
-        self,
-        seed_scores: Mapping[str, float],
-        *,
-        max_nodes: int,
-        frontier_cap: int,
-        hops: int,
-    ) -> set[str]:
-        """Return seeds plus a capped bidirectional neighborhood."""
-        selected: set[str] = set()
-        frontier_scores: dict[str, float] = {}
-        for node, score in sorted(seed_scores.items(), key=lambda item: (-item[1], item[0])):
-            if len(selected) >= max_nodes or len(frontier_scores) >= frontier_cap:
-                break
-            if self._file_graph.has_node(node):  # type: ignore[misc]
-                selected.add(node)
-                frontier_scores[node] = score
-
-        for _ in range(hops):
-            if len(selected) >= max_nodes or not frontier_scores:
-                break
-            candidates: dict[str, float] = {}
-            for node, base_score in frontier_scores.items():
-                for pred, _, data in self._file_graph.in_edges(node, data=True):  # type: ignore[misc]
-                    if not data.get("traversable", True):
-                        continue
-                    pred_str = str(pred)
-                    if pred_str in selected:
-                        continue
-                    confidence_score = float(data.get("confidence_score", 1.0))
-                    candidates[pred_str] = candidates.get(pred_str, 0.0) + (
-                        base_score * confidence_score
-                    )
-                for _, succ, data in self._file_graph.out_edges(node, data=True):  # type: ignore[misc]
-                    if not data.get("traversable", True):
-                        continue
-                    succ_str = str(succ)
-                    if succ_str in selected:
-                        continue
-                    confidence_score = float(data.get("confidence_score", 1.0))
-                    candidates[succ_str] = candidates.get(succ_str, 0.0) + (
-                        base_score * confidence_score
-                    )
-            next_frontier: dict[str, float] = {}
-            for node, score in sorted(candidates.items(), key=lambda item: (-item[1], item[0])):
-                if len(next_frontier) >= frontier_cap or len(selected) >= max_nodes:
-                    break
-                selected.add(node)
-                next_frontier[node] = score
-            frontier_scores = next_frontier
-        return selected
-
-    def _weighted_directional_graph(self, nodes: set[str] | None = None) -> nx.DiGraph[str]:  # type: ignore[type-arg]
-        """Return traversable graph with confidence weights and ranking direction.
-
-        Import edges are stored as importer -> imported (see ``from_parsed_files`` and
-        ``imports_of``). PageRank transfers rank along outgoing edges, so this
-        orientation already makes importance flow from importing files to imported
-        files; no reversal is needed for import edges.
-        """
-        graph: nx.DiGraph[str] = nx.DiGraph()  # type: ignore[type-arg]
-        source_nodes = {str(node) for node in self._file_graph.nodes()}  # type: ignore[misc]
-        if nodes is not None:
-            source_nodes &= nodes
-        graph.add_nodes_from(source_nodes)  # type: ignore[misc]
-        edge_graph = (
-            self._file_graph.subgraph(source_nodes) if nodes is not None else self._file_graph
-        )
-        for src, tgt, data in edge_graph.edges(data=True):  # type: ignore[misc]
-            if not data.get("traversable", True):
-                continue
-            src_str = str(src)
-            tgt_str = str(tgt)
-            confidence_score = float(data.get("confidence_score", 1.0))
-            if confidence_score <= 0.0:
-                continue
-            graph.add_edge(  # type: ignore[misc]
-                src_str,
-                tgt_str,
-                **{_CENTRALITY_WEIGHT_ATTR: confidence_score},
-            )
-        return graph
-
-    def weighted_directional_centrality(self) -> dict[str, float]:
-        """Return cacheable PageRank using edge confidence and import direction."""
-        if self._weighted_directional_centrality_cache is not None:
-            return self._weighted_directional_centrality_cache
-        if self._file_graph.number_of_nodes() == 0:  # type: ignore[misc]
-            return {}
-        graph = self._weighted_directional_graph()
-        raw: dict[Any, float] = nx.pagerank(graph, weight=_CENTRALITY_WEIGHT_ATTR)  # type: ignore[misc]
-        self._weighted_directional_centrality_cache = {str(k): v for k, v in raw.items()}
-        return self._weighted_directional_centrality_cache
-
-    def personalized_centrality(
-        self,
-        seed_scores: Mapping[str, float],
-        *,
-        max_nodes: int = _PERSONALIZED_CENTRALITY_MAX_NODES,
-        frontier_cap: int = _PERSONALIZED_CENTRALITY_FRONTIER_CAP,
-        hops: int = _PERSONALIZED_CENTRALITY_HOPS,
-    ) -> PersonalizedCentralityResult:
-        """Return bounded query-personalized weighted PageRank.
-
-        Personalization runs only on seeds plus a capped 1-2 hop neighborhood.
-        Empty or unusable seeds fall back to the cached global centrality.
-        """
-        started_at = time.perf_counter()
-        usable_seed_scores = {
-            path: score
-            for path, score in seed_scores.items()
-            if score > 0.0 and self._file_graph.has_node(path)  # type: ignore[misc]
-        }
-        if not usable_seed_scores:
-            return PersonalizedCentralityResult(
-                scores=dict(self.structural_centrality()),
-                variant="global",
-                personalized=False,
-                fallback_reason="no_usable_seeds",
-                latency_ms=(time.perf_counter() - started_at) * 1000,
-                subgraph_nodes=0,
-                subgraph_edges=0,
-            )
-
-        nodes = self._bounded_personalization_nodes(
-            usable_seed_scores,
-            max_nodes=max_nodes,
-            frontier_cap=frontier_cap,
-            hops=hops,
-        )
-        graph = self._weighted_directional_graph(nodes)
-        personalization = {
-            str(node): usable_seed_scores.get(str(node), 0.0)
-            for node in graph.nodes()  # type: ignore[misc]
-        }
-        if sum(personalization.values()) <= 0.0:
-            return PersonalizedCentralityResult(
-                scores=dict(self.structural_centrality()),
-                variant="global",
-                personalized=False,
-                fallback_reason="no_seed_nodes_in_subgraph",
-                latency_ms=(time.perf_counter() - started_at) * 1000,
-                subgraph_nodes=graph.number_of_nodes(),  # type: ignore[misc]
-                subgraph_edges=graph.number_of_edges(),  # type: ignore[misc]
-            )
-
-        raw: dict[Any, float] = nx.pagerank(
-            graph,
-            personalization=personalization,
-            weight=_CENTRALITY_WEIGHT_ATTR,
-        )  # type: ignore[misc]
-        return PersonalizedCentralityResult(
-            scores={str(k): v for k, v in raw.items()},
-            variant="personalized_weighted_directional",
-            personalized=True,
-            fallback_reason="",
-            latency_ms=(time.perf_counter() - started_at) * 1000,
-            subgraph_nodes=graph.number_of_nodes(),  # type: ignore[misc]
-            subgraph_edges=graph.number_of_edges(),  # type: ignore[misc]
-        )
 
     # ------------------------------------------------------------------
     # Persistence

@@ -46,8 +46,6 @@ class TestAvailableStrategies:
         assert Strategy.CROSS_LAYER_FUSION in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY_HYBRID in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY_HYBRID_QUANTIZED_4BIT in AVAILABLE_STRATEGIES
-        assert Strategy.ARCHEX_QUERY_PPR in AVAILABLE_STRATEGIES
-        assert Strategy.ARCHEX_QUERY_PPR not in DEFAULT_STRATEGIES
 
 
 class TestBenchmarkPreflight:
@@ -278,11 +276,9 @@ class TestRunBenchmark:
             explicit_token_budget: bool,
             config: object,
             index_config: IndexConfig,
-            centrality_mode: str = "global",
         ) -> ContextBundle:
             del config
             del explicit_token_budget
-            del centrality_mode
             captured.append(
                 (
                     index_config.embedder,

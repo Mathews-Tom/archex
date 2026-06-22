@@ -41,7 +41,6 @@ from archex.benchmark.strategies import (
     run_archex_query_fusion_rerank,
     run_archex_query_hybrid,
     run_archex_query_hybrid_quantized_4bit,
-    run_archex_query_ppr,
     run_archex_query_vector,
     run_archex_scout_fetch,
     run_cross_layer_fusion,
@@ -728,30 +727,6 @@ class TestRunArchexQuery:
         assert result.all_required_files_present is True
         assert result.task_completion_result.value == "pass"
 
-    def test_archex_query_ppr_strategy_records_centrality_provenance(
-        self,
-        python_simple_repo: Path,
-    ) -> None:
-        task = BenchmarkTask(
-            task_id="test",
-            repo="test/repo",
-            commit="abc",
-            question="How does the main module work?",
-            expected_files=["main.py"],
-            token_budget=128,
-        )
-        result = run_archex_query_ppr(task, python_simple_repo)
-
-        assert result.strategy == Strategy.ARCHEX_QUERY_PPR
-        assert result.tool_calls == 1
-        assert result.provenance["centrality_variant"] in {
-            "personalized_weighted_directional",
-            "global",
-        }
-        assert "centrality_personalized" in result.provenance
-        assert int(result.provenance["centrality_subgraph_nodes"]) >= 0
-        assert float(result.provenance["centrality_latency_ms"]) >= 0.0
-
     def test_archex_query_without_regions_leaves_region_fields_none(
         self,
         python_simple_repo: Path,
@@ -1242,9 +1217,8 @@ def test_vector_strategies_read_configured_embedder(
         config: object,
         index_config: IndexConfig,
         timing: object | None = None,
-        centrality_mode: str = "global",
     ) -> ContextBundle:
-        del config, explicit_token_budget, timing, centrality_mode
+        del config, explicit_token_budget, timing
         captured.append(index_config.embedder)
         return ContextBundle(
             query=question,

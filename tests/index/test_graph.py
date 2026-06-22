@@ -146,61 +146,7 @@ def test_structural_centrality() -> None:
         assert isinstance(val, float)
 
 
-def test_weighted_directional_centrality_uses_edge_confidence() -> None:
-    graph = DependencyGraph.from_edges(
-        [
-            Edge(
-                source="router.py",
-                target="target.py",
-                kind=EdgeKind.IMPORTS,
-                confidence_score=0.1,
-            ),
-            Edge(
-                source="router.py",
-                target="other.py",
-                kind=EdgeKind.IMPORTS,
-                confidence_score=1.0,
-            ),
-            Edge(
-                source="caller.py",
-                target="router.py",
-                kind=EdgeKind.IMPORTS,
-                confidence_score=1.0,
-            ),
-        ]
-    )
-
-    unweighted = graph.structural_centrality()
-    weighted = graph.weighted_directional_centrality()
-
-    assert weighted != unweighted
-    assert weighted["other.py"] > weighted["target.py"]
-
-
-def test_directional_centrality_rewards_heavily_imported_files() -> None:
-    importer_to_imported = DependencyGraph.from_edges(
-        [
-            Edge(source="api.py", target="core.py", kind=EdgeKind.IMPORTS),
-            Edge(source="cli.py", target="core.py", kind=EdgeKind.IMPORTS),
-            Edge(source="worker.py", target="core.py", kind=EdgeKind.IMPORTS),
-        ]
-    )
-    reversed_imports = DependencyGraph.from_edges(
-        [
-            Edge(source="core.py", target="api.py", kind=EdgeKind.IMPORTS),
-            Edge(source="core.py", target="cli.py", kind=EdgeKind.IMPORTS),
-            Edge(source="core.py", target="worker.py", kind=EdgeKind.IMPORTS),
-        ]
-    )
-
-    directional = importer_to_imported.weighted_directional_centrality()
-    reversed_scores = reversed_imports.weighted_directional_centrality()
-
-    assert directional["core.py"] > directional["api.py"]
-    assert directional["core.py"] > reversed_scores["core.py"]
-
-
-def test_weighted_directional_centrality_does_not_mutate_global_cache() -> None:
+def test_structural_centrality_cache_result_stays_stable() -> None:
     graph = DependencyGraph.from_edges(
         [
             Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS),
@@ -208,13 +154,13 @@ def test_weighted_directional_centrality_does_not_mutate_global_cache() -> None:
         ]
     )
 
-    global_before = graph.structural_centrality()
-    assert graph._centrality_cache == global_before  # pyright: ignore[reportPrivateUsage]
+    first = graph.structural_centrality()
+    assert graph._centrality_cache is first  # pyright: ignore[reportPrivateUsage]
 
-    _ = graph.weighted_directional_centrality()
+    second = graph.structural_centrality()
 
-    assert graph.structural_centrality() == global_before
-    assert graph._centrality_cache == global_before  # pyright: ignore[reportPrivateUsage]
+    assert second is first
+    assert second == first
 
 
 def test_sqlite_round_trip(tmp_path: Path) -> None:
@@ -228,86 +174,6 @@ def test_sqlite_round_trip(tmp_path: Path) -> None:
     restored = DependencyGraph.from_sqlite(db_path)
     assert restored.file_count == graph.file_count
     assert restored.file_edge_count == graph.file_edge_count
-
-
-def test_personalized_centrality_differs_from_global() -> None:
-    graph = DependencyGraph.from_edges(
-        [
-            Edge(source="a.py", target="shared.py", kind=EdgeKind.IMPORTS),
-            Edge(source="b.py", target="shared.py", kind=EdgeKind.IMPORTS),
-            Edge(source="seed.py", target="local.py", kind=EdgeKind.IMPORTS),
-            Edge(source="local.py", target="leaf.py", kind=EdgeKind.IMPORTS),
-        ]
-    )
-
-    global_scores = graph.structural_centrality()
-    personalized = graph.personalized_centrality({"seed.py": 1.0})
-
-    assert personalized.personalized is True
-    assert personalized.variant == "personalized_weighted_directional"
-    assert personalized.scores != global_scores
-    assert "shared.py" not in personalized.scores
-    assert personalized.scores["local.py"] > 0.0
-    assert personalized.latency_ms >= 0.0
-    assert personalized.subgraph_nodes > 0
-
-
-def test_personalized_centrality_respects_node_cap() -> None:
-    graph = DependencyGraph()
-    graph.add_file_node("seed.py")
-    for index in range(20):
-        graph.add_file_edge("seed.py", f"dep_{index}.py", kind=EdgeKind.IMPORTS)
-        graph.add_file_edge(f"dep_{index}.py", f"leaf_{index}.py", kind=EdgeKind.IMPORTS)
-
-    personalized = graph.personalized_centrality(
-        {"seed.py": 1.0},
-        max_nodes=6,
-        frontier_cap=4,
-        hops=2,
-    )
-
-    assert personalized.personalized is True
-    assert personalized.subgraph_nodes <= 6
-    assert len(personalized.scores) <= 6
-
-
-def test_personalized_centrality_falls_back_to_global_without_seeds() -> None:
-    graph = DependencyGraph.from_edges(
-        [
-            Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS),
-            Edge(source="c.py", target="b.py", kind=EdgeKind.IMPORTS),
-        ]
-    )
-
-    global_scores = graph.structural_centrality()
-    personalized = graph.personalized_centrality({})
-
-    assert personalized.personalized is False
-    assert personalized.variant == "global"
-    assert personalized.fallback_reason == "no_usable_seeds"
-    assert personalized.scores == global_scores
-    assert personalized.scores is not graph._centrality_cache  # pyright: ignore[reportPrivateUsage]
-    assert graph._centrality_cache == global_scores  # pyright: ignore[reportPrivateUsage]
-
-
-def test_personalized_centrality_latency_stays_bounded_on_large_graph() -> None:
-    graph = DependencyGraph()
-    graph.add_file_node("seed.py")
-    for index in range(1_000):
-        node = f"node_{index}.py"
-        graph.add_file_edge("seed.py", node, kind=EdgeKind.IMPORTS)
-        graph.add_file_edge(node, f"leaf_{index}.py", kind=EdgeKind.IMPORTS)
-
-    personalized = graph.personalized_centrality(
-        {"seed.py": 1.0},
-        max_nodes=64,
-        frontier_cap=16,
-        hops=2,
-    )
-
-    assert personalized.personalized is True
-    assert personalized.subgraph_nodes <= 64
-    assert personalized.latency_ms < 3_000.0
 
 
 def test_sqlite_round_trip_preserves_edge_confidence(tmp_path: Path) -> None:
@@ -424,12 +290,9 @@ class TestUpdateFiles:
         graph = DependencyGraph.from_parsed_files(parsed, {})
         _ = graph.structural_centrality()  # populate cache
         assert graph._centrality_cache is not None  # pyright: ignore[reportPrivateUsage]
-        _ = graph.weighted_directional_centrality()
-        assert graph._weighted_directional_centrality_cache is not None  # pyright: ignore[reportPrivateUsage]
 
         graph.update_files({"a.py"}, [])
         assert graph._centrality_cache is None  # pyright: ignore[reportPrivateUsage]
-        assert graph._weighted_directional_centrality_cache is None  # pyright: ignore[reportPrivateUsage]
 
     def test_empty_inputs(self) -> None:
         parsed = [ParsedFile(path="a.py", language="python")]

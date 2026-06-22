@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
 import xml.etree.ElementTree as ET
 
 
@@ -23,8 +22,6 @@ from archex.serve.renderers.json import render_json
 from archex.serve.renderers.markdown import render_markdown
 from archex.serve.renderers.xml import render_xml
 
-if TYPE_CHECKING:
-    import pytest
 
 # ruff: noqa: I001
 
@@ -1059,42 +1056,14 @@ def test_high_relevance_low_centrality_beats_low_relevance_high_centrality() -> 
     assert scores.get("leaf.py", 0) > scores.get("hub.py", 0)
 
 
-def test_default_context_uses_global_centrality(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_context_uses_global_centrality() -> None:
     graph = DependencyGraph()
     graph.add_file_node("seed.py")
     chunk = make_chunk("seed", "seed.py", token_count=10)
 
-    def fail_personalized(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("default query path must not run personalized centrality")
-
-    monkeypatch.setattr(graph, "personalized_centrality", fail_personalized)
     bundle = assemble_context([(chunk, 1.0)], graph, [chunk], "q", token_budget=1000)
 
-    assert bundle.retrieval_metadata.centrality_variant == "global"
-    assert bundle.retrieval_metadata.centrality_personalized is False
-
-
-def test_personalized_context_records_centrality_provenance() -> None:
-    graph = DependencyGraph()
-    graph.add_file_edge("seed.py", "dep.py", kind="imports")
-    seed = make_chunk("seed", "seed.py", token_count=10)
-    dep = make_chunk("dep", "dep.py", token_count=10)
-
-    bundle = assemble_context(
-        [(seed, 1.0)],
-        graph,
-        [seed, dep],
-        "q",
-        token_budget=1000,
-        centrality_mode="personalized_weighted_directional",
-    )
-    meta = bundle.retrieval_metadata
-
-    assert meta.centrality_variant == "personalized_weighted_directional"
-    assert meta.centrality_personalized is True
-    assert meta.centrality_subgraph_nodes > 0
-    assert meta.centrality_subgraph_edges >= 0
-    assert meta.centrality_latency_ms >= 0.0
+    assert bundle.chunks[0].structural_score == graph.structural_centrality()["seed.py"]
 
 
 # ---------------------------------------------------------------------------
