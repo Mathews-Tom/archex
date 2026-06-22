@@ -7,11 +7,6 @@ from typing import TYPE_CHECKING
 import xml.etree.ElementTree as ET
 
 
-from archex.index.churn import (
-    CHURN_SOURCE_FIXTURE,
-    CHURN_SOURCE_NEUTRAL,
-    ChurnPriors,
-)
 from archex.index.graph import DependencyGraph
 from archex.index.rerank import DEFAULT_TOP_K, RERANK_CANDIDATE_LIMIT, CrossEncoderReranker
 from archex.models import (
@@ -1103,170 +1098,30 @@ def test_personalized_context_records_centrality_provenance() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Recency/churn prior tests (benchmark-only candidate; default unchanged)
+# Default scoring regression tests
 # ---------------------------------------------------------------------------
 
 _RELEVANCE_ONLY = ScoringWeights(relevance=1.0, structural=0.0, type_coverage=0.0, cohesion=0.0)
 
 
-def _churn_scene() -> tuple[DependencyGraph, list[CodeChunk], list[tuple[CodeChunk, float]]]:
-    """Two near-tied files: ``alpha.py`` leads ``beta.py`` by a hair on relevance."""
+def test_default_scoring_uses_relevance_without_retired_multiplier() -> None:
     graph = DependencyGraph()
     graph.add_file_node("alpha.py")
     graph.add_file_node("beta.py")
     alpha = make_chunk("alpha", "alpha.py", token_count=10)
     beta = make_chunk("beta", "beta.py", token_count=10)
-    results = [(alpha, 1.0), (beta, 0.99)]
-    return graph, [alpha, beta], results
 
-
-def _final_scores(bundle: ContextBundle) -> dict[str, float]:
-    return {rc.chunk.file_path: rc.final_score for rc in bundle.chunks}
-
-
-# A gated intent (DEBUGGING via "fail") and a non-gated intent (GENERAL).
-_GATED_QUESTION = "why does it fail"
-_NON_GATED_QUESTION = "list the helpers here"
-
-
-def test_churn_neutral_fallback_equals_archex_query_under_gated_intent() -> None:
-    """A neutral prior under a gated intent must not perturb the default ranking."""
-    graph, all_chunks, results = _churn_scene()
-    base = assemble_context(
-        results,
-        graph,
-        all_chunks,
-        _GATED_QUESTION,
-        token_budget=1000,
-        scoring_weights=_RELEVANCE_ONLY,
-    )
-    neutral = ChurnPriors(source=CHURN_SOURCE_NEUTRAL, commit="", max_boost=0.05, priors={})
-    candidate = assemble_context(
-        results,
-        graph,
-        all_chunks,
-        _GATED_QUESTION,
-        token_budget=1000,
-        scoring_weights=_RELEVANCE_ONLY,
-        churn_priors=neutral,
-    )
-    assert _final_scores(candidate) == _final_scores(base)
-    assert candidate.retrieval_metadata.churn_intent_gated is True
-    assert candidate.retrieval_metadata.churn_priors_applied == {}
-
-
-def test_churn_non_gated_intent_equals_archex_query() -> None:
-    """Even with a non-neutral prior, a non-gated intent leaves ranking unchanged."""
-    graph, all_chunks, results = _churn_scene()
-    base = assemble_context(
-        results,
-        graph,
-        all_chunks,
-        _NON_GATED_QUESTION,
-        token_budget=1000,
-        scoring_weights=_RELEVANCE_ONLY,
-    )
-    fixture = ChurnPriors(
-        source=CHURN_SOURCE_FIXTURE, commit="c0ffee", max_boost=0.05, priors={"beta.py": 1.05}
-    )
-    candidate = assemble_context(
-        results,
-        graph,
-        all_chunks,
-        _NON_GATED_QUESTION,
-        token_budget=1000,
-        scoring_weights=_RELEVANCE_ONLY,
-        churn_priors=fixture,
-    )
-    assert _final_scores(candidate) == _final_scores(base)
-    # Source is recorded for provenance, but the gate stayed closed.
-    assert candidate.retrieval_metadata.churn_source == CHURN_SOURCE_FIXTURE
-    assert candidate.retrieval_metadata.churn_intent_gated is False
-    assert candidate.retrieval_metadata.churn_priors_applied == {}
-
-
-def test_churn_gated_fixture_shifts_order_within_bound() -> None:
-    """A gated fixture prior can break a near-tie, but only within its bound."""
-    graph, all_chunks, results = _churn_scene()
-    base = assemble_context(
-        results,
-        graph,
-        all_chunks,
-        _GATED_QUESTION,
-        token_budget=1000,
-        scoring_weights=_RELEVANCE_ONLY,
-    )
-    base_scores = _final_scores(base)
-    # alpha leads beta before the prior.
-    assert base_scores["alpha.py"] > base_scores["beta.py"]
-
-    max_boost = 0.05
-    fixture = ChurnPriors(
-        source=CHURN_SOURCE_FIXTURE,
-        commit="c0ffee",
-        max_boost=max_boost,
-        priors={"beta.py": 1.0 + max_boost},
-    )
-    candidate = assemble_context(
-        results,
-        graph,
-        all_chunks,
-        _GATED_QUESTION,
-        token_budget=1000,
-        scoring_weights=_RELEVANCE_ONLY,
-        churn_priors=fixture,
-    )
-    cand_scores = _final_scores(candidate)
-    # The bounded boost flips the near-tie in beta's favor.
-    assert cand_scores["beta.py"] > cand_scores["alpha.py"]
-    # alpha (no prior) is untouched; beta moved by exactly the bounded factor.
-    assert cand_scores["alpha.py"] == base_scores["alpha.py"]
-    assert cand_scores["beta.py"] <= base_scores["beta.py"] * (1.0 + max_boost) + 1e-12
-    assert candidate.retrieval_metadata.churn_priors_applied == {"beta.py": 1.0 + max_boost}
-
-
-def test_churn_usage_search_intent_opens_gate() -> None:
-    """The USAGE_SEARCH half of the gate also applies the bounded prior."""
-    graph, all_chunks, results = _churn_scene()
-    usage_question = "who calls this helper"  # matches the usage-search patterns
-    max_boost = 0.05
-    fixture = ChurnPriors(
-        source=CHURN_SOURCE_FIXTURE,
-        commit="c0ffee",
-        max_boost=max_boost,
-        priors={"beta.py": 1.0 + max_boost},
-    )
-    candidate = assemble_context(
-        results,
-        graph,
-        all_chunks,
-        usage_question,
-        token_budget=1000,
-        scoring_weights=_RELEVANCE_ONLY,
-        churn_priors=fixture,
-    )
-    meta = candidate.retrieval_metadata
-    assert meta.churn_intent_gated is True
-    assert meta.churn_priors_applied == {"beta.py": 1.0 + max_boost}
-    cand_scores = _final_scores(candidate)
-    assert cand_scores["beta.py"] > cand_scores["alpha.py"]
-
-
-def test_churn_absent_leaves_neutral_provenance() -> None:
-    """The default path records no churn source and an empty applied map."""
-    graph, all_chunks, results = _churn_scene()
     bundle = assemble_context(
-        results,
+        [(alpha, 1.0), (beta, 0.99)],
         graph,
-        all_chunks,
-        _GATED_QUESTION,
+        [alpha, beta],
+        "why does it fail",
         token_budget=1000,
         scoring_weights=_RELEVANCE_ONLY,
     )
-    meta = bundle.retrieval_metadata
-    assert meta.churn_source == ""
-    assert meta.churn_intent_gated is False
-    assert meta.churn_priors_applied == {}
+
+    scores = {rc.chunk.file_path: rc.final_score for rc in bundle.chunks}
+    assert scores == {"alpha.py": 1.0, "beta.py": 0.99}
 
 
 # ---------------------------------------------------------------------------

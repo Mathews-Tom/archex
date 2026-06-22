@@ -56,8 +56,6 @@ class TestStrategyRegistry:
 
         assert Strategy.ARCHEX_QUERY_PPR.value in names
         assert default_strategy_registry.get(Strategy.ARCHEX_QUERY_PPR) is not None
-        assert Strategy.ARCHEX_QUERY_CHURN.value in names
-        assert default_strategy_registry.get(Strategy.ARCHEX_QUERY_CHURN) is not None
         assert Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK.value in names
         assert default_strategy_registry.get(Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK) is not None
         assert Strategy.ARCHEX_QUERY_DIVERSITY_PACKED.value in names

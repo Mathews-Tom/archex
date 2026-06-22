@@ -27,7 +27,6 @@ from archex.receipt import (
 )
 
 if TYPE_CHECKING:
-    from archex.index.churn import ChurnPriors
     from archex.index.graph import DependencyGraph
 
 
@@ -920,7 +919,6 @@ def assemble_context(
     rerank_candidate_limit: int = 4,
     apply_intent_budget: bool = True,
     centrality_mode: str = "global",
-    churn_priors: ChurnPriors | None = None,
 ) -> ContextBundle:
     """Assemble a token-budgeted ContextBundle from search results and a dependency graph.
 
@@ -931,10 +929,6 @@ def assemble_context(
     and assembly phases.
     When expansion_min_override is provided, uses it instead of SEED_EXPANSION_MIN
     for expansion gating (useful for architecture-broad queries with flat BM25 scores).
-    When churn_priors is provided (benchmark-only candidate), applies a small,
-    bounded per-file recency/churn multiplier to the final score — gated to the
-    DEBUGGING and USAGE_SEARCH intents only. A neutral or non-gated prior leaves
-    the ranking identical to the default path.
     """
     assembly_start = time.perf_counter()
     # Intent-based weight routing: when no explicit weights are provided,
@@ -1406,16 +1400,6 @@ def assemble_context(
     centrality_subgraph_nodes = 0
     centrality_subgraph_edges = 0
 
-    # Recency/churn ranking prior (benchmark-only candidate). Gated to the
-    # DEBUGGING and USAGE_SEARCH intents; neutral or absent everywhere else so
-    # the default ranking is unchanged.
-    churn_source = churn_priors.source if churn_priors is not None else ""
-    churn_intent_gated = churn_priors is not None and intent in (
-        QueryIntent.DEBUGGING,
-        QueryIntent.USAGE_SEARCH,
-    )
-    churn_priors_applied: dict[str, float] = {}
-
     # Get structural centrality scores. The default product path deliberately
     # keeps using cached global PageRank; benchmark-only PPR opts in explicitly.
     if centrality_mode == CENTRALITY_MODE_PERSONALIZED_WEIGHTED:
@@ -1479,14 +1463,6 @@ def assemble_context(
         # Directory-path alignment: files under directories matching query terms
         path_boost = _path_alignment_boost(chunk.file_path, alignment_terms)
 
-        # Bounded recency/churn multiplier (>= 1.0), neutral unless the intent
-        # gate is open. It may break ties and nudge ordering but cannot dominate.
-        churn_multiplier = 1.0
-        if churn_intent_gated and churn_priors is not None:
-            churn_multiplier = churn_priors.prior_for(chunk.file_path)
-            if churn_multiplier != 1.0:
-                churn_priors_applied[chunk.file_path] = churn_multiplier
-
         final = (
             (
                 weights.relevance * relevance
@@ -1497,7 +1473,6 @@ def assemble_context(
             * support_penalty
             * entry_boost
             * path_boost
-            * churn_multiplier
         )
         ranked.append(
             RankedChunk(
@@ -1588,9 +1563,6 @@ def assemble_context(
                     "centrality_subgraph_nodes": centrality_subgraph_nodes,
                     "centrality_subgraph_edges": centrality_subgraph_edges,
                     "centrality_latency_ms": f"{centrality_latency_ms:.3f}",
-                    "churn_source": churn_source,
-                    "churn_intent_gated": churn_intent_gated,
-                    "churn_files_boosted": len(churn_priors_applied),
                 },
             )
         )
@@ -1661,9 +1633,6 @@ def assemble_context(
         centrality_latency_ms=centrality_latency_ms,
         centrality_subgraph_nodes=centrality_subgraph_nodes,
         centrality_subgraph_edges=centrality_subgraph_edges,
-        churn_source=churn_source,
-        churn_intent_gated=churn_intent_gated,
-        churn_priors_applied=churn_priors_applied,
     )
 
     bundle = ContextBundle(

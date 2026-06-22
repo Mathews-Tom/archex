@@ -597,17 +597,6 @@ def _ppr_result() -> BenchmarkResult:
     return result
 
 
-def _churn_result() -> BenchmarkResult:
-    result = _make_result(Strategy.ARCHEX_QUERY_CHURN, tokens=610)
-    result.provenance = {
-        "churn_source": "fixture",
-        "churn_intent_gated": "true",
-        "churn_files_boosted": "3",
-        "churn_max_multiplier": "1.0450",
-    }
-    return result
-
-
 class TestAdvancedLanesReporting:
     def test_appendix_rendered_for_advanced_lane(self) -> None:
         report = _make_report([_make_result(Strategy.ARCHEX_QUERY), _dual_transform_result()])
@@ -628,7 +617,6 @@ class TestAdvancedLanesReporting:
                 _summary_sidecar_result(),
                 _graph_multihop_result(),
                 _ppr_result(),
-                _churn_result(),
             ]
         )
         section = format_markdown(report).split("### Advanced Quality Lanes", 1)[1]
@@ -641,9 +629,6 @@ class TestAdvancedLanesReporting:
         assert "centrality=personalized_weighted_directional" in section
         assert "personalized=true" in section
         assert "subgraph=12/18" in section
-        assert "churn=fixture" in section
-        assert "gated=true" in section
-        assert "max_mult=1.0450" in section
 
     def test_appendix_absent_without_advanced_lane(self) -> None:
         report = _make_report([_make_result(Strategy.ARCHEX_QUERY)])
