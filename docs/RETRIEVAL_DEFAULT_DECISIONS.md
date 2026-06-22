@@ -17,6 +17,15 @@ The benchmark eval frontier adds optional retrieval-quality signals that are ava
 
 These inputs do not change the current switch rule. They are optional and ignored when a task has no region labels, and they enforce a threshold only when the label exists. A labeled baseline (generated locally with `uv run archex benchmark run --tasks-dir benchmarks/tasks --output <run-dir>`; the run directory is gitignored) populates region recall, region precision, line recall, context noise ratio, and relevance per 1k tokens for the labeled subset. Treat those values as active candidate-gate inputs for future benchmark-only lanes, not as a default switch or an improvement claim.
 
+## Closed experiments: recency/churn and personalized centrality
+
+Workstream L4 of `.docs/2026-06-21-localization-rerank-enhancement-plan.md` closes two benchmark-only ranking experiments and retires their lanes from the codebase. Both experiments kept `archex_query` as the product default throughout; retirement removes only opt-in benchmark candidates and their dead scoring hooks.
+
+- `archex_query_churn` is retired because measurement found it inert: even with the intent gate fully open on real self-repo history, it left the file set, recall, F1, and ranked-region metrics unchanged. The former default-path multiplier was always `1.0`, and the retirement stack keeps `archex_query` scoring byte-identical.
+- `archex_query_ppr` is retired because measurement found it net-negative: recall, F1, and MAP regressed by about `0.004`–`0.005`, and the lane added roughly `200 ms`. The product default's cached global `graph.structural_centrality()` path remains intact; only the query-personalized/weighted variant and its plumbing were removed.
+
+No additional benchmark number is claimed here. The disposition records the measured closeout decision from Workstream L4 and the code-level retirement invariant: `archex_query` remains the default, with no churn prior or personalized-centrality branch on its scoring path.
+
 ## Issue-to-edit localization family
 
 The benchmark corpus includes a small, maintained issue-to-edit localization family (Workstream R3 of `.docs/2026-06-20-retrieval-ranking-signal-enhancement-design.md`): hand-curated, SWE-bench-style tasks (`benchmarks/tasks/loc_*.yaml`), each an issue-style question plus expected edit locations at file and symbol granularity pinned to a public release tag. It measures the real downstream fault-localization job — given an issue, find the files and functions to edit — rather than the "how does X work" comprehension the rest of the corpus measures. Tasks carry a `family` axis (`comprehension` or `localization`) orthogonal to `category` (repo type). This is corpus and reporting work that reuses the existing region-metric computation; it changes no retrieval code path, no product default, and adds no hosted/LLM/network behavior.
