@@ -14,6 +14,8 @@ from archex.index import rerank as rerank_module
 from archex.index.rerank import (
     AMBIGUOUS_BM25_CV_THRESHOLD,
     AMBIGUOUS_BM25_IDF_THRESHOLD,
+    CONDITIONAL_RERANK_CANDIDATE_LIMIT,
+    CONDITIONAL_RERANK_LATENCY_CAP_MS,
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
     JINA_RERANKER_MODEL,
@@ -623,3 +625,23 @@ class TestConditionalRerank:
         with pytest.raises(ConfigError, match="Remote code is disabled.*jina-reranker-v3"):
             conditional.rerank_if_ambiguous("q", candidates, candidates)
         rerank_module._MODEL_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+
+class TestSymbolicRerankSharedGate:
+    """The symbolic-blend rerank lane reuses these gate/cap constants verbatim.
+
+    ``archex_query_symbolic_rerank`` keeps the conditional ambiguity gate (flat
+    BM25 CV) and the 1500 ms latency cap. Pin the reused constants so a change to
+    either is a deliberate, reviewed edit rather than a silent drift that would
+    move the symbolic lane's gate or latency budget.
+    """
+
+    def test_latency_cap_is_1500ms(self) -> None:
+        assert CONDITIONAL_RERANK_LATENCY_CAP_MS == 1500.0
+
+    def test_ambiguity_gate_thresholds_unchanged(self) -> None:
+        assert AMBIGUOUS_BM25_CV_THRESHOLD == 0.8
+        assert AMBIGUOUS_BM25_IDF_THRESHOLD == 2.0
+
+    def test_candidate_limit_unchanged(self) -> None:
+        assert CONDITIONAL_RERANK_CANDIDATE_LIMIT == 30
