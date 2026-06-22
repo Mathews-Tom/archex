@@ -267,7 +267,6 @@ _ADVANCED_LANES = (
     "archex_query_summary_sidecar",
     "archex_query_graph_multihop",
     "archex_query_ppr",
-    "archex_query_churn",
     "archex_query_conditional_rerank",
     "archex_query_symbolic_rerank",
     "archex_query_diversity_packed",
@@ -310,13 +309,6 @@ def _advanced_lane_note(result: BenchmarkResult) -> str:
             f"{prov.get('centrality_subgraph_edges', 'unknown')}, "
             f"ms={prov.get('centrality_latency_ms', 'unknown')})"
         )
-    if strategy == "archex_query_churn":
-        return (
-            f"churn={prov.get('churn_source', 'unknown')} "
-            f"(gated={prov.get('churn_intent_gated', 'unknown')}, "
-            f"boosted={prov.get('churn_files_boosted', 'unknown')}, "
-            f"max_mult={prov.get('churn_max_multiplier', 'unknown')})"
-        )
     if strategy == "archex_query_conditional_rerank":
         return (
             f"bm25_ambiguous={prov.get('bm25_ambiguous', 'unknown')} "
@@ -353,10 +345,10 @@ def _advanced_lanes_appendix(report: BenchmarkReport) -> list[str]:
         return []
     lines = ["", "### Advanced Quality Lanes", ""]
     lines.append(
-        "Benchmark-only experimental lanes (Workstreams 5, R1, R2, R4, and R5): query "
+        "Benchmark-only experimental lanes (Workstreams 5, R1, R4, and R5): query "
         "transformation, bounded rerank, summary sidecars, graph multihop, personalized "
-        "structural centrality, an intent-gated recency/churn prior, a low-latency "
-        "conditional cross-encoder rerank, and query-adaptive diversity packing. Each is "
+        "structural centrality, a low-latency conditional cross-encoder rerank, and "
+        "query-adaptive diversity packing. Each is "
         "gated behind the default switch rule and never changes the product default. Compare "
         "added latency and token impact against `archex_query` in the table above; the "
         "summary-sidecar lane carries an offline storage/index cost (the prebuilt sidecar) "
