@@ -64,8 +64,47 @@ def query_signals(question: str) -> QuerySignals:
     return QuerySignals(terms=terms, paths=paths)
 
 
-def evidence_score(chunk: CodeChunk, signals: QuerySignals, *, rank: int, total: int) -> float:
-    """Deterministic evidence score for one candidate at a given retrieval rank."""
+@dataclass(frozen=True)
+class EvidenceComponents:
+    """Decomposed deterministic evidence for one candidate.
+
+    Carries the raw component signals so a consumer can both score a candidate
+    (``score``) and ask whether it has *strong* symbolic evidence — a direct
+    file-path match or a symbol-name hit (``has_strong_evidence``) —
+    independently of the term-overlap and rank-prior contributions that the
+    blended score folds in.
+    """
+
+    path_hit: float
+    symbol_hit: float
+    term_overlap: float
+    rank_prior: float
+
+    @property
+    def score(self) -> float:
+        """Weighted blend of the components (the bounded-rerank evidence score)."""
+        return (
+            _PATH_WEIGHT * self.path_hit
+            + _SYMBOL_WEIGHT * self.symbol_hit
+            + _TERM_WEIGHT * self.term_overlap
+            + _RANK_PRIOR_WEIGHT * self.rank_prior
+        )
+
+    @property
+    def has_strong_evidence(self) -> bool:
+        """True when a direct path match or symbol-name hit is present.
+
+        Strong evidence is exactly the path/symbol signal a guard protects; it
+        excludes the weaker term-overlap and rank-prior contributions, which are
+        not on their own an exact-path or exact-symbol match.
+        """
+        return self.path_hit > 0.0 or self.symbol_hit > 0.0
+
+
+def evidence_components(
+    chunk: CodeChunk, signals: QuerySignals, *, rank: int, total: int
+) -> EvidenceComponents:
+    """Decompose one candidate's deterministic evidence at a given retrieval rank."""
     path = chunk.file_path.lower()
     path_hit = 1.0 if any(p and (p in path or path.endswith(p)) for p in signals.paths) else 0.0
     symbol_text = " ".join(part for part in (chunk.symbol_name, chunk.qualified_name) if part)
@@ -75,12 +114,17 @@ def evidence_score(chunk: CodeChunk, signals: QuerySignals, *, rank: int, total:
     overlap = sum(1 for term in signals.terms if term in content)
     term_overlap = overlap / len(signals.terms) if signals.terms else 0.0
     rank_prior = (total - rank) / total if total else 0.0
-    return (
-        _PATH_WEIGHT * path_hit
-        + _SYMBOL_WEIGHT * symbol_hit
-        + _TERM_WEIGHT * term_overlap
-        + _RANK_PRIOR_WEIGHT * rank_prior
+    return EvidenceComponents(
+        path_hit=path_hit,
+        symbol_hit=symbol_hit,
+        term_overlap=term_overlap,
+        rank_prior=rank_prior,
     )
+
+
+def evidence_score(chunk: CodeChunk, signals: QuerySignals, *, rank: int, total: int) -> float:
+    """Deterministic evidence score for one candidate at a given retrieval rank."""
+    return evidence_components(chunk, signals, rank=rank, total=total).score
 
 
 def symbolic_scores(chunks: list[CodeChunk], signals: QuerySignals) -> list[float]:
