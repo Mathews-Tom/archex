@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_RAW_EVENT_RETENTION_DAYS = 90
 DEFAULT_TRACE_RETENTION_DAYS = 14
 
@@ -39,8 +39,10 @@ class MetricsStore:
     def bootstrap(self, conn: sqlite3.Connection) -> None:
         """Create or migrate metrics tables in a single local SQLite ledger."""
         with conn:
-            conn.execute("PRAGMA user_version")
+            current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
             _create_schema(conn)
+            if current_version < SCHEMA_VERSION:
+                _migrate_schema(conn)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             _seed_settings(conn)
 
@@ -78,6 +80,15 @@ def _create_schema(conn: sqlite3.Connection) -> None:
                 whole_repo_tokens_avoided IS NULL OR whole_repo_tokens_avoided >= 0
             ),
             baseline_type TEXT NOT NULL,
+            tokens_targeted_read INTEGER CHECK (
+                tokens_targeted_read IS NULL OR tokens_targeted_read >= 0
+            ),
+            tokens_saved_vs_targeted_read INTEGER CHECK (
+                tokens_saved_vs_targeted_read IS NULL OR tokens_saved_vs_targeted_read >= 0
+            ),
+            savings_pct_vs_targeted_read REAL CHECK (
+                savings_pct_vs_targeted_read IS NULL OR savings_pct_vs_targeted_read >= 0
+            ),
             file_count INTEGER NOT NULL DEFAULT 0 CHECK (file_count >= 0),
             freshness TEXT,
             index_revision TEXT,
@@ -99,6 +110,8 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             tokens_raw_equivalent INTEGER NOT NULL DEFAULT 0,
             tokens_saved INTEGER NOT NULL DEFAULT 0,
             whole_repo_tokens_avoided INTEGER NOT NULL DEFAULT 0,
+            tokens_targeted_read INTEGER NOT NULL DEFAULT 0,
+            tokens_saved_vs_targeted_read INTEGER NOT NULL DEFAULT 0,
             event_count INTEGER NOT NULL DEFAULT 0,
             first_event_at TEXT NOT NULL,
             last_event_at TEXT NOT NULL,
@@ -127,6 +140,15 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             whole_repo_tokens_avoided INTEGER CHECK (
                 whole_repo_tokens_avoided IS NULL OR whole_repo_tokens_avoided >= 0
             ),
+            tokens_targeted_read INTEGER CHECK (
+                tokens_targeted_read IS NULL OR tokens_targeted_read >= 0
+            ),
+            tokens_saved_vs_targeted_read INTEGER CHECK (
+                tokens_saved_vs_targeted_read IS NULL OR tokens_saved_vs_targeted_read >= 0
+            ),
+            savings_pct_vs_targeted_read REAL CHECK (
+                savings_pct_vs_targeted_read IS NULL OR savings_pct_vs_targeted_read >= 0
+            ),
             repo_id TEXT NOT NULL REFERENCES repos(repo_id) ON DELETE CASCADE,
             index_revision TEXT
         );
@@ -150,6 +172,43 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         );
         """
     )
+
+
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Forward-only, idempotent migration for the long-lived local ledger.
+
+    Adds the targeted-read baseline columns to pre-existing DBs. Guarded per column
+    so it is safe on both fresh (columns already present) and legacy ledgers.
+    """
+    nullable_targeted = {
+        "tokens_targeted_read": (
+            "INTEGER CHECK (tokens_targeted_read IS NULL OR tokens_targeted_read >= 0)"
+        ),
+        "tokens_saved_vs_targeted_read": (
+            "INTEGER CHECK ("
+            "tokens_saved_vs_targeted_read IS NULL OR tokens_saved_vs_targeted_read >= 0)"
+        ),
+        "savings_pct_vs_targeted_read": (
+            "REAL CHECK (savings_pct_vs_targeted_read IS NULL OR savings_pct_vs_targeted_read >= 0)"
+        ),
+    }
+    for table in ("usage_events", "usage_traces"):
+        existing = _column_names(conn, table)
+        for column, decl in nullable_targeted.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    daily_targeted = {
+        "tokens_targeted_read": "INTEGER NOT NULL DEFAULT 0",
+        "tokens_saved_vs_targeted_read": "INTEGER NOT NULL DEFAULT 0",
+    }
+    daily_existing = _column_names(conn, "daily_usage")
+    for column, decl in daily_targeted.items():
+        if column not in daily_existing:
+            conn.execute(f"ALTER TABLE daily_usage ADD COLUMN {column} {decl}")
 
 
 def _seed_settings(conn: sqlite3.Connection) -> None:

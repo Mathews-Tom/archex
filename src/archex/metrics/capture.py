@@ -7,10 +7,19 @@ from typing import TYPE_CHECKING
 
 from archex.metrics.categories import category_for_tool
 from archex.metrics.recorder import MetricsRecorder, Surface, TraceDetails, UsageEvent
+from archex.reporting import count_tokens
 
 if TYPE_CHECKING:
-    from archex.models import ContextBundle, ContextSkippedCandidate, RepoSource
+    from archex.models import (
+        CodeChunk,
+        ContextBundle,
+        ContextSkippedCandidate,
+        RankedChunk,
+        RepoSource,
+    )
     from archex.scout import ScoutResult
+
+_TARGETED_CONTEXT_LINES = 5
 
 
 def record_query_usage(
@@ -32,6 +41,11 @@ def record_query_usage(
     symbols = sorted(
         {chunk.chunk.symbol_name for chunk in bundle.chunks if chunk.chunk.symbol_name}
     )
+    targeted_read = _targeted_read_tokens(
+        bundle.chunks,
+        full_file_tokens=tokens_raw_equivalent,
+        returned_tokens=bundle.token_count,
+    )
     receipt = bundle.receipt
     MetricsRecorder(db_path).record(
         UsageEvent(
@@ -42,6 +56,7 @@ def record_query_usage(
             tokens_returned=bundle.token_count,
             tokens_raw_equivalent=tokens_raw_equivalent,
             whole_repo_tokens=whole_repo_tokens,
+            tokens_targeted_read=targeted_read,
             file_count=len(files),
             freshness=str(receipt.freshness) if receipt is not None else None,
             index_revision=receipt.index_revision if receipt is not None else None,
@@ -142,3 +157,51 @@ def _skipped_counts(candidates: list[ContextSkippedCandidate]) -> dict[str, int]
         reason = str(candidate.reason)
         counts[reason] = counts.get(reason, 0) + 1
     return counts
+
+
+def _targeted_read_tokens(
+    chunks: list[RankedChunk],
+    *,
+    full_file_tokens: int,
+    returned_tokens: int,
+    context_lines: int = _TARGETED_CONTEXT_LINES,
+) -> int | None:
+    """Estimate the realistic targeted-read baseline from returned chunk spans.
+
+    Per returned file, take the union of ``[start_line - K, end_line + K]`` line
+    spans (merged, deduped) and estimate their cost from the indexed chunk content's
+    per-line token density. Deterministic and index-only: no file-system read and no
+    model call. The estimate is floored at ``returned`` and capped at ``full_file``
+    (``targeted_read`` never exceeds the full-file baseline), so
+    ``returned <= targeted_read <= full_file`` holds for every realistic input where
+    ``returned <= full_file``; in the degenerate ``returned > full_file`` case
+    (a tiny file whose rendered chunks exceed its source) it reports ``full_file``.
+    """
+    by_file: dict[str, list[CodeChunk]] = {}
+    for ranked in chunks:
+        by_file.setdefault(ranked.chunk.file_path, []).append(ranked.chunk)
+    if not by_file:
+        return None
+    estimate = sum(
+        _targeted_file_tokens(file_chunks, context_lines) for file_chunks in by_file.values()
+    )
+    return min(full_file_tokens, max(returned_tokens, estimate))
+
+
+def _targeted_file_tokens(file_chunks: list[CodeChunk], context_lines: int) -> int:
+    line_text: dict[int, str] = {}
+    expanded_lines: set[int] = set()
+    for chunk in file_chunks:
+        start = chunk.start_line
+        end = chunk.end_line
+        for offset, text in enumerate(chunk.content.split("\n")):
+            line_no = start + offset
+            if line_no > end:
+                break
+            line_text[line_no] = text
+        expanded_lines.update(range(max(1, start - context_lines), end + context_lines + 1))
+    if not line_text:
+        return 0
+    matched_tokens = count_tokens("\n".join(line_text[ln] for ln in sorted(line_text)))
+    density = matched_tokens / len(line_text)
+    return round(density * len(expanded_lines))
