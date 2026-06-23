@@ -492,14 +492,17 @@ class TestTokenEfficiencyReporting:
         config = Config(cache=False)
 
         total = get_repo_total_tokens(source, config)
+        assert total is not None
         assert total > 0
 
-        # Individual file tokens should be <= total
+        # Individual file tokens should be populated and <= total
         file_tokens = get_file_token_count(source, "utils.py", config)
+        assert file_tokens is not None
         assert 0 <= file_tokens <= total
 
         # Multi-file query should sum correctly
         multi = get_files_token_count(source, ["utils.py", "models.py"], config)
+        assert multi is not None
         assert multi > 0
         assert multi <= total
 

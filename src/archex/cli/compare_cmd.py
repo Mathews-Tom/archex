@@ -141,10 +141,11 @@ def compare_cmd(
     raw_tokens: int | None = None
     if timing:
         returned = count_tokens(output)
-        raw_tokens = get_repo_total_tokens(source_a_obj, config) + get_repo_total_tokens(
-            source_b_obj, config
-        )
-        print_savings(returned, raw_tokens, elapsed_ms)
+        raw_a = get_repo_total_tokens(source_a_obj, config)
+        raw_b = get_repo_total_tokens(source_b_obj, config)
+        raw_tokens = raw_a + raw_b if raw_a is not None and raw_b is not None else None
+        if raw_tokens is not None:
+            print_savings(returned, raw_tokens, elapsed_ms)
     _record_metrics(source_a_obj, source_b_obj, output, raw_tokens, config)
 
 
@@ -161,7 +162,9 @@ def _record_metrics(
             return
         raw = raw_tokens
         if raw is None:
-            raw = get_repo_total_tokens(source_a, config) + get_repo_total_tokens(source_b, config)
+            raw_a = get_repo_total_tokens(source_a, config)
+            raw_b = get_repo_total_tokens(source_b, config)
+            raw = raw_a + raw_b if raw_a is not None and raw_b is not None else None
         record_structural_usage(
             source_a,
             surface="cli",

@@ -22,6 +22,7 @@ from archex.models import (
     IndexConfig,
 )
 from archex.pipeline.service import build_chunk_surrogates
+from archex.reporting import count_tokens
 
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
@@ -166,13 +167,15 @@ def compute_file_states(
             continue
 
         try:
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            raw_bytes = path.read_bytes()
         except OSError:
             continue
+        digest = hashlib.sha256(raw_bytes).hexdigest()
         states[discovered_file.path] = {
             "size_bytes": size_bytes,
             "mtime_ns": mtime_ns,
             "sha256": digest,
+            "token_count": count_tokens(raw_bytes.decode("utf-8", errors="replace")),
         }
     return states
 

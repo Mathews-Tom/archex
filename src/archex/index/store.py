@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS file_states (
     file_path TEXT PRIMARY KEY,
     size_bytes INTEGER NOT NULL,
     mtime_ns INTEGER NOT NULL,
-    sha256 TEXT NOT NULL
+    sha256 TEXT NOT NULL,
+    token_count INTEGER
 );
 """
 
@@ -159,6 +160,11 @@ def _row_to_chunk(row: tuple[object, ...]) -> CodeChunk:
 
 def _batched_ids(ids: list[str], batch_size: int = _SQLITE_VARIABLE_BATCH) -> list[list[str]]:
     return [ids[i : i + batch_size] for i in range(0, len(ids), batch_size)]
+
+
+def _state_token_count(value: int | str | None) -> int | None:
+    """Coerce a persisted file-state token total to int, preserving NULL for legacy rows."""
+    return int(value) if value is not None else None
 
 
 def _decode_edge_evidence(raw: object) -> list[str]:
@@ -334,13 +340,14 @@ class IndexStore:
             return
         self._conn.executemany(
             "INSERT OR REPLACE INTO file_states "
-            "(file_path, size_bytes, mtime_ns, sha256) VALUES (?, ?, ?, ?)",
+            "(file_path, size_bytes, mtime_ns, sha256, token_count) VALUES (?, ?, ?, ?, ?)",
             [
                 (
                     path,
                     int(state["size_bytes"]),
                     int(state["mtime_ns"]),
                     str(state["sha256"]),
+                    _state_token_count(state.get("token_count")),
                 )
                 for path, state in states.items()
             ],
@@ -632,30 +639,65 @@ class IndexStore:
             chunks = [c for c in chunks if c.symbol_kind == kind]
         return chunks
 
-    def get_total_tokens(self) -> int:
-        """Sum of token_count across all chunks in the store."""
+    def get_chunk_token_total(self) -> int:
+        """Sum of chunk ``token_count`` across the store.
+
+        This is the rendered-chunk cost (includes synthetic ``imports_context``) and
+        is the source for dynamic-budget decisions. It is deliberately distinct from
+        ``get_total_tokens`` (the true per-file baseline used for metrics).
+        """
         row = self._conn.execute("SELECT COALESCE(SUM(token_count), 0) FROM chunks").fetchone()
         return int(row[0])
 
-    def get_file_tokens(self, file_path: str) -> int:
-        """Sum of token_count for chunks in a single file."""
+    def get_total_tokens(self) -> int | None:
+        """Sum of true per-file token totals from file_states.
+
+        Returns None for a legacy/unpopulated index (no rows, or any row missing a
+        per-file token total) so the metrics baseline is omitted rather than inflated
+        with synthetic per-chunk ``imports_context``. A reindex repopulates the totals.
+        """
         row = self._conn.execute(
-            "SELECT COALESCE(SUM(token_count), 0) FROM chunks WHERE file_path = ?",
+            "SELECT COUNT(*) AS n, COUNT(token_count) AS populated, "
+            "COALESCE(SUM(token_count), 0) AS total FROM file_states"
+        ).fetchone()
+        total_rows = int(row[0])
+        populated = int(row[1])
+        if total_rows == 0 or populated != total_rows:
+            return None
+        return int(row[2])
+
+    def get_file_tokens(self, file_path: str) -> int | None:
+        """True token total for a single file from file_states (None if unpopulated)."""
+        row = self._conn.execute(
+            "SELECT token_count FROM file_states WHERE file_path = ?",
             (file_path,),
         ).fetchone()
+        if row is None or row[0] is None:
+            return None
         return int(row[0])
 
-    def get_files_tokens(self, file_paths: list[str]) -> int:
-        """Sum of token_count across unique files (deduplicates paths)."""
+    def get_files_tokens(self, file_paths: list[str]) -> int | None:
+        """Sum of true per-file token totals across unique files.
+
+        Returns None if any requested file lacks a populated per-file total so the
+        baseline is omitted rather than under- or over-counted.
+        """
         if not file_paths:
             return 0
         unique = list(set(file_paths))
         placeholders = ",".join("?" for _ in unique)
-        row = self._conn.execute(
-            f"SELECT COALESCE(SUM(token_count), 0) FROM chunks WHERE file_path IN ({placeholders})",
+        rows = self._conn.execute(
+            f"SELECT file_path, token_count FROM file_states WHERE file_path IN ({placeholders})",
             unique,
-        ).fetchone()
-        return int(row[0])
+        ).fetchall()
+        found = {str(r[0]): r[1] for r in rows}
+        total = 0
+        for path in unique:
+            token_count = found.get(path)
+            if token_count is None:
+                return None
+            total += int(token_count)
+        return total
 
     def search_chunks_by_path_keyword(
         self,
@@ -766,9 +808,14 @@ class IndexStore:
         edge_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(edges)")}
         if {"confidence", "confidence_score", "evidence"} - edge_columns:
             raise RuntimeError("edges table missing confidence columns after migration")
+        file_state_columns = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(file_states)")
+        }
+        if "token_count" not in file_state_columns:
+            self._conn.execute("ALTER TABLE file_states ADD COLUMN token_count INTEGER")
 
         # Set schema version and detect stale data needing re-index
-        self.set_metadata("schema_version", "4")
+        self.set_metadata("schema_version", "5")
         cur = self._conn.execute("SELECT COUNT(*) FROM chunks WHERE symbol_id IS NULL")
         null_count = cur.fetchone()[0]
         if null_count > 0:

@@ -49,7 +49,8 @@ def symbol_cmd(args: tuple[str, ...], output_json: bool, timing: bool) -> None:
     if timing and pt is not None:
         print_timing(pt)
         raw_tokens = get_file_token_count(source_obj, result.file_path)
-        print_savings(result.token_count, raw_tokens, pt.total_ms)
+        if raw_tokens is not None:
+            print_savings(result.token_count, raw_tokens, pt.total_ms)
     _record_metrics(source_obj, output, result.token_count, raw_tokens, result.file_path)
 
 

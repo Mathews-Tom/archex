@@ -1498,7 +1498,7 @@ def _query_by_scout_handles(
         chunks = _chunks_for_scout_handles(store, handles)
         stored_tokens = store.get_metadata("repo_total_tokens")
         total_repo_tokens = (
-            int(stored_tokens) if stored_tokens is not None else store.get_total_tokens()
+            int(stored_tokens) if stored_tokens is not None else store.get_chunk_token_total()
         )
         stored_count = store.get_metadata("chunk_count")
         chunk_count = int(stored_count) if stored_count is not None else len(store.get_chunks())
@@ -1767,7 +1767,9 @@ def query(
                 # Use persisted corpus stats — avoids full-chunk hydration
                 stored_tokens = store.get_metadata("repo_total_tokens")
                 total_repo_tokens = (
-                    int(stored_tokens) if stored_tokens is not None else store.get_total_tokens()
+                    int(stored_tokens)
+                    if stored_tokens is not None
+                    else store.get_chunk_token_total()
                 )
                 stored_count = store.get_metadata("chunk_count")
                 chunk_count = (
@@ -2561,8 +2563,11 @@ def record_usage_event(event: UsageEvent, *, db_path: Path | None = None) -> Non
 def get_repo_total_tokens(
     source: RepoSource,
     config: Config | None = None,
-) -> int:
-    """Return the total token count across all indexed chunks for a repository."""
+) -> int | None:
+    """Return the true total file-token count across a repository's indexed files.
+
+    Returns None for a legacy index whose per-file token totals are unpopulated.
+    """
     return precision_api.get_repo_total_tokens(source, config=config, ensure_index=_ensure_index)
 
 
@@ -2570,8 +2575,8 @@ def get_file_token_count(
     source: RepoSource,
     file_path: str,
     config: Config | None = None,
-) -> int:
-    """Return the total token count for a single file in an indexed repository."""
+) -> int | None:
+    """Return the true token total for a single file (None if unpopulated)."""
     return precision_api.get_file_token_count(
         source,
         file_path=file_path,
@@ -2584,8 +2589,8 @@ def get_files_token_count(
     source: RepoSource,
     file_paths: list[str],
     config: Config | None = None,
-) -> int:
-    """Return the total token count across unique files in an indexed repository."""
+) -> int | None:
+    """Return the true token total across unique files (None if any unpopulated)."""
     return precision_api.get_files_token_count(
         source,
         file_paths=file_paths,

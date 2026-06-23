@@ -180,7 +180,7 @@ def _collect_file_paths(entries: list[FileTreeEntry], paths: list[str]) -> None:
 def run_file_tree(source: RepoSource, r: ShowcaseResults) -> float:
     t0 = time.perf_counter()
     tree = file_tree(source)
-    r.repo_tokens = get_repo_total_tokens(source)
+    r.repo_tokens = get_repo_total_tokens(source) or 0
     elapsed = time.perf_counter() - t0
     r.tree = tree
     section(1, "Repository Overview", elapsed)
@@ -237,19 +237,19 @@ def run_token_budget(source: RepoSource, r: ShowcaseResults) -> float:
     t0 = time.perf_counter()
 
     if r.repo_tokens == 0:
-        r.repo_tokens = get_repo_total_tokens(source)
+        r.repo_tokens = get_repo_total_tokens(source) or 0
 
     file_paths: list[str] = []
     _collect_file_paths(tree.entries, file_paths)
     single_file = file_paths[0] if file_paths else None
     if single_file:
         r.single_file_path = single_file
-        r.single_file_tokens = get_file_token_count(source, single_file)
+        r.single_file_tokens = get_file_token_count(source, single_file) or 0
 
     batch_files = file_paths[:5]
     if batch_files:
         r.batch_file_count = len(batch_files)
-        r.batch_tokens = get_files_token_count(source, batch_files)
+        r.batch_tokens = get_files_token_count(source, batch_files) or 0
 
     elapsed = time.perf_counter() - t0
     section(3, "Token Budget", elapsed)
@@ -317,7 +317,7 @@ def run_search_symbols(source: RepoSource, r: ShowcaseResults) -> float:
 
     if results:
         unique_files = list({m.file_path for m in results})
-        raw_tok = get_files_token_count(source, unique_files)
+        raw_tok = get_files_token_count(source, unique_files) or 0
         archex_tok = count_tokens(json.dumps([m.model_dump() for m in results]))
         if raw_tok > 0:
             savings = (1 - archex_tok / raw_tok) * 100
@@ -350,7 +350,7 @@ def run_get_symbol(source: RepoSource, r: ShowcaseResults) -> float:
         if len(source_lines) > 5:
             indent(f"  │ ... ({len(source_lines) - 5} more lines)")
 
-        raw_tok = get_file_token_count(source, sym.file_path)
+        raw_tok = get_file_token_count(source, sym.file_path) or 0
         archex_tok = sym.token_count
         if raw_tok > 0:
             savings = (1 - archex_tok / raw_tok) * 100
@@ -383,7 +383,7 @@ def run_batch_symbols(source: RepoSource, r: ShowcaseResults) -> float:
 
     if found_syms:
         unique_files = list({s.file_path for s in found_syms})
-        raw_tok = get_files_token_count(source, unique_files)
+        raw_tok = get_files_token_count(source, unique_files) or 0
         archex_tok = sum(s.token_count for s in found_syms)
         if raw_tok > 0:
             savings = (1 - archex_tok / raw_tok) * 100
@@ -413,7 +413,7 @@ def run_query_cold(source: RepoSource, budget: int, r: ShowcaseResults) -> float
     print()
 
     if unique_files:
-        raw_tok = get_files_token_count(source, list(unique_files))
+        raw_tok = get_files_token_count(source, list(unique_files)) or 0
         archex_tok = bundle.token_count
         if raw_tok > 0:
             savings = (1 - archex_tok / raw_tok) * 100

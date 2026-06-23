@@ -59,7 +59,8 @@ def analyze_cmd(source: str, output_format: str, languages: tuple[str, ...], tim
         print_timing(pt)
         returned = count_tokens(output)
         raw_tokens = get_repo_total_tokens(source_obj, config)
-        print_savings(returned, raw_tokens, pt.total_ms)
+        if raw_tokens is not None:
+            print_savings(returned, raw_tokens, pt.total_ms)
     _record_metrics(source_obj, output, raw_tokens, config)
 
 
