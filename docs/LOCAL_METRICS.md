@@ -125,11 +125,56 @@ Interpretation:
 - `savings_pct` (vs full-file paste) is compression versus a naive full-file paste.
 - `savings_pct_vs_targeted_read` is the realistic, conservative number.
 - `whole_repo_tokens_avoided` is an upper-bound/context metric, never the headline.
-- A defensible cross-tool number (vs grep / read / LSP) is not produced in-process; it
-  is available only via the offline benchmark harness.
+- A defensible cross-tool number (vs grep / read) is not produced in-process; it is
+  available only via the offline benchmark harness — see "Cross-tool efficiency" below.
 
 Both baselines are derived from the index (per-file token totals and chunk line spans).
 Neither re-reads files on the query path, and no metrics path calls a model.
+
+## Cross-tool efficiency (offline benchmark)
+
+The two in-process savings numbers above compare archex's returned context against a
+counterfactual reconstruction of the *same* returned set. They do not answer "how many
+tokens would a non-archex agent spend to localize the same code?" That cross-tool number
+cannot be computed on the query path — it requires running both retrieval paths at a fixed
+recall on labeled tasks — so it lives only in the benchmark harness and never enters the
+`archex metrics summary` ledger or any product path.
+
+`archex benchmark cross-tool` measures **tokens-at-fixed-recall**: the tokens archex spends
+to localize a task's required files (its targeted returned regions, in rank order) versus a
+naive grep/read agent (whole grep-hit files, or `+/-K` context windows around grep hits, in
+grep-relevance order), tokenized with the same `cl100k_base` encoder. Recall is held equal:
+a token delta is reported only for tasks where both paths reach the target required-file
+recall (default 100%), so the number never compares unequal recall. The naive model is a
+pure, deterministic function of the gitignore-aware corpus, the task keywords, and `K`.
+
+The checked-in reference artifact
+[`benchmarks/cross-tool-efficiency/cross-tool-comparison.json`](../benchmarks/cross-tool-efficiency/cross-tool-comparison.json)
+grades the benchmark task set per corpus (localization graded separately, never merged with
+comprehension). At 100% required-file recall the token reduction archex delivers versus the
+naive agent is:
+
+| Corpus | Naive model | Comparable tasks | archex tokens | naive tokens | Token reduction |
+| --- | --- | ---: | ---: | ---: | ---: |
+| self | full_file | 16 / 24 | 9,484 | 4,416,681 | 99.8% |
+| self | grep_window | 16 / 24 | 9,484 | 2,626,845 | 99.6% |
+| external-comprehension | full_file | 16 / 19 | 22,681 | 783,725 | 97.1% |
+| external-comprehension | grep_window | 16 / 19 | 22,681 | 492,119 | 95.4% |
+| external-localization | full_file | 20 / 21 | 13,247 | 469,836 | 97.2% |
+| external-localization | grep_window | 20 / 21 | 13,247 | 408,410 | 96.8% |
+
+"Comparable tasks" counts only tasks where both paths reach 100% required-file recall; the
+remainder are cases the naive grep path never localizes at all (no keyword hit in a required
+file), excluded from the token delta rather than scored at unequal recall. Regenerate the
+artifact from a clean run (do not hand-edit metric values):
+
+```bash
+uv run archex benchmark cross-tool --tasks-dir benchmarks/tasks \
+  --output benchmarks/cross-tool-efficiency
+```
+
+This is an offline benchmark number, not a per-event ledger metric: it is never recorded in
+`~/.archex/usage.sqlite` and never shown by `archex metrics summary`.
 
 ## Surface defaults
 
