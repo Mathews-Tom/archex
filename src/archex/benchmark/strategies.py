@@ -1291,6 +1291,25 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
 
+def archex_returned_regions(task: BenchmarkTask, repo_path: Path) -> list[ReturnedRegion]:
+    """Ranked returned regions from the default ``archex_query`` retrieval.
+
+    Benchmark-only helper that exposes the bundle's targeted regions in rank
+    order so offline analyses (e.g. the cross-tool tokens-at-recall comparison)
+    can measure archex's localization token cost without re-implementing
+    retrieval. It runs the same pipeline as ``run_archex_query`` and never
+    changes retrieval ranking, the returned set, or any product path.
+    """
+    bundle, _config, _timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    return _bundle_returned_regions(bundle)
+
+
 _PASSTHROUGH_SCORE_FRACTION = 0.6
 
 
