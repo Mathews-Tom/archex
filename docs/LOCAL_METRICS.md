@@ -151,8 +151,8 @@ pure, deterministic function of the gitignore-aware corpus, the task keywords, a
 The checked-in reference artifact
 [`benchmarks/cross-tool-efficiency/cross-tool-comparison.json`](../benchmarks/cross-tool-efficiency/cross-tool-comparison.json)
 grades the benchmark task set per corpus (localization graded separately, never merged with
-comprehension). At 100% required-file recall the token reduction archex delivers versus the
-naive agent is:
+comprehension). At 100% required-file recall, on the tasks where archex itself fully
+localizes the required files, the token reduction versus the naive agent is:
 
 | Corpus | Naive model | Comparable tasks | archex tokens | naive tokens | Token reduction |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -163,10 +163,15 @@ naive agent is:
 | external-localization | full_file | 20 / 21 | 13,247 | 469,836 | 97.2% |
 | external-localization | grep_window | 20 / 21 | 13,247 | 408,410 | 96.8% |
 
-"Comparable tasks" counts only tasks where both paths reach 100% required-file recall; the
-remainder are cases the naive grep path never localizes at all (no keyword hit in a required
-file), excluded from the token delta rather than scored at unequal recall. Regenerate the
-artifact from a clean run (do not hand-edit metric values):
+"Comparable tasks" counts only tasks where both paths reach 100% required-file recall; every
+token figure sums over exactly that set, so no figure compares unequal recall. The reduction
+is therefore conditioned on archex fully localizing the task — it measures how much cheaper
+archex localizes when it succeeds, not that archex always succeeds. In this artifact the
+naive grep/read path reaches full recall on every comparable task, and all 12 excluded tasks
+(of 64: 8 self, 3 external-comprehension, 1 external-localization) are archex recall misses —
+cases where archex did not return all required files within its token budget (archex recall
+0.0–0.8 there), excluded rather than scored at unequal recall. Regenerate the artifact from a
+clean run (do not hand-edit metric values):
 
 ```bash
 uv run archex benchmark cross-tool --tasks-dir benchmarks/tasks \
