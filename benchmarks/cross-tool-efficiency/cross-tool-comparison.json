@@ -1,0 +1,2381 @@
+{
+  "generated_at": "2026-06-23T01:18:07.008263+00:00",
+  "strategy": "archex_query",
+  "target_recall": 1.0,
+  "context_window": 5,
+  "archex_version": "0.14.0",
+  "comparisons": [
+    {
+      "task_id": "archex_adapter_registry",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 2214,
+        "recall_reached": 0.6666666666666666,
+        "target_reached": false,
+        "units_consumed": 22
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 638791,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 173
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 240491,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 173
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_benchmark_gate_lifecycle",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 5,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1129,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 445627,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 79
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 295745,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 79
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_delta_index_lifecycle",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 6410,
+        "recall_reached": 0.6666666666666666,
+        "target_reached": false,
+        "units_consumed": 24
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 312020,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 49
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 175828,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 49
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_delta_indexing",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 2,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1241,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 210265,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 28
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 107194,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 28
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_graph_expansion",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 2,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 613,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 2
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 187238,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 18
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 112906,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 18
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_mcp_query_lifecycle",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 5,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1199,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 629079,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 164
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 306576,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 164
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_pattern_detection",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 2,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 455,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 2
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 343848,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 68
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 128481,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 68
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_project_config_resolution",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 4,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1728,
+        "recall_reached": 0.75,
+        "target_reached": false,
+        "units_consumed": 8
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 524256,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 127
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 210512,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 127
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_project_index",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 5,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 926,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 351790,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 59
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 242743,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 59
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_project_init",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 4,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 748,
+        "recall_reached": 0.75,
+        "target_reached": false,
+        "units_consumed": 6
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 611460,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 158
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 313797,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 158
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_project_reset",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 631,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 4
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 622137,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 162
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 305442,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 162
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_project_status",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 4,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 2471,
+        "recall_reached": 0.5,
+        "target_reached": false,
+        "units_consumed": 8
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 468486,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 96
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 296010,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 96
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_query_cache_lifecycle",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 5,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 7330,
+        "recall_reached": 0.8,
+        "target_reached": false,
+        "units_consumed": 33
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 513532,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 111
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 220921,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 111
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_query_pipeline",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 365,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 336554,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 51
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 209383,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 51
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_scoring",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 793,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 289620,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 37
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 181705,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 37
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "archex_vector_cache_lifecycle",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 5,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 4298,
+        "recall_reached": 0.6,
+        "target_reached": false,
+        "units_consumed": 15
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 744753,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 236
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 333274,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 236
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "celery_task_dispatch",
+      "repo": "celery/celery",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-large",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 2101,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 63870,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 13
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 47273,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 13
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "click_decorators",
+      "repo": "pallets/click",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 7044,
+        "recall_reached": 0.6666666666666666,
+        "target_reached": false,
+        "units_consumed": 25
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 41512,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 31554,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "django_middleware",
+      "repo": "django/django",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "architecture-broad",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 4737,
+        "recall_reached": 0.6666666666666666,
+        "target_reached": false,
+        "units_consumed": 16
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 31909,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 11
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 21552,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 11
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "django_orm_queries",
+      "repo": "django/django",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-large",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1941,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 6
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 97324,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 52082,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "express_error_handling",
+      "repo": "expressjs/express",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "architecture-broad",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 2063,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 16999,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 5
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 8101,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 5
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "express_middleware",
+      "repo": "expressjs/express",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "framework-semantic",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1561,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 4
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 21822,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 14560,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "fastapi_dependency_injection",
+      "repo": "tiangolo/fastapi",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "framework-semantic",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 4968,
+        "recall_reached": 0.6666666666666666,
+        "target_reached": false,
+        "units_consumed": 17
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 58619,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 10
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 31267,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 10
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "fastapi_routing",
+      "repo": "tiangolo/fastapi",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1521,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 78780,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 56258,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "flask_blueprints",
+      "repo": "pallets/flask",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 2560,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 54962,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 10
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 28640,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 10
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "gin_routing",
+      "repo": "gin-gonic/gin",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 522,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 14812,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 3
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 11909,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 3
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "go_gin_middleware",
+      "repo": "gin-gonic/gin",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "architecture-broad",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 310,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 4
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 19798,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 9934,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "httpx_pooling",
+      "repo": "encode/httpx",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1575,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 4
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 29143,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 15789,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_celery_task_retry",
+      "repo": "celery/celery",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-large",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 505,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 9359,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 9154,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_click_param_process",
+      "repo": "pallets/click",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 814,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 24337,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 21189,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_django_queryset_filter",
+      "repo": "django/django",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-large",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 102,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 21178,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 16898,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_django_username_validator",
+      "repo": "django/django",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-large",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 3495,
+        "recall_reached": 0.0,
+        "target_reached": false,
+        "units_consumed": 17
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 34551,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 20
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 24540,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 20
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_express_error_middleware",
+      "repo": "expressjs/express",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 621,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 2
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 21822,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 19579,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_fastapi_jsonable_encoder",
+      "repo": "tiangolo/fastapi",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1174,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 97917,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 71487,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_fastapi_solve_dependencies",
+      "repo": "tiangolo/fastapi",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 896,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 7579,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 5483,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_flask_blueprint_register",
+      "repo": "pallets/flask",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 509,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 5228,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 5030,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_flask_full_dispatch",
+      "repo": "pallets/flask",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 122,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 12978,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 11200,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_gin_context_next",
+      "repo": "gin-gonic/gin",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 68,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 9927,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 8946,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_gin_tree_route",
+      "repo": "gin-gonic/gin",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 177,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 6456,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 6191,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_httpx_pool_transport",
+      "repo": "encode/httpx",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 2033,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 16576,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 2
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 15093,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 2
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_httpx_redirect_headers",
+      "repo": "encode/httpx",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 436,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 13659,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 12545,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_mini_redis_command_from_frame",
+      "repo": "tokio-rs/mini-redis",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 529,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 16163,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 13859,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_pydantic_validate_call",
+      "repo": "pydantic/pydantic",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 498,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 82933,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 16
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 76370,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 16
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_pytest_fixture_resolution",
+      "repo": "pytest-dev/pytest",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 205,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 16012,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 15243,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_react_dispatch_set_state",
+      "repo": "facebook/react",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-large",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 498,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 43101,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 42057,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_requests_adapter_send",
+      "repo": "psf/requests",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 2199,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 7
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 12072,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 2
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 11389,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 2
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_requests_redirect_auth",
+      "repo": "psf/requests",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-framework",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 473,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 6353,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 6065,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_sqlalchemy_session_merge",
+      "repo": "sqlalchemy/sqlalchemy",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-large",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1159,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 40677,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 35274,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "loc_tokio_current_thread_block_on",
+      "repo": "tokio-rs/tokio",
+      "corpus": "external-localization",
+      "family": "localization",
+      "category": "external-large",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 229,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 5509,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 5358,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 1
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "mini_redis_async",
+      "repo": "tokio-rs/mini-redis",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 572,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 16178,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 11948,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 7
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "pydantic_validators",
+      "repo": "pydantic/pydantic",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 628,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 86008,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 18
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 62108,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 18
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "pytest_fixtures",
+      "repo": "pytest-dev/pytest",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 2,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1220,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 4
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 29970,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 2
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 23836,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 2
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "react_hooks",
+      "repo": "facebook/react",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-large",
+      "required_file_count": 2,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 2676,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 8
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 86538,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 63916,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "requests_sessions",
+      "repo": "psf/requests",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-framework",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1536,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 19529,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 3
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 11862,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 3
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "routing_mixed_cache",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 2,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 122,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 2
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 401747,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 58
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 351887,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 58
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "routing_mixed_chunker",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 683,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 2
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 169004,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 14
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 108235,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 14
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "routing_pl_intent",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 519,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 12366,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 3
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 4417,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 3
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "routing_pl_large",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 107,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 79398,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 35338,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "routing_pl_path_symbol",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 189,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 43098,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 2
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 25360,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 2
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "routing_pl_scoring",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 2,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 7380,
+        "recall_reached": 0.5,
+        "target_reached": false,
+        "units_consumed": 20
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 229113,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 30
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 121772,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 30
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "routing_pl_tight",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 1,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 179,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 1
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 213646,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 22
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 135717,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 22
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "routing_trace_api",
+      "repo": ".",
+      "corpus": "self",
+      "family": "comprehension",
+      "category": "self",
+      "required_file_count": 2,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 333,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 3
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 81264,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 75716,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 4
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "rust_tokio_runtime",
+      "repo": "tokio-rs/tokio",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-large",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 192,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 4
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 21662,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 16712,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        }
+      ]
+    },
+    {
+      "task_id": "sqlalchemy_sessions",
+      "repo": "sqlalchemy/sqlalchemy",
+      "corpus": "external-comprehension",
+      "family": "comprehension",
+      "category": "external-large",
+      "required_file_count": 3,
+      "target_recall": 1.0,
+      "context_window": 5,
+      "archex": {
+        "tokens": 1703,
+        "recall_reached": 1.0,
+        "target_reached": true,
+        "units_consumed": 5
+      },
+      "naive": [
+        {
+          "model": "full_file",
+          "at_recall": {
+            "tokens": 126330,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        },
+        {
+          "model": "grep_window",
+          "at_recall": {
+            "tokens": 57191,
+            "recall_reached": 1.0,
+            "target_reached": true,
+            "units_consumed": 6
+          }
+        }
+      ]
+    }
+  ],
+  "aggregates": [
+    {
+      "corpus": "self",
+      "model": "full_file",
+      "task_count": 24,
+      "comparable_count": 16,
+      "archex_tokens": 9484,
+      "naive_tokens": 4416681,
+      "mean_token_ratio": 673.4403932105373,
+      "median_token_ratio": 387.3061425945092,
+      "token_reduction_pct": 99.7852686213924
+    },
+    {
+      "corpus": "self",
+      "model": "grep_window",
+      "task_count": 24,
+      "comparable_count": 16,
+      "archex_tokens": 9484,
+      "naive_tokens": 2626845,
+      "mean_token_ratio": 445.0554823593159,
+      "median_token_ratio": 258.82306668311577,
+      "token_reduction_pct": 99.63895852248609
+    },
+    {
+      "corpus": "external-comprehension",
+      "model": "full_file",
+      "task_count": 19,
+      "comparable_count": 16,
+      "archex_tokens": 22681,
+      "naive_tokens": 783725,
+      "mean_token_ratio": 44.2893151596519,
+      "median_token_ratio": 29.387644270836184,
+      "token_reduction_pct": 97.10600019139366
+    },
+    {
+      "corpus": "external-comprehension",
+      "model": "grep_window",
+      "task_count": 19,
+      "comparable_count": 16,
+      "archex_tokens": 22681,
+      "naive_tokens": 492119,
+      "mean_token_ratio": 29.20010620388154,
+      "median_token_ratio": 22.657207113562052,
+      "token_reduction_pct": 95.39115539127732
+    },
+    {
+      "corpus": "external-localization",
+      "model": "full_file",
+      "task_count": 21,
+      "comparable_count": 20,
+      "archex_tokens": 13247,
+      "naive_tokens": 469836,
+      "mean_token_ratio": 58.07335120131277,
+      "median_token_ratio": 33.212308340787295,
+      "token_reduction_pct": 97.18050553810265
+    },
+    {
+      "corpus": "external-localization",
+      "model": "grep_window",
+      "task_count": 21,
+      "comparable_count": 20,
+      "archex_tokens": 13247,
+      "naive_tokens": 408410,
+      "mean_token_ratio": 51.148786288536755,
+      "median_token_ratio": 29.603896707854762,
+      "token_reduction_pct": 96.75644572855708
+    }
+  ]
+}
