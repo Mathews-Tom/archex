@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from archex.benchmark.cross_tool import (
+    CrossToolReport,
     CrossToolTaskComparison,
     NaiveBaselineModel,
     NaiveBaselineResult,
@@ -23,9 +24,7 @@ from archex.benchmark.cross_tool import (
 )
 from archex.benchmark.models import BenchmarkTask, TaskFamily
 from archex.benchmark.region_metrics import ReturnedRegion
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from archex.benchmark.reporter import format_cross_tool_comparison
 
 _QUESTION = "Where is zorptoken handled?"
 
@@ -333,3 +332,65 @@ class TestArchexUnits:
         ]
         units = archex_units(regions)
         assert [(u.path, u.tokens) for u in units] == [("a.py", 12), ("b.py", 34)]
+
+
+class TestCheckedInArtifact:
+    """Validate the committed per-corpus reference artifact and its rendering."""
+
+    ARTIFACT = (
+        Path(__file__).resolve().parents[2]
+        / "benchmarks"
+        / "cross-tool-efficiency"
+        / "cross-tool-comparison.json"
+    )
+
+    def _load(self) -> CrossToolReport:
+        return CrossToolReport.model_validate_json(self.ARTIFACT.read_text(encoding="utf-8"))
+
+    def test_artifact_exists_and_parses(self) -> None:
+        report = self._load()
+        assert report.strategy == "archex_query"
+        assert report.comparisons
+        assert report.aggregates
+
+    def test_localization_graded_as_its_own_corpus(self) -> None:
+        report = self._load()
+        corpora = {aggregate.corpus for aggregate in report.aggregates}
+        # The localization family is graded separately, never merged with comprehension.
+        assert "external-localization" in corpora
+        assert "external-comprehension" in corpora
+        loc_tasks = {
+            comparison.task_id
+            for comparison in report.comparisons
+            if comparison.corpus == "external-localization"
+        }
+        comp_tasks = {
+            comparison.task_id
+            for comparison in report.comparisons
+            if comparison.corpus == "external-comprehension"
+        }
+        assert loc_tasks and comp_tasks
+        # Disjoint task sets: no task is counted under both corpora.
+        assert loc_tasks.isdisjoint(comp_tasks)
+        # Every localization-corpus task actually carries the localization family.
+        for comparison in report.comparisons:
+            if comparison.corpus == "external-localization":
+                assert comparison.family is TaskFamily.LOCALIZATION
+
+    def test_recall_held_equal_in_every_scored_comparison(self) -> None:
+        report = self._load()
+        for comparison in report.comparisons:
+            for naive in comparison.naive:
+                # A delta is only meaningful when both paths reached the target; when
+                # they do, the artifact measured them at the same achieved recall.
+                if comparison.archex.target_reached and naive.at_recall.target_reached:
+                    assert comparison.archex.recall_reached == naive.at_recall.recall_reached
+        # Aggregates never count more comparable tasks than exist in the corpus.
+        for aggregate in report.aggregates:
+            assert aggregate.comparable_count <= aggregate.task_count
+
+    def test_artifact_renders(self) -> None:
+        md = format_cross_tool_comparison(self._load())
+        assert "# Cross-Tool Token Efficiency (offline benchmark)" in md
+        assert "Recall is held equal" in md
+        assert "External localization" in md
