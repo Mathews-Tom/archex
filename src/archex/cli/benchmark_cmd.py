@@ -18,6 +18,7 @@ from archex.benchmark.arch_quality import (
 from archex.benchmark.baseline import compare_baseline, load_baseline, save_baseline
 from archex.benchmark.bundle_eval import BundleOnlyEvaluatorError, run_bundle_only_eval_all
 from archex.benchmark.competitive import format_competitive_markdown, load_compression_results
+from archex.benchmark.cross_tool import NaiveBaselineModel, run_cross_tool
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.gate import (
     DeltaQualityThresholds,
@@ -45,6 +46,7 @@ from archex.benchmark.models import (
     ArchitectureBenchmarkResult,
     BenchmarkReport,
     BenchmarkRetrievalOptions,
+    BenchmarkTask,
     BundleOnlyEvaluatorCommand,
     DeltaBenchmarkResult,
     Strategy,
@@ -60,6 +62,7 @@ from archex.benchmark.reporter import (
     format_baseline_comparison,
     format_bucketed_summary,
     format_chunker_frontier_table,
+    format_cross_tool_comparison,
     format_delta_summary,
     format_json,
     format_localization_summary,
@@ -278,6 +281,91 @@ def run_cmd(
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"\nCompleted {len(reports)} benchmark(s).", err=True)
+
+
+@benchmark_cmd.command("cross-tool")
+@click.option(
+    "--output",
+    "output_dir",
+    default=".archex/cross-tool-efficiency",
+    type=click.Path(),
+    help="Directory for the cross-tool comparison artifact.",
+)
+@click.option("--task", "task_id", default=None, help="Run a single task by task_id.")
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/tasks",
+    type=click.Path(exists=True),
+    help="Directory containing task YAML files.",
+)
+@click.option(
+    "--target-recall",
+    default=1.0,
+    show_default=True,
+    type=click.FloatRange(0.0, 1.0, min_open=True),
+    help="Required-file recall both paths must reach before tokens are compared.",
+)
+@click.option(
+    "--context-window",
+    default=5,
+    show_default=True,
+    type=click.IntRange(min=0),
+    help="Context lines around each grep hit for the grep_window naive model.",
+)
+@click.option(
+    "--naive-model",
+    "naive_models",
+    multiple=True,
+    type=click.Choice([model.value for model in NaiveBaselineModel]),
+    help="Naive baseline model(s) to compare (repeatable; default: all).",
+)
+@click.option(
+    "--self-only",
+    is_flag=True,
+    default=False,
+    help='Run only benchmark tasks whose repo is ".".',
+)
+def cross_tool_cmd(
+    output_dir: str,
+    task_id: str | None,
+    tasks_dir: str,
+    target_recall: float,
+    context_window: int,
+    naive_models: tuple[str, ...],
+    self_only: bool,
+) -> None:
+    """Offline cross-tool tokens-at-fixed-recall comparison: archex vs naive grep/read.
+
+    Benchmark-only: it never touches the query hot path, the in-process metrics
+    ledger, retrieval ranking, or any product default.
+    """
+    models = (
+        tuple(NaiveBaselineModel(name) for name in naive_models)
+        if naive_models
+        else (NaiveBaselineModel.FULL_FILE, NaiveBaselineModel.GREP_WINDOW)
+    )
+    tasks = load_selected_tasks(Path(tasks_dir), task_filter=task_id, self_only=self_only)
+
+    def _log(index: int, task: BenchmarkTask) -> None:
+        click.echo(f"[{index}/{len(tasks)}] {task.task_id} ({task.repo})", err=True)
+
+    try:
+        report = run_cross_tool(
+            tasks,
+            target_recall=target_recall,
+            context_window=context_window,
+            models=models,
+            on_task=_log,
+        )
+    except ArchexError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    artifact = output_path / "cross-tool-comparison.json"
+    artifact.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    click.echo(format_cross_tool_comparison(report))
+    click.echo(f"\nWrote cross-tool artifact to {artifact}", err=True)
 
 
 @benchmark_cmd.command("bundle-eval")
