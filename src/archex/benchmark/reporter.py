@@ -1061,9 +1061,9 @@ def format_cross_tool_comparison(report: CrossToolReport) -> str:
         "## Per-corpus aggregate (recall held equal)",
         "",
         "| Corpus | Naive model | Tasks | Comparable | archex tokens "
-        "| naive tokens | Naive/archex | Token reduction |",
+        "| naive tokens | Mean naive/archex | Token reduction |",
         "|--------|-------------|------:|-----------:|--------------:"
-        "|-------------:|-------------:|----------------:|",
+        "|-------------:|-----------------:|----------------:|",
     ]
     for aggregate in report.aggregates:
         corpus_label = _CORPUS_LABELS.get(aggregate.corpus, aggregate.corpus)
