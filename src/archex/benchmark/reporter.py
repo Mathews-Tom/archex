@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from archex.benchmark.cross_tool import CrossToolReport
     from archex.benchmark.models import BenchmarkReport, BenchmarkResult, DeltaBenchmarkResult
 
 
@@ -1020,5 +1021,80 @@ def format_delta_summary(results: list[DeltaBenchmarkResult]) -> str:
             f"| {r.chunks_updated} | {r.chunks_unchanged} |"
         )
 
+    lines.append("")
+    return "\n".join(lines)
+
+
+_CORPUS_LABELS = {
+    "self": "Self (archex repo)",
+    "external-comprehension": "External comprehension",
+    "external-localization": "External localization",
+}
+
+
+def _fmt_ratio(value: float) -> str:
+    return "n/a" if value <= 0 else f"{value:.1f}x"
+
+
+def format_cross_tool_comparison(report: CrossToolReport) -> str:
+    """Render the offline cross-tool tokens-at-fixed-recall comparison.
+
+    Shows, per corpus and naive model, the tokens archex spends to localize a
+    task's required files versus a naive grep/read agent, at a fixed required-file
+    recall. Recall is held equal: the aggregate counts only tasks where both
+    paths reach the target, so a token reduction never compares unequal recall.
+    Localization is graded as its own corpus and never merged with comprehension.
+    """
+    target_pct = f"{report.target_recall * 100:.0f}%"
+    lines = [
+        "# Cross-Tool Token Efficiency (offline benchmark)",
+        "",
+        f"Tokens to reach {target_pct} required-file recall: archex "
+        f"`{report.strategy}` retrieval vs a naive grep/read agent. "
+        "Offline benchmark only — no in-process metric or query-path change.",
+        "",
+        "Recall is held equal: deltas count only tasks where both paths reach the "
+        "target recall. Naive models: `full_file` reads whole grep-hit files in "
+        f"relevance order; `grep_window` reads +/-{report.context_window} line "
+        "context windows around grep hits. Both tokenized with cl100k_base.",
+        "",
+        "## Per-corpus aggregate (recall held equal)",
+        "",
+        "| Corpus | Naive model | Tasks | Comparable | archex tokens "
+        "| naive tokens | Naive/archex | Token reduction |",
+        "|--------|-------------|------:|-----------:|--------------:"
+        "|-------------:|-------------:|----------------:|",
+    ]
+    for aggregate in report.aggregates:
+        corpus_label = _CORPUS_LABELS.get(aggregate.corpus, aggregate.corpus)
+        lines.append(
+            f"| {corpus_label} | {aggregate.model.value} "
+            f"| {aggregate.task_count} | {aggregate.comparable_count} "
+            f"| {aggregate.archex_tokens:,} | {aggregate.naive_tokens:,} "
+            f"| {_fmt_ratio(aggregate.mean_token_ratio)} "
+            f"| {aggregate.token_reduction_pct:.1f}% |"
+        )
+    lines.append("")
+    lines.append("## Per-task (tokens at fixed required-file recall)")
+    lines.append("")
+    lines.append(
+        "| Task | Corpus | archex tokens | archex recall | Naive model "
+        "| naive tokens | naive recall | Both reached |"
+    )
+    lines.append(
+        "|------|--------|--------------:|--------------:|-------------"
+        "|-------------:|-------------:|:------------:|"
+    )
+    for comparison in report.comparisons:
+        for naive in comparison.naive:
+            both = comparison.archex.target_reached and naive.at_recall.target_reached
+            lines.append(
+                f"| {comparison.task_id} | {comparison.corpus} "
+                f"| {comparison.archex.tokens:,} "
+                f"| {comparison.archex.recall_reached:.3f} "
+                f"| {naive.model.value} | {naive.at_recall.tokens:,} "
+                f"| {naive.at_recall.recall_reached:.3f} "
+                f"| {'yes' if both else 'no'} |"
+            )
     lines.append("")
     return "\n".join(lines)
