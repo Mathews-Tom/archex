@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -43,6 +44,12 @@ def _build_repo(root: Path) -> Path:
     # No keyword hits at all.
     (pkg / "unrelated.py").write_text("answer = 41\n")
     return root
+
+
+def _git_init(repo: Path) -> None:
+    """Initialise a git repo and stage files so discovery takes the git ls-files path."""
+    subprocess.run(["git", "init", "--quiet"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
 
 
 def _loc_task(expected: list[str], *, repo: str = "owner/repo") -> BenchmarkTask:
@@ -148,6 +155,19 @@ class TestNaiveTokenModel:
             assert window[path] <= full_tokens
         # big.py has sparse hits, so the window is strictly cheaper than the file.
         assert window["pkg/big.py"] < full["pkg/big.py"]
+
+    def test_full_file_model_is_deterministic_over_git_corpus(self, tmp_path: Path) -> None:
+        # A real benchmark repo has a .git dir, so discovery uses git ls-files
+        # rather than the rglob fallback; the model must be deterministic there too.
+        repo = _build_repo(tmp_path)
+        _git_init(repo)
+        task = _loc_task(["pkg/target.py"])
+        first = naive_units(repo, task, model=NaiveBaselineModel.FULL_FILE, context_window=5)
+        second = naive_units(repo, task, model=NaiveBaselineModel.FULL_FILE, context_window=5)
+        assert first == second
+        # The git ls-files path discovers the same source files as the fallback.
+        assert [unit.path for unit in first][0] == "pkg/noise.py"
+        assert "pkg/unrelated.py" not in [unit.path for unit in first]
 
 
 class TestCompareTask:

@@ -163,7 +163,14 @@ class CrossToolReport(BaseModel):
 
 
 def corpus_of(task: BenchmarkTask) -> str:
-    """Bucket a task into self / external-comprehension / external-localization."""
+    """Bucket a task into self / external-comprehension / external-localization.
+
+    The cross-tool number publishes exactly these three corpora. Self-repo tasks
+    bucket to ``self`` first (the maintained self corpus is comprehension-shaped;
+    the localization family is external by construction). External tasks split
+    so external localization is graded as its own corpus, never merged with
+    external comprehension.
+    """
     if task.repo == ".":
         return CORPUS_SELF
     if task.family is TaskFamily.LOCALIZATION:
@@ -420,12 +427,12 @@ def run_cross_tool(
 
     ``regions_provider`` returns archex's ranked returned regions for a task;
     it defaults to the real ``archex_query`` retrieval. Repos are cloned and
-    scoped exactly as the standard benchmark runner does. A per-task clone
-    failure is isolated so one bad repo does not abort the batch.
+    scoped exactly as the standard benchmark runner does. A per-task clone or
+    retrieval failure is isolated so one bad repo does not abort the batch.
     """
     from archex.benchmark.runner import repo_path_for_task
     from archex.benchmark.strategies import archex_returned_regions
-    from archex.exceptions import BenchmarkCloneError
+    from archex.exceptions import ArchexIndexError, BenchmarkCloneError
 
     provider = regions_provider or archex_returned_regions
     repo_cache: dict[tuple[str, str, tuple[str, ...]], Path] = {}
@@ -440,7 +447,11 @@ def run_cross_tool(
             except BenchmarkCloneError as exc:
                 logger.warning("Skipping cross-tool task %s: %s", task.task_id, exc)
                 continue
-            regions = provider(task, repo_path)
+            try:
+                regions = provider(task, repo_path)
+            except (ArchexIndexError, NotImplementedError) as exc:
+                logger.warning("Skipping cross-tool task %s: %s", task.task_id, exc)
+                continue
             comparisons.append(
                 compare_task(
                     task,
