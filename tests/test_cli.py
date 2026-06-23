@@ -269,6 +269,72 @@ def test_status_command_reports_metrics_savings(
     assert metrics["savings_pct"] == 90.0
 
 
+def test_status_reports_metrics_savings_on_legacy_ledger(
+    python_simple_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sqlite3
+
+    from archex.metrics.storage import metrics_db_path
+    from archex.project import init_project
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    init_project(python_simple_repo)
+    runner = CliRunner()
+    indexed = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+    assert indexed.exit_code == 0, indexed.output
+
+    # Build a pre-targeted (v1) ledger by hand: usage_events lacks the targeted-read
+    # columns, so status must migrate it before the savings query references them.
+    db_path = metrics_db_path(home=tmp_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE repos (
+            repo_id TEXT PRIMARY KEY, repo_root TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL
+        );
+        CREATE TABLE usage_events (
+            event_id TEXT PRIMARY KEY, occurred_at TEXT NOT NULL, repo_id TEXT NOT NULL,
+            surface TEXT NOT NULL, tool_name TEXT NOT NULL, category TEXT NOT NULL,
+            tokens_returned INTEGER NOT NULL, tokens_raw_equivalent INTEGER NOT NULL,
+            tokens_saved INTEGER NOT NULL, savings_pct REAL NOT NULL,
+            whole_repo_tokens INTEGER, whole_repo_tokens_avoided INTEGER,
+            baseline_type TEXT NOT NULL, file_count INTEGER NOT NULL DEFAULT 0,
+            freshness TEXT, index_revision TEXT, trace_id TEXT
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO repos VALUES (?, ?, ?, ?, ?)",
+        ("r1", str(python_simple_repo.resolve()), "repo", "2026-01-01", "2026-01-01"),
+    )
+    conn.execute(
+        """
+        INSERT INTO usage_events(
+            event_id, occurred_at, repo_id, surface, tool_name, category,
+            tokens_returned, tokens_raw_equivalent, tokens_saved, savings_pct,
+            whole_repo_tokens, whole_repo_tokens_avoided, baseline_type, file_count
+        ) VALUES ('e1', '2026-01-01T00:00:00+00:00', 'r1', 'cli', 'query',
+            'context_retrieval', 10, 100, 90, 90.0, 1000, 990, 'returned_full_files', 1)
+        """
+    )
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+
+    result = runner.invoke(cli, ["status", str(python_simple_repo), "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    metrics = json.loads(result.output)["metrics_savings"]
+    assert metrics is not None
+    assert metrics["event_count"] == 1
+    assert metrics["tokens_saved"] == 90
+    assert metrics["savings_pct_vs_targeted_read"] == 0.0
+
+
 def test_status_command_strict_fails_on_dirty_index(python_simple_repo: Path) -> None:
     from archex.project import init_project
 

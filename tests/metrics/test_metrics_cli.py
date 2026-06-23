@@ -30,10 +30,55 @@ def test_bare_metrics_prints_current_repo_summary(
         result = runner.invoke(cli, ["metrics"])
 
     assert result.exit_code == 0, result.output
-    assert "Saved tokens:           90 vs returned full files" in result.output
-    assert "Whole-repo avoided:     990 upper-bound/context only" in result.output
+    assert "Savings vs full-file:   90.0% (vs full-file paste)" in result.output
+    assert "Savings vs targeted:    0.0% (vs realistic targeted read)" in result.output
+    assert "Whole-repo avoided:     990 (upper bound, not savings)" in result.output
     assert "Recording:              on" in result.output
     assert "Trace:                  off" in result.output
+
+
+def test_metrics_summary_shows_both_baselines_and_demotes_whole_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_root = tmp_path / "repo-b"
+    repo_root.mkdir()
+    db_path = metrics_db_path(home=tmp_path)
+    set_metrics_enabled(True, db_path=db_path)
+    # returned=10, targeted=40, full_file=100 -> 90% vs full-file, 75% vs targeted.
+    MetricsRecorder(db_path).record(
+        UsageEvent(
+            repo_root=repo_root,
+            surface="cli",
+            tool_name="query",
+            category="context_retrieval",
+            tokens_returned=10,
+            tokens_raw_equivalent=100,
+            whole_repo_tokens=1000,
+            tokens_targeted_read=40,
+            occurred_at=datetime.now(UTC),
+            file_count=1,
+        )
+    )
+    runner = CliRunner()
+    text = runner.invoke(cli, ["metrics", "summary", str(repo_root)])
+    payload = runner.invoke(cli, ["metrics", "summary", str(repo_root), "--format", "json"])
+
+    assert text.exit_code == 0, text.output
+    assert "Savings vs full-file:   90.0% (vs full-file paste)" in text.output
+    assert "Savings vs targeted:    75.0% (vs realistic targeted read)" in text.output
+    assert "Whole-repo avoided:     990 (upper bound, not savings)" in text.output
+    # The whole-repo line is demoted below the savings lines.
+    lines = text.output.splitlines()
+    savings_idx = next(i for i, ln in enumerate(lines) if ln.startswith("Savings vs targeted:"))
+    whole_idx = next(i for i, ln in enumerate(lines) if ln.startswith("Whole-repo avoided:"))
+    assert whole_idx > savings_idx
+
+    totals = json.loads(payload.output)["totals"]
+    assert totals["savings_pct"] == 90.0
+    assert totals["savings_pct_vs_targeted_read"] == 75.0
+    assert totals["tokens_targeted_read"] == 40
 
 
 def test_metrics_summary_repos_inspect_json(
@@ -66,6 +111,8 @@ def test_metrics_summary_repos_inspect_json(
     inspect_payload = json.loads(inspect.output)
     workspace_payload = json.loads(workspace.output)
     assert summary_payload["totals"]["tokens_saved"] == 90
+    assert "savings_pct_vs_targeted_read" in summary_payload["totals"]
+    assert "tokens_targeted_read" in summary_payload["totals"]
     assert workspace_payload["totals"]["tokens_saved"] == 90
     assert repos_payload["repos"][0]["display_name"] == "repo-a"
     assert inspect_payload["events"][0]["tool_name"] == "query"

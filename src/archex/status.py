@@ -10,7 +10,7 @@ from archex.cache import CacheManager
 from archex.config import load_config
 from archex.index.delta import compute_working_tree_signature
 from archex.index.store import IndexStore
-from archex.metrics.storage import metrics_db_path
+from archex.metrics.storage import MetricsStore, metrics_db_path
 from archex.project import ProjectState
 
 
@@ -150,9 +150,10 @@ def _metrics_savings(repo_root: Path) -> dict[str, int | float] | None:
     if not db_path.exists():
         return None
     try:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        try:
+        # Open through MetricsStore so the ledger is migrated before querying the
+        # targeted-read columns; a raw connection on a pre-migration ledger would
+        # raise and silently drop the savings line until another command migrates it.
+        with MetricsStore(db_path).connect() as conn:
             repo = conn.execute(
                 "SELECT repo_id FROM repos WHERE repo_root = ?",
                 (str(repo_root.resolve()),),
@@ -164,24 +165,30 @@ def _metrics_savings(repo_root: Path) -> dict[str, int | float] | None:
                 SELECT COUNT(*) AS event_count,
                     COALESCE(SUM(tokens_saved), 0) AS tokens_saved,
                     COALESCE(SUM(tokens_returned), 0) AS tokens_returned,
-                    COALESCE(SUM(tokens_raw_equivalent), 0) AS tokens_raw_equivalent
+                    COALESCE(SUM(tokens_raw_equivalent), 0) AS tokens_raw_equivalent,
+                    COALESCE(SUM(tokens_targeted_read), 0) AS tokens_targeted_read,
+                    COALESCE(SUM(tokens_saved_vs_targeted_read), 0) AS tokens_saved_vs_targeted_read
                 FROM usage_events
                 WHERE repo_id = ?
                 """,
                 (str(repo["repo_id"]),),
             ).fetchone()
-        finally:
-            conn.close()
     except sqlite3.Error:
         return None
     raw = int(row["tokens_raw_equivalent"])
     saved = int(row["tokens_saved"])
+    targeted = int(row["tokens_targeted_read"])
+    saved_vs_targeted = int(row["tokens_saved_vs_targeted_read"])
     return {
         "event_count": int(row["event_count"]),
         "tokens_saved": saved,
         "tokens_returned": int(row["tokens_returned"]),
         "tokens_raw_equivalent": raw,
+        "tokens_targeted_read": targeted,
         "savings_pct": (saved / raw * 100.0) if raw > 0 else 0.0,
+        "savings_pct_vs_targeted_read": (
+            (saved_vs_targeted / targeted * 100.0) if targeted > 0 else 0.0
+        ),
     }
 
 

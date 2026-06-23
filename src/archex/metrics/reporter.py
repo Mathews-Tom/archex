@@ -184,11 +184,13 @@ def render_summary_text(payload: dict[str, Any]) -> str:
         f"Trace:                  {_on_off(payload['trace_enabled'])}",
         f"Events:                 {payload['event_count']}",
         f"Surface mix:            {surface_mix}",
-        f"Saved tokens:           {totals['tokens_saved']} vs returned full files",
         f"Returned tokens:        {totals['tokens_returned']}",
-        f"Raw-equivalent tokens:  {totals['tokens_raw_equivalent']}",
-        f"Savings:                {totals['savings_pct']:.1f}%",
-        f"Whole-repo avoided:     {totals['whole_repo_tokens_avoided']} upper-bound/context only",
+        f"Full-file tokens:       {totals['tokens_raw_equivalent']}",
+        f"Targeted-read tokens:   {totals['tokens_targeted_read']}",
+        f"Savings vs full-file:   {totals['savings_pct']:.1f}% (vs full-file paste)",
+        f"Savings vs targeted:    "
+        f"{totals['savings_pct_vs_targeted_read']:.1f}% (vs realistic targeted read)",
+        f"Whole-repo avoided:     {totals['whole_repo_tokens_avoided']} (upper bound, not savings)",
     ]
     if payload["health_warning"]:
         lines.append(f"Metrics warning:        {payload['health_warning']}")
@@ -284,7 +286,9 @@ def _totals(conn: Any, window: TimeWindow, repo_ids: list[str] | None) -> dict[s
             COALESCE(SUM(tokens_returned), 0) AS tokens_returned,
             COALESCE(SUM(tokens_raw_equivalent), 0) AS tokens_raw_equivalent,
             COALESCE(SUM(tokens_saved), 0) AS tokens_saved,
-            COALESCE(SUM(whole_repo_tokens_avoided), 0) AS whole_repo_tokens_avoided
+            COALESCE(SUM(whole_repo_tokens_avoided), 0) AS whole_repo_tokens_avoided,
+            COALESCE(SUM(tokens_targeted_read), 0) AS tokens_targeted_read,
+            COALESCE(SUM(tokens_saved_vs_targeted_read), 0) AS tokens_saved_vs_targeted_read
         FROM usage_events
         WHERE {" AND ".join(clauses)}
         """,
@@ -296,8 +300,12 @@ def _totals(conn: Any, window: TimeWindow, repo_ids: list[str] | None) -> dict[s
         "tokens_raw_equivalent": int(row["tokens_raw_equivalent"]),
         "tokens_saved": int(row["tokens_saved"]),
         "whole_repo_tokens_avoided": int(row["whole_repo_tokens_avoided"]),
+        "tokens_targeted_read": int(row["tokens_targeted_read"]),
     }
     totals["savings_pct"] = _savings_pct(totals["tokens_saved"], totals["tokens_raw_equivalent"])
+    totals["savings_pct_vs_targeted_read"] = _savings_pct(
+        int(row["tokens_saved_vs_targeted_read"]), totals["tokens_targeted_read"]
+    )
     totals["by_surface"] = _surface_mix(conn, clauses, params)
     return totals
 
@@ -309,7 +317,9 @@ def _empty_totals() -> dict[str, Any]:
         "tokens_raw_equivalent": 0,
         "tokens_saved": 0,
         "whole_repo_tokens_avoided": 0,
+        "tokens_targeted_read": 0,
         "savings_pct": 0.0,
+        "savings_pct_vs_targeted_read": 0.0,
         "by_surface": _empty_surface_mix(),
     }
 

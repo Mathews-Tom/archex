@@ -41,9 +41,9 @@ When metrics are enabled, default event rows store anonymous counters only:
 - tool name
 - category
 - returned tokens
-- raw-equivalent tokens
-- saved tokens
-- savings percent
+- full-file (raw-equivalent) tokens
+- saved tokens and savings percent vs full-file
+- optional targeted-read tokens and savings vs targeted read
 - optional whole-repo avoided tokens
 - file count
 - freshness
@@ -66,44 +66,70 @@ The local `repos` table does map the machine-local repo UUID back to a local pat
 
 ## Savings calculation
 
-The metrics ledger tracks three token views:
+The metrics ledger tracks these token views per event:
 
 1. Returned tokens
    - The size of the actual archex response delivered to the caller.
 
-2. Raw-equivalent tokens
-   - The cost of returning the same result as full-file access for the files archex actually returned.
-   - This is the baseline used for the headline savings number.
-   - `baseline_type` is currently `returned_full_files`.
+2. Full-file tokens (raw-equivalent)
+   - The true token cost of reading the returned files in full (`count_tokens` of each
+     file's source, summed), derived from the index — not a chunk sum, which would
+     over-count synthetic per-chunk import breadcrumbs.
+   - This is the naive "paste the whole file" baseline. `baseline_type` is
+     `returned_full_files`.
 
-3. Whole-repo tokens
-   - The token count for the indexed repository when archex already has that number cheaply.
-   - This is not the headline baseline. It is context only.
+3. Targeted-read tokens
+   - The realistic counterfactual: reading only the matched line ranges plus a small
+     context window (K = 5 lines each side), costed from the index.
+   - Recorded when line spans are available (`query`); omitted (null) otherwise
+     (for example, scout file-only results).
+
+4. Whole-repo tokens
+   - The token count for the indexed repository when archex already has that number
+     cheaply. Context only, never a savings number.
+
+The two savings numbers each name their baseline:
+
+- Savings vs full-file paste — compression versus dumping every returned file in full.
+- Savings vs realistic targeted read — the conservative number, versus how code is
+  actually pulled (matched ranges plus a little context).
 
 The formulas are:
 
 ```text
-tokens_saved = max(tokens_raw_equivalent - tokens_returned, 0)
-savings_pct = 0 if tokens_raw_equivalent <= 0 else (tokens_saved / tokens_raw_equivalent) * 100
-whole_repo_tokens_avoided = null if whole_repo_tokens is unavailable
-whole_repo_tokens_avoided = max(whole_repo_tokens - tokens_returned, 0) otherwise
+tokens_saved              = max(full_file - returned, 0)
+savings_pct               = 0 if full_file <= 0 else (tokens_saved / full_file) * 100
+
+tokens_saved_vs_targeted  = max(targeted_read - returned, 0)   # null if targeted unavailable
+savings_pct_vs_targeted   = 0 if targeted_read <= 0 else (tokens_saved_vs_targeted / targeted_read) * 100
+
+whole_repo_tokens_avoided = max(whole_repo - returned, 0)      # null if whole_repo unavailable
 ```
+
+Invariant: `returned <= targeted_read <= full_file` for any input where `returned <= full_file` (the realistic case). On a tiny file whose rendered chunks exceed its source (`returned > full_file`), `targeted_read` is capped at `full_file`, so savings versus targeted reports 0.
 
 Example:
 
 ```text
-returned tokens = 6,132
-raw-equivalent tokens = 13,120
-whole-repo tokens = 1,302,860
+returned tokens      = 6,132
+full-file tokens     = 13,120
+targeted-read tokens = 8,400
+whole-repo tokens    = 1,302,860
 
-tokens_saved = 13,120 - 6,132 = 6,988
-savings_pct = 6,988 / 13,120 = 53.3%
-whole_repo_tokens_avoided = 1,302,860 - 6,132 = 1,296,728
+savings_pct             = (13,120 - 6,132) / 13,120 = 53.3%   (vs full-file paste)
+savings_pct_vs_targeted = (8,400 - 6,132)  / 8,400  = 27.0%   (vs realistic targeted read)
+whole_repo_tokens_avoided = 1,302,860 - 6,132 = 1,296,728     (context only, not savings)
 ```
 
 Interpretation:
-- `tokens_saved` is the headline savings number.
-- `whole_repo_tokens_avoided` is an upper-bound/context metric, not the headline number.
+- `savings_pct` (vs full-file paste) is compression versus a naive full-file paste.
+- `savings_pct_vs_targeted_read` is the realistic, conservative number.
+- `whole_repo_tokens_avoided` is an upper-bound/context metric, never the headline.
+- A defensible cross-tool number (vs grep / read / LSP) is not produced in-process; it
+  is available only via the offline benchmark harness.
+
+Both baselines are derived from the index (per-file token totals and chunk line spans).
+Neither re-reads files on the query path, and no metrics path calls a model.
 
 ## Surface defaults
 
@@ -213,19 +239,22 @@ If recording fails:
 The health flag lives in the single machine-local ledger (`~/.archex/usage.sqlite`), so
 it is shared across every repo on the machine.
 
-Expected, non-actionable conditions are **not** treated as failures. The optional
-whole-repo and raw-equivalent token baselines are computed by walking the source tree;
-when a source is not a usable local repo (path gone, not a directory, no `.git`), that
-baseline is simply omitted (`whole_repo_tokens` becomes null) without latching a warning.
+Expected, non-actionable conditions are **not** treated as failures. The full-file and
+targeted-read baselines are derived from the index (per-file token totals and chunk line
+spans); when those are unavailable — a legacy index built before per-file totals existed,
+or a source that is not a usable local repo — the baseline is simply omitted (the event is
+not recorded, or `targeted_read`/`whole_repo_tokens` become null) without latching a
+warning. A reindex repopulates the per-file totals.
 
 ## Reading the output
 
 `archex metrics summary` reports:
-- headline saved tokens versus returned full files
 - returned token total
-- raw-equivalent token total
-- percentage savings
-- whole-repo avoided tokens as context only
+- full-file (raw-equivalent) token total
+- targeted-read token total
+- savings vs full-file paste (compression) and savings vs realistic targeted read
+- whole-repo avoided tokens, demoted below the savings lines and labeled an
+  upper-bound/context number, not savings
 - a per-surface event split (`cli` / `mcp` / `python_api`)
 
 The surface split shows how many events each surface contributed. A near-zero `mcp`
