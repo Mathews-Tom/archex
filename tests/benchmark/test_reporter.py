@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from archex.benchmark.cross_tool import (
+    CrossToolAggregate,
+    CrossToolReport,
+    CrossToolTaskComparison,
+    NaiveBaselineModel,
+    NaiveBaselineResult,
+    PathTokensAtRecall,
+)
 from archex.benchmark.models import (
     BenchmarkReport,
     BenchmarkResult,
@@ -15,6 +23,7 @@ from archex.benchmark.models import (
 from archex.benchmark.reporter import (
     format_bucketed_summary,
     format_chunker_frontier_table,
+    format_cross_tool_comparison,
     format_json,
     format_localization_summary,
     format_markdown,
@@ -864,3 +873,62 @@ class TestSymbolicRerankLocalizationGrading:
         assert "unknown" not in sym_rows[0]
         assert "0.830" in sym_rows[0]  # file MRR
         assert "0.740" in sym_rows[0]  # ranked-region MRR
+
+
+def _cross_tool_report() -> CrossToolReport:
+    archex = PathTokensAtRecall(
+        tokens=120, recall_reached=1.0, target_reached=True, units_consumed=2
+    )
+    naive = NaiveBaselineResult(
+        model=NaiveBaselineModel.FULL_FILE,
+        at_recall=PathTokensAtRecall(
+            tokens=1500, recall_reached=1.0, target_reached=True, units_consumed=4
+        ),
+    )
+    comparison = CrossToolTaskComparison(
+        task_id="loc_zorp",
+        repo="owner/repo",
+        corpus="external-localization",
+        family=TaskFamily.LOCALIZATION,
+        required_file_count=1,
+        target_recall=1.0,
+        context_window=5,
+        archex=archex,
+        naive=[naive],
+    )
+    aggregate = CrossToolAggregate(
+        corpus="external-localization",
+        model=NaiveBaselineModel.FULL_FILE,
+        task_count=1,
+        comparable_count=1,
+        archex_tokens=120,
+        naive_tokens=1500,
+        mean_token_ratio=12.5,
+        median_token_ratio=12.5,
+        token_reduction_pct=92.0,
+    )
+    return CrossToolReport(
+        generated_at="2026-06-23T00:00:00Z",
+        strategy="archex_query",
+        target_recall=1.0,
+        context_window=5,
+        archex_version="0.14.0",
+        comparisons=[comparison],
+        aggregates=[aggregate],
+    )
+
+
+class TestCrossToolReporting:
+    def test_renders_aggregate_and_per_task_columns(self) -> None:
+        md = format_cross_tool_comparison(_cross_tool_report())
+        assert "# Cross-Tool Token Efficiency (offline benchmark)" in md
+        assert "Recall is held equal" in md
+        # Per-corpus aggregate columns.
+        assert "| Corpus | Naive model | Tasks | Comparable | archex tokens" in md
+        assert "External localization" in md
+        assert "92.0%" in md  # token reduction
+        assert "12.5x" in md  # naive/archex ratio
+        # Per-task table renders the comparison with both-reached marked yes.
+        assert "## Per-task (tokens at fixed required-file recall)" in md
+        assert "loc_zorp" in md
+        assert "1,500" in md
