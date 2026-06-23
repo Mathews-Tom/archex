@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0] - 2026-06-23
+
+### Added
+
+- **Realistic targeted-read savings baseline:** Added a second per-event token-savings baseline, `targeted_read`, recorded alongside the full-file baseline. It models reading the matched line ranges plus a small context window (the union of `[start_line-K, end_line+K]` spans, K=5) rather than pasting whole files, derived deterministically from the returned chunks' indexed content — no file read and no model call on the metrics path — and clamped to the invariant `returned <= targeted_read <= full_file`. Scout events omit it (no chunk bodies to cost). The metrics ledger schema is bumped 1 → 2 with a forward, idempotent, per-column migration; new columns `tokens_targeted_read`, `tokens_saved_vs_targeted_read`, and `savings_pct_vs_targeted_read`.
+- **Cross-tool token-efficiency benchmark:** Added `archex benchmark cross-tool`, an offline, benchmark-only comparison of the tokens archex spends to localize a task's required files versus a naive grep/read agent (whole grep-hit files, or `+/-K` context windows around grep hits), measured at a fixed required-file recall so no figure compares unequal recall. Both paths are tokenized with the existing cl100k_base encoder; the naive model is a pure, deterministic function of the gitignore-aware corpus, the task keywords, and `K`. It is not in `DEFAULT_STRATEGIES` and touches no product code path. Checked in the per-corpus reference artifact at `benchmarks/cross-tool-efficiency/cross-tool-comparison.json` and documented the per-corpus reductions (95.4%–99.8% at 100% required-file recall, conditioned on archex fully localizing the task) in `docs/LOCAL_METRICS.md`.
+
+### Changed
+
+- **Exact full-file token-savings baseline:** The full-file (raw-equivalent) baseline now sums the true per-file token cost (`count_tokens(full_file_text)`) instead of `SUM(chunk.token_count)`, which double-counted synthetic, per-chunk-duplicated `imports_context` and inflated the headline savings percentage. Added a nullable `token_count` column to the index `file_states` table (index schema 4 → 5, forward `ALTER` plus fresh-DB create), populated from the bytes already read for sha256 with the existing cl100k_base encoder. A legacy or unpopulated index returns `None` and the baseline is silently omitted (non-fatal, never latched as a warning); a reindex repopulates it. Chunk `token_count`, dynamic budgeting (`repo_total_tokens` metadata stays on the chunk-sum source), retrieval ranking, and the returned set are unchanged.
+- **Honest two-baseline metrics reporting:** `archex metrics summary` now reports two labeled savings numbers — "vs full-file paste" (compression versus a naive paste) and "vs realistic targeted read" (the conservative counterfactual) — and demotes the whole-repo line below them, tagged `(upper bound, not savings)`. JSON `totals` keeps `savings_pct` meaning the full-file value (unchanged for existing consumers) and adds `savings_pct_vs_targeted_read` and `tokens_targeted_read`; the `status` repo savings figure carries the targeted figures consistently. Updated `docs/LOCAL_METRICS.md`, `docs/INSTALLATION_TRUST_CONTRACT.md`, and the README so no surface claims a number the ledger does not produce.
+
 ## [0.14.0] - 2026-06-22
 
 ### Added
