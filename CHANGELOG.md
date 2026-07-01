@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.15.1] - 2026-07-01
+
+### Added
+
+- **Intent-adaptive scout file limit:** `scout`'s ranked-file selection previously used a hardcoded 12-file cap regardless of query intent, unlike `query`'s existing score-separation-adaptive file count. Added `INTENT_SCOUT_FILE_LIMITS`, computed via the query's classified intent (`DEFINITION_LOOKUP`: 6, `ARCHITECTURE_BROAD`: 16, `USAGE_SEARCH`: 12, `DEBUGGING`: 10, `CLI`: 8, `GENERAL`: 12 unchanged) when the caller does not pass an explicit `file_limit`. Narrow lookups skip ranking/scoring files they'll never need; architecture-broad queries on larger or fast-growing repos are no longer capped below what similar intent-based limits already use elsewhere in the same table. Explicit `file_limit` overrides still bypass intent classification entirely; unclassified (`GENERAL`) queries keep the historical default of 12.
+
 ## [0.15.0] - 2026-06-23
 
 ### Added
