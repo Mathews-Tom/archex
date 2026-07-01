@@ -424,3 +424,168 @@ def test_scout_cli_emits_handles_and_budget() -> None:
     assert result.exit_code == 0, result.output
     assert file_handle("src/archex/index/delta.py") in result.output
     assert scout_mock.call_args.kwargs["token_budget"] == 120
+
+
+def test_scout_caps_files_at_definition_lookup_intent_limit(tmp_path: Path) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        extras = [
+            CodeChunk(
+                id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                content=f"def extra_{idx}():\\n    return {idx}",
+                file_path=f"pkg/extra_{idx}.py",
+                start_line=1,
+                end_line=2,
+                symbol_name=f"extra_{idx}",
+                symbol_kind=SymbolKind.FUNCTION,
+                language="python",
+                token_count=8,
+                symbol_id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                qualified_name=f"extra_{idx}",
+                signature=f"def extra_{idx}()",
+            )
+            for idx in range(6)
+        ]
+        store.insert_chunks(extras)
+        ranked_chunks = [
+            RankedChunk(chunk=chunk, final_score=score)
+            for chunk, score in zip(
+                [store.get_chunk("pkg/app.py::run#function"), *extras],
+                [1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7],
+                strict=True,
+            )
+            if chunk is not None
+        ]
+        result = assemble_scout_from_store(
+            store,
+            "implementation of run",
+            ranked_chunks=ranked_chunks,
+            token_budget=8000,
+        )
+
+    # 7 candidate files exist; DEFINITION_LOOKUP intent caps at 6 (old fixed
+    # default of 12 would have kept all 7).
+    assert len(result.ranked_files) == 6
+    assert result.budget.truncated is False
+    assert result.budget.omitted_files == 1
+
+
+def test_scout_raises_file_cap_for_architecture_broad_intent(tmp_path: Path) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        extras = [
+            CodeChunk(
+                id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                content=f"def extra_{idx}():\\n    return {idx}",
+                file_path=f"pkg/extra_{idx}.py",
+                start_line=1,
+                end_line=2,
+                symbol_name=f"extra_{idx}",
+                symbol_kind=SymbolKind.FUNCTION,
+                language="python",
+                token_count=8,
+                symbol_id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                qualified_name=f"extra_{idx}",
+                signature=f"def extra_{idx}()",
+            )
+            for idx in range(20)
+        ]
+        store.insert_chunks(extras)
+        ranked_chunks = [
+            RankedChunk(chunk=chunk, final_score=1.0 - idx * 0.03)
+            for idx, chunk in enumerate([store.get_chunk("pkg/app.py::run#function"), *extras])
+            if chunk is not None
+        ]
+        result = assemble_scout_from_store(
+            store,
+            "pipeline overview",
+            ranked_chunks=ranked_chunks,
+            token_budget=20000,
+        )
+
+    # 21 candidate files exist; ARCHITECTURE_BROAD intent caps at 16 (old fixed
+    # default of 12 would have dropped 5 additional relevant files).
+    assert len(result.ranked_files) == 16
+    assert result.budget.truncated is False
+    assert result.budget.omitted_files == 5
+
+
+def test_scout_keeps_historical_default_cap_for_general_intent(tmp_path: Path) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        extras = [
+            CodeChunk(
+                id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                content=f"def extra_{idx}():\\n    return {idx}",
+                file_path=f"pkg/extra_{idx}.py",
+                start_line=1,
+                end_line=2,
+                symbol_name=f"extra_{idx}",
+                symbol_kind=SymbolKind.FUNCTION,
+                language="python",
+                token_count=8,
+                symbol_id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                qualified_name=f"extra_{idx}",
+                signature=f"def extra_{idx}()",
+            )
+            for idx in range(15)
+        ]
+        store.insert_chunks(extras)
+        ranked_chunks = [
+            RankedChunk(chunk=chunk, final_score=1.0 - idx * 0.03)
+            for idx, chunk in enumerate([store.get_chunk("pkg/app.py::run#function"), *extras])
+            if chunk is not None
+        ]
+        result = assemble_scout_from_store(
+            store,
+            "models",
+            ranked_chunks=ranked_chunks,
+            token_budget=15000,
+        )
+
+    # 16 candidate files exist; GENERAL intent is unaffected by the adaptive
+    # table and keeps the historical fixed default of 12.
+    assert len(result.ranked_files) == 12
+    assert result.budget.truncated is False
+    assert result.budget.omitted_files == 4
+
+
+def test_scout_explicit_file_limit_overrides_intent_classification(tmp_path: Path) -> None:
+    with _populate_store(tmp_path / "index.db") as store:
+        extras = [
+            CodeChunk(
+                id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                content=f"def extra_{idx}():\\n    return {idx}",
+                file_path=f"pkg/extra_{idx}.py",
+                start_line=1,
+                end_line=2,
+                symbol_name=f"extra_{idx}",
+                symbol_kind=SymbolKind.FUNCTION,
+                language="python",
+                token_count=8,
+                symbol_id=f"pkg/extra_{idx}.py::extra_{idx}#function",
+                qualified_name=f"extra_{idx}",
+                signature=f"def extra_{idx}()",
+            )
+            for idx in range(5)
+        ]
+        store.insert_chunks(extras)
+        ranked_chunks = [
+            RankedChunk(chunk=chunk, final_score=score)
+            for chunk, score in zip(
+                [store.get_chunk("pkg/app.py::run#function"), *extras],
+                [1.0, 0.95, 0.9, 0.85, 0.8, 0.75],
+                strict=True,
+            )
+            if chunk is not None
+        ]
+        # "pipeline overview" would classify as ARCHITECTURE_BROAD (cap 16),
+        # but an explicit file_limit bypasses intent classification entirely.
+        result = assemble_scout_from_store(
+            store,
+            "pipeline overview",
+            ranked_chunks=ranked_chunks,
+            token_budget=4000,
+            file_limit=3,
+        )
+
+    assert len(result.ranked_files) == 3
+    assert result.budget.truncated is False
+    assert result.budget.omitted_files == 3

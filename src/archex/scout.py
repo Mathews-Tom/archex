@@ -26,6 +26,21 @@ DEFAULT_SCOUT_FILE_LIMIT = 12
 DEFAULT_SCOUT_SYMBOLS_PER_FILE = 3
 DEFAULT_SCOUT_MODULE_LIMIT = 6
 DEFAULT_SCOUT_GRAPH_EDGE_LIMIT = 12
+
+# Adaptive cap on `_rank_files`' selected file count per query intent — mirrors
+# `query`'s `_adaptive_max_files` (serve/context.py), which reduces file count
+# when score separation is clear. Narrow lookups need few files; architecture
+# and usage queries legitimately span more of a growing repo. GENERAL keeps
+# the historical default so untriaged queries are unaffected.
+INTENT_SCOUT_FILE_LIMITS: dict[QueryIntent, int] = {
+    QueryIntent.DEFINITION_LOOKUP: 6,
+    QueryIntent.ARCHITECTURE_BROAD: 16,
+    QueryIntent.USAGE_SEARCH: 12,
+    QueryIntent.DEBUGGING: 10,
+    QueryIntent.CLI: 8,
+    QueryIntent.GENERAL: DEFAULT_SCOUT_FILE_LIMIT,
+}
+
 FILE_HANDLE_PREFIX = "file:"
 SYMBOL_HANDLE_PREFIX = "symbol:"
 CHUNK_HANDLE_PREFIX = "chunk:"
@@ -227,7 +242,7 @@ def assemble_scout_from_store(
     ranked_chunks: list[RankedChunk] | None = None,
     token_budget: int = DEFAULT_SCOUT_TOKEN_BUDGET,
     output_format: ScoutFormat = "markdown",
-    file_limit: int = DEFAULT_SCOUT_FILE_LIMIT,
+    file_limit: int | None = None,
     symbols_per_file: int = DEFAULT_SCOUT_SYMBOLS_PER_FILE,
     module_limit: int = DEFAULT_SCOUT_MODULE_LIMIT,
     modules_override: list[Module] | None = None,
@@ -238,14 +253,23 @@ def assemble_scout_from_store(
     direct_query_tokens: int = 0,
     direct_query_file_paths: list[str] | None = None,
 ) -> ScoutResult:
-    """Build a deterministic no-body structural map from an indexed repository."""
+    """Build a deterministic no-body structural map from an indexed repository.
+
+    `file_limit` defaults to an intent-adaptive cap (see `INTENT_SCOUT_FILE_LIMITS`)
+    when not given explicitly, mirroring `query`'s adaptive `MAX_FILES` reduction.
+    """
     _validate_token_budget(token_budget)
+    effective_file_limit = (
+        file_limit
+        if file_limit is not None
+        else INTENT_SCOUT_FILE_LIMITS[classify_intent(question)]
+    )
     ranked = ranked_chunks or []
     score_by_chunk = _score_by_chunk(ranked)
     files, omitted_files = _rank_files(
         store,
         ranked,
-        file_limit=file_limit,
+        file_limit=effective_file_limit,
         bundle_file_paths=bundle_file_paths or [],
         seed_file_paths=seed_file_paths or [],
         expanded_file_paths=expanded_file_paths or [],
