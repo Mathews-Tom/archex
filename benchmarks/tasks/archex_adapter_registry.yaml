@@ -16,14 +16,14 @@ expected_regions:
   - path: src/archex/parse/adapters/__init__.py
     granularity: symbol
     symbol: AdapterRegistry
-    start_line: 24
-    end_line: 79
+    start_line: 28
+    end_line: 83
     notes: "Registry construction, lookup, instantiation, and entry-point loading."
   - path: src/archex/parse/adapters/__init__.py
     granularity: block
     symbol: default_adapter_registry
-    start_line: 82
-    end_line: 94
+    start_line: 86
+    end_line: 102
     notes: "Built-in adapter registration table."
   - path: src/archex/parse/adapters/python.py
     granularity: symbol

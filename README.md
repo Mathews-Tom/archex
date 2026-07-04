@@ -370,8 +370,8 @@ For the full trust contract, including exact MCP JSON, Docker commands, cache lo
 
 | Tier | Languages | Extraction |
 | --- | --- | --- |
-| `full` | Python, JavaScript, TypeScript/TSX, Go, Rust, Java, Kotlin, C#, Swift, PHP, Ruby, Scala | Symbols, imports, graph edges |
-| `chunk-only` | C, C++, Lua, Bash/Shell, SQL, HTML, CSS, XML, YAML, TOML, JSON, Markdown, Solidity | AST chunking + retrieval; no symbol/import graph claim |
+| `full` | Python, JavaScript, TypeScript/TSX, Go, Rust, Java, Kotlin, C#, Swift, PHP, Ruby, Scala, C | Symbols, imports, graph edges |
+| `chunk-only` | C++, Lua, Bash/Shell, SQL, HTML, CSS, XML, YAML, TOML, JSON, Markdown, Solidity | AST chunking + retrieval; no symbol/import graph claim |
 | `unknown` | any other text file | line-window chunks for BM25 visibility |
 
 Need another language? Register an adapter via Python entry points. See [System Design](docs/SYSTEM_DESIGN.md) for the extension contract.

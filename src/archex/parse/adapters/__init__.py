@@ -8,6 +8,7 @@ import logging
 from archex.exceptions import ConfigError
 from archex.languages import CHUNK_ONLY_LANGUAGE_IDS
 from archex.parse.adapters.base import LanguageAdapter
+from archex.parse.adapters.c import CAdapter
 from archex.parse.adapters.chunk_only import make_chunk_only_adapter
 from archex.parse.adapters.csharp import CSharpAdapter
 from archex.parse.adapters.go import GoAdapter
@@ -96,6 +97,7 @@ default_adapter_registry.register("swift", SwiftAdapter)  # type: ignore[type-ab
 default_adapter_registry.register("php", PHPAdapter)  # type: ignore[type-abstract]
 default_adapter_registry.register("ruby", RubyAdapter)  # type: ignore[type-abstract]
 default_adapter_registry.register("scala", ScalaAdapter)  # type: ignore[type-abstract]
+default_adapter_registry.register("c", CAdapter)  # type: ignore[type-abstract]
 for _language_id in sorted(CHUNK_ONLY_LANGUAGE_IDS):
     default_adapter_registry.register(_language_id, make_chunk_only_adapter(_language_id))
 

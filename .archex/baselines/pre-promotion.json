@@ -15,11 +15,11 @@
       "task_id": "archex_adapter_registry",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0006012024048096192,
-      "f1_score": 0.0012016823552974162,
-      "mrr": 0.00546448087431694,
+      "precision": 0.0006002400960384153,
+      "f1_score": 0.001199760047990402,
+      "mrr": 0.0053475935828877,
       "ndcg": 0.0,
-      "map_score": 0.010603195009793292,
+      "map_score": 0.010269462361639439,
       "token_efficiency": 0.0
     },
     {
@@ -31,7 +31,7 @@
       "mrr": 1.0,
       "ndcg": 0.7039180890341347,
       "map_score": 0.5555555555555555,
-      "token_efficiency": 0.6255074424898511
+      "token_efficiency": 0.532924199701443
     },
     {
       "task_id": "archex_benchmark_gate_lifecycle",
@@ -48,11 +48,11 @@
       "task_id": "archex_benchmark_gate_lifecycle",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.00047723584995704876,
-      "f1_score": 0.0009540164090822363,
-      "mrr": 0.0070921985815602835,
+      "precision": 0.0004768717215069146,
+      "f1_score": 0.0009532888465204957,
+      "mrr": 0.006896551724137931,
       "ndcg": 0.0,
-      "map_score": 0.017509569201405988,
+      "map_score": 0.017012592318145718,
       "token_efficiency": 0.0
     },
     {
@@ -81,11 +81,11 @@
       "task_id": "archex_delta_index_lifecycle",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.00047831632653061223,
-      "f1_score": 0.0009561752988047809,
-      "mrr": 0.005128205128205128,
+      "precision": 0.00047770700636942675,
+      "f1_score": 0.0009549578226961642,
+      "mrr": 0.0049261083743842365,
       "ndcg": 0.0,
-      "map_score": 0.007990857381101285,
+      "map_score": 0.007738930263027466,
       "token_efficiency": 0.0
     },
     {
@@ -95,9 +95,9 @@
       "precision": 0.4,
       "f1_score": 0.5,
       "mrr": 1.0,
-      "ndcg": 0.6713860725233041,
-      "map_score": 0.5,
-      "token_efficiency": 0.574081716879901
+      "ndcg": 0.7039180890341347,
+      "map_score": 0.5555555555555555,
+      "token_efficiency": 0.6121101350156241
     },
     {
       "task_id": "archex_delta_indexing",
@@ -114,11 +114,11 @@
       "task_id": "archex_delta_indexing",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.00027166530834012495,
-      "f1_score": 0.0005431830526887561,
+      "precision": 0.000271370420624152,
+      "f1_score": 0.0005425935973955508,
       "mrr": 0.0013227513227513227,
       "ndcg": 0.0,
-      "map_score": 0.0008302090228478882,
+      "map_score": 0.000829981292803751,
       "token_efficiency": 0.0
     },
     {
@@ -147,11 +147,11 @@
       "task_id": "archex_graph_expansion",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.00014923145799134458,
-      "f1_score": 0.0002984183825723665,
-      "mrr": 0.004132231404958678,
+      "precision": 0.00014914243102162565,
+      "f1_score": 0.00029824038174768865,
+      "mrr": 0.004,
       "ndcg": 0.0,
-      "map_score": 0.005839700608139716,
+      "map_score": 0.005663003663003663,
       "token_efficiency": 0.0
     },
     {
@@ -180,11 +180,11 @@
       "task_id": "archex_mcp_query_lifecycle",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0006233636703652911,
-      "f1_score": 0.0012459506603538502,
-      "mrr": 0.005681818181818182,
+      "precision": 0.0006227425582264292,
+      "f1_score": 0.0012447099825740604,
+      "mrr": 0.005555555555555556,
       "ndcg": 0.0,
-      "map_score": 0.013036089107671225,
+      "map_score": 0.012616804808585633,
       "token_efficiency": 0.0
     },
     {
@@ -213,11 +213,11 @@
       "task_id": "archex_pattern_detection",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0007864726700747149,
-      "f1_score": 0.0015717092337917482,
-      "mrr": 0.005681818181818182,
+      "precision": 0.0007840062720501764,
+      "f1_score": 0.0015667841754798278,
+      "mrr": 0.005555555555555556,
       "ndcg": 0.0,
-      "map_score": 0.006840909090909091,
+      "map_score": 0.00665374677002584,
       "token_efficiency": 0.0
     },
     {
@@ -246,11 +246,11 @@
       "task_id": "archex_project_config_resolution",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0006545573555882834,
-      "f1_score": 0.0013082583810302534,
-      "mrr": 0.005714285714285714,
+      "precision": 0.0006537015852263442,
+      "f1_score": 0.0013065490772497142,
+      "mrr": 0.00558659217877095,
       "ndcg": 0.0,
-      "map_score": 0.01169986375631537,
+      "map_score": 0.011353327660749982,
       "token_efficiency": 0.0
     },
     {
@@ -279,11 +279,11 @@
       "task_id": "archex_project_index",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0006582411795681938,
-      "f1_score": 0.0013156163662675965,
-      "mrr": 0.005714285714285714,
+      "precision": 0.0006575486586007364,
+      "f1_score": 0.001314233144959916,
+      "mrr": 0.00558659217877095,
       "ndcg": 0.0,
-      "map_score": 0.013045464320942482,
+      "map_score": 0.012622464709171013,
       "token_efficiency": 0.0
     },
     {
@@ -295,7 +295,7 @@
       "mrr": 1.0,
       "ndcg": 1.0,
       "map_score": 1.0,
-      "token_efficiency": 0.9355600539811066
+      "token_efficiency": 0.920415354625881
     },
     {
       "task_id": "archex_project_init",
@@ -312,11 +312,11 @@
       "task_id": "archex_project_init",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0004404316229905307,
-      "f1_score": 0.0008804754567466432,
-      "mrr": 0.005714285714285714,
+      "precision": 0.00044004400440044003,
+      "f1_score": 0.0008797009016934243,
+      "mrr": 0.00558659217877095,
       "ndcg": 0.0,
-      "map_score": 0.01094426954216159,
+      "map_score": 0.010595254316469741,
       "token_efficiency": 0.0
     },
     {
@@ -345,11 +345,11 @@
       "task_id": "archex_project_reset",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.00044124135902338577,
-      "f1_score": 0.0008820935019112026,
-      "mrr": 0.004830917874396135,
+      "precision": 0.00044072278536800354,
+      "f1_score": 0.000881057268722467,
+      "mrr": 0.004651162790697674,
       "ndcg": 0.0,
-      "map_score": 0.008266731969396765,
+      "map_score": 0.007997671117353477,
       "token_efficiency": 0.0
     },
     {
@@ -378,11 +378,11 @@
       "task_id": "archex_project_status",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0005580357142857143,
-      "f1_score": 0.0011154489682097043,
-      "mrr": 0.004807692307692308,
+      "precision": 0.0005574136008918618,
+      "f1_score": 0.0011142061281337048,
+      "mrr": 0.004629629629629629,
       "ndcg": 0.0,
-      "map_score": 0.009494044016565653,
+      "map_score": 0.00921137398475597,
       "token_efficiency": 0.0
     },
     {
@@ -411,11 +411,11 @@
       "task_id": "archex_query_cache_lifecycle",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0004844491812808836,
-      "f1_score": 0.0009684292078249078,
+      "precision": 0.0004840739665020815,
+      "f1_score": 0.0009676795045480936,
       "mrr": 0.0005777007510109763,
       "ndcg": 0.0,
-      "map_score": 0.000871899582620185,
+      "map_score": 0.0008718090655068766,
       "token_efficiency": 0.0
     },
     {
@@ -444,11 +444,11 @@
       "task_id": "archex_query_pipeline",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0004774789113480821,
-      "f1_score": 0.0009545020680878142,
-      "mrr": 0.004424778761061947,
+      "precision": 0.0004768717215069146,
+      "f1_score": 0.0009532888465204957,
+      "mrr": 0.004273504273504274,
       "ndcg": 0.0,
-      "map_score": 0.008134514045350578,
+      "map_score": 0.007876905366445116,
       "token_efficiency": 0.0
     },
     {
@@ -477,11 +477,11 @@
       "task_id": "archex_scoring",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0007390983000739098,
-      "f1_score": 0.0014771048744460858,
-      "mrr": 0.004424778761061947,
+      "precision": 0.0007376444553725104,
+      "f1_score": 0.001474201474201474,
+      "mrr": 0.004273504273504274,
       "ndcg": 0.0,
-      "map_score": 0.008134514045350578,
+      "map_score": 0.007876905366445116,
       "token_efficiency": 0.0
     },
     {
@@ -510,11 +510,11 @@
       "task_id": "archex_vector_cache_lifecycle",
       "strategy": "raw_grepped",
       "recall": 1.0,
-      "precision": 0.0009013881377321074,
-      "f1_score": 0.001801152737752161,
-      "mrr": 0.005681818181818182,
+      "precision": 0.0009000900090009,
+      "f1_score": 0.0017985611510791368,
+      "mrr": 0.005555555555555556,
       "ndcg": 0.0,
-      "map_score": 0.00939345926679093,
+      "map_score": 0.009087858110626429,
       "token_efficiency": 0.0
     },
     {
@@ -527,13 +527,277 @@
       "ndcg": 0.7227265726449519,
       "map_score": 0.6,
       "token_efficiency": 0.86070712535404
+    },
+    {
+      "task_id": "routing_mixed_cache",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_mixed_cache",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.00016390755613833797,
+      "f1_score": 0.0003277613897082923,
+      "mrr": 0.0013227513227513227,
+      "ndcg": 0.0,
+      "map_score": 0.0008503044352279191,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_mixed_cache",
+      "strategy": "archex_query",
+      "recall": 1.0,
+      "precision": 0.4,
+      "f1_score": 0.5714285714285715,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.3096615070590236
+    },
+    {
+      "task_id": "routing_mixed_chunker",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_mixed_chunker",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.00011631964638827499,
+      "f1_score": 0.00023261223540358225,
+      "mrr": 0.030303030303030304,
+      "ndcg": 0.0,
+      "map_score": 0.030303030303030304,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_mixed_chunker",
+      "strategy": "archex_query",
+      "recall": 1.0,
+      "precision": 0.2,
+      "f1_score": 0.33333333333333337,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "map_score": 0.5,
+      "token_efficiency": 0.8108548420881141
+    },
+    {
+      "task_id": "routing_pl_intent",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_intent",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.0008116883116883117,
+      "f1_score": 0.0016220600162206004,
+      "mrr": 0.25,
+      "ndcg": 0.43067655807339306,
+      "map_score": 0.25,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_intent",
+      "strategy": "archex_query",
+      "recall": 1.0,
+      "precision": 0.2,
+      "f1_score": 0.33333333333333337,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.8235961667787491
+    },
+    {
+      "task_id": "routing_pl_large",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_large",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.00030048076923076925,
+      "f1_score": 0.0006007810153199159,
+      "mrr": 0.02857142857142857,
+      "ndcg": 0.0,
+      "map_score": 0.02857142857142857,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_large",
+      "strategy": "archex_query",
+      "recall": 1.0,
+      "precision": 0.25,
+      "f1_score": 0.4,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.62366380694591
+    },
+    {
+      "task_id": "routing_pl_path_symbol",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_path_symbol",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.00017627357659086903,
+      "f1_score": 0.00035248501938667606,
+      "mrr": 0.25,
+      "ndcg": 0.43067655807339306,
+      "map_score": 0.25,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_path_symbol",
+      "strategy": "archex_query",
+      "recall": 1.0,
+      "precision": 0.2,
+      "f1_score": 0.33333333333333337,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.9005484955872063
+    },
+    {
+      "task_id": "routing_pl_scoring",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_scoring",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.0009004952723998199,
+      "f1_score": 0.0017993702204228519,
+      "mrr": 0.1111111111111111,
+      "ndcg": 0.18457569677956817,
+      "map_score": 0.13247863247863248,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_scoring",
+      "strategy": "archex_query",
+      "recall": 0.5,
+      "precision": 0.2,
+      "f1_score": 0.28571428571428575,
+      "mrr": 1.0,
+      "ndcg": 0.6131471927654584,
+      "map_score": 0.5,
+      "token_efficiency": 0.8518465570645699
+    },
+    {
+      "task_id": "routing_pl_tight",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_tight",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.0001320306311064167,
+      "f1_score": 0.00026402640264026406,
+      "mrr": 0.09090909090909091,
+      "ndcg": 0.0,
+      "map_score": 0.09090909090909091,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_pl_tight",
+      "strategy": "archex_query",
+      "recall": 1.0,
+      "precision": 0.2,
+      "f1_score": 0.33333333333333337,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.9529248956232115
+    },
+    {
+      "task_id": "routing_trace_api",
+      "strategy": "raw_files",
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1_score": 1.0,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "map_score": 1.0,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_trace_api",
+      "strategy": "raw_grepped",
+      "recall": 1.0,
+      "precision": 0.00017192469698272157,
+      "f1_score": 0.00034379028792436617,
+      "mrr": 0.0001502178158329578,
+      "ndcg": 0.0,
+      "map_score": 0.0002248767677337621,
+      "token_efficiency": 0.0
+    },
+    {
+      "task_id": "routing_trace_api",
+      "strategy": "archex_query",
+      "recall": 1.0,
+      "precision": 0.4,
+      "f1_score": 0.5714285714285715,
+      "mrr": 1.0,
+      "ndcg": 0.9197207891481876,
+      "map_score": 0.8333333333333333,
+      "token_efficiency": 0.906470722260196
     }
   ],
   "ranking": [
     {
       "file_path": ".archex/baselines/pre-promotion.json",
       "centrality": 0.0,
-      "symbol_count": 11
+      "symbol_count": 57
     },
     {
       "file_path": ".dockerignore",
@@ -588,7 +852,7 @@
     {
       "file_path": "README.md",
       "centrality": 0.0,
-      "symbol_count": 13
+      "symbol_count": 14
     },
     {
       "file_path": "SECURITY.md",
@@ -1412,12 +1676,12 @@
     },
     {
       "file_path": "scripts/run_graphify_headtohead_lane.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "scripts/showcase.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 32
     },
     {
@@ -1437,27 +1701,27 @@
     },
     {
       "file_path": "src/archex/__init__.py",
-      "centrality": 0.0317468356116144,
+      "centrality": 0.011484889246930502,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/acquire/__init__.py",
-      "centrality": 0.0025746026330788993,
+      "centrality": 0.0018530217970677363,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/acquire/discovery.py",
-      "centrality": 0.004089339036341464,
+      "centrality": 0.0026578012918386917,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/acquire/git.py",
-      "centrality": 0.0031642927532452925,
+      "centrality": 0.0020350997640030104,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/acquire/local.py",
-      "centrality": 0.0031642927532452925,
+      "centrality": 0.0020350997640030104,
       "symbol_count": 2
     },
     {
@@ -1467,172 +1731,172 @@
     },
     {
       "file_path": "src/archex/analyze/decisions.py",
-      "centrality": 0.0033749454538074927,
+      "centrality": 0.0019564250409182184,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/analyze/interfaces.py",
-      "centrality": 0.0031328765563055833,
+      "centrality": 0.001911389358707783,
       "symbol_count": 7
     },
     {
       "file_path": "src/archex/analyze/modules.py",
-      "centrality": 0.002406669863799857,
+      "centrality": 0.001686210947655608,
       "symbol_count": 9
     },
     {
       "file_path": "src/archex/analyze/patterns.py",
-      "centrality": 0.002648738761301766,
+      "centrality": 0.001686210947655608,
       "symbol_count": 20
     },
     {
       "file_path": "src/archex/api.py",
-      "centrality": 0.005286664115917326,
+      "centrality": 0.014699159382446309,
       "symbol_count": 84
     },
     {
       "file_path": "src/archex/benchmark/__init__.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/benchmark/arch_quality.py",
-      "centrality": 0.0032541324385077933,
+      "centrality": 0.0013143214166686722,
       "symbol_count": 16
     },
     {
       "file_path": "src/archex/benchmark/baseline.py",
-      "centrality": 0.007087797326440832,
-      "symbol_count": 7
+      "centrality": 0.003717249788724252,
+      "symbol_count": 9
     },
     {
       "file_path": "src/archex/benchmark/bounded_rerank.py",
-      "centrality": 0.0018122634694193386,
+      "centrality": 0.0014820269157739348,
       "symbol_count": 10
     },
     {
       "file_path": "src/archex/benchmark/bundle_eval.py",
-      "centrality": 0.0032541324385077933,
+      "centrality": 0.0014344165692298325,
       "symbol_count": 21
     },
     {
       "file_path": "src/archex/benchmark/competitive.py",
-      "centrality": 0.0032541324385077933,
+      "centrality": 0.0017346544506327325,
       "symbol_count": 23
     },
     {
       "file_path": "src/archex/benchmark/cross_tool.py",
-      "centrality": 0.003774910120515723,
+      "centrality": 0.002555344589281175,
       "symbol_count": 23
     },
     {
       "file_path": "src/archex/benchmark/delta_runner.py",
-      "centrality": 0.00180171905349634,
+      "centrality": 0.0011341786878269321,
       "symbol_count": 3
     },
     {
       "file_path": "src/archex/benchmark/delta_strategies.py",
-      "centrality": 0.004692577411287455,
+      "centrality": 0.0016062506653588971,
       "symbol_count": 8
     },
     {
       "file_path": "src/archex/benchmark/external_mcp.py",
-      "centrality": 0.005298166449640572,
+      "centrality": 0.0020414845916573443,
       "symbol_count": 19
     },
     {
       "file_path": "src/archex/benchmark/gate.py",
-      "centrality": 0.00180171905349634,
-      "symbol_count": 21
+      "centrality": 0.0021346751166996616,
+      "symbol_count": 27
     },
     {
       "file_path": "src/archex/benchmark/graph_multihop.py",
-      "centrality": 0.0032646768544307924,
+      "centrality": 0.0014605813528165848,
       "symbol_count": 11
     },
     {
       "file_path": "src/archex/benchmark/graphify.py",
-      "centrality": 0.005875503641936495,
+      "centrality": 0.0022960582143459157,
       "symbol_count": 15
     },
     {
       "file_path": "src/archex/benchmark/headroom.py",
-      "centrality": 0.004637316464789651,
+      "centrality": 0.002075912344876108,
       "symbol_count": 14
     },
     {
       "file_path": "src/archex/benchmark/headtohead.py",
-      "centrality": 0.007542143234812559,
+      "centrality": 0.003126744929786259,
       "symbol_count": 30
     },
     {
       "file_path": "src/archex/benchmark/loader.py",
-      "centrality": 0.012499168452791361,
+      "centrality": 0.006306299208781553,
       "symbol_count": 18
     },
     {
       "file_path": "src/archex/benchmark/models.py",
-      "centrality": 0.00888902431241136,
+      "centrality": 0.03600271615871377,
       "symbol_count": 45
     },
     {
       "file_path": "src/archex/benchmark/preflight.py",
-      "centrality": 0.00180171905349634,
+      "centrality": 0.0011341786878269321,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/benchmark/progress.py",
-      "centrality": 0.004275521786341047,
+      "centrality": 0.0025197513861742776,
       "symbol_count": 24
     },
     {
       "file_path": "src/archex/benchmark/query_transform.py",
-      "centrality": 0.0032646768544307924,
+      "centrality": 0.0014820269157739348,
       "symbol_count": 13
     },
     {
       "file_path": "src/archex/benchmark/readiness.py",
-      "centrality": 0.0032541324385077933,
+      "centrality": 0.0015845355099312825,
       "symbol_count": 26
     },
     {
       "file_path": "src/archex/benchmark/region_metrics.py",
-      "centrality": 0.0036644278864400802,
+      "centrality": 0.002300222337971362,
       "symbol_count": 14
     },
     {
       "file_path": "src/archex/benchmark/reporter.py",
-      "centrality": 0.0026489601947530216,
+      "centrality": 0.002284794057401112,
       "symbol_count": 46
     },
     {
       "file_path": "src/archex/benchmark/runner.py",
-      "centrality": 0.002527925746002067,
+      "centrality": 0.004177967280765731,
       "symbol_count": 15
     },
     {
       "file_path": "src/archex/benchmark/strategies.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.005444836942559208,
       "symbol_count": 143
     },
     {
       "file_path": "src/archex/benchmark/summary_sidecar.py",
-      "centrality": 0.0032646768544307924,
+      "centrality": 0.0014820269157739348,
       "symbol_count": 11
     },
     {
       "file_path": "src/archex/benchmark/task_aware.py",
-      "centrality": 0.003022607956928883,
+      "centrality": 0.00170720532682611,
       "symbol_count": 10
     },
     {
       "file_path": "src/archex/benchmark/triage.py",
-      "centrality": 0.00602050049107151,
+      "centrality": 0.0022578311218666948,
       "symbol_count": 24
     },
     {
       "file_path": "src/archex/cache.py",
-      "centrality": 0.0021926574512080525,
+      "centrality": 0.0034117525013336396,
       "symbol_count": 25
     },
     {
@@ -1642,487 +1906,507 @@
     },
     {
       "file_path": "src/archex/cli/analyze_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 3
     },
     {
       "file_path": "src/archex/cli/benchmark_cmd.py",
-      "centrality": 0.0021926574512080525,
+      "centrality": 0.0017516545427089577,
       "symbol_count": 49
     },
     {
       "file_path": "src/archex/cli/cache_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/cli/compare_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0016465712842179425,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/cli/doctor_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/cli/dogfood_cmd.py",
-      "centrality": 0.0026708321060816475,
-      "symbol_count": 2
+      "centrality": 0.0013463334028150423,
+      "symbol_count": 3
     },
     {
       "file_path": "src/archex/cli/explain_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/cli/graph_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 24
     },
     {
       "file_path": "src/archex/cli/impact_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/cli/index_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/cli/init_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/cli/install_client_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/cli/main.py",
-      "centrality": 0.013583728142226453,
+      "centrality": 0.008095322148188065,
       "symbol_count": 3
     },
     {
       "file_path": "src/archex/cli/mcp_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/cli/metrics_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 19
     },
     {
       "file_path": "src/archex/cli/onboard_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/cli/outline_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/cli/query_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/cli/reset_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/cli/scout_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/cli/status_cmd.py",
-      "centrality": 0.0026708321060816475,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/cli/symbol_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/cli/symbols_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/cli/tree_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013463334028150423,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/client_setup.py",
-      "centrality": 0.0031609330412156883,
+      "centrality": 0.0022040096123148623,
       "symbol_count": 16
     },
     {
       "file_path": "src/archex/config.py",
-      "centrality": 0.0026995935717013266,
+      "centrality": 0.004111517586141371,
       "symbol_count": 13
     },
     {
       "file_path": "src/archex/doctor.py",
-      "centrality": 0.003979030805390631,
+      "centrality": 0.0022040096123148623,
       "symbol_count": 37
     },
     {
       "file_path": "src/archex/dogfood.py",
-      "centrality": 0.0044631686003944486,
-      "symbol_count": 23
+      "centrality": 0.002429188023367038,
+      "symbol_count": 25
     },
     {
       "file_path": "src/archex/exceptions.py",
-      "centrality": 0.07578996711975358,
+      "centrality": 0.08786171363052632,
       "symbol_count": 12
     },
     {
       "file_path": "src/archex/explain.py",
-      "centrality": 0.002792861684906204,
+      "centrality": 0.0014435467227329906,
       "symbol_count": 34
     },
     {
       "file_path": "src/archex/graph_artifact.py",
-      "centrality": 0.014420781712063194,
+      "centrality": 0.004934001624191192,
       "symbol_count": 49
     },
     {
       "file_path": "src/archex/graph_query.py",
-      "centrality": 0.00399113482361332,
+      "centrality": 0.0024877092503198975,
       "symbol_count": 44
     },
     {
       "file_path": "src/archex/impact.py",
-      "centrality": 0.0017939557376754967,
+      "centrality": 0.0013530154056000494,
       "symbol_count": 21
     },
     {
       "file_path": "src/archex/index/__init__.py",
-      "centrality": 0.0026767952462118704,
+      "centrality": 0.0014135995827763762,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/index/bm25.py",
-      "centrality": 0.0021926574512080525,
+      "centrality": 0.0023317223926718434,
       "symbol_count": 22
     },
     {
       "file_path": "src/archex/index/delta.py",
-      "centrality": 0.0019990023332065255,
+      "centrality": 0.0015515590709377978,
       "symbol_count": 16
     },
     {
       "file_path": "src/archex/index/embeddings/__init__.py",
-      "centrality": 0.002555760797460916,
+      "centrality": 0.0014135995827763762,
       "symbol_count": 15
     },
     {
       "file_path": "src/archex/index/embeddings/base.py",
-      "centrality": 0.004615620347351531,
+      "centrality": 0.002793206365007363,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/index/embeddings/coderank.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 9
     },
     {
       "file_path": "src/archex/index/embeddings/fast.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 10
     },
     {
       "file_path": "src/archex/index/embeddings/nomic.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 8
     },
     {
       "file_path": "src/archex/index/embeddings/sentence_tf.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "src/archex/index/fusion.py",
-      "centrality": 0.0045387289611660145,
+      "centrality": 0.002075449347245192,
       "symbol_count": 11
     },
     {
       "file_path": "src/archex/index/graph.py",
-      "centrality": 0.002434726348709962,
+      "centrality": 0.007466984079275685,
       "symbol_count": 30
     },
     {
       "file_path": "src/archex/index/huggingface.py",
-      "centrality": 0.004260378446577522,
+      "centrality": 0.00214781487537641,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/index/model_policy.py",
-      "centrality": 0.006632571765824582,
+      "centrality": 0.0033044949645671382,
       "symbol_count": 9
     },
     {
       "file_path": "src/archex/index/quantize.py",
-      "centrality": 0.008643798774221438,
+      "centrality": 0.06490003570118807,
       "symbol_count": 16
     },
     {
       "file_path": "src/archex/index/rerank.py",
-      "centrality": 0.004204895959528323,
+      "centrality": 0.0022661149571859647,
       "symbol_count": 26
     },
     {
       "file_path": "src/archex/index/splade.py",
-      "centrality": 0.0021926574512080525,
+      "centrality": 0.001188421171724201,
       "symbol_count": 25
     },
     {
       "file_path": "src/archex/index/store.py",
-      "centrality": 0.0044245671472220955,
+      "centrality": 0.0132547577298958,
       "symbol_count": 71
     },
     {
       "file_path": "src/archex/index/vector.py",
-      "centrality": 0.0026767952462118704,
+      "centrality": 0.0014650689338740162,
       "symbol_count": 24
     },
     {
       "file_path": "src/archex/integrations/__init__.py",
-      "centrality": 0.0019505885537061437,
+      "centrality": 0.001188421171724201,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/integrations/langchain.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/integrations/llamaindex.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/integrations/lsap.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 11
     },
     {
       "file_path": "src/archex/integrations/lsap_models.py",
-      "centrality": 0.008853553528671489,
+      "centrality": 0.06496406562723905,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/integrations/mcp.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0012885004655251678,
       "symbol_count": 56
     },
     {
       "file_path": "src/archex/languages.py",
-      "centrality": 0.0024032631355424537,
+      "centrality": 0.00693490091208898,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/metrics/__init__.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/metrics/capture.py",
-      "centrality": 0.0017939557376754967,
+      "centrality": 0.002233196821685628,
       "symbol_count": 8
     },
     {
       "file_path": "src/archex/metrics/categories.py",
-      "centrality": 0.002424355345922416,
+      "centrality": 0.001539434970725268,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/metrics/health.py",
-      "centrality": 0.006936654094774706,
+      "centrality": 0.004786499344175325,
       "symbol_count": 9
     },
     {
       "file_path": "src/archex/metrics/math.py",
-      "centrality": 0.0023176133758034062,
+      "centrality": 0.0021303011717840594,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/metrics/policy.py",
-      "centrality": 0.008790411738948727,
+      "centrality": 0.004544281736691633,
       "symbol_count": 10
     },
     {
       "file_path": "src/archex/metrics/recorder.py",
-      "centrality": 0.0035824364587716652,
+      "centrality": 0.0040905030954276125,
       "symbol_count": 22
     },
     {
       "file_path": "src/archex/metrics/registry.py",
-      "centrality": 0.00406050943781715,
+      "centrality": 0.0023104439006257998,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/metrics/reporter.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0013458132485637913,
       "symbol_count": 30
     },
     {
       "file_path": "src/archex/metrics/storage.py",
-      "centrality": 0.0054057208825063294,
+      "centrality": 0.012697653239193243,
       "symbol_count": 13
     },
     {
       "file_path": "src/archex/models.py",
-      "centrality": 0.013392475497239025,
+      "centrality": 0.14895264394228624,
       "symbol_count": 90
     },
     {
       "file_path": "src/archex/observe.py",
-      "centrality": 0.004295015307664499,
+      "centrality": 0.00290560635280683,
       "symbol_count": 19
     },
     {
       "file_path": "src/archex/onboarding.py",
-      "centrality": 0.0025507927874042955,
+      "centrality": 0.0013148733449888906,
       "symbol_count": 12
     },
     {
       "file_path": "src/archex/parse/__init__.py",
-      "centrality": 0.003542878223086535,
+      "centrality": 0.0022133072547512165,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/parse/adapters/__init__.py",
-      "centrality": 0.006617153221360778,
+      "centrality": 0.0037470224322510323,
       "symbol_count": 10
     },
     {
       "file_path": "src/archex/parse/adapters/_jvm_helpers.py",
-      "centrality": 0.0052479383250086335,
+      "centrality": 0.002706150847182819,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/parse/adapters/base.py",
-      "centrality": 0.011747926155026282,
+      "centrality": 0.005248539784546183,
       "symbol_count": 10
     },
     {
+      "file_path": "src/archex/parse/adapters/c.py",
+      "centrality": 0.0014839328324435536,
+      "symbol_count": 24
+    },
+    {
       "file_path": "src/archex/parse/adapters/chunk_only.py",
-      "centrality": 0.002219914819526227,
+      "centrality": 0.0012587544213913783,
       "symbol_count": 15
     },
     {
       "file_path": "src/archex/parse/adapters/csharp.py",
-      "centrality": 0.002946121512031954,
+      "centrality": 0.0014839328324435536,
       "symbol_count": 31
     },
     {
       "file_path": "src/archex/parse/adapters/go.py",
-      "centrality": 0.002946121512031954,
+      "centrality": 0.0014839328324435536,
       "symbol_count": 24
     },
     {
       "file_path": "src/archex/parse/adapters/java.py",
-      "centrality": 0.003672328204537681,
+      "centrality": 0.0017841707138464538,
       "symbol_count": 24
     },
     {
       "file_path": "src/archex/parse/adapters/kotlin.py",
-      "centrality": 0.002946121512031954,
+      "centrality": 0.0014839328324435536,
       "symbol_count": 25
     },
     {
+      "file_path": "src/archex/parse/adapters/php.py",
+      "centrality": 0.0014839328324435536,
+      "symbol_count": 33
+    },
+    {
       "file_path": "src/archex/parse/adapters/python.py",
-      "centrality": 0.005366810487051043,
+      "centrality": 0.0020994204893194993,
       "symbol_count": 22
     },
     {
+      "file_path": "src/archex/parse/adapters/ruby.py",
+      "centrality": 0.0014388971502331184,
+      "symbol_count": 37
+    },
+    {
       "file_path": "src/archex/parse/adapters/rust.py",
-      "centrality": 0.003672328204537681,
+      "centrality": 0.0016640755612852937,
       "symbol_count": 28
     },
     {
+      "file_path": "src/archex/parse/adapters/scala.py",
+      "centrality": 0.0014839328324435536,
+      "symbol_count": 24
+    },
+    {
       "file_path": "src/archex/parse/adapters/swift.py",
-      "centrality": 0.002946121512031954,
+      "centrality": 0.0014839328324435536,
       "symbol_count": 37
     },
     {
       "file_path": "src/archex/parse/adapters/ts_node.py",
-      "centrality": 0.022224152611956236,
+      "centrality": 0.008399886598397273,
       "symbol_count": 8
     },
     {
       "file_path": "src/archex/parse/adapters/typescript.py",
-      "centrality": 0.002946121512031954,
+      "centrality": 0.0014839328324435536,
       "symbol_count": 26
     },
     {
       "file_path": "src/archex/parse/engine.py",
-      "centrality": 0.0030084353792972263,
+      "centrality": 0.006468631826747261,
       "symbol_count": 11
     },
     {
       "file_path": "src/archex/parse/imports.py",
-      "centrality": 0.004424788311347426,
+      "centrality": 0.00214050141568311,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/parse/symbols.py",
-      "centrality": 0.0019505885537061437,
+      "centrality": 0.0017802159579996292,
       "symbol_count": 14
     },
     {
       "file_path": "src/archex/pipeline/__init__.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/pipeline/chunker.py",
-      "centrality": 0.006980256567613642,
+      "centrality": 0.0029213682583930567,
       "symbol_count": 47
     },
     {
       "file_path": "src/archex/pipeline/models.py",
-      "centrality": 0.003377279589995112,
+      "centrality": 0.001969647399864408,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/pipeline/service.py",
-      "centrality": 0.004602240507649911,
+      "centrality": 0.002857871691824925,
       "symbol_count": 10
     },
     {
       "file_path": "src/archex/precision.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 19
     },
     {
       "file_path": "src/archex/project.py",
-      "centrality": 0.017350750559779457,
+      "centrality": 0.008453803882710973,
       "symbol_count": 19
     },
     {
       "file_path": "src/archex/receipt.py",
-      "centrality": 0.007199842077687406,
+      "centrality": 0.00271259628619068,
       "symbol_count": 21
     },
     {
       "file_path": "src/archex/reporting.py",
-      "centrality": 0.02214675080039896,
+      "centrality": 0.00837637942529004,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/scout.py",
-      "centrality": 0.002520162430181224,
+      "centrality": 0.005575875805950579,
       "symbol_count": 45
     },
     {
@@ -2132,102 +2416,102 @@
     },
     {
       "file_path": "src/archex/serve/compare/__init__.py",
-      "centrality": 0.02370956975044141,
+      "centrality": 0.003523583894520812,
       "symbol_count": 4
     },
     {
       "file_path": "src/archex/serve/compare/_base.py",
-      "centrality": 0.010422999966272956,
+      "centrality": 0.0037618887266062033,
       "symbol_count": 11
     },
     {
       "file_path": "src/archex/serve/compare/api_surface.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/serve/compare/concurrency.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "src/archex/serve/compare/configuration.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/serve/compare/error_handling.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/serve/compare/state_management.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/serve/compare/testing.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "src/archex/serve/compression.py",
-      "centrality": 0.0025384701619250655,
+      "centrality": 0.001632145856475385,
       "symbol_count": 18
     },
     {
       "file_path": "src/archex/serve/context.py",
-      "centrality": 0.002164600966297948,
+      "centrality": 0.0023478065648898563,
       "symbol_count": 53
     },
     {
       "file_path": "src/archex/serve/intent.py",
-      "centrality": 0.014999817570821018,
+      "centrality": 0.0076046469613552355,
       "symbol_count": 10
     },
     {
       "file_path": "src/archex/serve/modality.py",
-      "centrality": 0.00920253545278469,
+      "centrality": 0.00387681741429685,
       "symbol_count": 16
     },
     {
       "file_path": "src/archex/serve/packing.py",
-      "centrality": 0.0025384701619250655,
+      "centrality": 0.001632145856475385,
       "symbol_count": 35
     },
     {
       "file_path": "src/archex/serve/profile.py",
-      "centrality": 0.003011842107554629,
+      "centrality": 0.001881365570567493,
       "symbol_count": 3
     },
     {
       "file_path": "src/archex/serve/renderers/__init__.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 1
     },
     {
       "file_path": "src/archex/serve/renderers/json.py",
-      "centrality": 0.0038871397337214147,
+      "centrality": 0.001802836550452279,
       "symbol_count": 2
     },
     {
       "file_path": "src/archex/serve/renderers/markdown.py",
-      "centrality": 0.002434726348709962,
+      "centrality": 0.001802836550452279,
       "symbol_count": 5
     },
     {
       "file_path": "src/archex/serve/renderers/xml.py",
-      "centrality": 0.004214644712694586,
+      "centrality": 0.001995925176149375,
       "symbol_count": 6
     },
     {
       "file_path": "src/archex/status.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0024121488269355194,
       "symbol_count": 7
     },
     {
       "file_path": "src/archex/utils.py",
-      "centrality": 0.0037235906634764276,
+      "centrality": 0.002233196821685628,
       "symbol_count": 2
     },
     {
@@ -2237,258 +2521,298 @@
     },
     {
       "file_path": "tests/acquire/test_discovery.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 28
     },
     {
       "file_path": "tests/acquire/test_git.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 19
     },
     {
       "file_path": "tests/acquire/test_local.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 5
     },
     {
       "file_path": "tests/analyze/test_decisions.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 10
     },
     {
       "file_path": "tests/analyze/test_interfaces.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 20
     },
     {
       "file_path": "tests/analyze/test_modules.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 26
     },
     {
       "file_path": "tests/analyze/test_patterns.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 38
     },
     {
       "file_path": "tests/benchmark/test_arch_quality.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 17
     },
     {
       "file_path": "tests/benchmark/test_baseline.py",
-      "centrality": 0.0017085196562042348,
-      "symbol_count": 6
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 10
     },
     {
       "file_path": "tests/benchmark/test_bounded_rerank_strategy.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 33
     },
     {
       "file_path": "tests/benchmark/test_bundle_eval.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 19
     },
     {
       "file_path": "tests/benchmark/test_cli.py",
-      "centrality": 0.0017085196562042348,
-      "symbol_count": 59
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 62
     },
     {
       "file_path": "tests/benchmark/test_competitive_artifacts.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 11
     },
     {
       "file_path": "tests/benchmark/test_competitive_report.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 15
     },
     {
       "file_path": "tests/benchmark/test_compression_strategy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 22
     },
     {
       "file_path": "tests/benchmark/test_conditional_rerank_strategy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 52
     },
     {
       "file_path": "tests/benchmark/test_cross_tool.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 37
     },
     {
       "file_path": "tests/benchmark/test_delta_strategies.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 26
     },
     {
       "file_path": "tests/benchmark/test_diversity_packed_strategy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 23
     },
     {
       "file_path": "tests/benchmark/test_dogfood.py",
-      "centrality": 0.0017085196562042348,
-      "symbol_count": 18
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 22
     },
     {
       "file_path": "tests/benchmark/test_dual_transform_strategy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 28
     },
     {
       "file_path": "tests/benchmark/test_efficiency_packed_strategy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 19
     },
     {
       "file_path": "tests/benchmark/test_external_mcp.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 5
     },
     {
       "file_path": "tests/benchmark/test_gate.py",
-      "centrality": 0.0,
-      "symbol_count": 26
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 32
     },
     {
       "file_path": "tests/benchmark/test_generalization.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 5
     },
     {
       "file_path": "tests/benchmark/test_graph_multihop_strategy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 26
     },
     {
       "file_path": "tests/benchmark/test_graphify.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 13
     },
     {
       "file_path": "tests/benchmark/test_headroom.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 10
     },
     {
       "file_path": "tests/benchmark/test_headtohead.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 22
     },
     {
       "file_path": "tests/benchmark/test_headtohead_report.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 5
     },
     {
       "file_path": "tests/benchmark/test_integration.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 14
     },
     {
       "file_path": "tests/benchmark/test_loader.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 86
     },
     {
       "file_path": "tests/benchmark/test_metrics.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "tests/benchmark/test_models.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 44
     },
     {
       "file_path": "tests/benchmark/test_progress.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 6
     },
     {
       "file_path": "tests/benchmark/test_readiness.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 11
     },
     {
       "file_path": "tests/benchmark/test_region_fixtures.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 8
     },
     {
       "file_path": "tests/benchmark/test_regression.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 2
     },
     {
       "file_path": "tests/benchmark/test_reporter.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 94
     },
     {
       "file_path": "tests/benchmark/test_runner.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 53
     },
     {
       "file_path": "tests/benchmark/test_strategies.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 134
     },
     {
       "file_path": "tests/benchmark/test_strategy_registry.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 13
     },
     {
       "file_path": "tests/benchmark/test_summary_sidecar_strategy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 28
     },
     {
       "file_path": "tests/benchmark/test_task_aware.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 17
     },
     {
       "file_path": "tests/benchmark/test_task_aware_strategy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 34
     },
     {
       "file_path": "tests/benchmark/test_triage.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 16
     },
     {
       "file_path": "tests/cli/test_doctor.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 9
     },
     {
       "file_path": "tests/cli/test_index_cmd.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 9
     },
     {
       "file_path": "tests/cli/test_install_client.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 23
     },
     {
       "file_path": "tests/conftest.py",
-      "centrality": 0.0031609330412156883,
+      "centrality": 0.001960461438188802,
       "symbol_count": 19
     },
     {
       "file_path": "tests/fixtures/bundle_eval_command.py",
       "centrality": 0.0,
       "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/c_simple/GRAMMAR_EVALUATION.md",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/c_simple/list.c",
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/c_simple/list.h",
+      "centrality": 0.0022606993195917018,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/c_simple/main.c",
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/c_simple/platform.c",
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/c_simple/platform.h",
+      "centrality": 0.0022606993195917018,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/c_simple/point.c",
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/c_simple/point.h",
+      "centrality": 0.004181727211509631,
+      "symbol_count": 5
     },
     {
       "file_path": "tests/fixtures/csharp_simple/Events/EventHandler.cs",
@@ -2641,6 +2965,51 @@
       "symbol_count": 2
     },
     {
+      "file_path": "tests/fixtures/php_simple/Contracts/Arrayable.php",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/php_simple/GRAMMAR_EVALUATION.md",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/php_simple/Helpers/functions.php",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/php_simple/Legacy/BraceNamespace.php",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/php_simple/Models/Status.php",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/php_simple/Models/User.php",
+      "centrality": 0.0,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/fixtures/php_simple/Services/UserService.php",
+      "centrality": 0.0,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "tests/fixtures/php_simple/Traits/HasTimestamps.php",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/php_simple/index.php",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
       "file_path": "tests/fixtures/python_patterns/events.py",
       "centrality": 0.0,
       "symbol_count": 6
@@ -2782,37 +3151,37 @@
     },
     {
       "file_path": "tests/fixtures/repos/python_strategy_sorting/sorters/base.py",
-      "centrality": 0.004504501574967389,
+      "centrality": 0.0027934361031841126,
       "symbol_count": 5
     },
     {
       "file_path": "tests/fixtures/repos/python_strategy_sorting/sorters/context.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 8
     },
     {
       "file_path": "tests/fixtures/repos/python_strategy_sorting/sorters/implementations.py",
-      "centrality": 0.002434726348709962,
+      "centrality": 0.0015101046160844512,
       "symbol_count": 11
     },
     {
       "file_path": "tests/fixtures/repos/react_hooks_state/src/components/Login.tsx",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 2
     },
     {
       "file_path": "tests/fixtures/repos/react_hooks_state/src/hooks/useAuth.ts",
-      "centrality": 0.0031609330412156883,
+      "centrality": 0.001960461438188802,
       "symbol_count": 3
     },
     {
       "file_path": "tests/fixtures/repos/react_hooks_state/src/hooks/useLocalStorage.ts",
-      "centrality": 0.004395656723707637,
+      "centrality": 0.002725697123970723,
       "symbol_count": 2
     },
     {
       "file_path": "tests/fixtures/repos/rust_actix_handler/src/handlers/auth.rs",
-      "centrality": 0.0031609330412156883,
+      "centrality": 0.001960461438188802,
       "symbol_count": 6
     },
     {
@@ -2837,7 +3206,7 @@
     },
     {
       "file_path": "tests/fixtures/repos/rust_async_boundaries/src/server.rs",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 3
     },
     {
@@ -2872,33 +3241,73 @@
     },
     {
       "file_path": "tests/fixtures/repos/typescript_express_auth/middleware/auth.ts",
-      "centrality": 0.004395656723707637,
+      "centrality": 0.002725697123970723,
       "symbol_count": 5
     },
     {
       "file_path": "tests/fixtures/repos/typescript_express_auth/middleware/index.ts",
-      "centrality": 0.0031609330412156883,
+      "centrality": 0.001960461438188802,
       "symbol_count": 4
     },
     {
       "file_path": "tests/fixtures/repos/typescript_express_auth/routes/user.ts",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 2
     },
     {
       "file_path": "tests/fixtures/repos/typescript_nestjs_modules/src/app.module.ts",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 2
     },
     {
       "file_path": "tests/fixtures/repos/typescript_nestjs_modules/src/user/user.module.ts",
-      "centrality": 0.0031609330412156883,
+      "centrality": 0.001960461438188802,
       "symbol_count": 2
     },
     {
       "file_path": "tests/fixtures/repos/typescript_nestjs_modules/src/user/user.service.ts",
-      "centrality": 0.004395656723707637,
+      "centrality": 0.002725697123970723,
       "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/ruby_simple/GRAMMAR_EVALUATION.md",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/ruby_simple/app.rb",
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/ruby_simple/legacy/admin.rb",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/ruby_simple/mixins/trackable.rb",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/ruby_simple/models/user.rb",
+      "centrality": 0.002376948770686457,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/fixtures/ruby_simple/services/user_service.rb",
+      "centrality": 0.0012849262050322761,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/ruby_simple/store_front/auditable.rb",
+      "centrality": 0.002294848510763115,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/ruby_simple/support/slugger.rb",
+      "centrality": 0.002294848510763115,
+      "symbol_count": 5
     },
     {
       "file_path": "tests/fixtures/rust_simple/src/lib.rs",
@@ -2907,18 +3316,68 @@
     },
     {
       "file_path": "tests/fixtures/rust_simple/src/main.rs",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 3
     },
     {
       "file_path": "tests/fixtures/rust_simple/src/models.rs",
-      "centrality": 0.002434726348709962,
+      "centrality": 0.0015101046160844512,
       "symbol_count": 10
     },
     {
       "file_path": "tests/fixtures/rust_simple/src/utils.rs",
-      "centrality": 0.002434726348709962,
+      "centrality": 0.0015101046160844512,
       "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/App.scala",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/GRAMMAR_EVALUATION.md",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/contracts/FriendlyGreeter.scala",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/contracts/Greeter.scala",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/legacy/Adjacent.scala",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/models/Address.scala",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/models/User.scala",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/services/UserService.scala",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/shapes/Shape.scala",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/scala_simple/util/StringUtils.scala",
+      "centrality": 0.0,
+      "symbol_count": 10
     },
     {
       "file_path": "tests/fixtures/swift_simple/Models/User.swift",
@@ -2957,22 +3416,22 @@
     },
     {
       "file_path": "tests/fixtures/typescript_simple/src/handlers/auth.ts",
-      "centrality": 0.0021926574512080525,
+      "centrality": 0.001359985675383001,
       "symbol_count": 4
     },
     {
       "file_path": "tests/fixtures/typescript_simple/src/index.ts",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 1
     },
     {
       "file_path": "tests/fixtures/typescript_simple/src/types.ts",
-      "centrality": 0.003124651424129104,
+      "centrality": 0.0019378817784510049,
       "symbol_count": 3
     },
     {
       "file_path": "tests/fixtures/typescript_simple/src/utils.ts",
-      "centrality": 0.003124651424129104,
+      "centrality": 0.0019378817784510049,
       "symbol_count": 4
     },
     {
@@ -2982,372 +3441,392 @@
     },
     {
       "file_path": "tests/index/embeddings/test_embeddings.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 49
     },
     {
       "file_path": "tests/index/test_bm25.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 61
     },
     {
       "file_path": "tests/index/test_bm25_graduated.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 21
     },
     {
       "file_path": "tests/index/test_breadcrumbs.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 39
     },
     {
       "file_path": "tests/index/test_chunker.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 46
     },
     {
       "file_path": "tests/index/test_delta.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 67
     },
     {
       "file_path": "tests/index/test_embedder_registry.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 14
     },
     {
       "file_path": "tests/index/test_fusion.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 58
     },
     {
       "file_path": "tests/index/test_graph.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 36
     },
     {
       "file_path": "tests/index/test_huggingface.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 5
     },
     {
       "file_path": "tests/index/test_quantize.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 76
     },
     {
       "file_path": "tests/index/test_rerank.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 78
     },
     {
       "file_path": "tests/index/test_splade.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 35
     },
     {
       "file_path": "tests/index/test_store.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 98
     },
     {
       "file_path": "tests/index/test_symbol_ids.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 30
     },
     {
       "file_path": "tests/index/test_vector.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 100
     },
     {
       "file_path": "tests/integrations/test_langchain.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 14
     },
     {
       "file_path": "tests/integrations/test_llamaindex.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 14
     },
     {
       "file_path": "tests/integrations/test_lsap.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 27
     },
     {
       "file_path": "tests/integrations/test_mcp.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 100
     },
     {
       "file_path": "tests/metrics/test_health.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 4
     },
     {
       "file_path": "tests/metrics/test_instrumentation.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 24
     },
     {
       "file_path": "tests/metrics/test_metrics_cli.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 10
     },
     {
       "file_path": "tests/metrics/test_policy.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 9
     },
     {
       "file_path": "tests/metrics/test_recorder.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 12
     },
     {
       "file_path": "tests/metrics/test_storage.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 8
     },
     {
+      "file_path": "tests/parse/adapters/test_c.py",
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 45
+    },
+    {
       "file_path": "tests/parse/adapters/test_csharp.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 59
     },
     {
       "file_path": "tests/parse/adapters/test_go.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 36
     },
     {
       "file_path": "tests/parse/adapters/test_java.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 47
     },
     {
       "file_path": "tests/parse/adapters/test_jvm_cross.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 6
     },
     {
       "file_path": "tests/parse/adapters/test_kotlin.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 56
+    },
+    {
+      "file_path": "tests/parse/adapters/test_php.py",
+      "centrality": 0.0010597477939801008,
       "symbol_count": 56
     },
     {
       "file_path": "tests/parse/adapters/test_python.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 48
     },
     {
+      "file_path": "tests/parse/adapters/test_ruby.py",
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 58
+    },
+    {
       "file_path": "tests/parse/adapters/test_rust.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 51
     },
     {
+      "file_path": "tests/parse/adapters/test_scala.py",
+      "centrality": 0.0010597477939801008,
+      "symbol_count": 53
+    },
+    {
       "file_path": "tests/parse/adapters/test_swift.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 56
     },
     {
       "file_path": "tests/parse/adapters/test_typescript.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 57
     },
     {
       "file_path": "tests/parse/test_adapter_registry.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 11
     },
     {
       "file_path": "tests/parse/test_engine.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 15
     },
     {
       "file_path": "tests/parse/test_imports.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 26
     },
     {
       "file_path": "tests/parse/test_language_coverage.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 10
     },
     {
       "file_path": "tests/parse/test_symbols.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 25
     },
     {
       "file_path": "tests/pipeline/test_service.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 30
     },
     {
       "file_path": "tests/serve/test_compare.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 75
     },
     {
       "file_path": "tests/serve/test_compression.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 20
     },
     {
       "file_path": "tests/serve/test_context.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 103
     },
     {
       "file_path": "tests/serve/test_context_recall.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 14
     },
     {
       "file_path": "tests/serve/test_intent.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 31
     },
     {
       "file_path": "tests/serve/test_modality.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 27
     },
     {
       "file_path": "tests/serve/test_packing.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 86
     },
     {
       "file_path": "tests/serve/test_profile.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "tests/serve/test_query_normalization.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 37
     },
     {
       "file_path": "tests/serve/test_renderers.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 22
     },
     {
       "file_path": "tests/test_api_precision.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 38
     },
     {
       "file_path": "tests/test_api_robustness.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "tests/test_cache.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 80
     },
     {
       "file_path": "tests/test_cli.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 89
     },
     {
       "file_path": "tests/test_config.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 20
     },
     {
       "file_path": "tests/test_conftest.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 4
     },
     {
       "file_path": "tests/test_explain_cli.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 5
     },
     {
       "file_path": "tests/test_graph_artifact.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 9
     },
     {
       "file_path": "tests/test_graph_export_cli.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 8
     },
     {
       "file_path": "tests/test_graph_load_cli.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "tests/test_graph_query.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 10
     },
     {
       "file_path": "tests/test_impact_cli.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 5
     },
     {
       "file_path": "tests/test_integration.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 119
     },
     {
       "file_path": "tests/test_models.py",
-      "centrality": 0.0,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 93
     },
     {
       "file_path": "tests/test_observe.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 29
     },
     {
       "file_path": "tests/test_onboard_cli.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 4
     },
     {
       "file_path": "tests/test_performance.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 51
     },
     {
       "file_path": "tests/test_pipeline_service.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 10
     },
     {
       "file_path": "tests/test_project.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 13
     },
     {
       "file_path": "tests/test_query_pipeline.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 21
     },
     {
       "file_path": "tests/test_receipt.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 7
     },
     {
       "file_path": "tests/test_reporting.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 14
     },
     {
       "file_path": "tests/test_scout.py",
-      "centrality": 0.0017085196562042348,
+      "centrality": 0.0010597477939801008,
       "symbol_count": 16
     },
     {
@@ -3356,6 +3835,6 @@
       "symbol_count": 860
     }
   ],
-  "created_at": "2026-07-04T09:25:12.925262+00:00",
+  "created_at": "2026-07-04T19:04:27.471270+00:00",
   "archex_version": ""
 }
