@@ -142,6 +142,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
         "css",
         frozenset({"rule_set", "media_statement", "import_statement"}),
     ),
+    "xml": LanguageSupport("xml", "XML", (".xml",), _CHUNK, "xml", frozenset({"element"})),
     "yaml": LanguageSupport(
         "yaml", "YAML", (".yaml", ".yml"), _CHUNK, "yaml", frozenset({"document"})
     ),
@@ -205,6 +206,7 @@ EXTENSION_LANGUAGE_MAP: dict[str, str] = {
     ".html": "html",
     ".htm": "html",
     ".css": "css",
+    ".xml": "xml",
     ".yaml": "yaml",
     ".yml": "yaml",
     ".toml": "toml",
