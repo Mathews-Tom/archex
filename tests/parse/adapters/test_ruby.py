@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from archex.models import ImportStatement, SymbolKind, Visibility
+from archex.models import DiscoveredFile, ImportStatement, Symbol, SymbolKind, Visibility
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.ruby import RubyAdapter
 from archex.parse.engine import TreeSitterEngine
@@ -639,3 +639,93 @@ def test_resolve_external_gem_require_returns_none(adapter: RubyAdapter) -> None
         "lib/json_helper.rb": "/repo/lib/json_helper.rb",
     }
     assert adapter.resolve_import(imp, file_map) is None
+
+
+# ---------------------------------------------------------------------------
+# detect_entry_points
+# ---------------------------------------------------------------------------
+
+
+def test_detect_conventional_app_rb_entry_point(adapter: RubyAdapter, tmp_path: Path) -> None:
+    app_script = tmp_path / "app.rb"
+    app_script.write_text("puts 'hello'\n")
+    helper_script = tmp_path / "helper.rb"
+    helper_script.write_text("def helper; end\n")
+    files = [
+        DiscoveredFile(path="app.rb", absolute_path=str(app_script), language="ruby"),
+        DiscoveredFile(path="helper.rb", absolute_path=str(helper_script), language="ruby"),
+    ]
+    entry_points = adapter.detect_entry_points(files)
+    assert "app.rb" in entry_points
+    assert "helper.rb" not in entry_points
+
+
+def test_detect_rakefile_entry_point_despite_no_rb_extension(
+    adapter: RubyAdapter, tmp_path: Path
+) -> None:
+    rakefile = tmp_path / "Rakefile"
+    rakefile.write_text("task :default do\nend\n")
+    files = [DiscoveredFile(path="Rakefile", absolute_path=str(rakefile), language="ruby")]
+    assert adapter.detect_entry_points(files) == ["Rakefile"]
+
+
+def test_detect_ruby_shebang_despite_nonconventional_basename(
+    adapter: RubyAdapter, tmp_path: Path
+) -> None:
+    script = tmp_path / "bin_script.rb"
+    script.write_text("#!/usr/bin/env ruby\nputs 'hi'\n")
+    files = [DiscoveredFile(path="bin_script.rb", absolute_path=str(script), language="ruby")]
+    assert adapter.detect_entry_points(files) == ["bin_script.rb"]
+
+
+def test_no_marker_and_nonconventional_basename_is_not_entry_point(
+    adapter: RubyAdapter, tmp_path: Path
+) -> None:
+    script = tmp_path / "utils.rb"
+    script.write_text("def helper_util; end\n")
+    files = [DiscoveredFile(path="utils.rb", absolute_path=str(script), language="ruby")]
+    assert adapter.detect_entry_points(files) == []
+
+
+# ---------------------------------------------------------------------------
+# classify_visibility
+# ---------------------------------------------------------------------------
+
+
+def test_classify_public_symbol(adapter: RubyAdapter) -> None:
+    s = Symbol(
+        name="display_name",
+        qualified_name="StoreFront.Models.User.display_name",
+        kind=SymbolKind.METHOD,
+        file_path="models/user.rb",
+        start_line=10,
+        end_line=12,
+        visibility=Visibility.PUBLIC,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PUBLIC
+
+
+def test_classify_internal_symbol(adapter: RubyAdapter) -> None:
+    s = Symbol(
+        name="normalized_role",
+        qualified_name="StoreFront.Models.User.normalized_role",
+        kind=SymbolKind.METHOD,
+        file_path="models/user.rb",
+        start_line=20,
+        end_line=22,
+        visibility=Visibility.INTERNAL,
+    )
+    assert adapter.classify_visibility(s) == Visibility.INTERNAL
+
+
+def test_classify_private_symbol(adapter: RubyAdapter) -> None:
+    s = Symbol(
+        name="sanitize",
+        qualified_name="StoreFront.Models.User.sanitize",
+        kind=SymbolKind.METHOD,
+        file_path="models/user.rb",
+        start_line=30,
+        end_line=32,
+        visibility=Visibility.PRIVATE,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PRIVATE
