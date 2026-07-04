@@ -279,6 +279,73 @@ def test_strict_parallel_raises_on_bad_file(
         extract_symbols(files, engine, adapters, parallel=True, strict=True)
 
 
+def test_sequential_fault_isolation_skips_oversized_file(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """A single oversized file raises ParseError from the engine but does not abort the batch."""
+    good = tmp_path / "good.py"
+    good.write_text("def hello():\n    pass\n")
+    oversized = tmp_path / "oversized.py"
+    oversized.write_bytes(b"x" * 10_000_001)  # exceeds TreeSitterEngine's default max_file_size
+
+    files = [
+        DiscoveredFile(path="good.py", absolute_path=str(good), language="python"),
+        DiscoveredFile(path="oversized.py", absolute_path=str(oversized), language="python"),
+    ]
+
+    result = extract_symbols(files, engine, adapters, parallel=False)
+    assert [pf.path for pf in result] == ["good.py"]
+
+
+def test_sequential_fault_isolation_and_imports_skips_bad_file(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """extract_symbols_and_imports isolates a per-file ParseError in the sequential path."""
+    good = tmp_path / "good.py"
+    good.write_text("def hello():\n    pass\n")
+
+    files = [
+        DiscoveredFile(path="good.py", absolute_path=str(good), language="python"),
+        DiscoveredFile(
+            path="missing.py",
+            absolute_path=str(tmp_path / "missing.py"),
+            language="python",
+        ),
+    ]
+
+    result = extract_symbols_and_imports(files, engine, adapters, parallel=False)
+    assert [pf.path for pf in result.parsed_files] == ["good.py"]
+    assert set(result.imports_by_path) == {"good.py"}
+
+
+def test_sequential_fault_isolation_strict_raises(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """extract_symbols raises ParseError when strict=True and a file fails sequentially."""
+    from archex.exceptions import ParseError
+
+    good = tmp_path / "good.py"
+    good.write_text("def hello():\n    pass\n")
+
+    files = [
+        DiscoveredFile(path="good.py", absolute_path=str(good), language="python"),
+        DiscoveredFile(
+            path="missing.py",
+            absolute_path=str(tmp_path / "missing.py"),
+            language="python",
+        ),
+    ]
+
+    with pytest.raises(ParseError, match="Sequential parsing failed"):
+        extract_symbols(files, engine, adapters, parallel=False, strict=True)
+
+
 def test_nonstrict_parallel_skips_bad_file(
     tmp_path: Path,
     engine: TreeSitterEngine,
