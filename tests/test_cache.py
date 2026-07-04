@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import time
 from typing import TYPE_CHECKING
@@ -655,3 +656,70 @@ class TestStableIdentity:
         cache.put(key, sample_db)
         meta = cache.get_meta(key)
         assert meta["stable_identity"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Automatic (opportunistic) eviction
+# ---------------------------------------------------------------------------
+
+
+class TestAutomaticEviction:
+    def test_put_stays_bounded_across_n_runs(self, tmp_path: Path, sample_db: Path) -> None:
+        """Repeated put() calls never grow the cache past max_entries."""
+        cache = CacheManager(cache_dir=str(tmp_path / "cache"), max_entries=5)
+
+        for i in range(20):
+            key = hashlib.sha256(f"run-{i}".encode()).hexdigest()
+            cache.put(key, sample_db)
+
+        assert len(cache.list_entries()) <= 5
+
+    def test_eviction_removes_oldest_entries_first(self, tmp_path: Path, sample_db: Path) -> None:
+        cache = CacheManager(cache_dir=str(tmp_path / "cache"), max_entries=2)
+        keys = [hashlib.sha256(f"ordered-{i}".encode()).hexdigest() for i in range(4)]
+
+        base = 1_700_000_000.0
+        with patch("archex.cache.time.time", side_effect=itertools.count(base, 1.0)):
+            for key in keys:
+                cache.put(key, sample_db)
+
+        remaining = {e["key"] for e in cache.list_entries()}
+        assert remaining == {keys[2], keys[3]}
+
+    def test_max_entries_zero_disables_count_based_eviction(
+        self, tmp_path: Path, sample_db: Path
+    ) -> None:
+        cache = CacheManager(cache_dir=str(tmp_path / "cache"), max_entries=0)
+
+        for i in range(5):
+            key = hashlib.sha256(f"unbounded-{i}".encode()).hexdigest()
+            cache.put(key, sample_db)
+
+        assert len(cache.list_entries()) == 5
+
+    def test_project_layout_cache_is_exempt_from_eviction(
+        self, tmp_path: Path, sample_db: Path
+    ) -> None:
+        cache = CacheManager(
+            cache_dir=str(tmp_path / ".archex"), project_layout=True, max_entries=1
+        )
+
+        # A project-layout cache always writes to the same fixed index.db path,
+        # so repeated put()s under different keys just overwrite it in place.
+        cache.put(KEY_A, sample_db)
+        cache.put(KEY_B, sample_db)
+
+        assert len(cache.list_entries()) == 1
+
+    def test_eviction_runs_age_based_clean_even_under_the_count_cap(
+        self, tmp_path: Path, sample_db: Path
+    ) -> None:
+        """put() opportunistically evicts stale entries even when count is under the cap."""
+        cache = CacheManager(cache_dir=str(tmp_path / "cache"), max_entries=50)
+        cache.put(KEY_OLD, sample_db)
+        cache.meta_path(KEY_OLD).write_text(str(time.time() - 48 * 3600))
+
+        cache.put(KEY_NEW, sample_db)
+
+        assert cache.get(KEY_OLD) is None
+        assert cache.get(KEY_NEW) is not None
