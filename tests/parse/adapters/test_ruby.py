@@ -4,10 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from archex.models import SymbolKind, Visibility
+from archex.models import ImportStatement, SymbolKind, Visibility
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.ruby import RubyAdapter
 from archex.parse.engine import TreeSitterEngine
+from archex.parse.imports import build_file_map
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures" / "ruby_simple"
 
@@ -518,3 +519,123 @@ def test_all_methods_and_constants_have_parent(
         for s in symbols:
             if s.kind in (SymbolKind.METHOD, SymbolKind.CONSTANT):
                 assert s.parent is not None, f"Missing parent for {s.qualified_name} in {f}"
+
+
+# ---------------------------------------------------------------------------
+# resolve_import: require_relative resolves against the importing file's dir
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_relative_require_against_importing_file_dir(adapter: RubyAdapter) -> None:
+    imp = ImportStatement(
+        module="models/user",
+        file_path="services/user_service.rb",
+        line=1,
+        is_relative=True,
+    )
+    file_map = {"services/models/user.rb": "/repo/services/models/user.rb"}
+    resolved = adapter.resolve_import(imp, file_map)
+    assert resolved == "/repo/services/models/user.rb"
+
+
+def test_resolve_relative_require_with_explicit_rb_suffix_matches_bare_module(
+    adapter: RubyAdapter,
+) -> None:
+    # `require_relative "models/user.rb"` and `require_relative "models/user"`
+    # must resolve to the same file -- the adapter appends '.rb' only when
+    # the module string doesn't already carry it, rather than producing a
+    # broken "user.rb.rb" candidate.
+    file_map = {"services/models/user.rb": "/repo/services/models/user.rb"}
+    imp_with_suffix = ImportStatement(
+        module="models/user.rb",
+        file_path="services/user_service.rb",
+        line=1,
+        is_relative=True,
+    )
+    imp_without_suffix = ImportStatement(
+        module="models/user",
+        file_path="services/user_service.rb",
+        line=1,
+        is_relative=True,
+    )
+    assert adapter.resolve_import(imp_with_suffix, file_map) == "/repo/services/models/user.rb"
+    assert adapter.resolve_import(imp_without_suffix, file_map) == "/repo/services/models/user.rb"
+
+
+def test_resolve_relative_require_normalizes_parent_dir_segments(adapter: RubyAdapter) -> None:
+    # `require_relative "../shared/logger"` from app/services/user_service.rb
+    # must normalize the '..' against the importing file's directory instead
+    # of leaving a literal "app/services/../shared/logger.rb" that would
+    # never match a real file_map key.
+    imp = ImportStatement(
+        module="../shared/logger",
+        file_path="app/services/user_service.rb",
+        line=1,
+        is_relative=True,
+    )
+    file_map = {"app/shared/logger.rb": "/repo/app/shared/logger.rb"}
+    resolved = adapter.resolve_import(imp, file_map)
+    assert resolved == "/repo/app/shared/logger.rb"
+
+
+def test_resolve_relative_require_with_pipeline_file_map(adapter: RubyAdapter) -> None:
+    # The production pipeline builds dotted module keys with extensionless
+    # values; Ruby resolution must match those values, not only hand-built
+    # path-shaped test keys.
+    files = [
+        DiscoveredFile(
+            path="services/user_service.rb",
+            absolute_path="/repo/services/user_service.rb",
+            language="ruby",
+        ),
+        DiscoveredFile(
+            path="models/user.rb",
+            absolute_path="/repo/models/user.rb",
+            language="ruby",
+        ),
+    ]
+    imp = ImportStatement(
+        module="../models/user",
+        file_path="services/user_service.rb",
+        line=1,
+        is_relative=True,
+    )
+
+    assert adapter.resolve_import(imp, build_file_map(files)) == "models/user.rb"
+
+
+# ---------------------------------------------------------------------------
+# resolve_import: load-path require (non-relative)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_load_path_require_matches_by_path_suffix(adapter: RubyAdapter) -> None:
+    # A plain `require "json/pure"` has no directory to anchor against, so
+    # the adapter matches any local file whose path ends in "/json/pure.rb"
+    # rather than requiring an exact file_map key.
+    imp = ImportStatement(
+        module="json/pure",
+        file_path="app.rb",
+        line=1,
+        is_relative=False,
+    )
+    file_map = {"vendor/json/pure.rb": "/repo/vendor/json/pure.rb"}
+    resolved = adapter.resolve_import(imp, file_map)
+    assert resolved == "/repo/vendor/json/pure.rb"
+
+
+def test_resolve_external_gem_require_returns_none(adapter: RubyAdapter) -> None:
+    # "json" is a stdlib/external gem with no matching local file. A file
+    # that merely contains "json" as a substring of its own basename
+    # (json_helper.rb) must not be mistaken for a suffix match.
+    imp = ImportStatement(
+        module="json",
+        file_path="app.rb",
+        line=1,
+        is_relative=False,
+    )
+    file_map = {
+        "app.rb": "/repo/app.rb",
+        "lib/json_helper.rb": "/repo/lib/json_helper.rb",
+    }
+    assert adapter.resolve_import(imp, file_map) is None
