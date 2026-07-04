@@ -88,6 +88,15 @@ def dogfood_cmd(
                 )
         else:
             click.echo("Regressions:        0")
+        if result.ranking_violations:
+            click.echo(f"Ranking violations: {len(result.ranking_violations)}")
+            for violation in result.ranking_violations:
+                click.echo(
+                    f"  {violation.metric}: correlation {violation.correlation:.3f} "
+                    f"< threshold {violation.threshold:.3f} (n={violation.sample_size})"
+                )
+        else:
+            click.echo("Ranking violations: 0")
 
-    if result.regressions:
+    if result.regressions or result.ranking_violations:
         raise click.exceptions.Exit(1)

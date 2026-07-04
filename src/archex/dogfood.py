@@ -9,7 +9,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from archex.benchmark.baseline import BaselineComparison, compare_baseline, load_baseline
+from archex.benchmark.baseline import (
+    Baseline,
+    BaselineComparison,
+    build_ranking_snapshot,
+    compare_baseline,
+    load_baseline,
+)
+from archex.benchmark.gate import RankingGateViolation, check_ranking_stability
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import (
     BenchmarkReport,
@@ -40,6 +47,7 @@ class DogfoodRunResult:
     tasks: list[BenchmarkTask]
     reports: list[BenchmarkReport]
     comparisons: list[BaselineComparison]
+    ranking_violations: list[RankingGateViolation]
     baseline_path: Path | None
     output_dir: Path
     latest_json_path: Path
@@ -84,12 +92,15 @@ def run_dogfood(
         explicit_baseline=baseline_path,
         output_dir=output_dir,
     )
-    comparisons = _compare_to_baseline(reports, baseline_file)
+    baseline = _load_baseline_file(baseline_file)
+    comparisons = _compare_to_baseline(reports, baseline)
+    ranking_violations = _check_ranking_stability(state.repo_root, baseline)
     latest_json_path, latest_markdown_path, history_json_path = _write_reports(
         output_dir,
         selected_tasks,
         reports,
         comparisons,
+        ranking_violations,
         baseline_file,
     )
 
@@ -98,6 +109,7 @@ def run_dogfood(
         tasks=selected_tasks,
         reports=reports,
         comparisons=comparisons,
+        ranking_violations=ranking_violations,
         baseline_path=baseline_file,
         output_dir=output_dir,
         latest_json_path=latest_json_path,
@@ -221,14 +233,19 @@ def _resolve_baseline_path(
     raise ValueError("Dogfood requires an explicit --baseline path")
 
 
+def _load_baseline_file(baseline_path: Path | None) -> Baseline | None:
+    if baseline_path is None:
+        return None
+    baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
+    return load_baseline(baseline_data)
+
+
 def _compare_to_baseline(
     reports: list[BenchmarkReport],
-    baseline_path: Path | None,
+    baseline: Baseline | None,
 ) -> list[BaselineComparison]:
-    if baseline_path is None:
+    if baseline is None:
         return []
-    baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
-    baseline = load_baseline(baseline_data)
     return compare_baseline(
         reports,
         baseline,
@@ -236,11 +253,27 @@ def _compare_to_baseline(
     )
 
 
+def _check_ranking_stability(
+    repo_root: Path,
+    baseline: Baseline | None,
+) -> list[RankingGateViolation]:
+    """Compare a live ranking snapshot against the baseline's, when one is embedded.
+
+    Skipped (no indexing cost) when the baseline carries no ranking snapshot, so
+    recall-only baselines are unaffected.
+    """
+    if baseline is None or not baseline.ranking:
+        return []
+    current = build_ranking_snapshot(repo_root)
+    return check_ranking_stability(current, baseline.ranking)
+
+
 def _write_reports(
     output_dir: Path,
     tasks: list[BenchmarkTask],
     reports: list[BenchmarkReport],
     comparisons: list[BaselineComparison],
+    ranking_violations: list[RankingGateViolation],
     baseline_path: Path | None,
 ) -> tuple[Path, Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -248,7 +281,9 @@ def _write_reports(
     history_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    payload = _json_payload(timestamp, tasks, reports, comparisons, baseline_path)
+    payload = _json_payload(
+        timestamp, tasks, reports, comparisons, ranking_violations, baseline_path
+    )
 
     latest_json_path = output_dir / "latest.json"
     latest_markdown_path = output_dir / "latest.md"
@@ -258,7 +293,7 @@ def _write_reports(
     latest_json_path.write_text(serialized, encoding="utf-8")
     history_json_path.write_text(serialized, encoding="utf-8")
     latest_markdown_path.write_text(
-        _markdown_report(tasks, reports, comparisons, baseline_path),
+        _markdown_report(tasks, reports, comparisons, ranking_violations, baseline_path),
         encoding="utf-8",
     )
     return latest_json_path, latest_markdown_path, history_json_path
@@ -269,6 +304,7 @@ def _json_payload(
     tasks: list[BenchmarkTask],
     reports: list[BenchmarkReport],
     comparisons: list[BaselineComparison],
+    ranking_violations: list[RankingGateViolation],
     baseline_path: Path | None,
 ) -> dict[str, object]:
     return {
@@ -281,6 +317,9 @@ def _json_payload(
             comparison.model_dump(mode="json")
             for comparison in comparisons
             if comparison.regression
+        ],
+        "ranking_violations": [
+            violation.model_dump(mode="json") for violation in ranking_violations
         ],
         "retrieval_diagnostics": _retrieval_diagnostics(tasks, reports),
     }
@@ -376,6 +415,7 @@ def _markdown_report(
     tasks: list[BenchmarkTask],
     reports: list[BenchmarkReport],
     comparisons: list[BaselineComparison],
+    ranking_violations: list[RankingGateViolation],
     baseline_path: Path | None,
 ) -> str:
     lines: list[str] = ["# Dogfood Report", ""]
@@ -401,6 +441,19 @@ def _markdown_report(
                 f"| {regression.task_id} | {regression.strategy} | {regression.metric} "
                 f"| {regression.baseline_value:.3f} | {regression.current_value:.3f} "
                 f"| {regression.delta:+.3f} |"
+            )
+    lines.append("")
+    lines.append("## Ranking Stability")
+    lines.append("")
+    if not ranking_violations:
+        lines.append("No ranking-stability regressions detected.")
+    else:
+        lines.append("| Metric | Correlation | Threshold | Sample size |")
+        lines.append("|--------|-------------|-----------|-------------|")
+        for violation in ranking_violations:
+            lines.append(
+                f"| {violation.metric} | {violation.correlation:.3f} "
+                f"| {violation.threshold:.3f} | {violation.sample_size} |"
             )
     lines.append("")
     lines.extend(_markdown_retrieval_diagnostics(tasks, reports))
