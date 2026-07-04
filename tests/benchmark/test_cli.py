@@ -387,6 +387,58 @@ expected_delta:
         assert "Failed to parse YAML" in result.output
 
 
+class TestGateCommand:
+    def test_passes_when_max_latency_ms_not_set(self, runner: CliRunner, results_dir: Path) -> None:
+        result = runner.invoke(benchmark_cmd, ["gate", "--input", str(results_dir)])
+        assert result.exit_code == 0
+        assert "Quality gate passed." in result.output
+
+    def test_max_latency_ms_hard_fails_on_breach(self, runner: CliRunner, tmp_path: Path) -> None:
+        results = tmp_path / "results"
+        results.mkdir()
+        result_obj = BenchmarkResult(
+            task_id="slow_task",
+            strategy=Strategy.RAW_FILES,
+            tokens_total=1000,
+            tool_calls=1,
+            files_accessed=3,
+            recall=1.0,
+            precision=1.0,
+            savings_vs_raw=0.0,
+            wall_time_ms=9000.0,
+            cached=False,
+            timestamp="2025-01-01T00:00:00Z",
+        )
+        report = BenchmarkReport(
+            task_id="slow_task",
+            repo="owner/repo",
+            question="How?",
+            results=[result_obj],
+            baseline_tokens=1000,
+        )
+        (results / "slow.json").write_text(report.model_dump_json(indent=2))
+
+        result = runner.invoke(
+            benchmark_cmd,
+            ["gate", "--input", str(results), "--max-latency-ms", "5000"],
+        )
+
+        assert result.exit_code != 0
+        assert "LATENCY GATE FAILED" in result.output
+        assert "slow_task/raw_files" in result.output
+
+    def test_max_latency_ms_passes_under_threshold(
+        self, runner: CliRunner, results_dir: Path
+    ) -> None:
+        # results_dir fixture's sample result has wall_time_ms=50.0
+        result = runner.invoke(
+            benchmark_cmd,
+            ["gate", "--input", str(results_dir), "--max-latency-ms", "5000"],
+        )
+        assert result.exit_code == 0
+        assert "LATENCY GATE FAILED" not in result.output
+
+
 class TestBundleEvalCommand:
     def test_bundle_eval_help(self, runner: CliRunner) -> None:
         result = runner.invoke(benchmark_cmd, ["bundle-eval", "--help"])

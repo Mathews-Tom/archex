@@ -22,10 +22,12 @@ from archex.benchmark.cross_tool import NaiveBaselineModel, run_cross_tool
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.gate import (
     DeltaQualityThresholds,
+    LatencyViolation,
     LatencyWarning,
     QualityThresholds,
     check_delta_gate,
     check_gate,
+    check_latency_violations,
     check_latency_warnings,
     check_recall_regressions,
     non_token_quality_warnings,
@@ -789,6 +791,15 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
     type=float,
     help="Warn (non-fatal) if mean task latency exceeds this value in ms.",
 )
+@click.option(
+    "--max-latency-ms",
+    default=None,
+    type=float,
+    help=(
+        "Hard-fail (non-zero exit) if mean task latency exceeds this value in ms. "
+        "Distinct from --warn-latency-ms, which only prints a warning. Disabled by default."
+    ),
+)
 def gate_cmd(
     input_dir: str,
     min_recall: float,
@@ -797,6 +808,7 @@ def gate_cmd(
     min_mrr: float,
     baseline_dir: str | None,
     warn_latency_ms: float,
+    max_latency_ms: float | None,
 ) -> None:
     """Check benchmark results against quality thresholds."""
     input_path = Path(input_dir)
@@ -814,6 +826,7 @@ def gate_cmd(
         min_f1=min_f1,
         min_mrr=min_mrr,
         warn_latency_ms=warn_latency_ms,
+        max_latency_ms=max_latency_ms,
     )
 
     latency_warnings: list[LatencyWarning] = check_latency_warnings(reports, thresholds)
@@ -826,6 +839,19 @@ def gate_cmd(
                 f"  {w.task_id}/{w.strategy}: {w.actual_ms:.0f}ms"
                 f" (threshold: {w.threshold_ms:.0f}ms)"
             )
+
+    latency_violations: list[LatencyViolation] = check_latency_violations(reports, thresholds)
+    if latency_violations:
+        click.echo(
+            f"LATENCY GATE FAILED: {len(latency_violations)} task(s) exceeded "
+            f"{max_latency_ms:.0f}ms"
+        )
+        for v in latency_violations:
+            click.echo(
+                f"  {v.task_id}/{v.strategy}: {v.actual_ms:.0f}ms"
+                f" (threshold: {v.threshold_ms:.0f}ms)"
+            )
+        raise SystemExit(1)
 
     absolute_violations = check_gate(reports, thresholds)
     token_violations = token_efficiency_violations(absolute_violations)

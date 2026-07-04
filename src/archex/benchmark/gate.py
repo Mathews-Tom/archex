@@ -40,6 +40,10 @@ class QualityThresholds(BaseModel):
     min_relevance_per_1k_tokens: float = 0.0
     # Latency: warn-only, does not fail the gate
     warn_latency_ms: float = 5000.0
+    # Latency: hard-fail. None (default) disables the check entirely — distinct
+    # from warn_latency_ms, which only ever prints a warning. Set via
+    # --max-latency-ms on `archex benchmark gate`.
+    max_latency_ms: float | None = None
     # Strategies exempt from gate checks (results are informational only)
     gate_exempt_strategies: set[str] = {
         "raw_files",
@@ -68,6 +72,13 @@ class BaselineGateViolation(BaseModel):
 
 
 class LatencyWarning(BaseModel):
+    task_id: str
+    strategy: str
+    threshold_ms: float
+    actual_ms: float
+
+
+class LatencyViolation(BaseModel):
     task_id: str
     strategy: str
     threshold_ms: float
@@ -296,6 +307,37 @@ def check_latency_warnings(
                     )
                 )
     return warnings
+
+
+def check_latency_violations(
+    reports: list[BenchmarkReport],
+    thresholds: QualityThresholds | None = None,
+) -> list[LatencyViolation]:
+    """Return hard latency violations for results exceeding max_latency_ms.
+
+    Distinct from `check_latency_warnings`: this check is skipped entirely
+    when `thresholds.max_latency_ms` is None (the default), and callers are
+    expected to fail the gate on any returned violation.
+    """
+    if thresholds is None:
+        thresholds = QualityThresholds()
+    if thresholds.max_latency_ms is None:
+        return []
+
+    max_latency_ms = thresholds.max_latency_ms
+    violations: list[LatencyViolation] = []
+    for report in reports:
+        for r in report.results:
+            if r.wall_time_ms > max_latency_ms:
+                violations.append(
+                    LatencyViolation(
+                        task_id=r.task_id,
+                        strategy=r.strategy.value,
+                        threshold_ms=max_latency_ms,
+                        actual_ms=r.wall_time_ms,
+                    )
+                )
+    return violations
 
 
 # ---------------------------------------------------------------------------
