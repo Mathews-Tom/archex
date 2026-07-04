@@ -37,20 +37,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
     "swift": LanguageSupport("swift", "Swift", (".swift",), _FULL, "swift"),
     "c": LanguageSupport("c", "C", (".c", ".h"), _FULL, "c"),
     "cpp": LanguageSupport(
-        "cpp",
-        "C++",
-        (".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"),
-        _CHUNK,
-        "cpp",
-        frozenset(
-            {
-                "function_definition",
-                "class_specifier",
-                "struct_specifier",
-                "namespace_definition",
-                "preproc_include",
-            }
-        ),
+        "cpp", "C++", (".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"), _FULL, "cpp"
     ),
     "php": LanguageSupport("php", "PHP", (".php",), _FULL, "php"),
     "ruby": LanguageSupport("ruby", "Ruby", (".rb",), _FULL, "ruby"),
