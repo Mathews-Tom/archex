@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from archex.benchmark.baseline import RankingSnapshotEntry
 from archex.benchmark.gate import (
     PRODUCT_DEFAULT_TOKEN_EFFICIENCY_FLOOR,
     QualityThresholds,
+    RankingQualityThresholds,
     check_gate,
+    check_ranking_stability,
     check_recall_regressions,
     non_token_quality_warnings,
     token_efficiency_violations,
@@ -394,3 +397,122 @@ def test_gate_region_violations_are_advisory_warnings() -> None:
     # Region failures are non-token quality warnings, not hard token failures.
     assert any(v.metric == "region_recall" for v in non_token_quality_warnings(violations))
     assert token_efficiency_violations(violations) == []
+
+
+def test_check_ranking_stability_passes_when_unchanged() -> None:
+    entries = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.1, symbol_count=5),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.4, symbol_count=12),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.9, symbol_count=3),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.2, symbol_count=40),
+        RankingSnapshotEntry(file_path="src/e.py", centrality=0.6, symbol_count=8),
+    ]
+    assert check_ranking_stability(entries, entries) == []
+
+
+def test_check_ranking_stability_detects_symbol_flooding_regression() -> None:
+    """A symbol-flooding conversion reorders symbol_count ranks while leaving
+    structural_centrality untouched — proving the two metrics are checked
+    independently and that the gate has teeth.
+
+    This class of regression is invisible to recall/precision/F1/MRR: it never
+    touches a `BenchmarkReport`/`BenchmarkResult` at all, and `RankingSnapshotEntry`
+    (the only type flowing through `check_ranking_stability`) carries no
+    retrieval-quality fields whatsoever. A baseline comparison over the same
+    underlying retrieval results (`compare_baseline`) would report zero drift
+    for this exact scenario, so `violations != []` below is the only signal
+    that could ever catch it — a no-op stand-in for `check_ranking_stability`
+    (always returning `[]`) would silently pass this regression through.
+    """
+    baseline = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.05, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.30, symbol_count=20),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.10, symbol_count=30),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.50, symbol_count=40),
+        RankingSnapshotEntry(file_path="src/e.py", centrality=0.20, symbol_count=50),
+        RankingSnapshotEntry(file_path="src/f.py", centrality=0.40, symbol_count=60),
+    ]
+    # Simulate an overzealous chunk-only -> full conversion that floods the two
+    # lowest-symbol_count files with many new low-value symbols. Every file's
+    # structural centrality (PageRank over import edges) is left unchanged, so
+    # only the symbol_count ranking should regress.
+    current = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.05, symbol_count=10_000),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.30, symbol_count=8_000),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.10, symbol_count=30),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.50, symbol_count=40),
+        RankingSnapshotEntry(file_path="src/e.py", centrality=0.20, symbol_count=50),
+        RankingSnapshotEntry(file_path="src/f.py", centrality=0.40, symbol_count=60),
+    ]
+
+    violations = check_ranking_stability(current, baseline)
+
+    symbol_violations = [v for v in violations if v.metric == "symbol_count"]
+    assert symbol_violations, "symbol-flooding must reorder the symbol_count ranking"
+    assert (
+        symbol_violations[0].correlation
+        < RankingQualityThresholds().min_symbol_count_rank_correlation
+    )
+    assert not any(v.metric == "structural_centrality" for v in violations)
+
+
+def test_check_ranking_stability_ignores_files_absent_from_one_snapshot() -> None:
+    baseline = [RankingSnapshotEntry(file_path="src/shared.py", centrality=0.1, symbol_count=5)]
+    current = [RankingSnapshotEntry(file_path="src/shared.py", centrality=0.9, symbol_count=500)]
+    # Only one file is common to both snapshots: correlation is undefined below
+    # two points, so no violation can be raised even though the shared file's
+    # values differ wildly.
+    assert check_ranking_stability(current, baseline) == []
+
+
+def test_check_ranking_stability_respects_custom_thresholds() -> None:
+    baseline = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.1, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.2, symbol_count=20),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.3, symbol_count=30),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.4, symbol_count=40),
+        RankingSnapshotEntry(file_path="src/e.py", centrality=0.5, symbol_count=50),
+    ]
+    current = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.1, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.2, symbol_count=20),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.3, symbol_count=50),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.4, symbol_count=40),
+        RankingSnapshotEntry(file_path="src/e.py", centrality=0.5, symbol_count=30),
+    ]
+    # A mild symbol_count reorder (Spearman rho == 0.6) fails the default 0.8
+    # floor...
+    default_violations = check_ranking_stability(current, baseline)
+    assert any(v.metric == "symbol_count" for v in default_violations)
+
+    # ...but clears a lowered custom floor.
+    lenient = RankingQualityThresholds(
+        min_centrality_rank_correlation=0.0,
+        min_symbol_count_rank_correlation=0.0,
+    )
+    assert check_ranking_stability(current, baseline, lenient) == []
+
+
+def test_check_ranking_stability_zero_variance_metric_skipped() -> None:
+    baseline = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.1, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.2, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.3, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.4, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/e.py", centrality=0.5, symbol_count=10),
+    ]
+    # symbol_count is constant (10) in both snapshots, so its correlation is
+    # undefined and must never fire — even though centrality is fully inverted
+    # (a genuine regression) and must fire. Proves a zero-variance metric can't
+    # crash the gate or mask a real regression on the other metric.
+    current = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.5, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.4, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.3, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.2, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/e.py", centrality=0.1, symbol_count=10),
+    ]
+
+    violations = check_ranking_stability(current, baseline)
+
+    assert [v.metric for v in violations] == ["structural_centrality"]

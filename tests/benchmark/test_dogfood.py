@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from click.testing import CliRunner
 
-from archex.benchmark.baseline import Baseline, BaselineEntry
+from archex.benchmark.baseline import Baseline, BaselineEntry, RankingSnapshotEntry
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, BenchmarkTask, Strategy
 from archex.cli.main import cli
 from archex.dogfood import format_product_default_delta, run_dogfood
@@ -59,6 +59,7 @@ def _write_baseline(
     *,
     recall: float = 1.0,
     include_diagnostics: bool = False,
+    ranking: list[RankingSnapshotEntry] | None = None,
 ) -> Path:
     baseline_path = path / "baseline.json"
     entries = [
@@ -95,7 +96,7 @@ def _write_baseline(
                 ),
             ]
         )
-    baseline = Baseline(entries=entries)
+    baseline = Baseline(entries=entries, ranking=ranking or [])
     baseline_path.write_text(baseline.model_dump_json(indent=2), encoding="utf-8")
     return baseline_path
 
@@ -440,3 +441,116 @@ def test_dogfood_requires_explicit_baseline(
 
     assert result.exit_code == 1
     assert "Dogfood requires an explicit --baseline path" in result.output
+
+
+def test_dogfood_skips_ranking_check_when_baseline_has_no_ranking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_git_repo(tmp_path)
+    _write_tasks(tmp_path)
+    baseline_path = _write_baseline(tmp_path)  # no ranking -> Baseline.ranking defaults to []
+    monkeypatch.setattr("archex.dogfood.run_benchmark", _passing_report)
+
+    def _fail_if_called(repo_root: Path) -> list[RankingSnapshotEntry]:
+        del repo_root
+        raise AssertionError("should not be called")
+
+    monkeypatch.setattr("archex.dogfood.build_ranking_snapshot", _fail_if_called)
+
+    result = run_dogfood(tmp_path, task_id="archex_query_pipeline", baseline_path=baseline_path)
+
+    assert result.ranking_violations == []
+    payload = json.loads(result.latest_json_path.read_text(encoding="utf-8"))
+    assert payload["ranking_violations"] == []
+
+
+def test_dogfood_reports_ranking_violation_when_baseline_has_ranking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_git_repo(tmp_path)
+    _write_tasks(tmp_path)
+    baseline_ranking = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.1, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.2, symbol_count=20),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.3, symbol_count=30),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.4, symbol_count=40),
+    ]
+    baseline_path = _write_baseline(tmp_path, ranking=baseline_ranking)
+    monkeypatch.setattr("archex.dogfood.run_benchmark", _passing_report)
+
+    # Same centrality as baseline (no drift) but symbol_count fully reversed —
+    # a deterministic stand-in for a symbol-flooding conversion, avoiding a
+    # second real indexing pass on top of the fixture repo.
+    current_ranking = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.1, symbol_count=40),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.2, symbol_count=30),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.3, symbol_count=20),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.4, symbol_count=10),
+    ]
+
+    def _fake_current_ranking(repo_root: Path) -> list[RankingSnapshotEntry]:
+        del repo_root
+        return current_ranking
+
+    monkeypatch.setattr("archex.dogfood.build_ranking_snapshot", _fake_current_ranking)
+
+    result = run_dogfood(tmp_path, task_id="archex_query_pipeline", baseline_path=baseline_path)
+
+    assert len(result.ranking_violations) == 1
+    assert result.ranking_violations[0].metric == "symbol_count"
+
+    payload = json.loads(result.latest_json_path.read_text(encoding="utf-8"))
+    assert len(payload["ranking_violations"]) == 1
+    assert payload["ranking_violations"][0]["metric"] == "symbol_count"
+
+    markdown = result.latest_markdown_path.read_text(encoding="utf-8")
+    assert "## Ranking Stability" in markdown
+    assert "symbol_count" in markdown
+
+
+def test_dogfood_command_exits_nonzero_on_ranking_violation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _init_git_repo(tmp_path)
+    _write_tasks(tmp_path)
+    baseline_ranking = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.1, symbol_count=10),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.2, symbol_count=20),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.3, symbol_count=30),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.4, symbol_count=40),
+    ]
+    baseline_path = _write_baseline(tmp_path, ranking=baseline_ranking)
+    monkeypatch.setattr("archex.dogfood.run_benchmark", _passing_report)
+
+    current_ranking = [
+        RankingSnapshotEntry(file_path="src/a.py", centrality=0.1, symbol_count=40),
+        RankingSnapshotEntry(file_path="src/b.py", centrality=0.2, symbol_count=30),
+        RankingSnapshotEntry(file_path="src/c.py", centrality=0.3, symbol_count=20),
+        RankingSnapshotEntry(file_path="src/d.py", centrality=0.4, symbol_count=10),
+    ]
+
+    def _fake_current_ranking(repo_root: Path) -> list[RankingSnapshotEntry]:
+        del repo_root
+        return current_ranking
+
+    monkeypatch.setattr("archex.dogfood.build_ranking_snapshot", _fake_current_ranking)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "dogfood",
+            str(tmp_path),
+            "--task",
+            "archex_query_pipeline",
+            "--baseline",
+            str(baseline_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Ranking violations:" in result.output
+    assert "symbol_count" in result.output

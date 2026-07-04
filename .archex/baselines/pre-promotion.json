@@ -529,6 +529,2833 @@
       "token_efficiency": 0.86070712535404
     }
   ],
+  "ranking": [
+    {
+      "file_path": ".archex/baselines/pre-promotion.json",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": ".dockerignore",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": ".github/workflows/benchmark.yml",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": ".github/workflows/ci.yml",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": ".github/workflows/docker.yml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": ".github/workflows/dogfood.yml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": ".gitignore",
+      "centrality": 0.0,
+      "symbol_count": 4
+    },
+    {
+      "file_path": ".pre-commit-config.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "CHANGELOG.md",
+      "centrality": 0.0,
+      "symbol_count": 22
+    },
+    {
+      "file_path": "CONTRIBUTING.md",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "LICENSE",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "README.md",
+      "centrality": 0.0,
+      "symbol_count": 13
+    },
+    {
+      "file_path": "SECURITY.md",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "assets/archex-banner.html",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "assets/archex-banner.svg",
+      "centrality": 0.0,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "assets/archex-infographic-landscape.html",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "assets/archex-infographic-landscape.svg",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "assets/archex-infographic.html",
+      "centrality": 0.0,
+      "symbol_count": 12
+    },
+    {
+      "file_path": "assets/archex-infographic.svg",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "assets/archex-logo.html",
+      "centrality": 0.0,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "assets/archex-logo.svg",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "assets/archex_explainer.py",
+      "centrality": 0.0,
+      "symbol_count": 21
+    },
+    {
+      "file_path": "benchmarks/arch_tasks/go_middleware_interfaces.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/arch_tasks/mixed_language_false_positives.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/arch_tasks/python_false_positives.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/arch_tasks/python_patterns.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/arch_tasks/python_strategy_sorting.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/arch_tasks/rust_traits_async.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/arch_tasks/typescript_react_hooks.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/baseline.json",
+      "centrality": 0.0,
+      "symbol_count": 23
+    },
+    {
+      "file_path": "benchmarks/cross-tool-efficiency/cross-tool-comparison.json",
+      "centrality": 0.0,
+      "symbol_count": 33
+    },
+    {
+      "file_path": "benchmarks/delta_tasks/archex_delta_large.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/delta_tasks/archex_delta_small.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/dogfood_baseline.json",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "benchmarks/headtohead/README.md",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "benchmarks/headtohead/manifest.yaml",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/celery_task_dispatch.json",
+      "centrality": 0.0,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/click_decorators.json",
+      "centrality": 0.0,
+      "symbol_count": 18
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/django_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 66
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/django_orm_queries.json",
+      "centrality": 0.0,
+      "symbol_count": 67
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/express_error_handling.json",
+      "centrality": 0.0,
+      "symbol_count": 17
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/express_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 17
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/fastapi_dependency_injection.json",
+      "centrality": 0.0,
+      "symbol_count": 46
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/fastapi_routing.json",
+      "centrality": 0.0,
+      "symbol_count": 45
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/flask_blueprints.json",
+      "centrality": 0.0,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/gin_routing.json",
+      "centrality": 0.0,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/go_gin_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/celery_task_dispatch.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/click_decorators.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/django_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/django_orm_queries.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/express_error_handling.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/express_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/fastapi_dependency_injection.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/fastapi_routing.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/flask_blueprints.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/gin_routing.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/go_gin_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/httpx_pooling.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/mini_redis_async.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/pydantic_validators.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/pytest_fixtures.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/react_hooks.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/requests_sessions.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/rust_tokio_runtime.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_build_plus_query/sqlalchemy_sessions.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/celery_task_dispatch.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/click_decorators.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/django_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/django_orm_queries.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/express_error_handling.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/express_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/fastapi_dependency_injection.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/fastapi_routing.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/flask_blueprints.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/gin_routing.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/go_gin_middleware.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/httpx_pooling.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/mini_redis_async.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/pydantic_validators.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/pytest_fixtures.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/react_hooks.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/requests_sessions.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/rust_tokio_runtime.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/graphify_query_warm/sqlalchemy_sessions.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/httpx_pooling.json",
+      "centrality": 0.0,
+      "symbol_count": 17
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/manifest.yaml",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/mini_redis_async.json",
+      "centrality": 0.0,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/pydantic_validators.json",
+      "centrality": 0.0,
+      "symbol_count": 23
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/pytest_fixtures.json",
+      "centrality": 0.0,
+      "symbol_count": 20
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/react_hooks.json",
+      "centrality": 0.0,
+      "symbol_count": 112
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/requests_sessions.json",
+      "centrality": 0.0,
+      "symbol_count": 17
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/rust_tokio_runtime.json",
+      "centrality": 0.0,
+      "symbol_count": 31
+    },
+    {
+      "file_path": "benchmarks/headtohead/results/sqlalchemy_sessions.json",
+      "centrality": 0.0,
+      "symbol_count": 31
+    },
+    {
+      "file_path": "benchmarks/held_out.txt",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_adapter_registry.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_benchmark_gate_lifecycle.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_delta_index_lifecycle.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_delta_indexing.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_graph_expansion.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_mcp_query_lifecycle.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_pattern_detection.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_project_config_resolution.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_project_index.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_project_init.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_project_reset.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_project_status.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_query_cache_lifecycle.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_query_pipeline.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_scoring.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/archex_vector_cache_lifecycle.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/celery_task_dispatch.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/click_decorators.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/django_middleware.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/django_orm_queries.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/express_error_handling.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/express_middleware.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/fastapi_dependency_injection.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/fastapi_routing.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/flask_blueprints.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/gin_routing.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/go_gin_middleware.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/httpx_pooling.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_celery_task_retry.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_click_param_process.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_django_queryset_filter.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_django_username_validator.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_express_error_middleware.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_fastapi_jsonable_encoder.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_fastapi_solve_dependencies.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_flask_blueprint_register.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_flask_full_dispatch.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_gin_context_next.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_gin_tree_route.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_httpx_pool_transport.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_httpx_redirect_headers.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_mini_redis_command_from_frame.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_pydantic_validate_call.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_pytest_fixture_resolution.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_react_dispatch_set_state.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_requests_adapter_send.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_requests_redirect_auth.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_sqlalchemy_session_merge.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/loc_tokio_current_thread_block_on.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/mini_redis_async.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/pydantic_validators.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/pytest_fixtures.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/react_hooks.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/requests_sessions.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/routing_mixed_cache.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/routing_mixed_chunker.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/routing_pl_intent.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/routing_pl_large.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/routing_pl_path_symbol.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/routing_pl_scoring.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/routing_pl_tight.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/routing_trace_api.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/rust_tokio_runtime.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "benchmarks/tasks/sqlalchemy_sessions.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "docker/Dockerfile.full",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "docker/Dockerfile.slim",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "docs/ARCHEX_VS_COCOINDEX.md",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "docs/CLIENT_COMPATIBILITY_MATRIX.md",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "docs/CONTEXT_RECEIPTS.md",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "docs/INSTALLATION_TRUST_CONTRACT.md",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "docs/LANGUAGE_PROMOTION_GATE.md",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "docs/LOCAL_METRICS.md",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "docs/OVERVIEW.md",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "docs/RETRIEVAL_DEFAULT_DECISIONS.md",
+      "centrality": 0.0,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "docs/ROADMAP.md",
+      "centrality": 0.0,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "docs/SYSTEM_DESIGN.md",
+      "centrality": 0.0,
+      "symbol_count": 32
+    },
+    {
+      "file_path": "docs/WHY_ARCHEX.md",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "docs/symbolic-rerank-validation.md",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "pyproject.toml",
+      "centrality": 0.0,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "scripts/benchmark_pipeline.sh",
+      "centrality": 0.0,
+      "symbol_count": 21
+    },
+    {
+      "file_path": "scripts/benchmark_replay_smoke.sh",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "scripts/run_graphify_headtohead_lane.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "scripts/showcase.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 32
+    },
+    {
+      "file_path": "scripts/showcase_batch.sh",
+      "centrality": 0.0,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "skills/archex/SKILL.md",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "skills/archex/commands/archex.md",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/__init__.py",
+      "centrality": 0.0317468356116144,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/acquire/__init__.py",
+      "centrality": 0.0025746026330788993,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/acquire/discovery.py",
+      "centrality": 0.004089339036341464,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/acquire/git.py",
+      "centrality": 0.0031642927532452925,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/acquire/local.py",
+      "centrality": 0.0031642927532452925,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/analyze/__init__.py",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/analyze/decisions.py",
+      "centrality": 0.0033749454538074927,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/analyze/interfaces.py",
+      "centrality": 0.0031328765563055833,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "src/archex/analyze/modules.py",
+      "centrality": 0.002406669863799857,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "src/archex/analyze/patterns.py",
+      "centrality": 0.002648738761301766,
+      "symbol_count": 20
+    },
+    {
+      "file_path": "src/archex/api.py",
+      "centrality": 0.005286664115917326,
+      "symbol_count": 84
+    },
+    {
+      "file_path": "src/archex/benchmark/__init__.py",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/benchmark/arch_quality.py",
+      "centrality": 0.0032541324385077933,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "src/archex/benchmark/baseline.py",
+      "centrality": 0.007087797326440832,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "src/archex/benchmark/bounded_rerank.py",
+      "centrality": 0.0018122634694193386,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "src/archex/benchmark/bundle_eval.py",
+      "centrality": 0.0032541324385077933,
+      "symbol_count": 21
+    },
+    {
+      "file_path": "src/archex/benchmark/competitive.py",
+      "centrality": 0.0032541324385077933,
+      "symbol_count": 23
+    },
+    {
+      "file_path": "src/archex/benchmark/cross_tool.py",
+      "centrality": 0.003774910120515723,
+      "symbol_count": 23
+    },
+    {
+      "file_path": "src/archex/benchmark/delta_runner.py",
+      "centrality": 0.00180171905349634,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "src/archex/benchmark/delta_strategies.py",
+      "centrality": 0.004692577411287455,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "src/archex/benchmark/external_mcp.py",
+      "centrality": 0.005298166449640572,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "src/archex/benchmark/gate.py",
+      "centrality": 0.00180171905349634,
+      "symbol_count": 21
+    },
+    {
+      "file_path": "src/archex/benchmark/graph_multihop.py",
+      "centrality": 0.0032646768544307924,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "src/archex/benchmark/graphify.py",
+      "centrality": 0.005875503641936495,
+      "symbol_count": 15
+    },
+    {
+      "file_path": "src/archex/benchmark/headroom.py",
+      "centrality": 0.004637316464789651,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "src/archex/benchmark/headtohead.py",
+      "centrality": 0.007542143234812559,
+      "symbol_count": 30
+    },
+    {
+      "file_path": "src/archex/benchmark/loader.py",
+      "centrality": 0.012499168452791361,
+      "symbol_count": 18
+    },
+    {
+      "file_path": "src/archex/benchmark/models.py",
+      "centrality": 0.00888902431241136,
+      "symbol_count": 45
+    },
+    {
+      "file_path": "src/archex/benchmark/preflight.py",
+      "centrality": 0.00180171905349634,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/benchmark/progress.py",
+      "centrality": 0.004275521786341047,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "src/archex/benchmark/query_transform.py",
+      "centrality": 0.0032646768544307924,
+      "symbol_count": 13
+    },
+    {
+      "file_path": "src/archex/benchmark/readiness.py",
+      "centrality": 0.0032541324385077933,
+      "symbol_count": 26
+    },
+    {
+      "file_path": "src/archex/benchmark/region_metrics.py",
+      "centrality": 0.0036644278864400802,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "src/archex/benchmark/reporter.py",
+      "centrality": 0.0026489601947530216,
+      "symbol_count": 46
+    },
+    {
+      "file_path": "src/archex/benchmark/runner.py",
+      "centrality": 0.002527925746002067,
+      "symbol_count": 15
+    },
+    {
+      "file_path": "src/archex/benchmark/strategies.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 143
+    },
+    {
+      "file_path": "src/archex/benchmark/summary_sidecar.py",
+      "centrality": 0.0032646768544307924,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "src/archex/benchmark/task_aware.py",
+      "centrality": 0.003022607956928883,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "src/archex/benchmark/triage.py",
+      "centrality": 0.00602050049107151,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "src/archex/cache.py",
+      "centrality": 0.0021926574512080525,
+      "symbol_count": 25
+    },
+    {
+      "file_path": "src/archex/cli/__init__.py",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/cli/analyze_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "src/archex/cli/benchmark_cmd.py",
+      "centrality": 0.0021926574512080525,
+      "symbol_count": 49
+    },
+    {
+      "file_path": "src/archex/cli/cache_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/cli/compare_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/cli/doctor_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/dogfood_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/explain_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/graph_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "src/archex/cli/impact_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/index_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/cli/init_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/install_client_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/main.py",
+      "centrality": 0.013583728142226453,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "src/archex/cli/mcp_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/metrics_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "src/archex/cli/onboard_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/outline_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/cli/query_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/cli/reset_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/cli/scout_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/cli/status_cmd.py",
+      "centrality": 0.0026708321060816475,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/cli/symbol_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/cli/symbols_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/cli/tree_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/client_setup.py",
+      "centrality": 0.0031609330412156883,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "src/archex/config.py",
+      "centrality": 0.0026995935717013266,
+      "symbol_count": 13
+    },
+    {
+      "file_path": "src/archex/doctor.py",
+      "centrality": 0.003979030805390631,
+      "symbol_count": 37
+    },
+    {
+      "file_path": "src/archex/dogfood.py",
+      "centrality": 0.0044631686003944486,
+      "symbol_count": 23
+    },
+    {
+      "file_path": "src/archex/exceptions.py",
+      "centrality": 0.07578996711975358,
+      "symbol_count": 12
+    },
+    {
+      "file_path": "src/archex/explain.py",
+      "centrality": 0.002792861684906204,
+      "symbol_count": 34
+    },
+    {
+      "file_path": "src/archex/graph_artifact.py",
+      "centrality": 0.014420781712063194,
+      "symbol_count": 49
+    },
+    {
+      "file_path": "src/archex/graph_query.py",
+      "centrality": 0.00399113482361332,
+      "symbol_count": 44
+    },
+    {
+      "file_path": "src/archex/impact.py",
+      "centrality": 0.0017939557376754967,
+      "symbol_count": 21
+    },
+    {
+      "file_path": "src/archex/index/__init__.py",
+      "centrality": 0.0026767952462118704,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/index/bm25.py",
+      "centrality": 0.0021926574512080525,
+      "symbol_count": 22
+    },
+    {
+      "file_path": "src/archex/index/delta.py",
+      "centrality": 0.0019990023332065255,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "src/archex/index/embeddings/__init__.py",
+      "centrality": 0.002555760797460916,
+      "symbol_count": 15
+    },
+    {
+      "file_path": "src/archex/index/embeddings/base.py",
+      "centrality": 0.004615620347351531,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/index/embeddings/coderank.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "src/archex/index/embeddings/fast.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "src/archex/index/embeddings/nomic.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "src/archex/index/embeddings/sentence_tf.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "src/archex/index/fusion.py",
+      "centrality": 0.0045387289611660145,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "src/archex/index/graph.py",
+      "centrality": 0.002434726348709962,
+      "symbol_count": 30
+    },
+    {
+      "file_path": "src/archex/index/huggingface.py",
+      "centrality": 0.004260378446577522,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/index/model_policy.py",
+      "centrality": 0.006632571765824582,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "src/archex/index/quantize.py",
+      "centrality": 0.008643798774221438,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "src/archex/index/rerank.py",
+      "centrality": 0.004204895959528323,
+      "symbol_count": 26
+    },
+    {
+      "file_path": "src/archex/index/splade.py",
+      "centrality": 0.0021926574512080525,
+      "symbol_count": 25
+    },
+    {
+      "file_path": "src/archex/index/store.py",
+      "centrality": 0.0044245671472220955,
+      "symbol_count": 71
+    },
+    {
+      "file_path": "src/archex/index/vector.py",
+      "centrality": 0.0026767952462118704,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "src/archex/integrations/__init__.py",
+      "centrality": 0.0019505885537061437,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/integrations/langchain.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/integrations/llamaindex.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/integrations/lsap.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "src/archex/integrations/lsap_models.py",
+      "centrality": 0.008853553528671489,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/integrations/mcp.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 56
+    },
+    {
+      "file_path": "src/archex/languages.py",
+      "centrality": 0.0024032631355424537,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/metrics/__init__.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/metrics/capture.py",
+      "centrality": 0.0017939557376754967,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "src/archex/metrics/categories.py",
+      "centrality": 0.002424355345922416,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/metrics/health.py",
+      "centrality": 0.006936654094774706,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "src/archex/metrics/math.py",
+      "centrality": 0.0023176133758034062,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/metrics/policy.py",
+      "centrality": 0.008790411738948727,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "src/archex/metrics/recorder.py",
+      "centrality": 0.0035824364587716652,
+      "symbol_count": 22
+    },
+    {
+      "file_path": "src/archex/metrics/registry.py",
+      "centrality": 0.00406050943781715,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/metrics/reporter.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 30
+    },
+    {
+      "file_path": "src/archex/metrics/storage.py",
+      "centrality": 0.0054057208825063294,
+      "symbol_count": 13
+    },
+    {
+      "file_path": "src/archex/models.py",
+      "centrality": 0.013392475497239025,
+      "symbol_count": 90
+    },
+    {
+      "file_path": "src/archex/observe.py",
+      "centrality": 0.004295015307664499,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "src/archex/onboarding.py",
+      "centrality": 0.0025507927874042955,
+      "symbol_count": 12
+    },
+    {
+      "file_path": "src/archex/parse/__init__.py",
+      "centrality": 0.003542878223086535,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/parse/adapters/__init__.py",
+      "centrality": 0.006617153221360778,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "src/archex/parse/adapters/_jvm_helpers.py",
+      "centrality": 0.0052479383250086335,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/parse/adapters/base.py",
+      "centrality": 0.011747926155026282,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "src/archex/parse/adapters/chunk_only.py",
+      "centrality": 0.002219914819526227,
+      "symbol_count": 15
+    },
+    {
+      "file_path": "src/archex/parse/adapters/csharp.py",
+      "centrality": 0.002946121512031954,
+      "symbol_count": 31
+    },
+    {
+      "file_path": "src/archex/parse/adapters/go.py",
+      "centrality": 0.002946121512031954,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "src/archex/parse/adapters/java.py",
+      "centrality": 0.003672328204537681,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "src/archex/parse/adapters/kotlin.py",
+      "centrality": 0.002946121512031954,
+      "symbol_count": 25
+    },
+    {
+      "file_path": "src/archex/parse/adapters/python.py",
+      "centrality": 0.005366810487051043,
+      "symbol_count": 22
+    },
+    {
+      "file_path": "src/archex/parse/adapters/rust.py",
+      "centrality": 0.003672328204537681,
+      "symbol_count": 28
+    },
+    {
+      "file_path": "src/archex/parse/adapters/swift.py",
+      "centrality": 0.002946121512031954,
+      "symbol_count": 37
+    },
+    {
+      "file_path": "src/archex/parse/adapters/ts_node.py",
+      "centrality": 0.022224152611956236,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "src/archex/parse/adapters/typescript.py",
+      "centrality": 0.002946121512031954,
+      "symbol_count": 26
+    },
+    {
+      "file_path": "src/archex/parse/engine.py",
+      "centrality": 0.0030084353792972263,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "src/archex/parse/imports.py",
+      "centrality": 0.004424788311347426,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/parse/symbols.py",
+      "centrality": 0.0019505885537061437,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "src/archex/pipeline/__init__.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/pipeline/chunker.py",
+      "centrality": 0.006980256567613642,
+      "symbol_count": 47
+    },
+    {
+      "file_path": "src/archex/pipeline/models.py",
+      "centrality": 0.003377279589995112,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/pipeline/service.py",
+      "centrality": 0.004602240507649911,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "src/archex/precision.py",
+      "centrality": 0.0,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "src/archex/project.py",
+      "centrality": 0.017350750559779457,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "src/archex/receipt.py",
+      "centrality": 0.007199842077687406,
+      "symbol_count": 21
+    },
+    {
+      "file_path": "src/archex/reporting.py",
+      "centrality": 0.02214675080039896,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/scout.py",
+      "centrality": 0.002520162430181224,
+      "symbol_count": 45
+    },
+    {
+      "file_path": "src/archex/serve/__init__.py",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/serve/compare/__init__.py",
+      "centrality": 0.02370956975044141,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "src/archex/serve/compare/_base.py",
+      "centrality": 0.010422999966272956,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "src/archex/serve/compare/api_surface.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/serve/compare/concurrency.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "src/archex/serve/compare/configuration.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/serve/compare/error_handling.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/serve/compare/state_management.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/serve/compare/testing.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "src/archex/serve/compression.py",
+      "centrality": 0.0025384701619250655,
+      "symbol_count": 18
+    },
+    {
+      "file_path": "src/archex/serve/context.py",
+      "centrality": 0.002164600966297948,
+      "symbol_count": 53
+    },
+    {
+      "file_path": "src/archex/serve/intent.py",
+      "centrality": 0.014999817570821018,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "src/archex/serve/modality.py",
+      "centrality": 0.00920253545278469,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "src/archex/serve/packing.py",
+      "centrality": 0.0025384701619250655,
+      "symbol_count": 35
+    },
+    {
+      "file_path": "src/archex/serve/profile.py",
+      "centrality": 0.003011842107554629,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "src/archex/serve/renderers/__init__.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "src/archex/serve/renderers/json.py",
+      "centrality": 0.0038871397337214147,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "src/archex/serve/renderers/markdown.py",
+      "centrality": 0.002434726348709962,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "src/archex/serve/renderers/xml.py",
+      "centrality": 0.004214644712694586,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "src/archex/status.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "src/archex/utils.py",
+      "centrality": 0.0037235906634764276,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/__init__.py",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/acquire/test_discovery.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 28
+    },
+    {
+      "file_path": "tests/acquire/test_git.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "tests/acquire/test_local.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/analyze/test_decisions.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/analyze/test_interfaces.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 20
+    },
+    {
+      "file_path": "tests/analyze/test_modules.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 26
+    },
+    {
+      "file_path": "tests/analyze/test_patterns.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 38
+    },
+    {
+      "file_path": "tests/benchmark/test_arch_quality.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 17
+    },
+    {
+      "file_path": "tests/benchmark/test_baseline.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/benchmark/test_bounded_rerank_strategy.py",
+      "centrality": 0.0,
+      "symbol_count": 33
+    },
+    {
+      "file_path": "tests/benchmark/test_bundle_eval.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "tests/benchmark/test_cli.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 59
+    },
+    {
+      "file_path": "tests/benchmark/test_competitive_artifacts.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "tests/benchmark/test_competitive_report.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 15
+    },
+    {
+      "file_path": "tests/benchmark/test_compression_strategy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 22
+    },
+    {
+      "file_path": "tests/benchmark/test_conditional_rerank_strategy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 52
+    },
+    {
+      "file_path": "tests/benchmark/test_cross_tool.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 37
+    },
+    {
+      "file_path": "tests/benchmark/test_delta_strategies.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 26
+    },
+    {
+      "file_path": "tests/benchmark/test_diversity_packed_strategy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 23
+    },
+    {
+      "file_path": "tests/benchmark/test_dogfood.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 18
+    },
+    {
+      "file_path": "tests/benchmark/test_dual_transform_strategy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 28
+    },
+    {
+      "file_path": "tests/benchmark/test_efficiency_packed_strategy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "tests/benchmark/test_external_mcp.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/benchmark/test_gate.py",
+      "centrality": 0.0,
+      "symbol_count": 26
+    },
+    {
+      "file_path": "tests/benchmark/test_generalization.py",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/benchmark/test_graph_multihop_strategy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 26
+    },
+    {
+      "file_path": "tests/benchmark/test_graphify.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 13
+    },
+    {
+      "file_path": "tests/benchmark/test_headroom.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/benchmark/test_headtohead.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 22
+    },
+    {
+      "file_path": "tests/benchmark/test_headtohead_report.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/benchmark/test_integration.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "tests/benchmark/test_loader.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 86
+    },
+    {
+      "file_path": "tests/benchmark/test_metrics.py",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/benchmark/test_models.py",
+      "centrality": 0.0,
+      "symbol_count": 44
+    },
+    {
+      "file_path": "tests/benchmark/test_progress.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/benchmark/test_readiness.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "tests/benchmark/test_region_fixtures.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/benchmark/test_regression.py",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/benchmark/test_reporter.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 94
+    },
+    {
+      "file_path": "tests/benchmark/test_runner.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 53
+    },
+    {
+      "file_path": "tests/benchmark/test_strategies.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 134
+    },
+    {
+      "file_path": "tests/benchmark/test_strategy_registry.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 13
+    },
+    {
+      "file_path": "tests/benchmark/test_summary_sidecar_strategy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 28
+    },
+    {
+      "file_path": "tests/benchmark/test_task_aware.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 17
+    },
+    {
+      "file_path": "tests/benchmark/test_task_aware_strategy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 34
+    },
+    {
+      "file_path": "tests/benchmark/test_triage.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "tests/cli/test_doctor.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "tests/cli/test_index_cmd.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "tests/cli/test_install_client.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 23
+    },
+    {
+      "file_path": "tests/conftest.py",
+      "centrality": 0.0031609330412156883,
+      "symbol_count": 19
+    },
+    {
+      "file_path": "tests/fixtures/bundle_eval_command.py",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/csharp_simple/Events/EventHandler.cs",
+      "centrality": 0.0,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "tests/fixtures/csharp_simple/Models/User.cs",
+      "centrality": 0.0,
+      "symbol_count": 18
+    },
+    {
+      "file_path": "tests/fixtures/csharp_simple/Program.cs",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/csharp_simple/Services/UserService.cs",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "tests/fixtures/csharp_simple/Utils/StringExtensions.cs",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/go_handler.go",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/go_simple/handlers.go",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/go_simple/main.go",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/go_simple/models.go",
+      "centrality": 0.0,
+      "symbol_count": 12
+    },
+    {
+      "file_path": "tests/fixtures/go_simple/utils.go",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/headroom_artifacts/httpx_pooling.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/java_repository.java",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/java_simple/Main.java",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/java_simple/enums/Status.java",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/java_simple/models/Record.java",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/java_simple/models/User.java",
+      "centrality": 0.0,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "tests/fixtures/java_simple/services/UserService.java",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/java_simple/utils/StringUtils.java",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/kotlin_simple/Main.kt",
+      "centrality": 0.0,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/kotlin_simple/config/AppConfig.kt",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/kotlin_simple/models/User.kt",
+      "centrality": 0.0,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/fixtures/kotlin_simple/services/UserService.kt",
+      "centrality": 0.0,
+      "symbol_count": 12
+    },
+    {
+      "file_path": "tests/fixtures/kotlin_simple/utils/Extensions.kt",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/monorepo_simple/packages/cli/pyproject.toml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/monorepo_simple/packages/cli/src/__init__.py",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/monorepo_simple/packages/cli/src/main.py",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/monorepo_simple/packages/core/pyproject.toml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/monorepo_simple/packages/core/src/__init__.py",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/monorepo_simple/packages/core/src/index.py",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/monorepo_simple/pyproject.toml",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/python_patterns/events.py",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/python_patterns/middleware.py",
+      "centrality": 0.0,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "tests/fixtures/python_patterns/plugins.py",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/python_patterns/repository.py",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/python_patterns/strategies.py",
+      "centrality": 0.0,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/fixtures/python_simple/main.py",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/python_simple/models.py",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/python_simple/pyproject.toml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/python_simple/services/__init__.py",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/python_simple/services/auth.py",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/python_simple/utils.py",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/region_tasks/region_python_simple_auth.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/region_tasks/region_python_simple_utils.yaml",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/repos/csharp_middleware/Middleware/AuthMiddleware.cs",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/repos/csharp_middleware/Middleware/LoggingMiddleware.cs",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/repos/csharp_middleware/Startup.cs",
+      "centrality": 0.0,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/repos/false_positives/utils.py",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/repos/go_middleware_chi/middleware/auth.go",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/repos/go_middleware_chi/middleware/logging.go",
+      "centrality": 0.0,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/repos/go_middleware_chi/routes/router.go",
+      "centrality": 0.0,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/repos/java_observer/src/EventBus.java",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/repos/java_observer/src/EventListener.java",
+      "centrality": 0.0,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/repos/java_observer/src/OrderService.java",
+      "centrality": 0.0,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "tests/fixtures/repos/kotlin_coroutine_flow/src/DataRepository.kt",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/repos/kotlin_coroutine_flow/src/DataStream.kt",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/repos/kotlin_coroutine_flow/src/FlowCollector.kt",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/repos/mixed_false_positives/web/toolbar.ts",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/repos/mixed_false_positives/worker/collector.go",
+      "centrality": 0.0,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/repos/python_strategy_sorting/sorters/base.py",
+      "centrality": 0.004504501574967389,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/repos/python_strategy_sorting/sorters/context.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/repos/python_strategy_sorting/sorters/implementations.py",
+      "centrality": 0.002434726348709962,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "tests/fixtures/repos/react_hooks_state/src/components/Login.tsx",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/repos/react_hooks_state/src/hooks/useAuth.ts",
+      "centrality": 0.0031609330412156883,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/repos/react_hooks_state/src/hooks/useLocalStorage.ts",
+      "centrality": 0.004395656723707637,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/repos/rust_actix_handler/src/handlers/auth.rs",
+      "centrality": 0.0031609330412156883,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/repos/rust_actix_handler/src/handlers/mod.rs",
+      "centrality": 0.0,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/repos/rust_actix_handler/src/middleware.rs",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/repos/rust_async_boundaries/src/auth.rs",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/repos/rust_async_boundaries/src/lib.rs",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/repos/rust_async_boundaries/src/server.rs",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/repos/spring_repository/src/User.java",
+      "centrality": 0.0,
+      "symbol_count": 13
+    },
+    {
+      "file_path": "tests/fixtures/repos/spring_repository/src/UserRepository.java",
+      "centrality": 0.0,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/fixtures/repos/spring_repository/src/UserService.java",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/repos/swift_combine/Sources/AuthPublisher.swift",
+      "centrality": 0.0,
+      "symbol_count": 12
+    },
+    {
+      "file_path": "tests/fixtures/repos/swift_combine/Sources/DataPublisher.swift",
+      "centrality": 0.0,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "tests/fixtures/repos/swift_combine/Sources/SubscriptionManager.swift",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/repos/typescript_express_auth/middleware/auth.ts",
+      "centrality": 0.004395656723707637,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/fixtures/repos/typescript_express_auth/middleware/index.ts",
+      "centrality": 0.0031609330412156883,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/repos/typescript_express_auth/routes/user.ts",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/repos/typescript_nestjs_modules/src/app.module.ts",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/repos/typescript_nestjs_modules/src/user/user.module.ts",
+      "centrality": 0.0031609330412156883,
+      "symbol_count": 2
+    },
+    {
+      "file_path": "tests/fixtures/repos/typescript_nestjs_modules/src/user/user.service.ts",
+      "centrality": 0.004395656723707637,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/rust_simple/src/lib.rs",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/rust_simple/src/main.rs",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/rust_simple/src/models.rs",
+      "centrality": 0.002434726348709962,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/fixtures/rust_simple/src/utils.rs",
+      "centrality": 0.002434726348709962,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/swift_simple/Models/User.swift",
+      "centrality": 0.0,
+      "symbol_count": 18
+    },
+    {
+      "file_path": "tests/fixtures/swift_simple/Services/UserService.swift",
+      "centrality": 0.0,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "tests/fixtures/swift_simple/Utils/Extensions.swift",
+      "centrality": 0.0,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/fixtures/swift_simple/Views/ContentView.swift",
+      "centrality": 0.0,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/fixtures/swift_simple/main.swift",
+      "centrality": 0.0,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/typescript_middleware.ts",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/fixtures/typescript_simple/package.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/typescript_simple/src/handlers/auth.ts",
+      "centrality": 0.0021926574512080525,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/typescript_simple/src/index.ts",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/fixtures/typescript_simple/src/types.ts",
+      "centrality": 0.003124651424129104,
+      "symbol_count": 3
+    },
+    {
+      "file_path": "tests/fixtures/typescript_simple/src/utils.ts",
+      "centrality": 0.003124651424129104,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/fixtures/typescript_simple/tsconfig.json",
+      "centrality": 0.0,
+      "symbol_count": 1
+    },
+    {
+      "file_path": "tests/index/embeddings/test_embeddings.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 49
+    },
+    {
+      "file_path": "tests/index/test_bm25.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 61
+    },
+    {
+      "file_path": "tests/index/test_bm25_graduated.py",
+      "centrality": 0.0,
+      "symbol_count": 21
+    },
+    {
+      "file_path": "tests/index/test_breadcrumbs.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 39
+    },
+    {
+      "file_path": "tests/index/test_chunker.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 46
+    },
+    {
+      "file_path": "tests/index/test_delta.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 67
+    },
+    {
+      "file_path": "tests/index/test_embedder_registry.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "tests/index/test_fusion.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 58
+    },
+    {
+      "file_path": "tests/index/test_graph.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 36
+    },
+    {
+      "file_path": "tests/index/test_huggingface.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/index/test_quantize.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 76
+    },
+    {
+      "file_path": "tests/index/test_rerank.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 78
+    },
+    {
+      "file_path": "tests/index/test_splade.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 35
+    },
+    {
+      "file_path": "tests/index/test_store.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 98
+    },
+    {
+      "file_path": "tests/index/test_symbol_ids.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 30
+    },
+    {
+      "file_path": "tests/index/test_vector.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 100
+    },
+    {
+      "file_path": "tests/integrations/test_langchain.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "tests/integrations/test_llamaindex.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "tests/integrations/test_lsap.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 27
+    },
+    {
+      "file_path": "tests/integrations/test_mcp.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 100
+    },
+    {
+      "file_path": "tests/metrics/test_health.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/metrics/test_instrumentation.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 24
+    },
+    {
+      "file_path": "tests/metrics/test_metrics_cli.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/metrics/test_policy.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "tests/metrics/test_recorder.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 12
+    },
+    {
+      "file_path": "tests/metrics/test_storage.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/parse/adapters/test_csharp.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 59
+    },
+    {
+      "file_path": "tests/parse/adapters/test_go.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 36
+    },
+    {
+      "file_path": "tests/parse/adapters/test_java.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 47
+    },
+    {
+      "file_path": "tests/parse/adapters/test_jvm_cross.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 6
+    },
+    {
+      "file_path": "tests/parse/adapters/test_kotlin.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 56
+    },
+    {
+      "file_path": "tests/parse/adapters/test_python.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 48
+    },
+    {
+      "file_path": "tests/parse/adapters/test_rust.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 51
+    },
+    {
+      "file_path": "tests/parse/adapters/test_swift.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 56
+    },
+    {
+      "file_path": "tests/parse/adapters/test_typescript.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 57
+    },
+    {
+      "file_path": "tests/parse/test_adapter_registry.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 11
+    },
+    {
+      "file_path": "tests/parse/test_engine.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 15
+    },
+    {
+      "file_path": "tests/parse/test_imports.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 26
+    },
+    {
+      "file_path": "tests/parse/test_language_coverage.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/parse/test_symbols.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 25
+    },
+    {
+      "file_path": "tests/pipeline/test_service.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 30
+    },
+    {
+      "file_path": "tests/serve/test_compare.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 75
+    },
+    {
+      "file_path": "tests/serve/test_compression.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 20
+    },
+    {
+      "file_path": "tests/serve/test_context.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 103
+    },
+    {
+      "file_path": "tests/serve/test_context_recall.py",
+      "centrality": 0.0,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "tests/serve/test_intent.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 31
+    },
+    {
+      "file_path": "tests/serve/test_modality.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 27
+    },
+    {
+      "file_path": "tests/serve/test_packing.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 86
+    },
+    {
+      "file_path": "tests/serve/test_profile.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/serve/test_query_normalization.py",
+      "centrality": 0.0,
+      "symbol_count": 37
+    },
+    {
+      "file_path": "tests/serve/test_renderers.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 22
+    },
+    {
+      "file_path": "tests/test_api_precision.py",
+      "centrality": 0.0,
+      "symbol_count": 38
+    },
+    {
+      "file_path": "tests/test_api_robustness.py",
+      "centrality": 0.0,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/test_cache.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 80
+    },
+    {
+      "file_path": "tests/test_cli.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 89
+    },
+    {
+      "file_path": "tests/test_config.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 20
+    },
+    {
+      "file_path": "tests/test_conftest.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/test_explain_cli.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/test_graph_artifact.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 9
+    },
+    {
+      "file_path": "tests/test_graph_export_cli.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 8
+    },
+    {
+      "file_path": "tests/test_graph_load_cli.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/test_graph_query.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/test_impact_cli.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 5
+    },
+    {
+      "file_path": "tests/test_integration.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 119
+    },
+    {
+      "file_path": "tests/test_models.py",
+      "centrality": 0.0,
+      "symbol_count": 93
+    },
+    {
+      "file_path": "tests/test_observe.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 29
+    },
+    {
+      "file_path": "tests/test_onboard_cli.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 4
+    },
+    {
+      "file_path": "tests/test_performance.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 51
+    },
+    {
+      "file_path": "tests/test_pipeline_service.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 10
+    },
+    {
+      "file_path": "tests/test_project.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 13
+    },
+    {
+      "file_path": "tests/test_query_pipeline.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 21
+    },
+    {
+      "file_path": "tests/test_receipt.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 7
+    },
+    {
+      "file_path": "tests/test_reporting.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 14
+    },
+    {
+      "file_path": "tests/test_scout.py",
+      "centrality": 0.0017085196562042348,
+      "symbol_count": 16
+    },
+    {
+      "file_path": "uv.lock",
+      "centrality": 0.0,
+      "symbol_count": 860
+    }
+  ],
   "created_at": "2026-07-04T09:25:12.925262+00:00",
   "archex_version": ""
 }

@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
 from pydantic import BaseModel
 
+from archex.benchmark.baseline import (
+    RankingSnapshotEntry,  # noqa: TCH001 — Pydantic needs at runtime
+)
 from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runtime
     BenchmarkReport,
     DeltaBenchmarkResult,
@@ -383,6 +389,104 @@ def check_delta_gate(
                     metric="speedup_factor",
                     threshold=thresholds.min_speedup,
                     actual=r.speedup_factor,
+                )
+            )
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Ranking-stability gate
+#
+# structural_centrality() PageRank and symbol_count are load-bearing ranking
+# signals feeding graph_hubs/graph_neighbors and query ranking. A promotion
+# that floods the graph with many low-value symbols (an overzealous chunk-only
+# -> full conversion, for example) can reorder these rankings for files that
+# were never touched, without moving recall/precision/F1 at all. This check
+# catches that class of regression on the existing FULL-language corpus.
+# ---------------------------------------------------------------------------
+
+
+class RankingQualityThresholds(BaseModel):
+    min_centrality_rank_correlation: float = 0.8
+    min_symbol_count_rank_correlation: float = 0.8
+
+
+class RankingGateViolation(BaseModel):
+    metric: str
+    correlation: float
+    threshold: float
+    sample_size: int
+
+
+_RANKING_METRIC_FIELDS = {
+    "structural_centrality": "centrality",
+    "symbol_count": "symbol_count",
+}
+
+
+def _rank(values: list[float]) -> list[float]:
+    """Average (1-indexed) ranks, tie-safe, for Spearman rank correlation."""
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        average_rank = (i + j) / 2 + 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = average_rank
+        i = j + 1
+    return ranks
+
+
+def _spearman_correlation(current: list[float], baseline: list[float]) -> float | None:
+    """Spearman rank correlation, or None when either series has zero variance."""
+    current_ranks = np.array(_rank(current))
+    baseline_ranks = np.array(_rank(baseline))
+    if current_ranks.std() == 0.0 or baseline_ranks.std() == 0.0:
+        return None
+    correlation = float(np.corrcoef(current_ranks, baseline_ranks)[0, 1])
+    return None if math.isnan(correlation) else correlation
+
+
+def check_ranking_stability(
+    current: list[RankingSnapshotEntry],
+    baseline: list[RankingSnapshotEntry],
+    thresholds: RankingQualityThresholds | None = None,
+) -> list[RankingGateViolation]:
+    """Flag PageRank/symbol_count ranking-stability regressions against a baseline.
+
+    Compares Spearman rank correlation over files present in both snapshots, for
+    each of structural centrality and symbol count independently. Fewer than two
+    common files makes correlation undefined, so no violation can be raised.
+    """
+    if thresholds is None:
+        thresholds = RankingQualityThresholds()
+    current_by_path = {entry.file_path: entry for entry in current}
+    baseline_by_path = {entry.file_path: entry for entry in baseline}
+    common_paths = sorted(set(current_by_path) & set(baseline_by_path))
+
+    violations: list[RankingGateViolation] = []
+    if len(common_paths) < 2:
+        return violations
+
+    metric_floors = (
+        ("structural_centrality", thresholds.min_centrality_rank_correlation),
+        ("symbol_count", thresholds.min_symbol_count_rank_correlation),
+    )
+    for metric, floor in metric_floors:
+        field = _RANKING_METRIC_FIELDS[metric]
+        current_values = [getattr(current_by_path[path], field) for path in common_paths]
+        baseline_values = [getattr(baseline_by_path[path], field) for path in common_paths]
+        correlation = _spearman_correlation(current_values, baseline_values)
+        if correlation is not None and correlation < floor:
+            violations.append(
+                RankingGateViolation(
+                    metric=metric,
+                    correlation=correlation,
+                    threshold=floor,
+                    sample_size=len(common_paths),
                 )
             )
     return violations

@@ -15,7 +15,12 @@ from archex.benchmark.arch_quality import (
     load_architecture_results,
     run_architecture_all,
 )
-from archex.benchmark.baseline import compare_baseline, load_baseline, save_baseline
+from archex.benchmark.baseline import (
+    build_ranking_snapshot,
+    compare_baseline,
+    load_baseline,
+    save_baseline,
+)
 from archex.benchmark.bundle_eval import BundleOnlyEvaluatorError, run_bundle_only_eval_all
 from archex.benchmark.competitive import format_competitive_markdown, load_compression_results
 from archex.benchmark.cross_tool import NaiveBaselineModel, run_cross_tool
@@ -703,7 +708,17 @@ def baseline_cmd() -> None:
     type=click.Path(),
     help="Output path for baseline JSON.",
 )
-def baseline_save_cmd(input_dir: str, output_path: str) -> None:
+@click.option(
+    "--ranking-source",
+    "ranking_source",
+    default=None,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help=(
+        "Optional repo path to index for a PageRank/symbol_count ranking snapshot, "
+        "attached to the saved baseline for ranking-stability gating."
+    ),
+)
+def baseline_save_cmd(input_dir: str, output_path: str, ranking_source: str | None) -> None:
     """Save current benchmark results as a golden baseline."""
     input_path = Path(input_dir)
     reports: list[BenchmarkReport] = []
@@ -715,10 +730,15 @@ def baseline_save_cmd(input_dir: str, output_path: str) -> None:
         raise click.ClickException(f"No result files found in {input_dir}")
 
     baseline = save_baseline(reports)
+    if ranking_source is not None:
+        ranking = build_ranking_snapshot(Path(ranking_source))
+        baseline = baseline.model_copy(update={"ranking": ranking})
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(baseline.model_dump_json(indent=2), encoding="utf-8")
     click.echo(f"Saved baseline with {len(baseline.entries)} entries to {output_path}")
+    if ranking_source is not None:
+        click.echo(f"Ranking snapshot:   {len(baseline.ranking)} files")
 
 
 @baseline_cmd.command("compare")
