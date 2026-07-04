@@ -6,7 +6,7 @@ import importlib.metadata
 import logging
 
 from archex.exceptions import ConfigError
-from archex.languages import CHUNK_ONLY_LANGUAGE_IDS
+from archex.languages import CHUNK_ONLY_LANGUAGE_IDS, STRUCTURED_LANGUAGE_IDS
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.c import CAdapter
 from archex.parse.adapters.chunk_only import make_chunk_only_adapter
@@ -20,6 +20,7 @@ from archex.parse.adapters.python import PythonAdapter
 from archex.parse.adapters.ruby import RubyAdapter
 from archex.parse.adapters.rust import RustAdapter
 from archex.parse.adapters.scala import ScalaAdapter
+from archex.parse.adapters.structured import make_structured_adapter
 from archex.parse.adapters.swift import SwiftAdapter
 from archex.parse.adapters.typescript import TypeScriptAdapter
 
@@ -102,6 +103,8 @@ default_adapter_registry.register("c", CAdapter)  # type: ignore[type-abstract]
 default_adapter_registry.register("cpp", CppAdapter)  # type: ignore[type-abstract]
 for _language_id in sorted(CHUNK_ONLY_LANGUAGE_IDS):
     default_adapter_registry.register(_language_id, make_chunk_only_adapter(_language_id))
+for _language_id in sorted(STRUCTURED_LANGUAGE_IDS):
+    default_adapter_registry.register(_language_id, make_structured_adapter(_language_id))
 
 # Legacy compat
 ADAPTERS: dict[str, type[LanguageAdapter]] = default_adapter_registry.adapter_classes
