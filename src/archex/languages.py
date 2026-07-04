@@ -60,14 +60,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
         ),
     ),
     "php": LanguageSupport("php", "PHP", (".php",), _FULL, "php"),
-    "ruby": LanguageSupport(
-        "ruby",
-        "Ruby",
-        (".rb",),
-        _CHUNK,
-        "ruby",
-        frozenset({"module", "class", "method", "singleton_method", "call"}),
-    ),
+    "ruby": LanguageSupport("ruby", "Ruby", (".rb",), _FULL, "ruby"),
     "scala": LanguageSupport(
         "scala",
         "Scala",
