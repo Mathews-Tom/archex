@@ -18,6 +18,15 @@ _CO_DIRECTORY_EVIDENCE = [
     "same directory package scope; added only when no direct import edge exists"
 ]
 
+# Directories at or below this file count get full pairwise co-directory
+# edges (every file linked to every other, both directions). Above it,
+# each file only links to a bounded forward window of neighbors instead —
+# a flat directory of 500 files would otherwise add ~250k edges (O(n^2));
+# windowing bounds growth to O(n * window) while preserving local
+# same-directory connectivity for languages that rely on this fallback.
+_CO_DIRECTORY_DENSE_THRESHOLD = 50
+_CO_DIRECTORY_WINDOW_SIZE = 20
+
 
 def _resolved_import_evidence(file_path: str, imported_module: str, line: int) -> list[str]:
     return [f"resolved import {imported_module!r} at {file_path}:{line}"]
@@ -127,6 +136,11 @@ class DependencyGraph:
         same directory are implicitly co-dependent — they share the same package
         scope and can reference each other's symbols without import statements.
 
+        Directories with more than `_CO_DIRECTORY_DENSE_THRESHOLD` files skip
+        full pairwise edge generation in favor of a bounded per-file window
+        (`_CO_DIRECTORY_WINDOW_SIZE`), so a large flat directory cannot produce
+        a near-complete graph.
+
         Only adds edges where none exist yet.  Returns the number of edges added.
         """
         from collections import defaultdict
@@ -141,8 +155,12 @@ class DependencyGraph:
         for files in dir_groups.values():
             if len(files) < 2:
                 continue
+            dense = len(files) <= _CO_DIRECTORY_DENSE_THRESHOLD
             for i, src in enumerate(files):
-                for tgt in files[i + 1 :]:
+                targets = (
+                    files[i + 1 :] if dense else files[i + 1 : i + 1 + _CO_DIRECTORY_WINDOW_SIZE]
+                )
+                for tgt in targets:
                     if not self._file_graph.has_edge(src, tgt):  # type: ignore[misc]
                         self._file_graph.add_edge(  # type: ignore[misc]
                             src,
