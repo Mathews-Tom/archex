@@ -107,8 +107,10 @@ def _extract_symbols_sequential(
     files: list[DiscoveredFile],
     engine: TreeSitterEngine,
     adapters: Mapping[str, LanguageAdapter],
+    strict: bool = False,
 ) -> list[ParsedFile]:
     results: list[ParsedFile] = []
+    errors: list[tuple[str, ParseError]] = []
     for discovered_file in files:
         adapter = adapters.get(discovered_file.language)
         if adapter is None:
@@ -116,15 +118,22 @@ def _extract_symbols_sequential(
                 continue
             results.append(_parse_unknown_file(discovered_file.absolute_path, discovered_file.path))
             continue
-        results.append(
-            _parse_with_adapter(
-                absolute_path=str(discovered_file.absolute_path),
-                relative_path=discovered_file.path,
-                language=discovered_file.language,
-                engine=engine,
-                adapter=adapter,
+        try:
+            results.append(
+                _parse_with_adapter(
+                    absolute_path=str(discovered_file.absolute_path),
+                    relative_path=discovered_file.path,
+                    language=discovered_file.language,
+                    engine=engine,
+                    adapter=adapter,
+                )
             )
-        )
+        except ParseError as e:
+            errors.append((discovered_file.path, e))
+            logger.warning("Skipping %s due to parse error: %s", discovered_file.path, e)
+    if errors and strict:
+        paths = ", ".join(p for p, _ in errors)
+        raise ParseError(f"Sequential parsing failed for {len(errors)} file(s): {paths}")
     return results
 
 
@@ -153,9 +162,11 @@ def _extract_symbols_and_imports_sequential(
     files: list[DiscoveredFile],
     engine: TreeSitterEngine,
     adapters: Mapping[str, LanguageAdapter],
+    strict: bool = False,
 ) -> ParsedExtraction:
     parsed_files: list[ParsedFile] = []
     imports_by_path: dict[str, list[ImportStatement]] = {}
+    errors: list[tuple[str, ParseError]] = []
     for discovered_file in files:
         adapter = adapters.get(discovered_file.language)
         if adapter is None:
@@ -165,15 +176,23 @@ def _extract_symbols_and_imports_sequential(
             parsed_files.append(parsed)
             imports_by_path[discovered_file.path] = []
             continue
-        parsed, imports = _parse_with_adapter_and_imports(
-            absolute_path=str(discovered_file.absolute_path),
-            relative_path=discovered_file.path,
-            language=discovered_file.language,
-            engine=engine,
-            adapter=adapter,
-        )
+        try:
+            parsed, imports = _parse_with_adapter_and_imports(
+                absolute_path=str(discovered_file.absolute_path),
+                relative_path=discovered_file.path,
+                language=discovered_file.language,
+                engine=engine,
+                adapter=adapter,
+            )
+        except ParseError as e:
+            errors.append((discovered_file.path, e))
+            logger.warning("Skipping %s due to parse error: %s", discovered_file.path, e)
+            continue
         parsed_files.append(parsed)
         imports_by_path[discovered_file.path] = imports
+    if errors and strict:
+        paths = ", ".join(p for p, _ in errors)
+        raise ParseError(f"Sequential parsing failed for {len(errors)} file(s): {paths}")
     return ParsedExtraction(parsed_files=parsed_files, imports_by_path=imports_by_path)
 
 
@@ -251,7 +270,7 @@ def extract_symbols(
                 raise ParseError(f"Parallel parsing failed: {e}") from e
             logger.error("Parallel executor failed, falling back to sequential: %s", e)
 
-    return _extract_symbols_sequential(eligible, engine, adapters)
+    return _extract_symbols_sequential(eligible, engine, adapters, strict=strict)
 
 
 def extract_symbols_and_imports(
@@ -303,4 +322,4 @@ def extract_symbols_and_imports(
                 raise ParseError(f"Parallel parsing failed: {e}") from e
             logger.error("Parallel executor failed, falling back to sequential: %s", e)
 
-    return _extract_symbols_and_imports_sequential(eligible, engine, adapters)
+    return _extract_symbols_and_imports_sequential(eligible, engine, adapters, strict=strict)
