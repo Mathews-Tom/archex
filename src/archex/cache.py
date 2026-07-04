@@ -18,6 +18,12 @@ if TYPE_CHECKING:
 
 _KEY_RE = re.compile(r"^[0-9a-f]{64}$")
 
+# Global (non-project-layout) caches accumulate one entry per distinct
+# (source, resolved-ref) pair — unbounded over a CI/benchmark loop that
+# indexes many repos or many past commits of one repo. put() opportunistically
+# bounds this without requiring a manual `archex cache clean` invocation.
+_DEFAULT_MAX_CACHE_ENTRIES = 500
+
 
 class CacheManager:
     """Manage cached SQLite analysis artifacts on disk."""
@@ -27,10 +33,12 @@ class CacheManager:
         cache_dir: str = "~/.archex/cache",
         *,
         project_layout: bool = False,
+        max_entries: int = _DEFAULT_MAX_CACHE_ENTRIES,
     ) -> None:
         self._cache_dir = Path(cache_dir).expanduser()
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._project_layout = project_layout
+        self._max_entries = max_entries
 
     # ------------------------------------------------------------------
     # Key helpers
@@ -193,6 +201,7 @@ class CacheManager:
             "stable_identity": stable_identity or "",
         }
         meta.write_text(json.dumps(meta_data))
+        self._evict_if_needed()
         return dest
 
     def get_meta(self, key: str) -> dict[str, str]:
@@ -288,6 +297,38 @@ class CacheManager:
                     meta.unlink()
                 removed += 1
         return removed
+
+    def _evict_if_needed(self) -> None:
+        """Opportunistically bound cache growth after each put().
+
+        Runs the existing age-based clean() first (default max_age_hours),
+        then, if the entry count still exceeds max_entries, evicts the
+        oldest entries by created_at until back under the cap. This is what
+        makes eviction automatic — no manual `archex cache clean` call is
+        required to keep a long-running CI/benchmark loop's cache bounded.
+
+        A project-layout cache holds a single fixed-path entry, is always
+        overwritten in place by put(), and never accumulates — exempt.
+        """
+        if self._project_layout:
+            return
+        self.clean()
+        if self._max_entries <= 0:
+            return
+        entries = self.list_entries()
+        overflow = len(entries) - self._max_entries
+        if overflow <= 0:
+            return
+
+        def _created_at(entry: dict[str, str]) -> float:
+            try:
+                return float(entry.get("created_at", "0"))
+            except ValueError:
+                return 0.0
+
+        entries.sort(key=_created_at)
+        for entry in entries[:overflow]:
+            self.invalidate(entry["key"])
 
     def find_store_for_source(self, source: RepoSource) -> tuple[Path, str] | None:
         """Find a cached store for the same source identity, regardless of commit.
