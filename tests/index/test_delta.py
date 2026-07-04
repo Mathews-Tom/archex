@@ -23,6 +23,8 @@ from archex.index.store import IndexStore
 from archex.models import ChangeStatus, CodeChunk, Config, IndexConfig
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from archex.index.graph import DependencyGraph
 
 from archex.pipeline.service import build_chunk_surrogates
@@ -453,6 +455,67 @@ class TestApplyDelta:
             meta = apply_delta(store, graph, manifest, delta_test_repo, Config(cache=False))
             assert meta.full_reindex_avoided is True
             assert meta.delta_time_ms >= 0
+        finally:
+            store.close()
+
+    def test_apply_delta_bm25_update_proportional_to_changed_chunks(
+        self,
+        delta_test_repo: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A single-file change triggers BM25 mutations scoped to that file's
+        chunks, not a full rebuild proportional to the repo's total chunk count.
+        """
+        from archex.index.bm25 import BM25Index
+        from archex.index.graph import DependencyGraph
+
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
+        assert isinstance(graph, DependencyGraph)
+        try:
+            total_chunks_before = store.get_chunk_count()
+            old_utils_chunks = len(store.get_chunks_for_file("utils.py"))
+            assert old_utils_chunks > 0
+            assert total_chunks_before > old_utils_chunks + 1  # other files contribute too
+
+            build_calls: list[None] = []
+            update_calls: list[int] = []
+            original_build = BM25Index.build
+            original_update = BM25Index.update
+
+            def spy_build(self_idx: BM25Index, chunks: Iterable[CodeChunk]) -> None:
+                build_calls.append(None)
+                original_build(self_idx, chunks)
+
+            def spy_update(self_idx: BM25Index, chunks: Iterable[CodeChunk]) -> None:
+                chunks_list = list(chunks)
+                update_calls.append(len(chunks_list))
+                original_update(self_idx, chunks_list)
+
+            monkeypatch.setattr(BM25Index, "build", spy_build)
+            monkeypatch.setattr(BM25Index, "update", spy_update)
+
+            base = _git_head(delta_test_repo)
+            (delta_test_repo / "utils.py").write_text("def totally_new(): return 123\n")
+            _git(delta_test_repo, "add", ".")
+            _git(delta_test_repo, "commit", "-m", "modify utils only")
+            current = _git_head(delta_test_repo)
+
+            manifest = compute_delta(delta_test_repo, base, current)
+            apply_delta(store, graph, manifest, delta_test_repo, Config(cache=False))
+
+            # No full rebuild happened.
+            assert build_calls == []
+            # Exactly one targeted update, scoped to the changed file's new
+            # chunks — far fewer rows than the repo's total chunk count.
+            assert len(update_calls) == 1
+            new_utils_chunks = len(store.get_chunks_for_file("utils.py"))
+            assert update_calls[0] == new_utils_chunks
+            assert update_calls[0] < total_chunks_before
+
+            # FTS row count reflects exactly the scoped swap, not a full rebuild.
+            fts_count = store.conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+            assert fts_count == total_chunks_before - old_utils_chunks + new_utils_chunks
         finally:
             store.close()
 

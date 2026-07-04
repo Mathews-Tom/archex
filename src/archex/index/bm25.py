@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from archex.index.store import IndexStore
     from archex.models import CodeChunk
 
@@ -139,16 +141,34 @@ class BM25Index:
         row = self._store.conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()
         return bool(row and row[0] > 0)
 
-    def build(self, chunks: list[CodeChunk]) -> None:
-        from archex.pipeline.chunker import expand_identifiers
-
+    def build(self, chunks: Iterable[CodeChunk]) -> None:
+        """Full rebuild: drop all FTS rows and reinsert from ``chunks``."""
         conn = self._store.conn
         conn.execute(_DROP_FTS_ROWS)
-        conn.executemany(
+        self._insert_rows(chunks)
+        conn.commit()
+
+    def update(self, chunks: Iterable[CodeChunk]) -> None:
+        """Insert FTS rows for newly-parsed chunks only — no drop.
+
+        For delta re-indexing: callers must have already removed stale FTS
+        rows for any changed or deleted files (``IndexStore.delete_chunks_for_files``
+        and ``delete_and_insert_for_files`` do this, scoped to the affected
+        file paths) before calling this. Inserting without a prior drop keeps
+        the FTS update proportional to the delta's changed chunks instead of
+        the store's total chunk count.
+        """
+        self._insert_rows(chunks)
+        self._store.conn.commit()
+
+    def _insert_rows(self, chunks: Iterable[CodeChunk]) -> None:
+        from archex.pipeline.chunker import expand_identifiers
+
+        self._store.conn.executemany(
             "INSERT INTO chunks_fts "
             "(chunk_id, content, symbol_name, file_path, docstring, breadcrumbs, summary) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [
+            (
                 (
                     c.id,
                     expand_identifiers(c.content),
@@ -159,9 +179,8 @@ class BM25Index:
                     c.summary or "",
                 )
                 for c in chunks
-            ],
+            ),
         )
-        conn.commit()
 
     def _execute_fts(
         self,

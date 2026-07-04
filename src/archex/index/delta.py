@@ -373,9 +373,12 @@ def apply_delta(
 
     t_start = time.perf_counter()
 
-    # Ensure chunks_fts table exists before any delete operations.
-    # BM25Index.__init__ creates the table if absent (idempotent via CREATE IF NOT EXISTS).
-    BM25Index(store)
+    # Ensure chunks_fts has the current schema before any delete operations
+    # below. A stale-schema migration here drops and recreates the table,
+    # emptying it — capture that so step 5 knows a full rebuild (not a
+    # targeted update) is required.
+    bm25 = BM25Index(store)
+    needs_full_bm25_rebuild = not bm25.has_data
 
     # 1. Handle renames
     for old_path, new_path in manifest.renamed_files:
@@ -453,16 +456,19 @@ def apply_delta(
         removed_graph_paths.add(old_path)
     graph.update_files(removed_graph_paths, new_edges)
 
-    # 5. Rebuild BM25 from updated store
-    all_chunks = store.get_chunks()
-    bm25 = BM25Index(store)
-    bm25.build(all_chunks)
+    # 5. Targeted BM25 update: insert only the newly-parsed chunks. Store
+    # deletions in steps 1-3 already scoped stale FTS rows to the delta's
+    # changed files, so no full DROP+rebuild is needed for the common case.
+    if needs_full_bm25_rebuild:
+        bm25.build(store.iter_chunks())
+    elif new_chunks:
+        bm25.update(new_chunks)
 
     # 6. Update metadata
     store.set_metadata("chunker", effective_index_config.chunker)
     store.set_metadata("chunker_revision", chunker_revision(effective_index_config.chunker))
-    store.set_metadata("repo_total_tokens", str(sum(chunk.token_count for chunk in all_chunks)))
-    store.set_metadata("chunk_count", str(len(all_chunks)))
+    store.set_metadata("repo_total_tokens", str(store.get_chunk_token_total()))
+    store.set_metadata("chunk_count", str(store.get_chunk_count()))
     store.set_metadata("commit_hash", manifest.current_commit)
     store.set_metadata("delta_applied", "true")
     file_meta = store.get_file_metadata()
