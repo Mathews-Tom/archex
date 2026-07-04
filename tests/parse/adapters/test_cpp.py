@@ -4,7 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from archex.models import ParsedFile, Symbol, SymbolKind, Visibility
+from archex.models import (
+    DiscoveredFile,
+    ImportStatement,
+    ParsedFile,
+    Symbol,
+    SymbolKind,
+    Visibility,
+)
+from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.cpp import CppAdapter
 from archex.parse.engine import TreeSitterEngine
 from archex.pipeline.chunker import ASTChunker
@@ -34,6 +42,15 @@ def extract(engine: TreeSitterEngine, adapter: CppAdapter, path: str) -> list[Sy
 
 def by_qname(symbols: list[Symbol], qualified_name: str) -> list[Symbol]:
     return [s for s in symbols if s.qualified_name == qualified_name]
+
+
+# ---------------------------------------------------------------------------
+# Protocol conformance
+# ---------------------------------------------------------------------------
+
+
+def test_satisfies_language_adapter_protocol(adapter: CppAdapter) -> None:
+    assert isinstance(adapter, LanguageAdapter)
 
 
 # ---------------------------------------------------------------------------
@@ -456,3 +473,169 @@ def test_class_only_declarations_still_walk(engine: TreeSitterEngine, adapter: C
     symbols = extract(engine, adapter, "pair.hpp")
     assert len(symbols) > 0
     assert all(isinstance(s, Symbol) for s in symbols)
+
+
+# ---------------------------------------------------------------------------
+# parse_imports
+# ---------------------------------------------------------------------------
+
+
+def test_parse_quoted_include(engine: TreeSitterEngine, adapter: CppAdapter) -> None:
+    source = (FIXTURES_DIR / "point.cpp").read_bytes()
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "point.cpp")
+    assert [imp.module for imp in imports] == ["point.hpp"]
+    assert imports[0].is_relative is True
+
+
+def test_parse_angle_bracket_include(engine: TreeSitterEngine, adapter: CppAdapter) -> None:
+    source = (FIXTURES_DIR / "list.cpp").read_bytes()
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "list.cpp")
+    modules = {imp.module: imp for imp in imports}
+    assert modules["cstdlib"].is_relative is False
+
+
+def test_parse_includes_through_extern_c_and_ifdef(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    source = (FIXTURES_DIR / "platform.hpp").read_bytes()
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "platform.hpp")
+    assert imports == []
+
+
+def test_multiple_includes_in_order(engine: TreeSitterEngine, adapter: CppAdapter) -> None:
+    source = (FIXTURES_DIR / "main.cpp").read_bytes()
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "main.cpp")
+    modules = [imp.module for imp in imports]
+    assert modules == ["cstdio", "list.hpp", "platform.hpp", "point.hpp", "shapes.hpp"]
+
+
+def test_include_not_present_inside_namespace(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    source = b'namespace geo {\n#include "inner.hpp"\n}\n'
+    tree = parse(engine, source)
+    imports = adapter.parse_imports(tree, source, "weird.cpp")
+    assert imports == []
+
+
+def test_empty_file_has_no_imports(engine: TreeSitterEngine, adapter: CppAdapter) -> None:
+    source = b""
+    tree = parse(engine, source)
+    assert adapter.parse_imports(tree, source, "empty.cpp") == []
+
+
+# ---------------------------------------------------------------------------
+# resolve_import
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_quoted_include_same_directory(adapter: CppAdapter) -> None:
+    file_map = {"list.hpp": "list.hpp", "point.hpp": "point.hpp"}
+    imp = ImportStatement(module="point.hpp", file_path="list.hpp", line=5, is_relative=True)
+    assert adapter.resolve_import(imp, file_map) == "point.hpp"
+
+
+def test_resolve_quoted_include_subdirectory(adapter: CppAdapter) -> None:
+    file_map = {"src/main.cpp": "src/main.cpp", "include/foo.hpp": "include/foo.hpp"}
+    imp = ImportStatement(
+        module="../include/foo.hpp", file_path="src/main.cpp", line=1, is_relative=True
+    )
+    assert adapter.resolve_import(imp, file_map) == "include/foo.hpp"
+
+
+def test_resolve_quoted_include_basename_fallback(adapter: CppAdapter) -> None:
+    file_map = {"main.cpp": "main.cpp", "include/deep/foo.hpp": "include/deep/foo.hpp"}
+    imp = ImportStatement(module="foo.hpp", file_path="main.cpp", line=1, is_relative=True)
+    assert adapter.resolve_import(imp, file_map) == "include/deep/foo.hpp"
+
+
+def test_resolve_quoted_include_unresolvable(adapter: CppAdapter) -> None:
+    file_map = {"main.cpp": "main.cpp"}
+    imp = ImportStatement(module="missing.hpp", file_path="main.cpp", line=1, is_relative=True)
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+def test_resolve_angle_bracket_always_external(adapter: CppAdapter) -> None:
+    file_map = {"vector": "vector"}  # even a coincidental name match
+    imp = ImportStatement(module="vector", file_path="main.cpp", line=1, is_relative=False)
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+def test_resolve_include_of_c_tier_header(adapter: CppAdapter) -> None:
+    """A .cpp file including a C-tier .h header resolves the same way --
+    file_map spans the whole repo, not just cpp-tier files."""
+    file_map = {"legacy.h": "legacy.h", "main.cpp": "main.cpp"}
+    imp = ImportStatement(module="legacy.h", file_path="main.cpp", line=1, is_relative=True)
+    assert adapter.resolve_import(imp, file_map) == "legacy.h"
+
+
+# ---------------------------------------------------------------------------
+# detect_entry_points
+# ---------------------------------------------------------------------------
+
+
+def test_detect_entry_point(adapter: CppAdapter) -> None:
+    files = [
+        DiscoveredFile(
+            path="main.cpp",
+            absolute_path=str(FIXTURES_DIR / "main.cpp"),
+            language="cpp",
+        )
+    ]
+    assert adapter.detect_entry_points(files) == ["main.cpp"]
+
+
+def test_header_never_an_entry_point(adapter: CppAdapter, tmp_path: Path) -> None:
+    header = tmp_path / "fake_main.hpp"
+    header.write_text("int main() { return 0; }\n")
+    files = [DiscoveredFile(path="fake_main.hpp", absolute_path=str(header), language="cpp")]
+    assert adapter.detect_entry_points(files) == []
+
+
+def test_main_prototype_is_not_an_entry_point(adapter: CppAdapter, tmp_path: Path) -> None:
+    source_file = tmp_path / "proto.cpp"
+    source_file.write_text("int main();\n")
+    files = [DiscoveredFile(path="proto.cpp", absolute_path=str(source_file), language="cpp")]
+    assert adapter.detect_entry_points(files) == []
+
+
+def test_non_main_file_not_entry_point(adapter: CppAdapter, tmp_path: Path) -> None:
+    lib_file = tmp_path / "lib.cpp"
+    lib_file.write_text("void helper() {}\n")
+    files = [DiscoveredFile(path="lib.cpp", absolute_path=str(lib_file), language="cpp")]
+    assert adapter.detect_entry_points(files) == []
+
+
+# ---------------------------------------------------------------------------
+# classify_visibility
+# ---------------------------------------------------------------------------
+
+
+def test_classify_visibility_public(adapter: CppAdapter) -> None:
+    s = Symbol(
+        name="getX",
+        qualified_name="geo.Point.getX",
+        kind=SymbolKind.METHOD,
+        file_path="point.hpp",
+        start_line=1,
+        end_line=1,
+        visibility=Visibility.PUBLIC,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PUBLIC
+
+
+def test_classify_visibility_private(adapter: CppAdapter) -> None:
+    s = Symbol(
+        name="x_",
+        qualified_name="geo.Point.x_",
+        kind=SymbolKind.VARIABLE,
+        file_path="point.hpp",
+        start_line=1,
+        end_line=1,
+        visibility=Visibility.PRIVATE,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PRIVATE
