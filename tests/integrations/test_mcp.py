@@ -28,6 +28,7 @@ from archex.integrations.mcp import (
     clear_graph_query_cache,
     handle_analyze_repo,
     handle_compare_repos,
+    handle_get_impact,
     handle_graph_hubs,
     handle_graph_neighbors,
     handle_graph_path,
@@ -673,7 +674,7 @@ class TestBuildServer:
         server_result = await handler(req)
         result = server_result.root
         assert isinstance(result, mcp_types.ListToolsResult)
-        assert len(result.tools) == 14
+        assert len(result.tools) == 15
         tool_names = {t.name for t in result.tools}
         assert "scout_repo" in tool_names
         assert "get_file_tree" in tool_names
@@ -682,6 +683,7 @@ class TestBuildServer:
         assert "graph_neighbors" in tool_names
         assert "graph_path" in tool_names
         assert "graph_stats" in tool_names
+        assert "get_impact" in tool_names
 
 
 # ---------------------------------------------------------------------------
@@ -954,3 +956,66 @@ class TestGraphQueryHandlers:
             "pkg/models.py",
             "pkg/db.py",
         ]
+
+
+# ---------------------------------------------------------------------------
+# get_impact handler tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandleGetImpact:
+    def test_matches_cli_output_for_explicit_changed_file(self, python_simple_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        cli_result = runner.invoke(
+            cli,
+            [
+                "impact",
+                str(python_simple_repo),
+                "--changed-file",
+                "utils.py",
+                "--format",
+                "json",
+            ],
+        )
+        assert cli_result.exit_code == 0, cli_result.output
+        cli_data = json.loads(cli_result.output)
+
+        mcp_result = handle_get_impact(
+            str(python_simple_repo), changed_files=["utils.py"], output_format="json"
+        )
+        envelope = json.loads(mcp_result)
+        mcp_data = json.loads(envelope["content"])
+
+        assert mcp_data == cli_data
+        assert envelope["_meta"]["tool_name"] == "get_impact"
+        assert envelope["_meta"]["strategy"] == "impact_analysis"
+
+    def test_matches_cli_output_for_git_diff_markdown(self, python_simple_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        cli_result = runner.invoke(cli, ["impact", str(python_simple_repo), "--base", "HEAD"])
+        assert cli_result.exit_code == 0, cli_result.output
+
+        mcp_result = handle_get_impact(
+            str(python_simple_repo), base="HEAD", output_format="markdown"
+        )
+        envelope = json.loads(mcp_result)
+
+        assert envelope["content"] == cli_result.output
+
+    def test_rejects_invalid_format(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported format"):
+            handle_get_impact("/fake/repo", output_format="xml")
+
+    def test_git_diff_mode_requires_local_repo_url(self) -> None:
+        from archex.impact import ImpactError
+
+        with pytest.raises(ImpactError, match="requires changed_files"):
+            handle_get_impact("https://example.com/repo.git")
