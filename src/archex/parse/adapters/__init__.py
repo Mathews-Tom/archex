@@ -13,6 +13,7 @@ from archex.parse.adapters.csharp import CSharpAdapter
 from archex.parse.adapters.go import GoAdapter
 from archex.parse.adapters.java import JavaAdapter
 from archex.parse.adapters.kotlin import KotlinAdapter
+from archex.parse.adapters.php import PHPAdapter
 from archex.parse.adapters.python import PythonAdapter
 from archex.parse.adapters.rust import RustAdapter
 from archex.parse.adapters.swift import SwiftAdapter
@@ -90,6 +91,7 @@ default_adapter_registry.register("java", JavaAdapter)  # type: ignore[type-abst
 default_adapter_registry.register("csharp", CSharpAdapter)  # type: ignore[type-abstract]
 default_adapter_registry.register("kotlin", KotlinAdapter)  # type: ignore[type-abstract]
 default_adapter_registry.register("swift", SwiftAdapter)  # type: ignore[type-abstract]
+default_adapter_registry.register("php", PHPAdapter)  # type: ignore[type-abstract]
 for _language_id in sorted(CHUNK_ONLY_LANGUAGE_IDS):
     default_adapter_registry.register(_language_id, make_chunk_only_adapter(_language_id))
 

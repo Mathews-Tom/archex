@@ -59,23 +59,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
             }
         ),
     ),
-    "php": LanguageSupport(
-        "php",
-        "PHP",
-        (".php",),
-        _CHUNK,
-        "php",
-        frozenset(
-            {
-                "function_definition",
-                "class_declaration",
-                "interface_declaration",
-                "trait_declaration",
-                "namespace_definition",
-                "namespace_use_declaration",
-            }
-        ),
-    ),
+    "php": LanguageSupport("php", "PHP", (".php",), _FULL, "php"),
     "ruby": LanguageSupport(
         "ruby",
         "Ruby",
