@@ -37,7 +37,11 @@ from archex.explain import (
     explain_symbol,
     render_explain_context,
 )
-from archex.graph_artifact import GraphArtifactError, load_arch_graph
+from archex.graph_artifact import (
+    GraphArtifactError,
+    build_arch_graph_from_store,
+    load_arch_graph,
+)
 from archex.graph_query import (
     GraphDirection,
     GraphEdgeSummary,
@@ -61,6 +65,7 @@ from archex.metrics.capture import record_query_usage, record_scout_usage, recor
 from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.models import ContextBundle, PipelineTiming, RepoSource
+from archex.onboarding import OnboardingError, render_onboarding_markdown
 from archex.reporting import compute_meta, count_tokens
 from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, ScoutResult, render_scout
 from archex.serve.compare import validate_dimensions
@@ -650,6 +655,71 @@ def handle_explain_target(
     return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
 
 
+def handle_generate_onboarding(
+    repo_url: str | None = None,
+    graph_path: str | None = None,
+    max_files: int = 40,
+) -> str:
+    """Generate a deterministic onboarding guide from graph/index data.
+
+    Args:
+        repo_url: Local path or HTTP(S) URL of the repository. Required
+            unless graph_path is given.
+        graph_path: Read an exported graph artifact instead of indexing
+            repo_url.
+        max_files: Maximum paths per capped section. Defaults to 40.
+
+    Returns:
+        JSON envelope with the markdown onboarding guide and _meta
+        efficiency block. Onboarding output is markdown-only.
+    """
+    if graph_path is None and repo_url is None:
+        raise OnboardingError(
+            "generate_onboarding requires repo_url when graph_path is not provided"
+        )
+
+    started = time.perf_counter()
+    source: RepoSource | None = None
+    pt: PipelineTiming | None = None
+    if graph_path is not None:
+        graph = load_arch_graph(Path(graph_path))
+        raw_tokens = max(count_tokens(graph.to_json()), 1)
+    else:
+        assert repo_url is not None
+        source = resolve_source(repo_url)
+        repo_root = Path(source.local_path).expanduser().resolve() if source.local_path else None
+        config = load_config(source)
+        index_config = load_index_config(source)
+        pt = PipelineTiming()
+        store = index_repository(source, config=config, timing=pt, index_config=index_config)
+        try:
+            graph = build_arch_graph_from_store(store, repo_root=repo_root)
+        finally:
+            store.close()
+        raw_tokens = get_repo_total_tokens(source) or 0
+    query_time_ms = (time.perf_counter() - started) * 1000
+
+    content = render_onboarding_markdown(graph, max_files=max_files)
+    meta = compute_meta(
+        tool_name="generate_onboarding",
+        response_text=content,
+        raw_file_tokens=raw_tokens,
+        strategy="onboarding_guide",
+        cached=pt.cached if pt is not None else False,
+        index_time_ms=pt.index_ms if pt is not None else 0.0,
+        query_time_ms=query_time_ms,
+    )
+    if source is not None:
+        _record_structural_metrics(
+            source,
+            "generate_onboarding",
+            content,
+            raw_tokens,
+            whole_repo_tokens=raw_tokens,
+        )
+    return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
+
+
 def handle_graph_lookup(
     graph_path: str,
     node: str,
@@ -1065,6 +1135,13 @@ async def _run_mcp_tool(
             module_name,
             explain_graph_path,
             fmt,
+        )
+    if name == "generate_onboarding":
+        onboard_repo_url: str | None = arguments.get("repo_url")
+        onboard_graph_path: str | None = arguments.get("graph_path")
+        max_files = int(arguments.get("max_files", 40))
+        return await loop.run_in_executor(
+            None, handle_generate_onboarding, onboard_repo_url, onboard_graph_path, max_files
         )
     if name == "graph_lookup":
         graph_path = arguments["graph_path"]
@@ -1508,6 +1585,39 @@ def build_server() -> Any:
                             "enum": ["json", "markdown"],
                             "default": "json",
                             "description": "Output format for the explain context.",
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            mcp_types.Tool(
+                name="generate_onboarding",
+                description=(
+                    "Generate a deterministic onboarding guide from graph/index data: "
+                    "repository overview, architecture modules, entry points, public "
+                    "interfaces, recommended reading order, complexity hotspots, test "
+                    "surface, and configuration surface. Markdown-only output."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "repo_url": {
+                            "type": "string",
+                            "description": (
+                                "Local path or HTTP(S) URL of the repository. Required "
+                                "unless graph_path is given."
+                            ),
+                        },
+                        "graph_path": {
+                            "type": "string",
+                            "description": (
+                                "Read an exported graph artifact instead of indexing repo_url."
+                            ),
+                        },
+                        "max_files": {
+                            "type": "integer",
+                            "default": 40,
+                            "description": "Maximum paths per capped section.",
                         },
                     },
                     "required": [],
