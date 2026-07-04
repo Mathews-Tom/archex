@@ -3,10 +3,11 @@ files using tree-sitter."""
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
-from archex.models import Symbol, SymbolKind, Visibility
+from archex.models import DiscoveredFile, ImportStatement, Symbol, SymbolKind, Visibility
 from archex.parse.adapters.ts_node import (
     ts_children as _children,
 )
@@ -442,6 +443,86 @@ def _extract_scope_members(
 
 
 # ---------------------------------------------------------------------------
+# #include parsing -- identical shape to C's, extension-agnostic
+# ---------------------------------------------------------------------------
+
+
+def _parse_include(node: object, source: bytes, file_path: str) -> ImportStatement | None:
+    path_node = _field(node, "path")
+    if path_node is None:
+        return None
+    path_type = _type(path_node)
+    if path_type == "string_literal":
+        module = _text(path_node, source).strip('"')
+        is_relative = True
+    elif path_type == "system_lib_string":
+        module = _text(path_node, source).strip("<>")
+        is_relative = False
+    else:
+        return None
+    return ImportStatement(
+        module=module,
+        file_path=file_path,
+        line=_start_line(node),
+        is_relative=is_relative,
+    )
+
+
+def _parse_includes(root: object, source: bytes, file_path: str) -> list[ImportStatement]:
+    """#include directives are always written at file scope in idiomatic
+    C++ (never inside a namespace), so only the top-level flatten is
+    walked -- same scope C's adapter parses includes at."""
+    imports: list[ImportStatement] = []
+    for node in _flatten_declarations(root):
+        if _type(node) != "preproc_include":
+            continue
+        imp = _parse_include(node, source, file_path)
+        if imp is not None:
+            imports.append(imp)
+    return imports
+
+
+# ---------------------------------------------------------------------------
+# Import resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_cpp_include(imp: ImportStatement, file_map: dict[str, str]) -> str | None:
+    """Resolve a quoted #include to a local file, or None for angle-bracket
+    (system/library) includes, which are never local by convention. Not
+    extension-specific: a .cpp file including a C-tier .h header resolves
+    exactly the same way, since `file_map` spans the whole repo."""
+    if not imp.is_relative:
+        return None
+
+    file_dir = os.path.dirname(imp.file_path)
+    candidate = os.path.normpath(os.path.join(file_dir, imp.module))
+    values = set(file_map.values())
+    if candidate in values:
+        return candidate
+
+    # Fallback: match by basename anywhere in the project -- real C++
+    # projects commonly reference headers via a compiler -I search path
+    # rather than strictly alongside the including file.
+    target_basename = os.path.basename(imp.module)
+    for value in file_map.values():
+        if os.path.basename(value) == target_basename:
+            return value
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Entry point detection
+# ---------------------------------------------------------------------------
+
+# Matches a `main` function *definition* (has a body), not a prototype or an
+# unrelated call -- same pattern C's adapter uses.
+_MAIN_DEFINITION = re.compile(r"\bmain\s*\([^;{}]*\)\s*\{")
+
+_IMPL_EXTENSIONS = (".cc", ".cpp", ".cxx")
+
+
+# ---------------------------------------------------------------------------
 # CppAdapter
 # ---------------------------------------------------------------------------
 
@@ -470,3 +551,39 @@ class CppAdapter:
         root: object = t.root_node
         flat = _flatten_declarations(root)
         return _extract_scope_members(flat, source, file_path, [], False, Visibility.PUBLIC)
+
+    def parse_imports(self, tree: object, source: bytes, file_path: str) -> list[ImportStatement]:
+        """Extract all #include directives from a C++ parse tree."""
+        t: Any = tree
+        root: object = t.root_node
+        return _parse_includes(root, source, file_path)
+
+    def resolve_import(self, imp: ImportStatement, file_map: dict[str, str]) -> str | None:
+        """Resolve a quoted #include to a local file, or None if external."""
+        return _resolve_cpp_include(imp, file_map)
+
+    def detect_entry_points(self, files: list[DiscoveredFile]) -> list[str]:
+        """Detect C++ entry points: implementation files (.cc/.cpp/.cxx)
+        containing a `main` function definition. Headers are excluded -- a
+        `main` definition in a header would produce a multiple-definition
+        link error in any real project including it from more than one
+        translation unit."""
+        entry_points: list[str] = []
+        for f in files:
+            if not f.path.endswith(_IMPL_EXTENSIONS):
+                continue
+            try:
+                with open(f.absolute_path, encoding="utf-8", errors="replace") as fh:
+                    content = fh.read()
+            except OSError:
+                continue
+            if _MAIN_DEFINITION.search(content):
+                entry_points.append(f.path)
+        return entry_points
+
+    def classify_visibility(self, symbol: Symbol) -> Visibility:
+        """Return the symbol's stored visibility -- set during extraction
+        from real C++ semantics (`static`/anonymous-namespace internal
+        linkage for free functions, access-specifier state for members),
+        not recomputable from a bare name."""
+        return symbol.visibility
