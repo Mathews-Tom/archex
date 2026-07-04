@@ -30,6 +30,7 @@ from archex.integrations.mcp import (
     handle_analyze_repo,
     handle_compare_repos,
     handle_explain_target,
+    handle_generate_onboarding,
     handle_get_impact,
     handle_graph_hubs,
     handle_graph_neighbors,
@@ -676,7 +677,7 @@ class TestBuildServer:
         server_result = await handler(req)
         result = server_result.root
         assert isinstance(result, mcp_types.ListToolsResult)
-        assert len(result.tools) == 16
+        assert len(result.tools) == 17
         tool_names = {t.name for t in result.tools}
         assert "scout_repo" in tool_names
         assert "get_file_tree" in tool_names
@@ -687,6 +688,7 @@ class TestBuildServer:
         assert "graph_stats" in tool_names
         assert "get_impact" in tool_names
         assert "explain_target" in tool_names
+        assert "generate_onboarding" in tool_names
 
 
 # ---------------------------------------------------------------------------
@@ -1166,3 +1168,62 @@ class TestHandleExplainTarget:
     def test_rejects_invalid_format(self) -> None:
         with pytest.raises(ValueError, match="Unsupported format"):
             handle_explain_target("/fake/repo", target="a.py", output_format="xml")
+
+
+# ---------------------------------------------------------------------------
+# generate_onboarding handler tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandleGenerateOnboarding:
+    def test_matches_cli_output_for_indexed_repo(self, python_simple_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        cli_result = runner.invoke(cli, ["onboard", str(python_simple_repo), "--max-files", "5"])
+        assert cli_result.exit_code == 0, cli_result.output
+
+        mcp_result = handle_generate_onboarding(str(python_simple_repo), max_files=5)
+        envelope = json.loads(mcp_result)
+
+        assert envelope["content"] == cli_result.output
+        assert envelope["_meta"]["tool_name"] == "generate_onboarding"
+        assert envelope["_meta"]["strategy"] == "onboarding_guide"
+
+    def test_matches_cli_output_for_graph_artifact_mode(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        graph_path = tmp_path / "graph.json"
+        export_result = runner.invoke(
+            cli, ["graph", "export", str(python_simple_repo), "--output", str(graph_path)]
+        )
+        assert export_result.exit_code == 0, export_result.output
+
+        cli_result = runner.invoke(
+            cli, ["onboard", "ignored", "--graph", str(graph_path), "--max-files", "5"]
+        )
+        assert cli_result.exit_code == 0, cli_result.output
+
+        mcp_result = handle_generate_onboarding(graph_path=str(graph_path), max_files=5)
+        envelope = json.loads(mcp_result)
+
+        assert envelope["content"] == cli_result.output
+
+    def test_requires_repo_url_without_graph_path(self) -> None:
+        from archex.onboarding import OnboardingError
+
+        with pytest.raises(OnboardingError, match="requires repo_url"):
+            handle_generate_onboarding()
+
+    def test_rejects_non_positive_max_files(self, python_simple_repo: Path) -> None:
+        from archex.onboarding import OnboardingError
+
+        with pytest.raises(OnboardingError, match="max-files must be greater than zero"):
+            handle_generate_onboarding(str(python_simple_repo), max_files=0)
