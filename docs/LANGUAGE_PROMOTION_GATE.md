@@ -4,7 +4,11 @@ Every language-tier promotion milestone (Section D/E of the enhancement plan: PH
 
 ## What the gate checks
 
-The gate reuses the existing `compute_recall`/`compute_required_file_metrics`/F1 machinery in `src/archex/benchmark/strategies.py` through the standard `archex dogfood` baseline-comparison path: recall, precision, F1, MRR, nDCG, MAP, and token efficiency per self-repo task/strategy, compared against the stored baseline with the existing tolerance in `archex.benchmark.baseline.compare_baseline`. A violation is hard-fail: the gate exits non-zero.
+The gate reuses the existing `compute_recall`/`compute_required_file_metrics`/F1 machinery in `src/archex/benchmark/strategies.py` through the standard `archex dogfood` baseline-comparison path: recall, precision, F1, MRR, nDCG, MAP, and token efficiency per self-repo task/strategy, compared against the stored baseline with the existing tolerance in `archex.benchmark.baseline.compare_baseline`.
+
+It also checks ranking stability. `structural_centrality()` PageRank and `symbol_count` are load-bearing ranking signals feeding `graph_hubs`, `graph_neighbors`, and query ranking. A promotion that floods the graph with many low-value symbols — an overzealous chunk-only to full conversion, for example — can reorder these rankings for files that were never touched, without moving recall/precision/F1 at all. `archex.benchmark.gate.check_ranking_stability` compares a live PageRank/symbol_count snapshot of every indexed file against the baseline's snapshot with a Spearman rank-correlation check, restricted to files present in both. This check only runs when the baseline JSON carries a non-empty `ranking` field — a recall-only baseline (no `ranking`) skips it at zero extra indexing cost.
+
+Both checks are hard-fail: a violation exits the gate non-zero.
 
 ## Baseline artifact
 
@@ -30,3 +34,14 @@ uv run archex benchmark baseline save \
   --input .archex/baseline-bootstrap \
   --output .archex/baselines/pre-promotion.json
 ```
+
+To also attach a ranking-stability snapshot to the regenerated baseline, add `--ranking-source`:
+
+```bash
+uv run archex benchmark baseline save \
+  --input .archex/baseline-bootstrap \
+  --output .archex/baselines/pre-promotion.json \
+  --ranking-source .
+```
+
+`--ranking-source` indexes the given repo path (here, the repo itself) and attaches a PageRank/symbol_count snapshot to the saved baseline. Omit it to save a recall-only baseline; `archex dogfood` then skips the ranking-stability check entirely rather than failing on a missing snapshot.
