@@ -103,6 +103,54 @@ def test_insert_and_get_all_chunks(store: IndexStore) -> None:
     assert ids == {c.id for c in SAMPLE_CHUNKS}
 
 
+def test_iter_chunks_matches_get_chunks(store: IndexStore) -> None:
+    """iter_chunks() yields the same chunks as get_chunks(), just incrementally."""
+    store.insert_chunks(SAMPLE_CHUNKS)
+    streamed = list(store.iter_chunks())
+    materialized = store.get_chunks()
+    assert len(streamed) == len(materialized) == 3
+    assert {c.id for c in streamed} == {c.id for c in materialized}
+    by_id = {c.id: c for c in materialized}
+    for chunk in streamed:
+        assert chunk == by_id[chunk.id]
+
+
+def test_iter_chunks_empty_store(store: IndexStore) -> None:
+    assert list(store.iter_chunks()) == []
+
+
+def test_iter_chunks_respects_small_batch_size(store: IndexStore) -> None:
+    """Batch size smaller than the row count still yields every chunk exactly once."""
+    many_chunks = [
+        CodeChunk(
+            id=f"chunk_{i}",
+            content=f"def f_{i}(): pass",
+            file_path=f"file_{i}.py",
+            start_line=1,
+            end_line=1,
+            symbol_name=f"f_{i}",
+            symbol_kind=SymbolKind.FUNCTION,
+            language="python",
+            token_count=5,
+        )
+        for i in range(7)
+    ]
+    store.insert_chunks(many_chunks)
+    streamed = list(store.iter_chunks(batch_size=2))
+    assert len(streamed) == 7
+    assert {c.id for c in streamed} == {c.id for c in many_chunks}
+
+
+def test_iter_chunks_is_lazy_generator(store: IndexStore) -> None:
+    """Calling iter_chunks() returns a generator; no rows are fetched until iterated."""
+    import inspect
+
+    store.insert_chunks(SAMPLE_CHUNKS)
+    gen = store.iter_chunks()
+    assert inspect.isgenerator(gen)
+    assert next(gen).id in {c.id for c in SAMPLE_CHUNKS}
+
+
 def test_insert_and_get_chunk_surrogates(store: IndexStore) -> None:
     store.insert_chunk_surrogates(SAMPLE_SURROGATES)
     result = store.get_chunk_surrogates()

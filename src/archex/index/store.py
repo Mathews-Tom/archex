@@ -18,6 +18,7 @@ from archex.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from types import TracebackType
 
 
@@ -501,6 +502,22 @@ class IndexStore:
     def get_chunks(self) -> list[CodeChunk]:
         cur = self._conn.execute(_CHUNK_SELECT)
         return [_row_to_chunk(row) for row in cur.fetchall()]
+
+    def iter_chunks(self, batch_size: int = 500) -> Iterator[CodeChunk]:
+        """Stream all chunks without materializing the full result set in memory.
+
+        Equivalent to ``get_chunks()`` but yields chunks incrementally via
+        batched cursor fetches. A caller that processes (rather than retains)
+        each chunk keeps peak memory bounded to ``batch_size`` rows instead of
+        the store's total chunk count.
+        """
+        cur = self._conn.execute(_CHUNK_SELECT)
+        while True:
+            rows = cur.fetchmany(batch_size)
+            if not rows:
+                return
+            for row in rows:
+                yield _row_to_chunk(row)
 
     def get_chunk(self, chunk_id: str) -> CodeChunk | None:
         cur = self._conn.execute(f"{_CHUNK_SELECT} WHERE id = ?", (chunk_id,))
