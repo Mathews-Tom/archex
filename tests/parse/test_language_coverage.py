@@ -24,11 +24,6 @@ CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
         "#include <vector>\nnamespace n { class C { public: void m(){} }; int f(){return 1;} }\n",
         [(1, 1), (2, 2)],
     ),
-    "ruby": (
-        "app.rb",
-        'require "json"\nmodule M\n  class C\n    def m\n    end\n  end\nend\n',
-        [(1, 1), (2, 7)],
-    ),
     "scala": (
         "App.scala",
         "import scala.collection.mutable\nclass C { def m(): Int = 1 }\nobject O { def f = 2 }\n",
@@ -97,6 +92,7 @@ FULL_LANGUAGE_FIXTURES: dict[str, Path] = {
     "csharp": FIXTURES_DIR / "csharp_simple",
     "swift": FIXTURES_DIR / "swift_simple",
     "php": FIXTURES_DIR / "php_simple",
+    "ruby": FIXTURES_DIR / "ruby_simple",
 }
 
 

@@ -213,8 +213,8 @@ Language support is declared, not implied. `full` means symbol extraction, impor
 
 | Tier | Languages |
 | --- | --- |
-| `full` | Python, JavaScript, TypeScript/TSX, Go, Rust, Java, Kotlin, C#, Swift, PHP |
-| `chunk-only` | C, C++, Ruby, Scala, Lua, Bash/Shell, SQL, HTML, CSS, XML, YAML, TOML, JSON, Markdown, Solidity |
+| `full` | Python, JavaScript, TypeScript/TSX, Go, Rust, Java, Kotlin, C#, Swift, PHP, Ruby |
+| `chunk-only` | C, C++, Scala, Lua, Bash/Shell, SQL, HTML, CSS, XML, YAML, TOML, JSON, Markdown, Solidity |
 
 Unknown files fall back to line-window chunking so they can still be found by BM25 without pretending to have structural edges.
 
