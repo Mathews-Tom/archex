@@ -218,15 +218,11 @@ def test_parallel_default_config_uses_process_pool(
     for i in range(12):
         f = tmp_path / f"mod_{i}.py"
         f.write_text(f"def func_{i}():\n    pass\n")
-        files.append(
-            DiscoveredFile(path=f"mod_{i}.py", absolute_path=str(f), language="python")
-        )
+        files.append(DiscoveredFile(path=f"mod_{i}.py", absolute_path=str(f), language="python"))
 
     config = Config()
 
-    with patch(
-        "archex.parse.symbols.ProcessPoolExecutor", wraps=ProcessPoolExecutor
-    ) as pool_spy:
+    with patch("archex.parse.symbols.ProcessPoolExecutor", wraps=ProcessPoolExecutor) as pool_spy:
         result = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel)
 
     pool_spy.assert_called_once()
