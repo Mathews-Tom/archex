@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 
-from archex.models import DiscoveredFile, SymbolKind
+from archex.models import Config, DiscoveredFile, SymbolKind
 from archex.parse.adapters import default_adapter_registry
 from archex.parse.engine import TreeSitterEngine
 from archex.parse.imports import parse_imports
@@ -197,6 +198,39 @@ def test_parse_file_worker_raises_on_missing_file() -> None:
 
     with pytest.raises(ParseError):
         _parse_file_worker("/nonexistent/ghost.py", "ghost.py", "python")
+
+
+# --- parallel-by-default config tests ---
+
+
+def test_config_parallel_defaults_to_true() -> None:
+    """Config.parallel defaults to True so parsing uses all available cores by default."""
+    assert Config().parallel is True
+
+
+def test_parallel_default_config_uses_process_pool(
+    tmp_path: Path,
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """A fresh Config's default parallel=True drives ProcessPoolExecutor for a >10-file batch."""
+    files: list[DiscoveredFile] = []
+    for i in range(12):
+        f = tmp_path / f"mod_{i}.py"
+        f.write_text(f"def func_{i}():\n    pass\n")
+        files.append(
+            DiscoveredFile(path=f"mod_{i}.py", absolute_path=str(f), language="python")
+        )
+
+    config = Config()
+
+    with patch(
+        "archex.parse.symbols.ProcessPoolExecutor", wraps=ProcessPoolExecutor
+    ) as pool_spy:
+        result = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel)
+
+    pool_spy.assert_called_once()
+    assert len(result.parsed_files) == 12
 
 
 # --- parallel path tests ---
