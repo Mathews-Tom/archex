@@ -24,12 +24,6 @@ CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
         "#include <vector>\nnamespace n { class C { public: void m(){} }; int f(){return 1;} }\n",
         [(1, 1), (2, 2)],
     ),
-    "php": (
-        "index.php",
-        "<?php\nnamespace App;\nuse Foo\\Bar;\nfunction f() { return 1; }\n"
-        "class C { public function m() {} }\n",
-        [(2, 2), (3, 3), (4, 4), (5, 5)],
-    ),
     "ruby": (
         "app.rb",
         'require "json"\nmodule M\n  class C\n    def m\n    end\n  end\nend\n',
@@ -102,6 +96,7 @@ FULL_LANGUAGE_FIXTURES: dict[str, Path] = {
     "kotlin": FIXTURES_DIR / "kotlin_simple",
     "csharp": FIXTURES_DIR / "csharp_simple",
     "swift": FIXTURES_DIR / "swift_simple",
+    "php": FIXTURES_DIR / "php_simple",
 }
 
 
