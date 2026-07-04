@@ -26,6 +26,7 @@ from archex.api import (
     scout,
     search_symbols,
 )
+from archex.config import load_config, load_index_config
 from archex.graph_artifact import GraphArtifactError
 from archex.graph_query import (
     GraphDirection,
@@ -38,6 +39,13 @@ from archex.graph_query import (
     GraphQuery,
     GraphQueryError,
     GraphStatsResult,
+)
+from archex.impact import (
+    ImpactError,
+    ImpactFileChange,
+    analyze_impact,
+    git_changed_files,
+    render_impact_report,
 )
 from archex.metrics.capture import record_query_usage, record_scout_usage, record_structural_usage
 from archex.metrics.health import note_metrics_recording_failure
@@ -480,6 +488,72 @@ def handle_get_symbols_batch(repo_url: str, symbol_ids: list[str]) -> str:
     return json.dumps({"content": result_data, "_meta": meta.model_dump()}, indent=2)
 
 
+def handle_get_impact(
+    repo_url: str,
+    base: str = "main",
+    changed_files: list[str] | None = None,
+    output_format: str = "json",
+) -> str:
+    """Analyze deterministic blast radius for changed files.
+
+    Args:
+        repo_url: Local filesystem path of the repository. Git diff mode
+            (the default, when changed_files is omitted) requires a local
+            checkout with the given base ref reachable.
+        base: Base ref for git diff mode. Ignored when changed_files is given.
+        changed_files: Explicit changed file paths, bypassing git diff mode.
+        output_format: Output format — 'json' or 'markdown'. Defaults to 'json'.
+
+    Returns:
+        JSON envelope with ImpactReport content and _meta efficiency block.
+    """
+    _validate_output_format(output_format)
+    source = resolve_source(repo_url)
+    if changed_files:
+        changes = [ImpactFileChange(path=path) for path in changed_files]
+    else:
+        if source.local_path is None:
+            raise ImpactError(
+                "get_impact requires changed_files for a remote repo_url; "
+                "git diff mode needs a local checkout"
+            )
+        repo_root = Path(source.local_path).expanduser().resolve()
+        changes = git_changed_files(repo_root, base)
+
+    started = time.perf_counter()
+    config = load_config(source)
+    index_config = load_index_config(source)
+    pt = PipelineTiming()
+    store = index_repository(source, config=config, timing=pt, index_config=index_config)
+    try:
+        report = analyze_impact(store, changes)
+    finally:
+        store.close()
+    query_time_ms = (time.perf_counter() - started) * 1000
+
+    content = render_impact_report(report, output_format)
+    raw_tokens = (
+        get_files_token_count(source, report.affected_files) if report.affected_files else 0
+    )
+    meta = compute_meta(
+        tool_name="get_impact",
+        response_text=content,
+        raw_file_tokens=raw_tokens or 0,
+        strategy="impact_analysis",
+        cached=pt.cached,
+        index_time_ms=pt.index_ms,
+        query_time_ms=query_time_ms,
+    )
+    _record_structural_metrics(
+        source,
+        "get_impact",
+        content,
+        raw_tokens,
+        file_count=len(report.affected_files),
+    )
+    return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
+
+
 def handle_graph_lookup(
     graph_path: str,
     node: str,
@@ -873,6 +947,14 @@ async def _run_mcp_tool(
         repo_url = arguments["repo_url"]
         symbol_ids: list[str] = arguments["symbol_ids"]
         return await loop.run_in_executor(None, handle_get_symbols_batch, repo_url, symbol_ids)
+    if name == "get_impact":
+        repo_url = arguments["repo_url"]
+        base: str = arguments.get("base", "main")
+        impact_changed_files: list[str] | None = arguments.get("changed_files")
+        fmt = arguments.get("format", "json")
+        return await loop.run_in_executor(
+            None, handle_get_impact, repo_url, base, impact_changed_files, fmt
+        )
     if name == "graph_lookup":
         graph_path = arguments["graph_path"]
         node: str = arguments["node"]
@@ -1230,6 +1312,48 @@ def build_server() -> Any:
                         },
                     },
                     "required": ["repo_url", "symbol_ids"],
+                },
+            ),
+            mcp_types.Tool(
+                name="get_impact",
+                description=(
+                    "Analyze deterministic blast radius for changed files: affected files, "
+                    "modules, public interfaces, test surface, and a risk assessment. Uses "
+                    "git diff against a base ref, or an explicit changed-file list."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "repo_url": {
+                            "type": "string",
+                            "description": (
+                                "Local filesystem path of the repository. Git diff mode "
+                                "requires a local checkout."
+                            ),
+                        },
+                        "base": {
+                            "type": "string",
+                            "default": "main",
+                            "description": (
+                                "Base ref for git diff mode. Ignored when changed_files "
+                                "is provided."
+                            ),
+                        },
+                        "changed_files": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Explicit changed file paths, bypassing git diff mode."
+                            ),
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                            "description": "Output format for the impact report.",
+                        },
+                    },
+                    "required": ["repo_url"],
                 },
             ),
             mcp_types.Tool(
