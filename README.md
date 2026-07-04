@@ -2,7 +2,14 @@
 
 [![CI](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
+[![Downloads](https://img.shields.io/pypi/dm/archex)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
+[![Tests](https://img.shields.io/badge/tests-2912_passing-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-90.7%25-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
+[![Languages](https://img.shields.io/badge/languages-26-orange)](#language-support)
+[![MCP tools](https://img.shields.io/badge/MCP_tools-17-purple)](#mcp-and-claude-code)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Typing](https://img.shields.io/badge/typing-pyright_strict-blue)](https://github.com/microsoft/pyright)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 [![archex banner](assets/archex-banner.png)](assets/archex-banner.svg)
@@ -27,7 +34,7 @@ It runs locally, uses deterministic retrieval and analysis, and does not require
 
 | Safe-to-act signals | Surfaces | Language coverage | Public evidence |
 | --- | --- | --- | --- |
-| Query/scout receipts expose freshness, index revision, skipped candidates, omitted edges, completeness, and next action | CLI, MCP, Python API, Docker, Claude Code skill | 25 declared language IDs with explicit `full` vs `chunk-only` tiers | C1 public comparison, raw-ripgrep/read baseline, bundle-only evaluator lane, and TurboQuant A/B measurement with 7.07× mean vector `.npz` compression |
+| Query/scout receipts expose freshness, index revision, skipped candidates, omitted edges, completeness, and next action | CLI, MCP, Python API, Docker, Claude Code skill | 26 declared language IDs with explicit `full` vs `chunk-only` tiers | C1 public comparison, raw-ripgrep/read baseline, bundle-only evaluator lane, and TurboQuant A/B measurement with 7.07× mean vector `.npz` compression |
 
 archex does not ask the downstream agent to trust ranking alone. Every query/scout receipt explains what was returned, what was skipped, whether freshness was current, and whether the bundle is complete enough to act on.
 
