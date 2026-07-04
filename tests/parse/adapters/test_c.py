@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from archex.models import SymbolKind, Visibility
+from archex.models import DiscoveredFile, ImportStatement, Symbol, SymbolKind, Visibility
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.c import CAdapter
 from archex.parse.engine import TreeSitterEngine
@@ -298,3 +298,109 @@ def test_include_only_file(engine: TreeSitterEngine, adapter: CAdapter) -> None:
     assert adapter.extract_symbols(tree, source, "includes.h") == []
     imports = adapter.parse_imports(tree, source, "includes.h")
     assert len(imports) == 2
+
+
+# ---------------------------------------------------------------------------
+# resolve_import
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_quoted_include_same_directory(adapter: CAdapter) -> None:
+    file_map = {"list.h": "list.h", "point.h": "point.h"}
+    imp = ImportStatement(module="point.h", file_path="list.h", line=4, is_relative=True)
+    assert adapter.resolve_import(imp, file_map) == "point.h"
+
+
+def test_resolve_quoted_include_subdirectory(adapter: CAdapter) -> None:
+    file_map = {"src/main.c": "src/main.c", "include/foo.h": "include/foo.h"}
+    imp = ImportStatement(
+        module="../include/foo.h", file_path="src/main.c", line=1, is_relative=True
+    )
+    assert adapter.resolve_import(imp, file_map) == "include/foo.h"
+
+
+def test_resolve_quoted_include_basename_fallback(adapter: CAdapter) -> None:
+    """Header lives on a compiler -I search path, not next to the includer --
+    the adapter has no build-system visibility, so basename matching is the
+    best available fallback."""
+    file_map = {"src/main.c": "src/main.c", "include/deep/foo.h": "include/deep/foo.h"}
+    imp = ImportStatement(module="foo.h", file_path="src/main.c", line=1, is_relative=True)
+    assert adapter.resolve_import(imp, file_map) == "include/deep/foo.h"
+
+
+def test_resolve_quoted_include_unresolvable(adapter: CAdapter) -> None:
+    file_map = {"main.c": "main.c"}
+    imp = ImportStatement(module="missing.h", file_path="main.c", line=1, is_relative=True)
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+def test_resolve_angle_bracket_always_external(adapter: CAdapter) -> None:
+    file_map = {"stdio.h": "stdio.h"}  # even a coincidental name match
+    imp = ImportStatement(module="stdio.h", file_path="main.c", line=1, is_relative=False)
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+# ---------------------------------------------------------------------------
+# detect_entry_points
+# ---------------------------------------------------------------------------
+
+
+def test_detect_entry_point(adapter: CAdapter) -> None:
+    files = [
+        DiscoveredFile(path="main.c", absolute_path=str(FIXTURES_DIR / "main.c"), language="c"),
+        DiscoveredFile(path="point.c", absolute_path=str(FIXTURES_DIR / "point.c"), language="c"),
+    ]
+    entry_points = adapter.detect_entry_points(files)
+    assert entry_points == ["main.c"]
+
+
+def test_header_never_an_entry_point(adapter: CAdapter, tmp_path: Path) -> None:
+    header = tmp_path / "fake_main.h"
+    header.write_text("int main(void) {\n    return 0;\n}\n")
+    files = [DiscoveredFile(path="fake_main.h", absolute_path=str(header), language="c")]
+    assert adapter.detect_entry_points(files) == []
+
+
+def test_main_prototype_is_not_an_entry_point(adapter: CAdapter, tmp_path: Path) -> None:
+    source_file = tmp_path / "proto.c"
+    source_file.write_text("int main(void);\n")
+    files = [DiscoveredFile(path="proto.c", absolute_path=str(source_file), language="c")]
+    assert adapter.detect_entry_points(files) == []
+
+
+def test_non_main_file_not_entry_point(adapter: CAdapter, tmp_path: Path) -> None:
+    lib_file = tmp_path / "lib.c"
+    lib_file.write_text("int add(int a, int b) {\n    return a + b;\n}\n")
+    files = [DiscoveredFile(path="lib.c", absolute_path=str(lib_file), language="c")]
+    assert adapter.detect_entry_points(files) == []
+
+
+# ---------------------------------------------------------------------------
+# classify_visibility
+# ---------------------------------------------------------------------------
+
+
+def test_classify_visibility_public(adapter: CAdapter) -> None:
+    s = Symbol(
+        name="point_make",
+        qualified_name="point_make",
+        kind=SymbolKind.FUNCTION,
+        file_path="point.c",
+        start_line=1,
+        end_line=1,
+        visibility=Visibility.PUBLIC,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PUBLIC
+
+
+def test_classify_visibility_private(adapter: CAdapter) -> None:
+    s = Symbol(
+        name="square",
+        qualified_name="square",
+        kind=SymbolKind.FUNCTION,
+        file_path="point.c",
+        start_line=1,
+        end_line=1,
+        visibility=Visibility.PRIVATE,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PRIVATE
