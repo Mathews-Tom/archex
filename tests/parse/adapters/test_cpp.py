@@ -639,3 +639,132 @@ def test_classify_visibility_private(adapter: CppAdapter) -> None:
         visibility=Visibility.PRIVATE,
     )
     assert adapter.classify_visibility(s) == Visibility.PRIVATE
+
+
+# ---------------------------------------------------------------------------
+# Header/impl pairing: out-of-class member definitions
+# ---------------------------------------------------------------------------
+
+
+def test_out_of_class_method_matches_header_declaration(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    header_symbols = extract(engine, adapter, "point.hpp")
+    impl_symbols = extract(engine, adapter, "point.cpp")
+    header_get_x = by_qname(header_symbols, "geo.Point.getX")[0]
+    impl_get_x = by_qname(impl_symbols, "geo.Point.getX")[0]
+    assert header_get_x.qualified_name == impl_get_x.qualified_name
+    assert header_get_x.parent == impl_get_x.parent == "geo.Point"
+    assert header_get_x.file_path != impl_get_x.file_path
+    assert header_get_x.kind == impl_get_x.kind == SymbolKind.METHOD
+
+
+def test_out_of_class_overloads_still_distinct(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    impl_symbols = extract(engine, adapter, "point.cpp")
+    moves = by_qname(impl_symbols, "geo.Point.move")
+    assert len(moves) == 2
+    assert {m.signature for m in moves} == {
+        "void Point::move(int dx, int dy)",
+        "void Point::move(double dx, double dy)",
+    }
+
+
+def test_out_of_class_constructor_destructor_operator(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    impl_symbols = extract(engine, adapter, "point.cpp")
+    ctors = by_qname(impl_symbols, "geo.Point.Point")
+    dtor = by_qname(impl_symbols, "geo.Point.~Point")
+    op = by_qname(impl_symbols, "geo.Point.operator+")
+    assert len(ctors) == 2
+    assert len(dtor) == 1
+    assert len(op) == 1
+    assert all(s.kind == SymbolKind.METHOD for s in [*ctors, *dtor, *op])
+
+
+def test_free_function_out_of_class_definition_matches_header(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    header_symbols = extract(engine, adapter, "shapes.hpp")
+    impl_symbols = extract(engine, adapter, "shapes.cpp")
+    header_areas = by_qname(header_symbols, "geo.shapes.area")
+    impl_areas = by_qname(impl_symbols, "geo.shapes.area")
+    assert len(header_areas) == len(impl_areas) == 2
+    assert {a.parent for a in impl_areas} == {"geo.shapes"}
+
+
+def test_fully_qualified_out_of_class_definition(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    """A .cpp file may spell the namespace out in full (`int
+    geo::Point::getX() const`) instead of re-opening it -- both styles must
+    resolve to the same qualified name."""
+    source = b"int geo::Point::getX() const { return 0; }\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "point.cpp")
+    get_x = by_qname(symbols, "geo.Point.getX")
+    assert len(get_x) == 1
+    assert get_x[0].parent == "geo.Point"
+
+
+def test_deeply_nested_qualified_definition(engine: TreeSitterEngine, adapter: CppAdapter) -> None:
+    source = b"void geo::inner::Foo::bar() {}\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "foo.cpp")
+    bar = by_qname(symbols, "geo.inner.Foo.bar")
+    assert len(bar) == 1
+    assert bar[0].parent == "geo.inner.Foo"
+
+
+def test_no_duplicate_symbols_within_impl_file(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    """Every definition in point.cpp is a distinct declaration site (no
+    accidental double-extraction of the same node)."""
+    symbols = extract(engine, adapter, "point.cpp")
+    locations = [(s.qualified_name, s.start_line) for s in symbols if s.kind != SymbolKind.MODULE]
+    assert len(locations) == len(set(locations))
+
+
+def test_no_orphaned_out_of_class_symbols(engine: TreeSitterEngine, adapter: CppAdapter) -> None:
+    """Every out-of-class method definition resolves a real parent -- none
+    fall back to a None/empty parent, which would misfile them as free
+    functions at file scope."""
+    symbols = extract(engine, adapter, "point.cpp")
+    methods = [s for s in symbols if s.kind == SymbolKind.METHOD]
+    assert len(methods) == 8
+    assert all(s.parent == "geo.Point" for s in methods)
+
+
+def test_out_of_class_overload_symbol_ids_disambiguate(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    source = (FIXTURES_DIR / "point.cpp").read_bytes()
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "point.cpp")
+    parsed = ParsedFile(
+        path="point.cpp", language="cpp", symbols=symbols, lines=source.count(b"\n")
+    )
+    chunks = ASTChunker().chunk_file(parsed, source)
+    all_ids = [c.symbol_id for c in chunks]
+    assert len(all_ids) == len(set(all_ids))
+
+
+def test_member_template_out_of_class_definition_does_not_crash(
+    engine: TreeSitterEngine, adapter: CppAdapter
+) -> None:
+    """Documented, accepted limitation (see GRAMMAR_EVALUATION.md): an
+    out-of-class template-member definition's scope text carries the
+    template placeholder (`Box<T>`), so it will not nest under the
+    header-declared primary template's plain `Box` in the outline tree --
+    but it must still extract as a valid, non-crashing, non-colliding
+    symbol rather than being dropped or raising."""
+    source = b"template <typename T>\nT Box<T>::get() const { return T(); }\n"
+    tree = parse(engine, source)
+    symbols = adapter.extract_symbols(tree, source, "box.cpp")
+    assert len(symbols) == 1
+    assert symbols[0].name == "get"
+    assert symbols[0].kind == SymbolKind.METHOD
+    assert symbols[0].parent == "Box<T>"

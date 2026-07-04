@@ -130,16 +130,17 @@ def _map_access_specifier(text: str, current: Visibility) -> Visibility:
 # A function-shaped declarator's *inner* declarator tells us what kind of
 # callable this is, independent of whether it has a body:
 #
+# - `qualified_identifier` (e.g. `Point::getX`, `geo::Point::move`) -- an
+#   out-of-class member definition, the .cpp half of a header/impl split.
+#   The qualified_identifier's own scope prefix supplies the parent, so
+#   this works whether the .cpp file re-opens the same namespace as the
+#   header (relative scope) or spells the namespace out in full.
 # - `field_identifier` / `destructor_name` / `operator_name` -- these only
 #   ever occur inside a class/struct body: a plain method, destructor, or
 #   operator overload declared (or inline-defined) as a member.
 # - `identifier` -- a free function at namespace/file scope, OR (inside a
 #   class body) an inline constructor, whose declarator is indistinguishable
 #   from a free function's except for the `in_class` context it was found in.
-#
-# Out-of-class member definitions (`Point::getX() { ... }`, the .cpp half of
-# a header/impl split) use a third declarator shape, `qualified_identifier`
-# -- handled separately once header/impl pairing is in scope.
 
 _STATIC_KEYWORD = "static"
 
@@ -174,6 +175,18 @@ def _function_signature(node: object, declarator: object, source: bytes) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _split_qualified_scope(text: str) -> tuple[str, str]:
+    """Split a qualified_identifier's raw '::'-joined text (e.g.
+    'geo::Point::getX') into (scope_prefix, tail_name), converting the
+    scope portion's '::' separators to '.'. `qualified_identifier`'s own
+    `scope`/`name` fields are right-recursively nested (`geo::Point::getX`
+    = scope: geo, name: (Point::getX), ...), so splitting the node's full
+    raw text once from the right is simpler and correct regardless of
+    nesting depth."""
+    scope, _, tail = text.rpartition("::")
+    return scope.replace("::", "."), tail
+
+
 def _extract_function_like(
     node: object,
     source: bytes,
@@ -196,7 +209,11 @@ def _extract_function_like(
         return None
     inner_type = _type(inner)
 
-    if inner_type in ("field_identifier", "destructor_name", "operator_name"):
+    if inner_type == "qualified_identifier":
+        scope_prefix, name = _split_qualified_scope(_text(inner, source))
+        parent = _qualify(scope_path, scope_prefix)
+        kind = SymbolKind.METHOD
+    elif inner_type in ("field_identifier", "destructor_name", "operator_name"):
         if not in_class:
             return None
         name = _text(inner, source)
@@ -545,8 +562,8 @@ class CppAdapter:
     def extract_symbols(self, tree: object, source: bytes, file_path: str) -> list[Symbol]:
         """Extract all symbols from a C++ parse tree: namespaces, classes,
         structs (including nested types and template specializations),
-        functions, and data members. Out-of-class (header/impl-split)
-        member definitions are handled separately."""
+        functions, methods (including out-of-class header/impl-split
+        definitions), and data members."""
         t: Any = tree
         root: object = t.root_node
         flat = _flatten_declarations(root)
