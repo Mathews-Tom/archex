@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.15.2] - 2026-07-04
+
+### Added
+
+- **XML chunk-only language support:** Registered `.xml` in `LANGUAGE_SUPPORT` at `chunk-only` tier, reusing the already-bundled, mature `tree-sitter-grammars/tree-sitter-xml` grammar via `tree_sitter_language_pack` (no new dependency). Chunks on top-level `element` nodes, mirroring HTML's existing pattern; no symbol claim is made, since XML element semantics are dialect-specific (entity vs. bean vs. build-script definitions all share the same grammar but mean different things). Fixes the whole-file/line-window fallback previously reported for `.xml` files (#371) — entity, service, and screen definition files in Java/Groovy codebases now chunk per top-level element. Grammar coverage in `archex doctor` moves from 15/15 to 16/16 chunk-only grammars available.
+
 ## [0.15.1] - 2026-07-01
 
 ### Added
