@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from archex.models import SymbolKind, Visibility
+from archex.models import DiscoveredFile, ImportStatement, Symbol, SymbolKind, Visibility
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.php import PHPAdapter
 from archex.parse.engine import TreeSitterEngine
@@ -463,3 +463,168 @@ def test_all_members_have_parent(engine: TreeSitterEngine, adapter: PHPAdapter) 
         for s in symbols:
             if s.kind in (SymbolKind.METHOD, SymbolKind.VARIABLE, SymbolKind.CONSTANT):
                 assert s.parent is not None, f"Missing parent for {s.qualified_name} in {f}"
+
+
+# ---------------------------------------------------------------------------
+# resolve_import
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_namespaced_import_via_directory_match(adapter: PHPAdapter) -> None:
+    file_map = {
+        "Contracts/Arrayable.php": str(FIXTURES_DIR / "Contracts" / "Arrayable.php"),
+    }
+    imp = ImportStatement(
+        module="App.Contracts.Arrayable",
+        file_path="Models/User.php",
+        line=5,
+        is_relative=False,
+    )
+    resolved = adapter.resolve_import(imp, file_map)
+    assert resolved == file_map["Contracts/Arrayable.php"]
+
+
+def test_resolve_missing_basename_returns_none(adapter: PHPAdapter) -> None:
+    file_map = {
+        "Contracts/Arrayable.php": str(FIXTURES_DIR / "Contracts" / "Arrayable.php"),
+    }
+    imp = ImportStatement(
+        module="App.Contracts.Nonexistent",
+        file_path="Models/User.php",
+        line=5,
+        is_relative=False,
+    )
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+def test_resolve_zero_namespace_overlap_returns_none(adapter: PHPAdapter) -> None:
+    # The basename matches, but its directory structure shares no namespace
+    # segment with the import -- the adapter's stricter-than-JVM guard treats
+    # this as external rather than picking an unrelated same-named file.
+    file_map = {"Contracts/Arrayable.php": "/repo/Contracts/Arrayable.php"}
+    imp = ImportStatement(
+        module="Vendor.Other.Arrayable",
+        file_path="index.php",
+        line=1,
+        is_relative=False,
+    )
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+def test_resolve_global_namespace_falls_back_to_basename(adapter: PHPAdapter) -> None:
+    # A single-segment module (no namespace prefix) has empty namespace_parts,
+    # so the zero-overlap guard doesn't apply and the adapter matches by
+    # basename alone -- this is the global-namespace fallback path.
+    file_map = {"ArrayAccess.php": "/repo/ArrayAccess.php"}
+    imp = ImportStatement(
+        module="ArrayAccess",
+        file_path="index.php",
+        line=1,
+        is_relative=False,
+    )
+    assert adapter.resolve_import(imp, file_map) == "/repo/ArrayAccess.php"
+
+
+def test_resolve_grouped_imports_against_full_fixture_tree(adapter: PHPAdapter) -> None:
+    # `use App\Models\{Status, User};` in Services/UserService.php produces
+    # two ImportStatements; both must resolve correctly against a file_map
+    # built from every real php_simple fixture path.
+    file_map = {str(f.relative_to(FIXTURES_DIR)): str(f) for f in FIXTURES_DIR.rglob("*.php")}
+    status_imp = ImportStatement(
+        module="App.Models.Status",
+        file_path="Services/UserService.php",
+        line=6,
+        is_relative=False,
+    )
+    user_imp = ImportStatement(
+        module="App.Models.User",
+        file_path="Services/UserService.php",
+        line=6,
+        is_relative=False,
+    )
+    expected_status = str(FIXTURES_DIR / "Models" / "Status.php")
+    assert adapter.resolve_import(status_imp, file_map) == expected_status
+    assert adapter.resolve_import(user_imp, file_map) == str(FIXTURES_DIR / "Models" / "User.php")
+
+
+# ---------------------------------------------------------------------------
+# detect_entry_points
+# ---------------------------------------------------------------------------
+
+
+def test_detect_index_entry_point(adapter: PHPAdapter) -> None:
+    files = [
+        DiscoveredFile(
+            path="index.php", absolute_path=str(FIXTURES_DIR / "index.php"), language="php"
+        ),
+        DiscoveredFile(
+            path="Models/User.php",
+            absolute_path=str(FIXTURES_DIR / "Models" / "User.php"),
+            language="php",
+        ),
+    ]
+    entry_points = adapter.detect_entry_points(files)
+    assert "index.php" in entry_points
+    assert "Models/User.php" not in entry_points
+
+
+def test_shebang_marker_detected_despite_nonmatching_basename(
+    adapter: PHPAdapter, tmp_path: Path
+) -> None:
+    script = tmp_path / "worker.php"
+    script.write_text("#!/usr/bin/env php\n<?php\necho 'hi';\n")
+    files = [DiscoveredFile(path="worker.php", absolute_path=str(script), language="php")]
+    assert adapter.detect_entry_points(files) == ["worker.php"]
+
+
+def test_no_marker_and_nonmatching_basename_is_not_entry_point(
+    adapter: PHPAdapter, tmp_path: Path
+) -> None:
+    script = tmp_path / "helper.php"
+    script.write_text("<?php\nfunction helper(): int { return 1; }\n")
+    files = [DiscoveredFile(path="helper.php", absolute_path=str(script), language="php")]
+    assert adapter.detect_entry_points(files) == []
+
+
+# ---------------------------------------------------------------------------
+# classify_visibility
+# ---------------------------------------------------------------------------
+
+
+def test_classify_public_symbol(adapter: PHPAdapter) -> None:
+    s = Symbol(
+        name="User",
+        qualified_name="App.Models.User",
+        kind=SymbolKind.CLASS,
+        file_path="Models/User.php",
+        start_line=1,
+        end_line=10,
+        visibility=Visibility.PUBLIC,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PUBLIC
+
+
+def test_classify_internal_symbol(adapter: PHPAdapter) -> None:
+    s = Symbol(
+        name="email",
+        qualified_name="App.Models.User.email",
+        kind=SymbolKind.VARIABLE,
+        file_path="Models/User.php",
+        start_line=1,
+        end_line=1,
+        visibility=Visibility.INTERNAL,
+    )
+    assert adapter.classify_visibility(s) == Visibility.INTERNAL
+
+
+def test_classify_private_symbol(adapter: PHPAdapter) -> None:
+    s = Symbol(
+        name="validate",
+        qualified_name="App.Models.User.validate",
+        kind=SymbolKind.METHOD,
+        file_path="Models/User.php",
+        start_line=1,
+        end_line=5,
+        visibility=Visibility.PRIVATE,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PRIVATE
