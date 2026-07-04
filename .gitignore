@@ -215,5 +215,6 @@ __marimo__/
 
 # Developer workspace
 .docs/
-.archex/
-
+.archex/*
+!.archex/baselines/
+!.archex/baselines/**
