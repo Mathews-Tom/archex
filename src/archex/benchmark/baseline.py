@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from datetime import UTC, datetime
+from pathlib import Path
 
 from pydantic import BaseModel
 
@@ -22,8 +23,17 @@ class BaselineEntry(BaseModel):
     token_efficiency: float = 0.0
 
 
+class RankingSnapshotEntry(BaseModel):
+    """Per-file PageRank centrality and symbol count for ranking-stability gating."""
+
+    file_path: str
+    centrality: float
+    symbol_count: int
+
+
 class Baseline(BaseModel):
     entries: list[BaselineEntry] = []
+    ranking: list[RankingSnapshotEntry] = []
     created_at: str = ""
     archex_version: str = ""
 
@@ -69,6 +79,39 @@ def save_baseline(
 def load_baseline(data: dict[str, object]) -> Baseline:
     """Validate and load a baseline from parsed JSON data."""
     return Baseline.model_validate(data)
+
+
+def build_ranking_snapshot(repo_root: Path) -> list[RankingSnapshotEntry]:
+    """Index *repo_root* and snapshot per-file PageRank centrality and symbol count.
+
+    Used to populate ``Baseline.ranking`` and, later, to compare a promotion
+    candidate's index against that baseline for ranking-stability regressions
+    (see ``archex.benchmark.gate.check_ranking_stability``). Files with no import
+    edges get centrality ``0.0``; every indexed file gets its chunk-derived
+    symbol count regardless of edges.
+    """
+    from archex.api import index_repository
+    from archex.config import load_config
+    from archex.index.graph import DependencyGraph
+    from archex.models import RepoSource
+
+    source = RepoSource(local_path=str(repo_root))
+    config = load_config(source)
+    store = index_repository(source, config=config)
+    try:
+        centrality = DependencyGraph.from_edges(store.get_edges()).structural_centrality()
+        file_metadata = store.get_file_metadata()
+    finally:
+        store.close()
+
+    return [
+        RankingSnapshotEntry(
+            file_path=str(item["file_path"]),
+            centrality=centrality.get(str(item["file_path"]), 0.0),
+            symbol_count=int(item["symbol_count"]),
+        )
+        for item in file_metadata
+    ]
 
 
 _METRICS = ("recall", "precision", "f1_score", "mrr", "ndcg", "map_score", "token_efficiency")
