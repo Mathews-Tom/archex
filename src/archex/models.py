@@ -79,6 +79,7 @@ class RetrievalPolicy(StrEnum):
 
 class LanguageTier(StrEnum):
     FULL = "full"
+    STRUCTURED = "structured"
     CHUNK_ONLY = "chunk-only"
     UNKNOWN = "unknown"
 
