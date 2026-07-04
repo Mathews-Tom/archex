@@ -35,14 +35,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
     "kotlin": LanguageSupport("kotlin", "Kotlin", (".kt", ".kts"), _FULL, "kotlin"),
     "csharp": LanguageSupport("csharp", "C#", (".cs",), _FULL, "csharp"),
     "swift": LanguageSupport("swift", "Swift", (".swift",), _FULL, "swift"),
-    "c": LanguageSupport(
-        "c",
-        "C",
-        (".c", ".h"),
-        _CHUNK,
-        "c",
-        frozenset({"function_definition", "struct_specifier", "preproc_include"}),
-    ),
+    "c": LanguageSupport("c", "C", (".c", ".h"), _FULL, "c"),
     "cpp": LanguageSupport(
         "cpp",
         "C++",

@@ -14,11 +14,6 @@ from archex.serve.profile import build_profile
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 
 CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
-    "c": (
-        "main.c",
-        "#include <stdio.h>\nint add(int a, int b) { return a + b; }\nstruct Point { int x; };\n",
-        [(1, 1), (2, 2), (3, 3)],
-    ),
     "cpp": (
         "main.cpp",
         "#include <vector>\nnamespace n { class C { public: void m(){} }; int f(){return 1;} }\n",
@@ -89,6 +84,7 @@ FULL_LANGUAGE_FIXTURES: dict[str, Path] = {
     "php": FIXTURES_DIR / "php_simple",
     "ruby": FIXTURES_DIR / "ruby_simple",
     "scala": FIXTURES_DIR / "scala_simple",
+    "c": FIXTURES_DIR / "c_simple",
 }
 
 
