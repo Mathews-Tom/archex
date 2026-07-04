@@ -24,11 +24,6 @@ CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
         "#include <vector>\nnamespace n { class C { public: void m(){} }; int f(){return 1;} }\n",
         [(1, 1), (2, 2)],
     ),
-    "scala": (
-        "App.scala",
-        "import scala.collection.mutable\nclass C { def m(): Int = 1 }\nobject O { def f = 2 }\n",
-        [(1, 1), (2, 2), (3, 3)],
-    ),
     "lua": (
         "app.lua",
         'require("json")\nfunction f(x) return x end\nlocal t = { a = 1 }\n',
@@ -93,6 +88,7 @@ FULL_LANGUAGE_FIXTURES: dict[str, Path] = {
     "swift": FIXTURES_DIR / "swift_simple",
     "php": FIXTURES_DIR / "php_simple",
     "ruby": FIXTURES_DIR / "ruby_simple",
+    "scala": FIXTURES_DIR / "scala_simple",
 }
 
 
