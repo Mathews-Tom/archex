@@ -1,0 +1,46 @@
+# Scala grammar evaluation (M8 prerequisite)
+
+**Grammar:** bundled Scala grammar resolved by `tree_sitter_language_pack.get_language("scala")` and Archex's existing `tree-sitter-language-pack==0.13.0` fallback. No new dependency is required; Scala already resolves through this grammar at `CHUNK_ONLY` tier. The pack maps its `"scala"` key to `tree-sitter/tree-sitter-scala` — an official `tree-sitter` org grammar (the same maturity tier as the bundled Java, Python, and Ruby grammars), not a third-party or single-purpose fork.
+
+**Method:** probed the grammar directly with `tree_sitter_language_pack.get_language("scala")` + `tree_sitter.Parser`, walking parsed `root_node`s for `has_error` and `ERROR` nodes, and inspecting exact `child_by_field_name` results to confirm field names before writing adapter code. Beyond the standard idiom sweep, two Scala-specific risks were probed explicitly: whether semicolon-optional/newline-significant syntax reproduces the Groovy cascading-corruption failure mode, and whether Scala 3 syntax (bundled grammar predates full dotty support) corrupts sibling boundaries when it fails to parse.
+
+## Idioms probed (all `has_error == False`, zero `ERROR` nodes unless noted)
+
+- Package declarations: single dotted (`package com.example`), chained bodyless (`package com.example` then `package models` — cumulative nesting, Scala-specific idiom), and brace-style (`package foo { ... }`, which nests its body as a `body` field on `package_clause` rather than flattening to top-level siblings — the adapter must recurse into it explicitly, the same shape as PHP's brace-style `namespace` handling).
+- Imports: simple dotted (`import scala.collection.mutable.ArrayBuffer`), wildcard (`import scala.language._`), selector groups (`import scala.util.{Try, Success, Failure}`), arrow-renamed (`import java.util.{List => JList}`), mixed groups (plain + renamed + wildcard in one selector list), and `_root_`-prefixed absolute imports. Each import's dotted path is a flat sequence of sibling `identifier` nodes (no wrapping node for the path itself); `child_by_field_name("path")` only tags the *first* identifier, so the adapter walks all `identifier` children directly instead of trusting that field.
+- Declarations: `class`, `case class`, `object`, `case object`, `trait`, `sealed trait`, `abstract class`, `final class`, nested classes/objects inside a class or object body, and the companion-object pattern (`class Foo` + `object Foo` as independent top-level siblings — Scala has no dedicated companion-object grammar node, unlike Kotlin's `companion_object`).
+- Members: `def` (including curried multi-parameter-list, default parameter values, no-return-type, and `override`/`implicit`/`lazy` modifiers), `val`/`var` (field name in a `pattern` field, distinct from the `name` field used by class/object/trait/function), constructor parameters (`class_parameters`), and annotations (`@SerialVersionUID(1L)` above a class — attaches as a positional `annotation` child, does not create an `ERROR`).
+- Visibility: bare `private`/`protected`, and qualified `private[this]`/`private[com.example]`/`protected[Scoped]` — all wrapped in a `modifiers` -> `access_modifier` (-> `access_qualifier` for the bracketed form) chain; other modifier keywords (`override`, `implicit`, `lazy`, `abstract`, `final`, `sealed`, `case`) are unnamed tokens with no wrapping node and do not affect visibility.
+- Pattern matching (`match`/`case` over case classes and case objects) and for-comprehensions (`for { ... } yield`) — both parse cleanly and were exercised in the fixtures' `Shape.totalArea`.
+- String interpolation (`s"...${expr}"`), multi-line triple-quoted strings, and semicolon-free (newline-terminated) statement style — no cascading corruption; this rules out the Groovy-class failure mode for Scala specifically.
+- Self-type annotations (`trait LoudGreeter { self: Greeter => ... }`) — parses as a positional `self_type` child, no special adapter handling required since self-types aren't part of this milestone's symbol/import scope.
+- Adjacent same-kind declarations with no blank line between them (tight `case class` siblings, sibling classes inside a brace package block) — every sibling's `start_point`/`end_point` stayed independently correct; no boundary corruption.
+
+## Result: PASS, with one documented, non-blocking gap
+
+The bundled Scala grammar handles every construct this milestone's adapter needs — packages (both nesting styles), imports (all five forms above), class/case class/object/case object/trait declarations, and members — with zero `ERROR` nodes and correct independent boundaries for adjacent declarations of the same kind. Per the vetting procedure's disqualifying-failure-mode test (two adjacent declarations in one probe, diffed against expected node count/boundaries), no cascading corruption was found anywhere in the idiom sweep. Full-tier promotion proceeds.
+
+**Documented gap (non-blocking):** Scala 3's `given ... with { }` instance syntax produces a single contained `ERROR` node (the bundled grammar version does not have complete Scala 3/dotty support). This does **not** cascade — the sibling declaration immediately following a failed `given` block parses with correct, unaffected boundaries in every probe. `given`/`using`/`extension` declarations are outside this milestone's declared symbol scope (classes, objects, traits, functions) regardless, so this gap has no effect on the adapter. It is recorded here in case a future milestone extends symbol extraction to Scala 3 contextual-abstraction constructs.
+
+## Design decisions this evaluation drove
+
+- **`trait_definition` -> `SymbolKind.INTERFACE`.** The `Symbol` model has no dedicated trait kind. A Scala trait is structurally closest to an interface (can declare abstract methods and default implementations, supports multiple mixin), so it reports as `INTERFACE` rather than `CLASS` — unlike PHP, whose traits report as `CLASS` because a PHP trait's member shape matches a class body, not an interface.
+- **`object_definition` -> `SymbolKind.CLASS`**, matching Kotlin's existing `object_declaration -> CLASS` precedent (no dedicated singleton/module kind is used for this in the existing FULL adapters).
+- **The companion-object name collision is expected and already handled.** `case class User` and `object User` are independent top-level siblings with identical `qualified_name` ("User") and identical `kind` (`CLASS`), producing the same `symbol_id`. This is not adapter-specific: `pipeline/chunker.py::_disambiguate_symbol_ids` already resolves exactly this class of collision (originally built for same-name/kind overloads in other FULL languages) by suffixing `@2`, `@3`, ... sorted by `start_line`. The `models/User.scala` fixture deliberately exercises this path.
+- **Import resolution reuses `_jvm_helpers.resolve_jvm_import`** (extensions=`(".scala",)`), the same package-to-directory-segment-scoring heuristic used by Java and Kotlin, since Scala's package/import semantics are structurally identical. This heuristic assumes one importable top-level name per file basename match; Scala (unlike Java) does not enforce one-public-class-per-file, so an import naming a *non-primary* declaration inside a multi-declaration file will not resolve. `App.scala`'s `import com.example.app.shapes.{Circle, Empty, Shape, Square}` deliberately exercises both sides: `Shape` resolves (matches `shapes/Shape.scala`'s basename), `Circle`/`Square`/`Empty` do not (declared inside `Shape.scala`, not their own files) — a documented, conservative limitation consistent with Ruby's adapter docstring philosophy ("stay unresolved instead of being guessed"), not a defect.
+
+## Fixture layout
+
+Mirrors the existing `java_simple`/`php_simple`/`ruby_simple` convention: a small package-rooted Scala tree under this directory, with each file exercising a distinct construct so symbol extraction and cross-file import resolution are covered end to end.
+
+| File | Constructs covered |
+|---|---|
+| `App.scala` | Entry point (`object Main extends App`), five import forms (external/unresolvable, grouped, aliased, wildcard via a dependency, and a partially-resolving group), pattern matching, string interpolation |
+| `models/Address.scala` | Plain case class |
+| `models/User.scala` | Case class + companion object (name/kind collision case), top-level `val`/private `def` members |
+| `shapes/Shape.scala` | Sealed trait ADT, case classes, case object, companion object with pattern matching and a for-comprehension |
+| `contracts/Greeter.scala` | Trait with an abstract (body-less) method |
+| `contracts/FriendlyGreeter.scala` | Trait extending another trait with a default method body, self-type annotation |
+| `services/UserService.scala` | Class with a constructor parameter, wildcard import, `Try`/`Success`/`Failure`, visibility variety (`private`, `protected[this]`, default-public `override`), nested `private object` |
+| `legacy/Adjacent.scala` | Brace-style `package` block (tests the adapter's recursion into a package body rather than top-level-only symbol extraction), adjacent same-kind classes for boundary-corruption probing |
+| `util/StringUtils.scala` | Utility object (functions + `val`, no companion class), nested class inside an object body |
