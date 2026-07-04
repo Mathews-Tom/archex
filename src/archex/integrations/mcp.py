@@ -27,7 +27,17 @@ from archex.api import (
     search_symbols,
 )
 from archex.config import load_config, load_index_config
-from archex.graph_artifact import GraphArtifactError
+from archex.explain import (
+    ExplainError,
+    explain_file,
+    explain_graph_file,
+    explain_graph_module,
+    explain_graph_symbol,
+    explain_module,
+    explain_symbol,
+    render_explain_context,
+)
+from archex.graph_artifact import GraphArtifactError, load_arch_graph
 from archex.graph_query import (
     GraphDirection,
     GraphEdgeSummary,
@@ -554,6 +564,92 @@ def handle_get_impact(
     return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
 
 
+def handle_explain_target(
+    repo_url: str | None = None,
+    target: str | None = None,
+    module_name: str | None = None,
+    graph_path: str | None = None,
+    output_format: str = "json",
+) -> str:
+    """Explain a file, symbol, or module from indexed structural data.
+
+    Args:
+        repo_url: Local path or HTTP(S) URL of the repository. Required unless
+            graph_path is given.
+        target: File path or `path::name#kind` symbol identifier to explain.
+            Mutually exclusive with module_name.
+        module_name: Module path to explain. Mutually exclusive with target.
+        graph_path: Read an exported graph artifact instead of indexing
+            repo_url.
+        output_format: Output format — 'json' or 'markdown'. Defaults to 'json'.
+
+    Returns:
+        JSON envelope with ExplainContext content and _meta efficiency block.
+    """
+    _validate_output_format(output_format)
+    if module_name is not None and target is not None:
+        raise ExplainError("use either target or module_name, not both")
+    if module_name is None and target is None:
+        raise ExplainError("explain_target requires target or module_name")
+    if graph_path is None and repo_url is None:
+        raise ExplainError("explain_target requires repo_url when graph_path is not provided")
+
+    started = time.perf_counter()
+    source: RepoSource | None = None
+    pt: PipelineTiming | None = None
+    if graph_path is not None:
+        graph = load_arch_graph(Path(graph_path))
+        if module_name is not None:
+            context = explain_graph_module(graph, module_name)
+        elif target is not None and ("::" in target or "#" in target):
+            context = explain_graph_symbol(graph, target)
+        elif target is not None:
+            context = explain_graph_file(graph, target)
+        else:
+            raise ExplainError("explain_target requires target or module_name")
+        raw_tokens = max(count_tokens(graph.to_json()), 1)
+    else:
+        assert repo_url is not None
+        source = resolve_source(repo_url)
+        config = load_config(source)
+        index_config = load_index_config(source)
+        pt = PipelineTiming()
+        store = index_repository(source, config=config, timing=pt, index_config=index_config)
+        try:
+            if module_name is not None:
+                context = explain_module(store, module_name)
+            elif target is not None and ("::" in target or "#" in target):
+                context = explain_symbol(store, target)
+            elif target is not None:
+                context = explain_file(store, target)
+            else:
+                raise ExplainError("explain_target requires target or module_name")
+        finally:
+            store.close()
+        raw_tokens = get_files_token_count(source, context.files) if context.files else 0
+    query_time_ms = (time.perf_counter() - started) * 1000
+
+    content = render_explain_context(context, output_format)
+    meta = compute_meta(
+        tool_name="explain_target",
+        response_text=content,
+        raw_file_tokens=raw_tokens or 0,
+        strategy="explain_context",
+        cached=pt.cached if pt is not None else False,
+        index_time_ms=pt.index_ms if pt is not None else 0.0,
+        query_time_ms=query_time_ms,
+    )
+    if source is not None:
+        _record_structural_metrics(
+            source,
+            "explain_target",
+            content,
+            raw_tokens,
+            file_count=len(context.files),
+        )
+    return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
+
+
 def handle_graph_lookup(
     graph_path: str,
     node: str,
@@ -955,6 +1051,21 @@ async def _run_mcp_tool(
         return await loop.run_in_executor(
             None, handle_get_impact, repo_url, base, impact_changed_files, fmt
         )
+    if name == "explain_target":
+        explain_repo_url: str | None = arguments.get("repo_url")
+        explain_target_arg: str | None = arguments.get("target")
+        module_name: str | None = arguments.get("module_name")
+        explain_graph_path: str | None = arguments.get("graph_path")
+        fmt = arguments.get("format", "json")
+        return await loop.run_in_executor(
+            None,
+            handle_explain_target,
+            explain_repo_url,
+            explain_target_arg,
+            module_name,
+            explain_graph_path,
+            fmt,
+        )
     if name == "graph_lookup":
         graph_path = arguments["graph_path"]
         node: str = arguments["node"]
@@ -1354,6 +1465,52 @@ def build_server() -> Any:
                         },
                     },
                     "required": ["repo_url"],
+                },
+            ),
+            mcp_types.Tool(
+                name="explain_target",
+                description=(
+                    "Explain a file, symbol, or module from indexed structural data: public "
+                    "interfaces, internal symbols, imports/imported-by, module context, and "
+                    "complexity signals."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "repo_url": {
+                            "type": "string",
+                            "description": (
+                                "Local path or HTTP(S) URL of the repository. Required "
+                                "unless graph_path is given."
+                            ),
+                        },
+                        "target": {
+                            "type": "string",
+                            "description": (
+                                "File path or `path::name#kind` symbol identifier to "
+                                "explain. Mutually exclusive with module_name."
+                            ),
+                        },
+                        "module_name": {
+                            "type": "string",
+                            "description": (
+                                "Module path to explain. Mutually exclusive with target."
+                            ),
+                        },
+                        "graph_path": {
+                            "type": "string",
+                            "description": (
+                                "Read an exported graph artifact instead of indexing repo_url."
+                            ),
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                            "description": "Output format for the explain context.",
+                        },
+                    },
+                    "required": [],
                 },
             ),
             mcp_types.Tool(

@@ -12,6 +12,7 @@ import pytest
 
 pytest.importorskip("mcp", reason="mcp not installed")
 
+from archex.explain import ExplainError
 from archex.graph_artifact import (
     ArchGraph,
     GraphEdge,
@@ -28,6 +29,7 @@ from archex.integrations.mcp import (
     clear_graph_query_cache,
     handle_analyze_repo,
     handle_compare_repos,
+    handle_explain_target,
     handle_get_impact,
     handle_graph_hubs,
     handle_graph_neighbors,
@@ -674,7 +676,7 @@ class TestBuildServer:
         server_result = await handler(req)
         result = server_result.root
         assert isinstance(result, mcp_types.ListToolsResult)
-        assert len(result.tools) == 15
+        assert len(result.tools) == 16
         tool_names = {t.name for t in result.tools}
         assert "scout_repo" in tool_names
         assert "get_file_tree" in tool_names
@@ -684,6 +686,7 @@ class TestBuildServer:
         assert "graph_path" in tool_names
         assert "graph_stats" in tool_names
         assert "get_impact" in tool_names
+        assert "explain_target" in tool_names
 
 
 # ---------------------------------------------------------------------------
@@ -1019,3 +1022,147 @@ class TestHandleGetImpact:
 
         with pytest.raises(ImpactError, match="requires changed_files"):
             handle_get_impact("https://example.com/repo.git")
+
+
+# ---------------------------------------------------------------------------
+# explain_target handler tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandleExplainTarget:
+    def test_matches_cli_output_for_file_target(self, python_simple_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        cli_result = runner.invoke(
+            cli, ["explain", str(python_simple_repo), "main.py", "--format", "json"]
+        )
+        assert cli_result.exit_code == 0, cli_result.output
+        cli_data = json.loads(cli_result.output)
+
+        mcp_result = handle_explain_target(
+            str(python_simple_repo), target="main.py", output_format="json"
+        )
+        envelope = json.loads(mcp_result)
+        mcp_data = json.loads(envelope["content"])
+
+        assert mcp_data == cli_data
+        assert envelope["_meta"]["tool_name"] == "explain_target"
+        assert envelope["_meta"]["strategy"] == "explain_context"
+
+    def test_matches_cli_output_for_symbol_target(self, python_simple_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        cli_result = runner.invoke(
+            cli,
+            [
+                "explain",
+                str(python_simple_repo),
+                "main.py::run#function",
+                "--format",
+                "json",
+            ],
+        )
+        assert cli_result.exit_code == 0, cli_result.output
+        cli_data = json.loads(cli_result.output)
+
+        mcp_result = handle_explain_target(
+            str(python_simple_repo), target="main.py::run#function", output_format="json"
+        )
+        mcp_data = json.loads(json.loads(mcp_result)["content"])
+
+        assert mcp_data == cli_data
+
+    def test_matches_cli_output_for_module_target(self, python_simple_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        cli_result = runner.invoke(
+            cli,
+            ["explain", str(python_simple_repo), "--module", "services", "--format", "json"],
+        )
+        assert cli_result.exit_code == 0, cli_result.output
+        cli_data = json.loads(cli_result.output)
+
+        mcp_result = handle_explain_target(
+            str(python_simple_repo), module_name="services", output_format="json"
+        )
+        mcp_data = json.loads(json.loads(mcp_result)["content"])
+
+        assert mcp_data == cli_data
+
+    def test_matches_cli_output_for_markdown_format(self, python_simple_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        cli_result = runner.invoke(cli, ["explain", str(python_simple_repo), "main.py"])
+        assert cli_result.exit_code == 0, cli_result.output
+
+        mcp_result = handle_explain_target(
+            str(python_simple_repo), target="main.py", output_format="markdown"
+        )
+        envelope = json.loads(mcp_result)
+
+        assert envelope["content"] == cli_result.output
+
+    def test_matches_cli_output_for_graph_artifact_mode(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        graph_path = tmp_path / "graph.json"
+        export_result = runner.invoke(
+            cli, ["graph", "export", str(python_simple_repo), "--output", str(graph_path)]
+        )
+        assert export_result.exit_code == 0, export_result.output
+
+        cli_result = runner.invoke(
+            cli,
+            [
+                "explain",
+                "ignored",
+                "main.py",
+                "--graph",
+                str(graph_path),
+                "--format",
+                "json",
+            ],
+        )
+        assert cli_result.exit_code == 0, cli_result.output
+        cli_data = json.loads(cli_result.output)
+
+        mcp_result = handle_explain_target(
+            target="main.py", graph_path=str(graph_path), output_format="json"
+        )
+        envelope = json.loads(mcp_result)
+        mcp_data = json.loads(envelope["content"])
+
+        assert mcp_data == cli_data
+
+    def test_rejects_both_target_and_module(self) -> None:
+        with pytest.raises(ExplainError, match="not both"):
+            handle_explain_target("/fake/repo", target="a.py", module_name="a")
+
+    def test_rejects_neither_target_nor_module(self) -> None:
+        with pytest.raises(ExplainError, match="requires target or module_name"):
+            handle_explain_target("/fake/repo")
+
+    def test_requires_repo_url_without_graph_path(self) -> None:
+        with pytest.raises(ExplainError, match="requires repo_url"):
+            handle_explain_target(target="a.py")
+
+    def test_rejects_invalid_format(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported format"):
+            handle_explain_target("/fake/repo", target="a.py", output_format="xml")
