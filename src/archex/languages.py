@@ -61,22 +61,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
     ),
     "php": LanguageSupport("php", "PHP", (".php",), _FULL, "php"),
     "ruby": LanguageSupport("ruby", "Ruby", (".rb",), _FULL, "ruby"),
-    "scala": LanguageSupport(
-        "scala",
-        "Scala",
-        (".scala", ".sc"),
-        _CHUNK,
-        "scala",
-        frozenset(
-            {
-                "class_definition",
-                "object_definition",
-                "trait_definition",
-                "function_definition",
-                "import_declaration",
-            }
-        ),
-    ),
+    "scala": LanguageSupport("scala", "Scala", (".scala", ".sc"), _FULL, "scala"),
     "lua": LanguageSupport(
         "lua",
         "Lua",
