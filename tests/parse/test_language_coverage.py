@@ -58,6 +58,25 @@ CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
         "<html><body><section><h1>Hello</h1></section></body></html>\n",
         [(1, 1)],
     ),
+    "xml": (
+        "MoquiEntity.xml",
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<entity name="Foo" package="example">\n'
+        '    <field name="id" type="id"/>\n'
+        '    <field name="name" type="text-medium"/>\n'
+        '    <relationship type="one" related="Bar"/>\n'
+        "</entity>\n"
+        '<service name="bar#Create" verb="create" noun="Bar">\n'
+        "    <in-parameters>\n"
+        '        <parameter name="id"/>\n'
+        '        <parameter name="name"/>\n'
+        "    </in-parameters>\n"
+        "    <actions>\n"
+        '        <service-call name="create#Bar" in-map="context"/>\n'
+        "    </actions>\n"
+        "</service>\n",
+        [(2, 6), (7, 15)],
+    ),
     "css": (
         "style.css",
         '@import url("x.css");\n.foo { color: red; }\n@media screen { .bar { display: none; } }\n',
