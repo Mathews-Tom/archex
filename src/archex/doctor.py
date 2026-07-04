@@ -130,15 +130,26 @@ def render_doctor_text(report: DoctorReport) -> str:
             lines.append(f"  network: {check.details.get('network_implications', '')}")
         if check.name == "grammars":
             full_value = check.details.get("full", {})
+            structured_value = check.details.get("structured", {})
             chunk_value = check.details.get("chunk_only", {})
-            if isinstance(full_value, dict) and isinstance(chunk_value, dict):
+            if (
+                isinstance(full_value, dict)
+                and isinstance(structured_value, dict)
+                and isinstance(chunk_value, dict)
+            ):
                 full = cast("dict[str, object]", full_value)
+                structured = cast("dict[str, object]", structured_value)
                 chunk = cast("dict[str, object]", chunk_value)
                 full_available = _int_value(full.get("available", 0))
                 full_total = _int_value(full.get("total", 0))
+                structured_available = _int_value(structured.get("available", 0))
+                structured_total = _int_value(structured.get("total", 0))
                 chunk_available = _int_value(chunk.get("available", 0))
                 chunk_total = _int_value(chunk.get("total", 0))
                 lines.append(f"  full grammars: {full_available}/{full_total} available")
+                lines.append(
+                    f"  structured grammars: {structured_available}/{structured_total} available"
+                )
                 lines.append(f"  chunk-only grammars: {chunk_available}/{chunk_total} available")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -410,16 +421,8 @@ def _network_implications(downloads: list[object]) -> str:
 def _grammar_check() -> DoctorCheck:
     engine = TreeSitterEngine()
     missing: dict[str, str] = {}
-    available_by_tier: dict[LanguageTier, int] = {
-        LanguageTier.FULL: 0,
-        LanguageTier.CHUNK_ONLY: 0,
-        LanguageTier.UNKNOWN: 0,
-    }
-    total_by_tier: dict[LanguageTier, int] = {
-        LanguageTier.FULL: 0,
-        LanguageTier.CHUNK_ONLY: 0,
-        LanguageTier.UNKNOWN: 0,
-    }
+    available_by_tier: dict[LanguageTier, int] = {tier: 0 for tier in LanguageTier}
+    total_by_tier: dict[LanguageTier, int] = {tier: 0 for tier in LanguageTier}
     for language_id, support in sorted(LANGUAGE_SUPPORT.items()):
         total_by_tier[support.tier] += 1
         try:
@@ -433,6 +436,10 @@ def _grammar_check() -> DoctorCheck:
         "full": {
             "available": available_by_tier[LanguageTier.FULL],
             "total": total_by_tier[LanguageTier.FULL],
+        },
+        "structured": {
+            "available": available_by_tier[LanguageTier.STRUCTURED],
+            "total": total_by_tier[LanguageTier.STRUCTURED],
         },
         "chunk_only": {
             "available": available_by_tier[LanguageTier.CHUNK_ONLY],

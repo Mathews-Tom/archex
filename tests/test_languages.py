@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pytest
 
 from archex.languages import (
     LANGUAGE_SUPPORT,
@@ -8,9 +8,6 @@ from archex.languages import (
     get_language_tier,
 )
 from archex.models import LanguageTier
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def test_stub_registered_structured_language_reports_structured(
@@ -37,3 +34,14 @@ def test_stub_registered_structured_language_reports_structured(
 
 def test_unknown_language_still_reports_unknown() -> None:
     assert get_language_tier("missing-language") == LanguageTier.UNKNOWN
+
+
+def test_structured_language_requires_outline_chunk_nodes() -> None:
+    with pytest.raises(ValueError, match="STRUCTURED languages must declare"):
+        LanguageSupport(
+            language_id="structured_stub",
+            display_name="Structured Stub",
+            extensions=(".stub",),
+            tier=LanguageTier.STRUCTURED,
+            pack_name="json",
+        )
