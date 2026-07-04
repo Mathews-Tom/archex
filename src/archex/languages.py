@@ -18,8 +18,13 @@ class LanguageSupport:
     pack_name: str
     chunk_node_types: frozenset[str] = frozenset()
 
+    def __post_init__(self) -> None:
+        if self.tier is LanguageTier.STRUCTURED and not self.chunk_node_types:
+            raise ValueError("STRUCTURED languages must declare outline chunk_node_types")
+
 
 _FULL = LanguageTier.FULL
+_STRUCTURED = LanguageTier.STRUCTURED
 _CHUNK = LanguageTier.CHUNK_ONLY
 UNKNOWN_LANGUAGE_ID = "unknown"
 UNKNOWN_LINE_WINDOW = 80
@@ -166,6 +171,11 @@ CHUNK_ONLY_LANGUAGE_IDS: frozenset[str] = frozenset(
     language_id
     for language_id, support in LANGUAGE_SUPPORT.items()
     if support.tier == LanguageTier.CHUNK_ONLY
+)
+STRUCTURED_LANGUAGE_IDS: frozenset[str] = frozenset(
+    language_id
+    for language_id, support in LANGUAGE_SUPPORT.items()
+    if support.tier == LanguageTier.STRUCTURED
 )
 
 

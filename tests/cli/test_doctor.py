@@ -6,9 +6,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from archex import doctor
 from archex.cli.main import cli
+from archex.doctor import DoctorCheck, DoctorReport, render_doctor_text
+from archex.languages import LanguageSupport
 from archex.metrics.health import record_metrics_failure
 from archex.metrics.storage import metrics_db_path
+from archex.models import LanguageTier
 from archex.project import init_project
 
 
@@ -200,3 +204,113 @@ vector = true
     assert details["embedding"]["model"] is None
     assert details["embedding"]["vector_requested"] is True
     assert details["network_downloads_required"] == []
+
+
+def test_grammar_check_reports_structured_bucket_distinct_from_full_and_chunk_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    full_support = LanguageSupport(
+        language_id="python",
+        display_name="Python",
+        extensions=(".py",),
+        tier=LanguageTier.FULL,
+        pack_name="python",
+    )
+    chunk_support = LanguageSupport(
+        language_id="sql",
+        display_name="SQL",
+        extensions=(".sql",),
+        tier=LanguageTier.CHUNK_ONLY,
+        pack_name="sql",
+    )
+    structured_support = LanguageSupport(
+        language_id="structured_stub",
+        display_name="Structured Stub",
+        extensions=(".structstub",),
+        tier=LanguageTier.STRUCTURED,
+        pack_name="structured_stub",
+        chunk_node_types=frozenset({"section"}),
+    )
+    monkeypatch.setattr(
+        doctor,
+        "LANGUAGE_SUPPORT",
+        {"python": full_support, "sql": chunk_support, "structured_stub": structured_support},
+    )
+
+    class _AlwaysLoadsEngine:
+        def get_language(self, language_id: str) -> object:
+            return object()
+
+    monkeypatch.setattr(doctor, "TreeSitterEngine", _AlwaysLoadsEngine)
+
+    check = doctor._grammar_check()  # pyright: ignore[reportPrivateUsage]
+
+    assert check.status == "ok"
+    assert check.details["full"] == {"available": 1, "total": 1}
+    assert check.details["chunk_only"] == {"available": 1, "total": 1}
+    assert check.details["structured"] == {"available": 1, "total": 1}
+
+
+def test_grammar_check_missing_structured_grammar_is_non_fatal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    full_support = LanguageSupport(
+        language_id="python",
+        display_name="Python",
+        extensions=(".py",),
+        tier=LanguageTier.FULL,
+        pack_name="python",
+    )
+    structured_support = LanguageSupport(
+        language_id="structured_stub",
+        display_name="Structured Stub",
+        extensions=(".structstub",),
+        tier=LanguageTier.STRUCTURED,
+        pack_name="structured_stub",
+        chunk_node_types=frozenset({"section"}),
+    )
+    monkeypatch.setattr(
+        doctor, "LANGUAGE_SUPPORT", {"python": full_support, "structured_stub": structured_support}
+    )
+
+    class _SelectiveEngine:
+        def get_language(self, language_id: str) -> object:
+            if language_id == "structured_stub":
+                raise RuntimeError("no grammar available")
+            return object()
+
+    monkeypatch.setattr(doctor, "TreeSitterEngine", _SelectiveEngine)
+
+    check = doctor._grammar_check()  # pyright: ignore[reportPrivateUsage]
+
+    assert check.status == "warning"
+    assert check.details["structured"] == {"available": 0, "total": 1}
+    missing = check.details["missing"]
+    assert isinstance(missing, dict)
+    assert "structured_stub" in missing
+
+
+def test_render_doctor_text_includes_structured_grammar_line() -> None:
+    report = DoctorReport(
+        repo_root=Path("/tmp/repo"),
+        status="ok",
+        checks=[
+            DoctorCheck(
+                name="grammars",
+                status="ok",
+                message="all declared tree-sitter grammars load",
+                details={
+                    "full": {"available": 3, "total": 3},
+                    "chunk_only": {"available": 2, "total": 2},
+                    "structured": {"available": 1, "total": 1},
+                    "missing": {},
+                },
+            )
+        ],
+    )
+
+    text = render_doctor_text(report)
+
+    assert "full grammars: 3/3 available" in text
+    assert "chunk-only grammars: 2/2 available" in text
+    assert "structured grammars: 1/1 available" in text

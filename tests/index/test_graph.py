@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from archex import languages
 from archex.index.graph import DependencyGraph
+from archex.languages import LanguageSupport, get_language_tier
 from archex.models import (
     Edge,
     EdgeConfidence,
     EdgeKind,
     ImportStatement,
+    LanguageTier,
     ParsedFile,
     Symbol,
     SymbolKind,
@@ -16,6 +19,8 @@ from archex.models import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 
 def _make_parsed_files() -> list[ParsedFile]:
@@ -117,6 +122,47 @@ def test_resolved_import_edges_are_extracted_with_evidence() -> None:
     assert edge.confidence == EdgeConfidence.EXTRACTED
     assert edge.confidence_score == 1.0
     assert edge.evidence == ["resolved import 'models' at main.py:1"]
+
+
+def test_structured_tier_parsed_file_emits_import_edge_without_symbols(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = LanguageSupport(
+        language_id="structured_stub",
+        display_name="Structured Stub",
+        extensions=(".structstub",),
+        tier=LanguageTier.STRUCTURED,
+        pack_name="structured_stub",
+        chunk_node_types=frozenset({"section"}),
+    )
+    monkeypatch.setitem(languages.LANGUAGE_SUPPORT, "structured_stub", stub)
+    assert get_language_tier("structured_stub") == LanguageTier.STRUCTURED
+
+    parsed_files = [
+        ParsedFile(path="pkg/main.structstub", language="structured_stub", symbols=[], lines=6),
+        ParsedFile(path="pkg/shared.structstub", language="structured_stub", symbols=[], lines=3),
+    ]
+    import_map = {
+        "pkg/main.structstub": [
+            ImportStatement(
+                module="./shared.structstub",
+                file_path="pkg/main.structstub",
+                line=1,
+                is_relative=True,
+                resolved_path="pkg/shared.structstub",
+            ),
+        ],
+        "pkg/shared.structstub": [],
+    }
+
+    graph = DependencyGraph.from_parsed_files(parsed_files, import_map)
+
+    assert graph.symbol_count == 0
+    [edge] = graph.file_edges()
+    assert edge.source == "pkg/main.structstub"
+    assert edge.target == "pkg/shared.structstub"
+    assert edge.kind == EdgeKind.IMPORTS
+    assert edge.confidence == EdgeConfidence.EXTRACTED
 
 
 def test_neighborhood_bfs() -> None:

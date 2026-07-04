@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pytest
+
+from archex import languages
 from archex.analyze.interfaces import extract_interfaces
 from archex.index.graph import DependencyGraph
+from archex.languages import LanguageSupport
 from archex.models import (
     ArchProfile,
     ImportStatement,
+    LanguageTier,
     ParsedFile,
     RepoMetadata,
     Symbol,
@@ -132,3 +140,33 @@ def test_dependency_graph_summary() -> None:
 
     assert profile.dependency_graph.file_count == 2
     assert profile.dependency_graph.edges == 1
+
+
+def test_build_profile_reports_structured_tier_for_registered_language(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stub = LanguageSupport(
+        language_id="structured_stub",
+        display_name="Structured Stub",
+        extensions=(".structstub",),
+        tier=LanguageTier.STRUCTURED,
+        pack_name="structured_stub",
+        chunk_node_types=frozenset({"section"}),
+    )
+    monkeypatch.setitem(languages.LANGUAGE_SUPPORT, "structured_stub", stub)
+
+    parsed = [
+        ParsedFile(path="widget.structstub", language="structured_stub", symbols=[], lines=5),
+    ]
+    metadata = RepoMetadata(
+        local_path="/tmp/test_repo",
+        languages={"structured_stub": 1},
+        total_files=1,
+        total_lines=5,
+    )
+    import_map: dict[str, list[ImportStatement]] = {"widget.structstub": []}
+    graph = DependencyGraph.from_parsed_files(parsed, import_map)
+
+    profile = build_profile(metadata, parsed, graph)
+
+    assert profile.stats.languages["structured_stub"].tier == LanguageTier.STRUCTURED
