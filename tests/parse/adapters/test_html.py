@@ -2,49 +2,27 @@
 
 `HtmlAdapter` (src/archex/parse/adapters/html.py) builds on the M11
 `StructuredAdapter` base to produce an element/script/style outline for
-`.html`/`.htm` files without ever claiming programming symbols. `html`
-remains registered at `LanguageTier.CHUNK_ONLY` in `archex.languages` until
-M12's tier-flip PR lands on top of this one, so every test that instantiates
-`HtmlAdapter` first monkeypatches a STRUCTURED-tier copy of the existing
-registry entry. Local script/link/img/anchor reference extraction is out of
-scope here -- that lands in the follow-up PR that overrides
-`extract_references`.
+`.html`/`.htm` files without ever claiming programming symbols. M12's
+tier-flip PR lands `html` at `LanguageTier.STRUCTURED` for real in
+`archex.languages`, so every test below builds `HtmlAdapter()` straight off
+the production registry entry -- no monkeypatched stand-in is needed
+anymore. This module also covers the local `script`/`link`/`img`/`a`
+reference extraction and resolution that ships alongside the tier flip:
+`extract_references` and `resolve_import` only ever surface *local*
+file-path references, never a claimed programming symbol.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from archex import languages
-from archex.languages import LanguageSupport
-from archex.models import ChunkRange, LanguageTier
+from archex.languages import get_language_tier
+from archex.models import ChunkRange, ImportStatement, LanguageTier
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.html import HtmlAdapter
 from archex.parse.engine import TreeSitterEngine
 
 FIXTURES_DIR = "tests/fixtures/html_structured"
-
-
-@pytest.fixture
-def _html_structured_registered(  # pyright: ignore[reportUnusedFunction]
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Register `html` at STRUCTURED tier for the duration of one test.
-
-    Copies extensions/pack_name/chunk_node_types straight from the real
-    (still CHUNK_ONLY) registry entry so only the tier under test changes --
-    the actual `languages.py` flip is a separate, later PR.
-    """
-    existing = languages.LANGUAGE_SUPPORT["html"]
-    stub = LanguageSupport(
-        language_id="html",
-        display_name=existing.display_name,
-        extensions=existing.extensions,
-        tier=LanguageTier.STRUCTURED,
-        pack_name=existing.pack_name,
-        chunk_node_types=existing.chunk_node_types,
-    )
-    monkeypatch.setitem(languages.LANGUAGE_SUPPORT, "html", stub)
 
 
 @pytest.fixture()
@@ -53,7 +31,7 @@ def engine() -> TreeSitterEngine:
 
 
 @pytest.fixture()
-def adapter(_html_structured_registered: None) -> HtmlAdapter:
+def adapter() -> HtmlAdapter:
     return HtmlAdapter()
 
 
@@ -70,12 +48,12 @@ def test_satisfies_language_adapter_protocol(adapter: HtmlAdapter) -> None:
     assert isinstance(adapter, LanguageAdapter)
 
 
-def test_rejects_instantiation_while_html_registry_entry_is_still_chunk_only() -> None:
-    """PR-1 ships the adapter class before the registry tier flip: building it
-    against the real, unpatched registry (still CHUNK_ONLY) must fail loudly
-    instead of silently accepting the mismatched tier."""
-    with pytest.raises(ValueError, match="registered as"):
-        HtmlAdapter()
+def test_html_registered_at_structured_tier() -> None:
+    """M12 flips `html` to STRUCTURED for real in `archex.languages` -- this
+    pins that registry fact directly, independent of any single adapter
+    call, so a tier regression fails here even if some other test's mocks
+    would otherwise mask it."""
+    assert get_language_tier("html") == LanguageTier.STRUCTURED
 
 
 # ---------------------------------------------------------------------------
@@ -190,4 +168,174 @@ def test_extract_symbols_on_realistic_fixture_with_function_and_class_in_script(
 
     symbols = adapter.extract_symbols(parse(engine, source), source, "index.html")
 
+    assert symbols == []
+
+
+# ---------------------------------------------------------------------------
+# extract_references: local script/link/img/a reference extraction (M12)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_references_extracts_local_script_link_img_and_anchor_targets(
+    engine: TreeSitterEngine, adapter: HtmlAdapter
+) -> None:
+    """Against the realistic fixture, the adapter extracts exactly the four
+    local reference-bearing attributes -- `<link href>`, `<script src>`,
+    `<a href>`, `<img src>` -- in document order, each pinned to its source
+    line. The fixture's *inline* `<script>`/`<style>` blocks carry no
+    `src`/`href` attribute and must not contribute an entry."""
+    with open(f"{FIXTURES_DIR}/index.html", "rb") as f:
+        source = f.read()
+
+    references = adapter.extract_references(parse(engine, source), source, "index.html")
+
+    assert [(imp.module, imp.line, imp.is_relative) for imp in references] == [
+        ("./styles/main.css", 6, True),
+        ("./scripts/app.js", 7, True),
+        ("./about.html", 12, True),
+        ("./images/logo.png", 13, True),
+    ]
+    assert all(imp.file_path == "index.html" for imp in references)
+
+
+# ---------------------------------------------------------------------------
+# extract_references: external / non-file targets never become references
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("case", "snippet"),
+    [
+        ("https_scheme", b'<a href="https://example.com/about.html">About</a>\n'),
+        ("http_scheme", b'<script src="http://cdn.example.com/lib.js"></script>\n'),
+        ("protocol_relative", b'<script src="//cdn.example.com/lib.js"></script>\n'),
+        ("data_uri", b'<img src="data:image/png;base64,AAAA">\n'),
+        ("mailto_scheme", b'<a href="mailto:hello@example.com">Mail</a>\n'),
+        ("javascript_scheme", b'<a href="javascript:void(0)">Click</a>\n'),
+        ("fragment_only", b'<a href="#section-2">Jump</a>\n'),
+    ],
+)
+def test_extract_references_ignores_external_and_non_file_targets(
+    engine: TreeSitterEngine, adapter: HtmlAdapter, case: str, snippet: bytes
+) -> None:
+    references = adapter.extract_references(parse(engine, snippet), snippet, "page.html")
+
+    assert references == [], f"{case} produced a reference for a non-local target"
+
+
+# ---------------------------------------------------------------------------
+# extract_references: query strings and fragments are stripped
+# ---------------------------------------------------------------------------
+
+
+def test_extract_references_strips_query_string_and_fragment_before_resolution(
+    engine: TreeSitterEngine, adapter: HtmlAdapter
+) -> None:
+    """A same-page-relative link decorated with a query string and a
+    fragment resolves as if neither were present -- both are stripped from
+    the extracted module before `resolve_import` ever sees it."""
+    source = b'<a href="./about.html?tab=2#intro">About</a>\n'
+
+    references = adapter.extract_references(parse(engine, source), source, "index.html")
+
+    assert len(references) == 1
+    assert references[0].module == "./about.html"
+    resolved = adapter.resolve_import(references[0], {"about.html": "about.html"})
+    assert resolved == "about.html"
+
+
+# ---------------------------------------------------------------------------
+# resolve_import: relative and root-relative resolution
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_import_resolves_relative_reference_against_containing_file_directory(
+    adapter: HtmlAdapter,
+) -> None:
+    """A `./`-relative reference resolves against the directory of the HTML
+    file that contains it, not against the repo root."""
+    imp = ImportStatement(
+        module="./about.html", file_path="pages/index.html", line=12, is_relative=True
+    )
+
+    resolved = adapter.resolve_import(imp, {"pages/about.html": "pages/about.html"})
+
+    assert resolved == "pages/about.html"
+
+
+def test_resolve_import_root_relative_reference_ignores_containing_file_nesting(
+    adapter: HtmlAdapter,
+) -> None:
+    """A `/`-rooted reference resolves against the repo root file map -- the
+    containing file's own directory nesting must not be joined in, unlike a
+    relative reference."""
+    imp = ImportStatement(
+        module="/assets/shared/logo.png",
+        file_path="deeply/nested/pages/about.html",
+        line=3,
+        is_relative=False,
+    )
+
+    resolved = adapter.resolve_import(
+        imp, {"assets/shared/logo.png": "/repo/assets/shared/logo.png"}
+    )
+
+    assert resolved == "/repo/assets/shared/logo.png"
+
+
+def test_resolve_import_returns_none_for_unresolvable_local_reference(adapter: HtmlAdapter) -> None:
+    imp = ImportStatement(
+        module="./missing.html", file_path="pages/index.html", line=1, is_relative=True
+    )
+
+    assert adapter.resolve_import(imp, {"pages/about.html": "pages/about.html"}) is None
+
+
+def test_extract_and_resolve_all_reference_kinds_against_realistic_fixture(
+    engine: TreeSitterEngine, adapter: HtmlAdapter
+) -> None:
+    """script src, link href, img src, and a href in the fixture all resolve
+    against a file map keyed by the fixture's own relative layout -- the
+    containing file (`index.html`) sits beside every referenced target, so
+    each reference resolves without a directory prefix."""
+    with open(f"{FIXTURES_DIR}/index.html", "rb") as f:
+        source = f.read()
+
+    references = adapter.extract_references(parse(engine, source), source, "index.html")
+    file_map = {
+        "styles/main.css": "styles/main.css",
+        "scripts/app.js": "scripts/app.js",
+        "about.html": "about.html",
+        "images/logo.png": "images/logo.png",
+    }
+
+    resolved = {imp.module: adapter.resolve_import(imp, file_map) for imp in references}
+
+    assert resolved == {
+        "./styles/main.css": "styles/main.css",
+        "./scripts/app.js": "scripts/app.js",
+        "./about.html": "about.html",
+        "./images/logo.png": "images/logo.png",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Reference extraction never becomes a programming-symbol claim (M12 invariant)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_symbols_stays_empty_while_extract_references_finds_local_targets(
+    engine: TreeSitterEngine, adapter: HtmlAdapter
+) -> None:
+    """M12 adds reference extraction on top of the M11 STRUCTURED base -- it
+    must not also start claiming programming symbols. On the realistic
+    fixture, references are non-empty but symbols remain empty."""
+    with open(f"{FIXTURES_DIR}/index.html", "rb") as f:
+        source = f.read()
+    tree = parse(engine, source)
+
+    references = adapter.extract_references(tree, source, "index.html")
+    symbols = adapter.extract_symbols(tree, source, "index.html")
+
+    assert references != []
     assert symbols == []
