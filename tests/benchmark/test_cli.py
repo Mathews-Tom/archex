@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from click.testing import CliRunner
 
+from archex.benchmark.baseline import RankingSnapshotEntry
 from archex.benchmark.models import (
     BenchmarkReport,
     BenchmarkResult,
@@ -171,6 +172,74 @@ class TestReportCommand:
         result = runner.invoke(benchmark_cmd, ["report", "--input", str(empty_dir)])
         assert result.exit_code != 0
         assert "No result files" in result.output
+
+
+class TestBaselineSaveCommand:
+    def test_without_ranking_source_omits_ranking(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        output_path = tmp_path / "baseline.json"
+
+        result = runner.invoke(
+            benchmark_cmd,
+            ["baseline", "save", "--input", str(results_dir), "--output", str(output_path)],
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        assert payload["ranking"] == []
+
+    def test_with_ranking_source_attaches_snapshot(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ranking_source = tmp_path / "ranking_source"
+        ranking_source.mkdir()
+        output_path = tmp_path / "baseline.json"
+
+        stub_ranking = [
+            RankingSnapshotEntry(file_path="src/a.py", centrality=0.4, symbol_count=12),
+            RankingSnapshotEntry(file_path="src/b.py", centrality=0.1, symbol_count=3),
+        ]
+        captured: list[Path] = []
+
+        def fake_build_ranking_snapshot(repo_root: Path) -> list[RankingSnapshotEntry]:
+            captured.append(repo_root)
+            return stub_ranking
+
+        monkeypatch.setattr(
+            "archex.cli.benchmark_cmd.build_ranking_snapshot",
+            fake_build_ranking_snapshot,
+        )
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "baseline",
+                "save",
+                "--input",
+                str(results_dir),
+                "--output",
+                str(output_path),
+                "--ranking-source",
+                str(ranking_source),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert captured == [ranking_source]
+        assert f"Ranking snapshot:   {len(stub_ranking)} files" in result.output
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        assert payload["ranking"] == [
+            {"file_path": "src/a.py", "centrality": 0.4, "symbol_count": 12},
+            {"file_path": "src/b.py", "centrality": 0.1, "symbol_count": 3},
+        ]
 
 
 class TestTriageCommand:

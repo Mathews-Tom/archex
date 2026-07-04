@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 from archex.benchmark.baseline import (
     Baseline,
     BaselineEntry,
+    RankingSnapshotEntry,
+    build_ranking_snapshot,
     compare_baseline,
     load_baseline,
     save_baseline,
@@ -167,3 +172,70 @@ def test_compare_baseline_excludes_diagnostic_strategies() -> None:
 
     assert {comparison.strategy for comparison in comparisons} == {Strategy.ARCHEX_QUERY.value}
     assert [comparison for comparison in comparisons if comparison.regression] == []
+
+
+def _init_git_repo(path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, text=True)
+
+
+def test_baseline_ranking_field_defaults_empty() -> None:
+    assert Baseline().ranking == []
+    baseline_with_entries = Baseline(
+        entries=[
+            BaselineEntry(
+                task_id="test_task",
+                strategy="archex_query",
+                recall=1.0,
+                precision=1.0,
+                f1_score=1.0,
+                mrr=1.0,
+            )
+        ]
+    )
+    assert baseline_with_entries.ranking == []
+
+
+def test_baseline_ranking_roundtrips_through_json() -> None:
+    baseline = Baseline(
+        ranking=[
+            RankingSnapshotEntry(file_path="src/a.py", centrality=0.4, symbol_count=12),
+            RankingSnapshotEntry(file_path="src/b.py", centrality=0.1, symbol_count=3),
+        ]
+    )
+    loaded = load_baseline(baseline.model_dump())
+    assert [(e.file_path, e.centrality, e.symbol_count) for e in loaded.ranking] == [
+        ("src/a.py", 0.4, 12),
+        ("src/b.py", 0.1, 3),
+    ]
+
+
+def test_build_ranking_snapshot_reflects_indexed_files(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    (tmp_path / "target_pkg").mkdir()
+    (tmp_path / "target_pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "target_pkg" / "helper.py").write_text(
+        "def one():\n    return 1\n\n\ndef two():\n    return 2\n\n\ndef three():\n    return 3\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "importer.py").write_text(
+        "import target_pkg.helper\n\n\ndef use_helper():\n    return target_pkg.helper.one()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "lonely.py").write_text(
+        "def solo_a():\n    return 1\n\n\ndef solo_b():\n    return 2\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_ranking_snapshot(tmp_path)
+    by_path = {entry.file_path: entry for entry in snapshot}
+
+    assert set(by_path) == {"target_pkg/helper.py", "importer.py", "lonely.py"}
+    # helper.py has 3 top-level defs and no import statements, so its symbol
+    # count matches the def count exactly (imports add their own chunk).
+    assert by_path["target_pkg/helper.py"].symbol_count == 3
+    assert by_path["lonely.py"].symbol_count == 2
+    # helper.py is imported by importer.py, so PageRank credits it with
+    # non-zero centrality; a file with no incoming or outgoing edges (lonely.py)
+    # gets centrality 0.0.
+    assert by_path["target_pkg/helper.py"].centrality > 0.0
+    assert by_path["lonely.py"].centrality == 0.0
