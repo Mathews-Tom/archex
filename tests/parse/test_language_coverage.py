@@ -14,11 +14,6 @@ from archex.serve.profile import build_profile
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 
 CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
-    "cpp": (
-        "main.cpp",
-        "#include <vector>\nnamespace n { class C { public: void m(){} }; int f(){return 1;} }\n",
-        [(1, 1), (2, 2)],
-    ),
     "lua": (
         "app.lua",
         'require("json")\nfunction f(x) return x end\nlocal t = { a = 1 }\n',
@@ -85,6 +80,7 @@ FULL_LANGUAGE_FIXTURES: dict[str, Path] = {
     "ruby": FIXTURES_DIR / "ruby_simple",
     "scala": FIXTURES_DIR / "scala_simple",
     "c": FIXTURES_DIR / "c_simple",
+    "cpp": FIXTURES_DIR / "cpp_simple",
 }
 
 
