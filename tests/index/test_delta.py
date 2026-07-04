@@ -519,6 +519,58 @@ class TestApplyDelta:
         finally:
             store.close()
 
+    def test_apply_delta_bm25_search_parity_with_full_rebuild(
+        self, delta_test_repo: Path, tmp_path: Path
+    ) -> None:
+        """BM25 search results after a targeted delta update must match a
+        genuine full reindex of the same final repo state exactly — the
+        parity requirement for replacing DROP+rebuild with a scoped insert.
+
+        The baseline is built via a fresh, independent full parse+index of
+        the repo at its final commit (not a round-trip through IndexStore's
+        `chunks` table, which does not persist `breadcrumbs`/`summary` and
+        would understate a real full rebuild's FTS content).
+        """
+        from archex.index.bm25 import BM25Index
+        from archex.index.graph import DependencyGraph
+
+        store, graph = self.build_initial_index(delta_test_repo, tmp_path)
+        assert isinstance(graph, DependencyGraph)
+        try:
+            base = _git_head(delta_test_repo)
+            (delta_test_repo / "utils.py").write_text(
+                "def brand_new_util():\n    return 'freshly parsed content'\n"
+            )
+            (delta_test_repo / "extra_feature.py").write_text(
+                "def process_widgets(widget_list):\n    return [w for w in widget_list if w]\n"
+            )
+            _git(delta_test_repo, "add", ".")
+            _git(delta_test_repo, "commit", "-m", "modify + add for parity check")
+            current = _git_head(delta_test_repo)
+
+            manifest = compute_delta(delta_test_repo, base, current)
+            apply_delta(store, graph, manifest, delta_test_repo, Config(cache=False))
+            targeted_bm25 = BM25Index(store)
+
+            # Full-rebuild baseline: an independent full parse+index of the
+            # repo at its current (final) commit — a genuine full reindex,
+            # not a round-trip through the store's lossy `chunks` table.
+            full_reindex_dir = tmp_path / "full_reindex"
+            full_reindex_dir.mkdir()
+            full_store, full_graph = self.build_initial_index(delta_test_repo, full_reindex_dir)
+            assert isinstance(full_graph, DependencyGraph)
+            full_bm25 = BM25Index(full_store)
+
+            try:
+                for query in ["util", "widget", "brand new", "process", "authenticate"]:
+                    targeted_results = [(c.id, score) for c, score in targeted_bm25.search(query)]
+                    full_results = [(c.id, score) for c, score in full_bm25.search(query)]
+                    assert targeted_results == full_results, f"parity mismatch: {query!r}"
+            finally:
+                full_store.close()
+        finally:
+            store.close()
+
     def test_delta_import_resolution_uses_full_file_map(self, tmp_path: Path) -> None:
         """Verify that delta re-parse resolves imports targeting unchanged files.
 
