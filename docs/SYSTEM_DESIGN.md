@@ -310,7 +310,7 @@ class Config:
     cache: bool = True                          # Enable index caching
     cache_dir: str = "~/.archex/cache"          # User cache unless repo-local overrides it
     max_file_size: int = 10_000_000
-    parallel: bool = False
+    parallel: bool = True                       # ProcessPoolExecutor auto-enables above 10 files
     strict: bool = False
     delta_threshold: float = 0.5                # Full rebuild threshold for changed files
 
