@@ -91,3 +91,38 @@ jobs:
           name: benchmark-results-fusion
           path: ${{ runner.temp }}/archex-benchmark-results/fusion/
 
+  benchmark-delta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Delta tasks under benchmarks/delta_tasks checkout specific past
+          # commits of this repo (repo: ".") to benchmark against — a shallow
+          # clone would not contain them.
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run delta benchmark + quality gate
+        run: uv run archex benchmark delta
+
+      - name: Upload delta results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-delta
+          path: .archex/delta-results/
+

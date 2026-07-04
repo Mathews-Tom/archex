@@ -1167,9 +1167,19 @@ def headtohead_competitive_cmd(input_dir: str, output_format: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@benchmark_cmd.group("delta")
-def delta_cmd() -> None:
-    """Delta indexing benchmarks: measure speedup and correctness."""
+@benchmark_cmd.group("delta", invoke_without_command=True)
+@click.pass_context
+def delta_cmd(ctx: click.Context) -> None:
+    """Delta indexing benchmarks: measure speedup and correctness.
+
+    Bare invocation (no subcommand) runs the full CI-runnable pipeline: every
+    task under ``benchmarks/delta_tasks`` followed by the quality gate,
+    exiting non-zero on any correctness or speedup violation.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    ctx.invoke(delta_run_cmd)
+    ctx.invoke(delta_gate_cmd)
 
 
 @delta_cmd.command("run")

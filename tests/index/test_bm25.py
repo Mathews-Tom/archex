@@ -149,6 +149,104 @@ def test_build_is_idempotent(store_and_index: tuple[IndexStore, BM25Index]) -> N
 
 
 # ---------------------------------------------------------------------------
+# update() — targeted insert-only path (delta re-indexing)
+# ---------------------------------------------------------------------------
+
+
+def test_update_inserts_without_dropping_existing_rows(
+    store_and_index: tuple[IndexStore, BM25Index],
+) -> None:
+    """update() adds rows for new chunks without touching existing ones."""
+    store, idx = store_and_index
+    new_chunk = CodeChunk(
+        id="new.py:widget:1",
+        content="def widget(): return 'a shiny new widget'",
+        file_path="new.py",
+        start_line=1,
+        end_line=1,
+        symbol_name="widget",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=10,
+    )
+    store.insert_chunks([new_chunk])
+    idx.update([new_chunk])
+
+    # Pre-existing rows survive.
+    auth_results = idx.search("authenticate")
+    assert any(c.id == "auth.py:authenticate:10" for c, _ in auth_results)
+    # The newly-inserted row is searchable.
+    widget_results = idx.search("widget")
+    assert any(c.id == "new.py:widget:1" for c, _ in widget_results)
+
+
+def test_update_matches_full_rebuild_search_results(tmp_path: Path) -> None:
+    """A build() + update() (targeted) sequence returns identical search
+    results to a single build() call over the same final corpus."""
+    baseline_chunks = [
+        CodeChunk(
+            id="a.py:foo:1",
+            content="def foo(): return authenticate_user()",
+            file_path="a.py",
+            start_line=1,
+            end_line=1,
+            symbol_name="foo",
+            symbol_kind=SymbolKind.FUNCTION,
+            language="python",
+            token_count=10,
+        ),
+        CodeChunk(
+            id="b.py:bar:1",
+            content="def bar(): return validate_token()",
+            file_path="b.py",
+            start_line=1,
+            end_line=1,
+            symbol_name="bar",
+            symbol_kind=SymbolKind.FUNCTION,
+            language="python",
+            token_count=10,
+        ),
+    ]
+    new_chunks = [
+        CodeChunk(
+            id="c.py:baz:1",
+            content="def baz(): return authenticate_user() and validate_token()",
+            file_path="c.py",
+            start_line=1,
+            end_line=1,
+            symbol_name="baz",
+            symbol_kind=SymbolKind.FUNCTION,
+            language="python",
+            token_count=15,
+        ),
+    ]
+    full_corpus = baseline_chunks + new_chunks
+
+    # Targeted path: full build over the baseline, then a scoped insert-only
+    # update for the newly-added chunk — no drop of the baseline rows.
+    targeted_store = IndexStore(tmp_path / "targeted.db")
+    targeted_store.insert_chunks(full_corpus)
+    targeted_bm25 = BM25Index(targeted_store)
+    targeted_bm25.build(baseline_chunks)
+    targeted_bm25.update(new_chunks)
+
+    # Full-rebuild baseline: a single build() over the complete final set.
+    full_store = IndexStore(tmp_path / "full.db")
+    full_store.insert_chunks(full_corpus)
+    full_bm25 = BM25Index(full_store)
+    full_bm25.build(full_corpus)
+
+    try:
+        for query in ["authenticate", "validate token", "baz"]:
+            targeted_results = [(c.id, score) for c, score in targeted_bm25.search(query)]
+            full_results = [(c.id, score) for c, score in full_bm25.search(query)]
+            assert targeted_results == full_results, f"parity mismatch for query {query!r}"
+    finally:
+        targeted_store.close()
+        full_store.close()
+
+
+# ---------------------------------------------------------------------------
 # escape_fts_query — unit tests
 # ---------------------------------------------------------------------------
 
