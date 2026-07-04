@@ -439,3 +439,25 @@ class TestCoDirectoryEdges:
         assert {edge.confidence for edge in edges} == {EdgeConfidence.HEURISTIC}
         assert {edge.confidence_score for edge in edges} == {0.6}
         assert all(edge.evidence for edge in edges)
+
+    def test_bounds_edges_on_large_flat_directory(self) -> None:
+        from archex.index.graph import (
+            _CO_DIRECTORY_DENSE_THRESHOLD,  # pyright: ignore[reportPrivateUsage]
+            _CO_DIRECTORY_WINDOW_SIZE,  # pyright: ignore[reportPrivateUsage]
+        )
+
+        graph = DependencyGraph()
+        file_count = 500
+        for i in range(file_count):
+            graph.add_file_node(f"flat/f{i:03d}.py")
+
+        added = graph.add_co_directory_edges()
+
+        full_pairwise = file_count * (file_count - 1)  # both directions, unbounded
+        assert file_count > _CO_DIRECTORY_DENSE_THRESHOLD
+        # Windowed bound: each file links to at most _CO_DIRECTORY_WINDOW_SIZE
+        # forward neighbors, both directions.
+        max_windowed = file_count * _CO_DIRECTORY_WINDOW_SIZE * 2
+        assert added > 0
+        assert added <= max_windowed
+        assert added < full_pairwise // 10
