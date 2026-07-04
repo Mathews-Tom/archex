@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from archex.models import SymbolKind, Visibility
+from archex.models import DiscoveredFile, ImportStatement, Symbol, SymbolKind, Visibility
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.scala import ScalaAdapter
 from archex.parse.engine import TreeSitterEngine
@@ -466,3 +466,180 @@ def test_all_members_have_parent(engine: TreeSitterEngine, adapter: ScalaAdapter
         for s in adapter.extract_symbols(tree, source, str(f.relative_to(FIXTURES_DIR))):
             if s.kind in member_kinds:
                 assert s.parent is not None, f"Missing parent for {s.qualified_name} in {f}"
+
+
+# ---------------------------------------------------------------------------
+# resolve_import
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_import_matching_own_file_basename(adapter: ScalaAdapter) -> None:
+    file_map = {
+        "models/User.scala": str(FIXTURES_DIR / "models" / "User.scala"),
+    }
+    imp = ImportStatement(
+        module="com.example.app.models.User",
+        file_path="App.scala",
+        line=5,
+        is_relative=False,
+    )
+    resolved = adapter.resolve_import(imp, file_map)
+    assert resolved == file_map["models/User.scala"]
+
+
+def test_resolve_wildcard_import_short_circuits_to_none(adapter: ScalaAdapter) -> None:
+    # The trailing "._" wildcard convention is checked -- and short-circuits
+    # to None -- before the JVM resolver ever runs. `resolve_jvm_import`
+    # only special-cases a literal "*" segment, not "_", so a file_map with
+    # a coincidentally matching "_.scala" basename would otherwise resolve;
+    # this proves the short-circuit, not an incidental resolver miss.
+    file_map = {"models/_.scala": str(FIXTURES_DIR / "models" / "_.scala")}
+    imp = ImportStatement(
+        module="com.example.app.models._",
+        file_path="App.scala",
+        line=1,
+        is_relative=False,
+    )
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+def test_resolve_non_primary_declaration_returns_none(adapter: ScalaAdapter) -> None:
+    # `Circle` is a case class declared inside shapes/Shape.scala, not its
+    # own Circle.scala file -- documented in GRAMMAR_EVALUATION.md as a
+    # deliberate limitation of the one-basename-per-declaration heuristic
+    # shared with Java/Kotlin, not a bug.
+    file_map = {"shapes/Shape.scala": str(FIXTURES_DIR / "shapes" / "Shape.scala")}
+    imp = ImportStatement(
+        module="com.example.app.shapes.Circle",
+        file_path="App.scala",
+        line=7,
+        is_relative=False,
+    )
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+def test_resolve_external_returns_none(adapter: ScalaAdapter) -> None:
+    file_map = {"Main.scala": str(FIXTURES_DIR / "App.scala")}
+    imp = ImportStatement(
+        module="scala.util.Failure",
+        file_path="App.scala",
+        line=3,
+        is_relative=False,
+    )
+    assert adapter.resolve_import(imp, file_map) is None
+
+
+def test_resolve_grouped_imports_against_full_fixture_tree(adapter: ScalaAdapter) -> None:
+    # `import com.example.app.models.{Address, User}` in App.scala produces
+    # two ImportStatements; both must resolve correctly against a file_map
+    # built from every real scala_simple fixture path.
+    file_map = {str(f.relative_to(FIXTURES_DIR)): str(f) for f in FIXTURES_DIR.rglob("*.scala")}
+    address_imp = ImportStatement(
+        module="com.example.app.models.Address",
+        file_path="App.scala",
+        line=5,
+        is_relative=False,
+    )
+    user_imp = ImportStatement(
+        module="com.example.app.models.User",
+        file_path="App.scala",
+        line=5,
+        is_relative=False,
+    )
+    expected_address = str(FIXTURES_DIR / "models" / "Address.scala")
+    assert adapter.resolve_import(address_imp, file_map) == expected_address
+    assert adapter.resolve_import(user_imp, file_map) == str(FIXTURES_DIR / "models" / "User.scala")
+
+
+# ---------------------------------------------------------------------------
+# detect_entry_points
+# ---------------------------------------------------------------------------
+
+
+def test_detect_conventional_basename_entry_point_without_reading_file(
+    adapter: ScalaAdapter,
+) -> None:
+    # Basename match against _ENTRY_BASENAMES short-circuits before any file
+    # read -- a nonexistent absolute_path must not raise or prevent detection.
+    files = [
+        DiscoveredFile(path="App.scala", absolute_path="/nonexistent/App.scala", language="scala"),
+        DiscoveredFile(
+            path="models/User.scala",
+            absolute_path="/nonexistent/models/User.scala",
+            language="scala",
+        ),
+    ]
+    entry_points = adapter.detect_entry_points(files)
+    assert "App.scala" in entry_points
+    assert "models/User.scala" not in entry_points
+
+
+def test_extends_app_marker_detected_despite_nonmatching_basename(
+    adapter: ScalaAdapter, tmp_path: Path
+) -> None:
+    script = tmp_path / "worker.scala"
+    script.write_text('object Worker extends App {\n  println("hi")\n}\n')
+    files = [DiscoveredFile(path="worker.scala", absolute_path=str(script), language="scala")]
+    assert adapter.detect_entry_points(files) == ["worker.scala"]
+
+
+def test_explicit_main_marker_detected_despite_nonmatching_basename(
+    adapter: ScalaAdapter, tmp_path: Path
+) -> None:
+    script = tmp_path / "runner.scala"
+    script.write_text('object Runner {\n  def main(args: Array[String]): Unit = println("hi")\n}\n')
+    files = [DiscoveredFile(path="runner.scala", absolute_path=str(script), language="scala")]
+    assert adapter.detect_entry_points(files) == ["runner.scala"]
+
+
+def test_no_marker_and_nonmatching_basename_is_not_entry_point(
+    adapter: ScalaAdapter, tmp_path: Path
+) -> None:
+    script = tmp_path / "helper.scala"
+    script.write_text("object Helper {\n  def helper(): Int = 1\n}\n")
+    files = [DiscoveredFile(path="helper.scala", absolute_path=str(script), language="scala")]
+    assert adapter.detect_entry_points(files) == []
+
+
+# ---------------------------------------------------------------------------
+# classify_visibility
+# ---------------------------------------------------------------------------
+
+
+def test_classify_public_symbol(adapter: ScalaAdapter) -> None:
+    s = Symbol(
+        name="Greeter",
+        qualified_name="com.example.app.contracts.Greeter",
+        kind=SymbolKind.INTERFACE,
+        file_path="contracts/Greeter.scala",
+        start_line=1,
+        end_line=3,
+        visibility=Visibility.PUBLIC,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PUBLIC
+
+
+def test_classify_internal_symbol(adapter: ScalaAdapter) -> None:
+    s = Symbol(
+        name="auditLog",
+        qualified_name="com.example.app.services.UserService.auditLog",
+        kind=SymbolKind.METHOD,
+        file_path="services/UserService.scala",
+        start_line=1,
+        end_line=1,
+        visibility=Visibility.INTERNAL,
+    )
+    assert adapter.classify_visibility(s) == Visibility.INTERNAL
+
+
+def test_classify_private_symbol(adapter: ScalaAdapter) -> None:
+    s = Symbol(
+        name="normalizeEmail",
+        qualified_name="com.example.app.models.User.normalizeEmail",
+        kind=SymbolKind.METHOD,
+        file_path="models/User.scala",
+        start_line=11,
+        end_line=11,
+        visibility=Visibility.PRIVATE,
+    )
+    assert adapter.classify_visibility(s) == Visibility.PRIVATE
