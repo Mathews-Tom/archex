@@ -101,6 +101,23 @@ def make_structured_adapter(language_id: str) -> type[StructuredAdapter]:
     return _Adapter
 
 
+def resolve_path_reference(candidate: str, file_map: dict[str, str]) -> str | None:
+    """Resolve a normalized repo-relative path reference to an exact file path.
+
+    Path-based references (HTML/CSS local file targets) carry their file
+    extension explicitly, unlike Python-style dotted module imports — so
+    they resolve via ``build_file_map``'s literal-path keys, not its
+    extension-stripped dotted module keys. The dotted keys alone collide
+    across different extensions sharing a directory and basename (e.g.
+    ``app.js`` / ``app.css`` both collapse to the module key ``app``),
+    silently resolving a reference to the wrong sibling file. Shared by
+    adapters (HTML) whose native reference syntax is always a literal
+    path, never a dotted module name.
+    """
+    normalized = os.path.normpath(candidate).replace(os.sep, "/")
+    return file_map.get(normalized)
+
+
 def _resolve_direct_reference(module: str, file_map: dict[str, str]) -> str | None:
     normalized = os.path.normpath(module).replace(os.sep, "/")
     values = {os.path.normpath(path).replace(os.sep, "/"): path for path in file_map.values()}
