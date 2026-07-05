@@ -12,8 +12,10 @@ from archex.exceptions import ArchexError
 from archex.impact import (
     ImpactError,
     ImpactFileChange,
+    analyze_diff_impact,
     analyze_impact,
     git_changed_files,
+    git_diff_hunks,
     render_impact_report,
 )
 from archex.models import RepoSource
@@ -29,25 +31,47 @@ from archex.models import RepoSource
     help="Changed file path. Repeat to bypass git diff mode.",
 )
 @click.option(
+    "--diff",
+    "diff_ref",
+    is_flag=False,
+    flag_value="HEAD",
+    help=(
+        "Enable diff-scoped symbol impact: resolve the diff to touched symbols and "
+        "classify each with a LOW/MEDIUM/HIGH risk tier from deterministic graph "
+        "signals. Optional ref to diff against (default: HEAD, i.e. uncommitted "
+        "working tree changes). Adds affected_symbols to the report; output is "
+        "unchanged when omitted. Cannot be combined with --changed-file or --base."
+    ),
+)
+@click.option(
     "--format",
     "output_format",
     default="markdown",
     type=click.Choice(["markdown", "json"]),
     help="Output format.",
 )
+@click.pass_context
 def impact_cmd(
+    ctx: click.Context,
     source: str,
     base: str,
     changed_files: tuple[str, ...],
+    diff_ref: str | None,
     output_format: str,
 ) -> None:
     """Analyze deterministic blast radius for changed files."""
+    if diff_ref is not None:
+        if changed_files:
+            raise click.UsageError("--diff cannot be combined with --changed-file.")
+        if ctx.get_parameter_source("base") is click.core.ParameterSource.COMMANDLINE:
+            raise click.UsageError("--diff cannot be combined with --base.")
+
     repo_root = Path(source).expanduser().resolve()
     if changed_files:
         changes = [ImpactFileChange(path=path) for path in changed_files]
     else:
         try:
-            changes = git_changed_files(repo_root, base)
+            changes = git_changed_files(repo_root, diff_ref if diff_ref is not None else base)
         except ImpactError as exc:
             raise click.ClickException(str(exc)) from exc
 
@@ -57,7 +81,11 @@ def impact_cmd(
     try:
         store = index_repository(repo_source, config=config, index_config=index_config)
         try:
-            report = analyze_impact(store, changes)
+            if diff_ref is not None:
+                hunks = git_diff_hunks(repo_root, diff_ref)
+                report = analyze_diff_impact(store, repo_root, changes, hunks, diff_ref)
+            else:
+                report = analyze_impact(store, changes)
         finally:
             store.close()
     except (ArchexError, ImpactError) as exc:
