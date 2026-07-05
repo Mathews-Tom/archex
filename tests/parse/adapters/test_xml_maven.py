@@ -18,7 +18,12 @@ from pathlib import Path
 
 import pytest
 
-from archex.parse.adapters.xml_maven import is_maven_pom
+from archex.models import ImportStatement
+from archex.parse.adapters.xml_maven import (
+    extract_maven_dependencies,
+    is_maven_pom,
+    resolve_maven_dependency,
+)
 from archex.parse.engine import TreeSitterEngine
 
 FIXTURES_DIR = "tests/fixtures/xml_maven"
@@ -106,3 +111,129 @@ def test_is_maven_pom_rejects_pom_xml_named_file_with_non_project_root(
     source = b"<config><setting>value</setting></config>"
 
     assert is_maven_pom("pom.xml", parse(engine, source), source) is False
+
+
+# ---------------------------------------------------------------------------
+# extract_maven_dependencies: groupId/artifactId/version extraction
+# ---------------------------------------------------------------------------
+
+
+def test_extract_maven_dependencies_captures_group_artifact_version(
+    engine: TreeSitterEngine,
+) -> None:
+    source = _read(f"{FIXTURES_DIR}/module-b/pom.xml")
+
+    references = extract_maven_dependencies(parse(engine, source), source, "module-b/pom.xml")
+
+    assert [ref.module for ref in references] == ["com.example:module-a:1.0.0"]
+    assert all(ref.file_path == "module-b/pom.xml" for ref in references)
+    assert all(ref.is_relative is False for ref in references)
+
+
+def test_extract_maven_dependencies_captures_every_declared_dependency_including_external(
+    engine: TreeSitterEngine,
+) -> None:
+    """module-c depends on module-b (intra-repo) and junit (external) --
+    both are extracted here; whether one stays external is a
+    `resolve_maven_dependency` concern, not extraction's."""
+    source = _read(f"{FIXTURES_DIR}/module-c/pom.xml")
+
+    references = extract_maven_dependencies(parse(engine, source), source, "module-c/pom.xml")
+
+    assert {ref.module for ref in references} == {
+        "com.example:module-b:1.0.0",
+        "junit:junit:4.13.2",
+    }
+
+
+def test_extract_maven_dependencies_ignores_parent_declaration(engine: TreeSitterEngine) -> None:
+    """`<parent>` carries its own groupId/artifactId/version but is not a
+    `<dependency>` -- module-a has no `<dependencies>` block at all, only
+    a `<parent>` reference back to the aggregator, and must yield zero
+    references."""
+    source = _read(f"{FIXTURES_DIR}/module-a/pom.xml")
+
+    assert extract_maven_dependencies(parse(engine, source), source, "module-a/pom.xml") == []
+
+
+def test_extract_maven_dependencies_ignores_dependency_management_block(
+    engine: TreeSitterEngine,
+) -> None:
+    """A `<dependencyManagement><dependencies><dependency>` entry is
+    version-pinning, not a declared usage edge -- it lives two levels
+    below the root, never as a direct child `<dependencies>` block."""
+    source = b"""<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <groupId>com.example</groupId>
+  <artifactId>bom-consumer</artifactId>
+  <version>1.0.0</version>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.example</groupId>
+        <artifactId>should-not-be-extracted</artifactId>
+        <version>1.0.0</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>
+"""
+
+    assert extract_maven_dependencies(parse(engine, source), source, "pom.xml") == []
+
+
+def test_extract_maven_dependencies_returns_empty_for_non_pom_root(
+    engine: TreeSitterEngine,
+) -> None:
+    source = b"<config><dependencies><dependency>ignored</dependency></dependencies></config>"
+
+    assert extract_maven_dependencies(parse(engine, source), source, "pom.xml") == []
+
+
+# ---------------------------------------------------------------------------
+# resolve_maven_dependency: artifactId-directory convention
+# ---------------------------------------------------------------------------
+
+
+def _file_map() -> dict[str, str]:
+    return {
+        "pom": "pom.xml",
+        "module-a.pom": "module-a/pom.xml",
+        "module-b.pom": "module-b/pom.xml",
+        "module-c.pom": "module-c/pom.xml",
+    }
+
+
+def test_resolve_maven_dependency_resolves_sibling_module_by_artifact_directory() -> None:
+    imp = ImportStatement(
+        module="com.example:module-a:1.0.0", file_path="module-b/pom.xml", line=10
+    )
+
+    assert resolve_maven_dependency(imp, _file_map()) == "module-a/pom.xml"
+
+
+def test_resolve_maven_dependency_returns_none_for_external_coordinate() -> None:
+    imp = ImportStatement(module="junit:junit:4.13.2", file_path="module-c/pom.xml", line=20)
+
+    assert resolve_maven_dependency(imp, _file_map()) is None
+
+
+def test_resolve_maven_dependency_returns_none_when_target_directory_is_ambiguous() -> None:
+    file_map = {**_file_map(), "vendored.module-a.pom": "third_party/module-a/pom.xml"}
+    imp = ImportStatement(
+        module="com.example:module-a:1.0.0", file_path="module-b/pom.xml", line=10
+    )
+
+    assert resolve_maven_dependency(imp, file_map) is None
+
+
+def test_resolve_maven_dependency_returns_none_for_self_reference() -> None:
+    imp = ImportStatement(module="com.example:module-a:1.0.0", file_path="module-a/pom.xml", line=5)
+
+    assert resolve_maven_dependency(imp, _file_map()) is None
+
+
+def test_resolve_maven_dependency_returns_none_for_malformed_coordinate() -> None:
+    imp = ImportStatement(module="not-a-coordinate", file_path="module-b/pom.xml", line=1)
+
+    assert resolve_maven_dependency(imp, _file_map()) is None
