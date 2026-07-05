@@ -1025,6 +1025,46 @@ class TestHandleGetImpact:
         with pytest.raises(ImpactError, match="requires changed_files"):
             handle_get_impact("https://example.com/repo.git")
 
+    def test_matches_cli_output_for_diff_json(self, impact_diff_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        hub = impact_diff_repo / "hub.py"
+        hub.write_text(hub.read_text().replace("value * 2", "value * 3"))
+
+        runner = CliRunner()
+        cli_result = runner.invoke(
+            cli,
+            ["impact", str(impact_diff_repo), "--diff", "HEAD", "--format", "json"],
+        )
+        assert cli_result.exit_code == 0, cli_result.output
+        cli_data = json.loads(cli_result.output)
+
+        mcp_result = handle_get_impact(str(impact_diff_repo), diff_ref="HEAD", output_format="json")
+        envelope = json.loads(mcp_result)
+        mcp_data = json.loads(envelope["content"])
+
+        assert mcp_data == cli_data
+        assert mcp_data["diff_ref"] == "HEAD"
+        assert mcp_data["affected_symbols"][0]["level"] == "high"
+
+    def test_diff_ref_rejects_changed_files_combination(self) -> None:
+        from archex.impact import ImpactError
+
+        with pytest.raises(ImpactError, match="cannot be combined with changed_files"):
+            handle_get_impact("/fake/repo", changed_files=["a.py"], diff_ref="HEAD")
+
+    def test_without_diff_ref_output_has_no_diff_fields(self, python_simple_repo: Path) -> None:
+        mcp_result = handle_get_impact(
+            str(python_simple_repo), changed_files=["utils.py"], output_format="json"
+        )
+        envelope = json.loads(mcp_result)
+        mcp_data = json.loads(envelope["content"])
+
+        assert "diff_ref" not in mcp_data
+        assert "affected_symbols" not in mcp_data
+
 
 # ---------------------------------------------------------------------------
 # explain_target handler tests
