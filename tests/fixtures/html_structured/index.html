@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Structured HTML Fixture</title>
+  <link rel="stylesheet" href="./styles/main.css">
+  <script src="./scripts/app.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Dashboard</h1>
+    <p>Welcome. See <a href="./about.html">About</a> for details.</p>
+    <img src="./images/logo.png" alt="Logo">
+    <script>
+      function computeTotal(items) {
+        return items.reduce((sum, item) => sum + item.price, 0);
+      }
+
+      class Cart {
+        constructor() {
+          this.items = [];
+        }
+
+        add(item) {
+          this.items.push(item);
+        }
+      }
+    </script>
+    <style>
+      main {
+        padding: 1rem;
+      }
+    </style>
+  </main>
+</body>
+</html>
