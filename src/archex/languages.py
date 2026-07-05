@@ -89,7 +89,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
         "css",
         frozenset({"rule_set", "media_statement", "import_statement"}),
     ),
-    "xml": LanguageSupport("xml", "XML", (".xml",), _CHUNK, "xml", frozenset({"element"})),
+    "xml": LanguageSupport("xml", "XML", (".xml",), _STRUCTURED, "xml", frozenset({"element"})),
     "yaml": LanguageSupport(
         "yaml", "YAML", (".yaml", ".yml"), _CHUNK, "yaml", frozenset({"document"})
     ),
