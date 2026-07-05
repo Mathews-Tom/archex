@@ -57,8 +57,10 @@ from archex.graph_query import (
 from archex.impact import (
     ImpactError,
     ImpactFileChange,
+    analyze_diff_impact,
     analyze_impact,
     git_changed_files,
+    git_diff_hunks,
     render_impact_report,
 )
 from archex.metrics.capture import record_query_usage, record_scout_usage, record_structural_usage
@@ -508,6 +510,7 @@ def handle_get_impact(
     base: str = "main",
     changed_files: list[str] | None = None,
     output_format: str = "json",
+    diff_ref: str | None = None,
 ) -> str:
     """Analyze deterministic blast radius for changed files.
 
@@ -515,25 +518,35 @@ def handle_get_impact(
         repo_url: Local filesystem path of the repository. Git diff mode
             (the default, when changed_files is omitted) requires a local
             checkout with the given base ref reachable.
-        base: Base ref for git diff mode. Ignored when changed_files is given.
+        base: Base ref for git diff mode. Ignored when changed_files or
+            diff_ref is given.
         changed_files: Explicit changed file paths, bypassing git diff mode.
+            Cannot be combined with diff_ref.
         output_format: Output format — 'json' or 'markdown'. Defaults to 'json'.
+        diff_ref: Enable diff-scoped symbol impact: resolve the diff (this ref
+            vs. the working tree) to touched symbols and classify each with a
+            LOW/MEDIUM/HIGH risk tier from deterministic graph signals. Adds
+            affected_symbols to the report; output is unchanged when omitted.
 
     Returns:
         JSON envelope with ImpactReport content and _meta efficiency block.
     """
     _validate_output_format(output_format)
+    if changed_files and diff_ref is not None:
+        raise ImpactError("get_impact: diff_ref cannot be combined with changed_files")
     source = resolve_source(repo_url)
+    repo_root: Path | None = None
+    if source.local_path is not None:
+        repo_root = Path(source.local_path).expanduser().resolve()
     if changed_files:
         changes = [ImpactFileChange(path=path) for path in changed_files]
     else:
-        if source.local_path is None:
+        if repo_root is None:
             raise ImpactError(
                 "get_impact requires changed_files for a remote repo_url; "
                 "git diff mode needs a local checkout"
             )
-        repo_root = Path(source.local_path).expanduser().resolve()
-        changes = git_changed_files(repo_root, base)
+        changes = git_changed_files(repo_root, diff_ref if diff_ref is not None else base)
 
     started = time.perf_counter()
     config = load_config(source)
@@ -541,7 +554,12 @@ def handle_get_impact(
     pt = PipelineTiming()
     store = index_repository(source, config=config, timing=pt, index_config=index_config)
     try:
-        report = analyze_impact(store, changes)
+        if diff_ref is not None:
+            assert repo_root is not None  # guaranteed: local checkout resolved above
+            hunks = git_diff_hunks(repo_root, diff_ref)
+            report = analyze_diff_impact(store, repo_root, changes, hunks, diff_ref)
+        else:
+            report = analyze_impact(store, changes)
     finally:
         store.close()
     query_time_ms = (time.perf_counter() - started) * 1000
@@ -1118,8 +1136,9 @@ async def _run_mcp_tool(
         base: str = arguments.get("base", "main")
         impact_changed_files: list[str] | None = arguments.get("changed_files")
         fmt = arguments.get("format", "json")
+        impact_diff_ref: str | None = arguments.get("diff")
         return await loop.run_in_executor(
-            None, handle_get_impact, repo_url, base, impact_changed_files, fmt
+            None, handle_get_impact, repo_url, base, impact_changed_files, fmt, impact_diff_ref
         )
     if name == "explain_target":
         explain_repo_url: str | None = arguments.get("repo_url")
@@ -1507,7 +1526,9 @@ def build_server() -> Any:
                 description=(
                     "Analyze deterministic blast radius for changed files: affected files, "
                     "modules, public interfaces, test surface, and a risk assessment. Uses "
-                    "git diff against a base ref, or an explicit changed-file list."
+                    "git diff against a base ref, or an explicit changed-file list. Pass "
+                    "'diff' to additionally resolve the diff to touched symbols and classify "
+                    "each with a LOW/MEDIUM/HIGH risk tier from deterministic graph signals."
                 ),
                 inputSchema={
                     "type": "object",
@@ -1524,14 +1545,15 @@ def build_server() -> Any:
                             "default": "main",
                             "description": (
                                 "Base ref for git diff mode. Ignored when changed_files "
-                                "is provided."
+                                "or diff is provided."
                             ),
                         },
                         "changed_files": {
                             "type": "array",
                             "items": {"type": "string"},
                             "description": (
-                                "Explicit changed file paths, bypassing git diff mode."
+                                "Explicit changed file paths, bypassing git diff mode. "
+                                "Cannot be combined with diff."
                             ),
                         },
                         "format": {
@@ -1539,6 +1561,16 @@ def build_server() -> Any:
                             "enum": ["json", "markdown"],
                             "default": "json",
                             "description": "Output format for the impact report.",
+                        },
+                        "diff": {
+                            "type": "string",
+                            "description": (
+                                "Enable diff-scoped symbol impact: resolve the diff (this "
+                                "ref vs. the working tree) to touched symbols with a "
+                                "per-symbol risk tier. Adds affected_symbols to the report; "
+                                "output is unchanged when omitted. Cannot be combined with "
+                                "changed_files."
+                            ),
                         },
                     },
                     "required": ["repo_url"],
