@@ -12,9 +12,14 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from archex.index.graph import DependencyGraph
+from archex.models import DiscoveredFile
+from archex.parse.adapters import default_adapter_registry
+
 if TYPE_CHECKING:
     from archex.index.store import IndexStore
     from archex.models import CodeChunk, Edge
+    from archex.parse.adapters import LanguageAdapter
 
 
 class ImpactError(ValueError):
@@ -38,6 +43,28 @@ class ImpactRisk(BaseModel):
     reasons: list[str] = []
 
 
+class SymbolRiskLevel(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class SymbolRiskSignal(BaseModel):
+    name: str
+    detail: str
+
+
+class SymbolImpact(BaseModel):
+    file_path: str
+    symbol_name: str | None = None
+    qualified_name: str | None = None
+    symbol_kind: str | None = None
+    start_line: int
+    end_line: int
+    level: SymbolRiskLevel
+    signals: list[SymbolRiskSignal] = []
+
+
 class ImpactReport(BaseModel):
     changed_files: list[ImpactFileChange] = []
     affected_files: list[str] = []
@@ -46,9 +73,15 @@ class ImpactReport(BaseModel):
     affected_tests: list[str] = []
     unmapped_files: list[str] = []
     risk: ImpactRisk = Field(default_factory=lambda: ImpactRisk(level=ImpactRiskLevel.LOW))
+    diff_ref: str | None = None
+    affected_symbols: list[SymbolImpact] = []
 
     def to_json(self) -> str:
-        return json.dumps(self.model_dump(mode="json"), indent=2, sort_keys=True)
+        data = self.model_dump(mode="json")
+        if self.diff_ref is None:
+            data.pop("diff_ref", None)
+            data.pop("affected_symbols", None)
+        return json.dumps(data, indent=2, sort_keys=True)
 
     def to_markdown(self) -> str:
         lines = [
@@ -77,6 +110,17 @@ class ImpactReport(BaseModel):
         lines.extend(f"- `{reason}`" for reason in self.risk.reasons)
         lines.extend(["", "## Unmapped Files", ""])
         lines.extend(_path_lines(self.unmapped_files))
+        if self.diff_ref is not None:
+            lines.extend(["", f"## Symbol Risk (diff: `{self.diff_ref}`)", ""])
+            if not self.affected_symbols:
+                lines.append("- None")
+            for symbol in self.affected_symbols:
+                label = symbol.qualified_name or symbol.symbol_name or "<unnamed>"
+                lines.append(
+                    f"- `{symbol.level.value}` `{symbol.file_path}::{label}` "
+                    f"(lines {symbol.start_line}-{symbol.end_line})"
+                )
+                lines.extend(f"  - {signal.name}: {signal.detail}" for signal in symbol.signals)
         return "\n".join(lines).rstrip() + "\n"
 
 
@@ -175,6 +219,196 @@ def resolve_diff_symbols(
         touched.extend(_symbols_touched_by_hunks(chunks, file_hunks))
     touched.sort(key=lambda chunk: (chunk.file_path, chunk.start_line, chunk.symbol_name or ""))
     return touched
+
+
+_HUB_CENTRALITY_RATIO = 2.0
+_HIGH_FAN_IN_THRESHOLD = 3
+_ENTRY_POINT_MAX_DEPTH = 2
+
+
+def _nearest_entry_point(
+    graph: DependencyGraph,
+    repo_root: Path,
+    file_path: str,
+    path_to_language: dict[str, str],
+    adapters: dict[str, LanguageAdapter],
+    max_depth: int,
+) -> tuple[int, str] | None:
+    """Reverse-BFS from ``file_path`` over import predecessors, bounded to
+    ``max_depth`` hops, looking for the nearest file an adapter identifies as
+    an entry point. Returns ``(depth, entry_point_path)`` or ``None``.
+    """
+    entry_cache: dict[str, bool] = {}
+
+    def is_entry(path: str) -> bool:
+        if path in entry_cache:
+            return entry_cache[path]
+        language = path_to_language.get(path)
+        result = False
+        if language is not None:
+            adapter = adapters.get(language)
+            if adapter is not None:
+                discovered = DiscoveredFile(
+                    path=path, absolute_path=str(repo_root / path), language=language
+                )
+                try:
+                    result = path in adapter.detect_entry_points([discovered])
+                except OSError:
+                    result = False
+        entry_cache[path] = result
+        return result
+
+    visited = {file_path}
+    frontier = [file_path]
+    for depth in range(max_depth + 1):
+        for path in sorted(frontier):
+            if is_entry(path):
+                return depth, path
+        next_frontier: list[str] = []
+        for path in frontier:
+            for predecessor in graph.imported_by(path):
+                if predecessor not in visited:
+                    visited.add(predecessor)
+                    next_frontier.append(predecessor)
+        if not next_frontier:
+            return None
+        frontier = next_frontier
+    return None
+
+
+def _classify_file_risk(
+    file_path: str,
+    graph: DependencyGraph,
+    centrality: dict[str, float],
+    mean_centrality: float,
+    repo_root: Path,
+    path_to_language: dict[str, str],
+    adapters: dict[str, LanguageAdapter],
+) -> tuple[SymbolRiskLevel, list[SymbolRiskSignal]]:
+    """Classify a file's risk tier from deterministic graph signals only.
+
+    Three signals, each file-scoped (edges are file-to-file; no CALLS edges
+    exist to derive symbol-level blast radius):
+
+    - structural_centrality: PageRank share >= _HUB_CENTRALITY_RATIO x the
+      graph's mean node centrality.
+    - fan_in: count of distinct files that directly import this file >=
+      _HIGH_FAN_IN_THRESHOLD.
+    - entry_point_proximity: an adapter-identified entry point is reachable
+      within _ENTRY_POINT_MAX_DEPTH import hops (upstream) of this file.
+
+    HIGH if the file *is* an entry point, or if 2+ signals fire; MEDIUM if
+    exactly 1 fires; LOW if none fire.
+    """
+    signals: list[SymbolRiskSignal] = []
+    fired = 0
+
+    file_centrality = centrality.get(file_path, 0.0)
+    hub_threshold = mean_centrality * _HUB_CENTRALITY_RATIO
+    is_hub = mean_centrality > 0 and file_centrality >= hub_threshold
+    signals.append(
+        SymbolRiskSignal(
+            name="structural_centrality",
+            detail=(
+                f"centrality={file_centrality:.4f} "
+                f"{'>=' if is_hub else '<'} threshold={hub_threshold:.4f} "
+                f"({_HUB_CENTRALITY_RATIO}x graph mean {mean_centrality:.4f})"
+            ),
+        )
+    )
+    fired += int(is_hub)
+
+    fan_in = len(graph.imported_by(file_path))
+    is_high_fan_in = fan_in >= _HIGH_FAN_IN_THRESHOLD
+    signals.append(
+        SymbolRiskSignal(
+            name="fan_in",
+            detail=(
+                f"fan_in={fan_in} {'>=' if is_high_fan_in else '<'} "
+                f"threshold={_HIGH_FAN_IN_THRESHOLD}"
+            ),
+        )
+    )
+    fired += int(is_high_fan_in)
+
+    nearest = _nearest_entry_point(
+        graph, repo_root, file_path, path_to_language, adapters, _ENTRY_POINT_MAX_DEPTH
+    )
+    is_entry_itself = nearest is not None and nearest[0] == 0
+    if nearest is not None:
+        depth, entry_path = nearest
+        entry_detail = (
+            f"entry_point_distance={depth} <= max_depth={_ENTRY_POINT_MAX_DEPTH} "
+            f"(nearest entry point: {entry_path})"
+        )
+    else:
+        entry_detail = f"no entry point within max_depth={_ENTRY_POINT_MAX_DEPTH}"
+    signals.append(SymbolRiskSignal(name="entry_point_proximity", detail=entry_detail))
+    fired += int(nearest is not None)
+
+    if is_entry_itself or fired >= 2:
+        level = SymbolRiskLevel.HIGH
+    elif fired == 1:
+        level = SymbolRiskLevel.MEDIUM
+    else:
+        level = SymbolRiskLevel.LOW
+    return level, signals
+
+
+def analyze_diff_impact(
+    store: IndexStore,
+    repo_root: Path,
+    changes: list[ImpactFileChange],
+    hunks: dict[str, list[tuple[int, int]]],
+    diff_ref: str,
+) -> ImpactReport:
+    """Extend the file-level impact report with per-symbol risk classification.
+
+    Reuses ``analyze_impact()`` for the existing file-level fields, then adds
+    ``diff_ref`` and ``affected_symbols`` -- only the symbols the diff's hunks
+    directly touch, each tagged with a deterministic risk tier and the
+    signal rationale that produced it.
+    """
+    base_report = analyze_impact(store, changes)
+    touched = resolve_diff_symbols(store, changes, hunks)
+    if not touched:
+        return base_report.model_copy(update={"diff_ref": diff_ref})
+
+    graph = DependencyGraph.from_edges(store.get_edges())
+    centrality = graph.structural_centrality()
+    mean_centrality = sum(centrality.values()) / len(centrality) if centrality else 0.0
+    path_to_language = {
+        str(item["file_path"]): str(item["language"]) for item in store.get_file_metadata()
+    }
+    adapters = default_adapter_registry.build_all()
+
+    risk_cache: dict[str, tuple[SymbolRiskLevel, list[SymbolRiskSignal]]] = {}
+    symbol_impacts: list[SymbolImpact] = []
+    for chunk in touched:
+        if chunk.file_path not in risk_cache:
+            risk_cache[chunk.file_path] = _classify_file_risk(
+                chunk.file_path,
+                graph,
+                centrality,
+                mean_centrality,
+                repo_root,
+                path_to_language,
+                adapters,
+            )
+        level, signals = risk_cache[chunk.file_path]
+        symbol_impacts.append(
+            SymbolImpact(
+                file_path=chunk.file_path,
+                symbol_name=chunk.symbol_name,
+                qualified_name=chunk.qualified_name,
+                symbol_kind=str(chunk.symbol_kind) if chunk.symbol_kind is not None else None,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                level=level,
+                signals=signals,
+            )
+        )
+    return base_report.model_copy(update={"diff_ref": diff_ref, "affected_symbols": symbol_impacts})
 
 
 def analyze_impact(
