@@ -16,6 +16,7 @@ from archex.parse.adapters.go import GoAdapter
 from archex.parse.adapters.html import HtmlAdapter
 from archex.parse.adapters.java import JavaAdapter
 from archex.parse.adapters.kotlin import KotlinAdapter
+from archex.parse.adapters.markdown import MarkdownAdapter
 from archex.parse.adapters.php import PHPAdapter
 from archex.parse.adapters.python import PythonAdapter
 from archex.parse.adapters.ruby import RubyAdapter
@@ -113,6 +114,8 @@ for _language_id in sorted(STRUCTURED_LANGUAGE_IDS):
         default_adapter_registry.register(_language_id, XmlAdapter)
     elif _language_id == "yaml":
         default_adapter_registry.register(_language_id, YamlAdapter)
+    elif _language_id == "markdown":
+        default_adapter_registry.register(_language_id, MarkdownAdapter)
     else:
         default_adapter_registry.register(_language_id, make_structured_adapter(_language_id))
 
