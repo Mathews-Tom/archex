@@ -28,11 +28,6 @@ CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
         "CREATE VIEW active_users AS SELECT id FROM users;\n",
         [(1, 1), (2, 2), (3, 3)],
     ),
-    "css": (
-        "style.css",
-        '@import url("x.css");\n.foo { color: red; }\n@media screen { .bar { display: none; } }\n',
-        [(1, 1), (2, 2), (3, 3)],
-    ),
     "toml": ("config.toml", '[a]\nname = "a"\n\n[b]\nname = "b"\n', [(1, 3), (4, 5)]),
     "json": ("data.json", '{"name": "x", "items": [1, 2]}\n', [(1, 1)]),
     "solidity": (
@@ -141,6 +136,17 @@ def test_markdown_registered_as_structured_tier_with_markdown_adapter() -> None:
     assert get_language_tier("markdown") == LanguageTier.STRUCTURED
     assert "markdown" not in CHUNK_ONLY_LANGUAGE_IDS
     assert default_adapter_registry.get("markdown") is MarkdownAdapter
+
+
+def test_css_registered_as_structured_tier_with_css_adapter() -> None:
+    """`css` is flipped from CHUNK_ONLY to STRUCTURED and the real
+    `CssAdapter` is wired into the default registry -- it must no longer
+    show up among the chunk-only languages exercised above."""
+    from archex.parse.adapters.css import CssAdapter
+
+    assert get_language_tier("css") == LanguageTier.STRUCTURED
+    assert "css" not in CHUNK_ONLY_LANGUAGE_IDS
+    assert default_adapter_registry.get("css") is CssAdapter
 
 
 def test_javascript_full_tier_extracts_symbols_and_imports(tmp_path: Path) -> None:
