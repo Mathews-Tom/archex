@@ -1,0 +1,13 @@
+defaults: &defaults
+  timeout: 30
+  retries: 3
+
+production:
+  <<: *defaults
+  host: prod.example.com
+
+staging:
+  <<: *defaults
+  host: staging.example.com
+
+fallback_host: *undefined_anchor

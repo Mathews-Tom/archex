@@ -91,7 +91,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
     ),
     "xml": LanguageSupport("xml", "XML", (".xml",), _STRUCTURED, "xml", frozenset({"element"})),
     "yaml": LanguageSupport(
-        "yaml", "YAML", (".yaml", ".yml"), _CHUNK, "yaml", frozenset({"document"})
+        "yaml", "YAML", (".yaml", ".yml"), _STRUCTURED, "yaml", frozenset({"document"})
     ),
     "toml": LanguageSupport(
         "toml", "TOML", (".toml",), _CHUNK, "toml", frozenset({"table", "table_array_element"})
