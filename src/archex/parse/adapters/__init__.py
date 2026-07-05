@@ -12,6 +12,7 @@ from archex.parse.adapters.c import CAdapter
 from archex.parse.adapters.chunk_only import make_chunk_only_adapter
 from archex.parse.adapters.cpp import CppAdapter
 from archex.parse.adapters.csharp import CSharpAdapter
+from archex.parse.adapters.css import CssAdapter
 from archex.parse.adapters.go import GoAdapter
 from archex.parse.adapters.html import HtmlAdapter
 from archex.parse.adapters.java import JavaAdapter
@@ -116,6 +117,8 @@ for _language_id in sorted(STRUCTURED_LANGUAGE_IDS):
         default_adapter_registry.register(_language_id, YamlAdapter)
     elif _language_id == "markdown":
         default_adapter_registry.register(_language_id, MarkdownAdapter)
+    elif _language_id == "css":
+        default_adapter_registry.register(_language_id, CssAdapter)
     else:
         default_adapter_registry.register(_language_id, make_structured_adapter(_language_id))
 
