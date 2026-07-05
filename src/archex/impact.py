@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+from collections import defaultdict
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -91,6 +93,88 @@ def git_changed_files(repo_root: Path, base_ref: str) -> list[ImpactFileChange]:
         stderr = completed.stderr.strip() or completed.stdout.strip()
         raise ImpactError(f"git diff failed for base {base_ref}: {stderr}")
     return [_parse_name_status(line) for line in completed.stdout.splitlines() if line.strip()]
+
+
+_HUNK_HEADER_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+_NEW_FILE_PATH_RE = re.compile(r"^\+\+\+ b/(.+)$")
+
+
+def git_diff_hunks(repo_root: Path, ref: str) -> dict[str, list[tuple[int, int]]]:
+    """Return per-file new-side line ranges touched by a diff (ref vs. working tree).
+
+    Parses ``git diff --unified=0`` hunk headers. A pure-deletion hunk (zero new
+    lines) has no corresponding new-file line range; it is recorded as a
+    single-line marker at the deletion point so it can still be intersected
+    against symbol spans.
+    """
+    command = ["git", "diff", "--unified=0", "--no-color", ref]
+    completed = subprocess.run(
+        command,
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip() or completed.stdout.strip()
+        raise ImpactError(f"git diff failed for ref {ref}: {stderr}")
+
+    hunks: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    current_path: str | None = None
+    for line in completed.stdout.splitlines():
+        if line.startswith("+++ "):
+            match = _NEW_FILE_PATH_RE.match(line)
+            current_path = match.group(1) if match else None
+            continue
+        if current_path is None:
+            continue
+        hunk_match = _HUNK_HEADER_RE.match(line)
+        if hunk_match is None:
+            continue
+        new_start = int(hunk_match.group(1))
+        new_length = int(hunk_match.group(2)) if hunk_match.group(2) is not None else 1
+        if new_length == 0:
+            point = max(new_start, 1)
+            hunks[current_path].append((point, point))
+        else:
+            hunks[current_path].append((new_start, new_start + new_length - 1))
+    return dict(hunks)
+
+
+def _symbols_touched_by_hunks(
+    chunks: list[CodeChunk], hunks: list[tuple[int, int]]
+) -> list[CodeChunk]:
+    """Return chunks whose line span overlaps at least one hunk range."""
+    return [
+        chunk
+        for chunk in chunks
+        if chunk.symbol_name is not None
+        and any(chunk.start_line <= end and start <= chunk.end_line for start, end in hunks)
+    ]
+
+
+def resolve_diff_symbols(
+    store: IndexStore,
+    changes: list[ImpactFileChange],
+    hunks: dict[str, list[tuple[int, int]]],
+) -> list[CodeChunk]:
+    """Map a diff's changed files to the indexed symbols (chunks) their hunks touch.
+
+    Deleted files have no symbols to resolve against the current index (which
+    reflects the post-diff state) and are skipped; the file itself is still
+    reported through the enclosing file-level ``ImpactReport``.
+    """
+    touched: list[CodeChunk] = []
+    for change in changes:
+        if change.status == "D":
+            continue
+        file_hunks = hunks.get(change.path)
+        if not file_hunks:
+            continue
+        chunks = store.get_chunks_for_files([change.path])
+        touched.extend(_symbols_touched_by_hunks(chunks, file_hunks))
+    touched.sort(key=lambda chunk: (chunk.file_path, chunk.start_line, chunk.symbol_name or ""))
+    return touched
 
 
 def analyze_impact(
