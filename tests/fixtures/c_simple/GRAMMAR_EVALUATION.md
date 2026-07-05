@@ -1,4 +1,4 @@
-# C grammar evaluation (M9 prerequisite)
+# C grammar evaluation
 
 **Grammar:** `tree-sitter/tree-sitter-c`, the official `tree-sitter` GitHub org
 grammar, resolved via the bundled `tree-sitter-language-pack==0.13.0` fallback

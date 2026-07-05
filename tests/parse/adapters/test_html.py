@@ -1,13 +1,13 @@
 """Tests for the HTML STRUCTURED-tier adapter.
 
-`HtmlAdapter` (src/archex/parse/adapters/html.py) builds on the M11
+`HtmlAdapter` (src/archex/parse/adapters/html.py) builds on the shared
 `StructuredAdapter` base to produce an element/script/style outline for
-`.html`/`.htm` files without ever claiming programming symbols. M12's
-tier-flip PR lands `html` at `LanguageTier.STRUCTURED` for real in
-`archex.languages`, so every test below builds `HtmlAdapter()` straight off
-the production registry entry -- no monkeypatched stand-in is needed
-anymore. This module also covers the local `script`/`link`/`img`/`a`
-reference extraction and resolution that ships alongside the tier flip:
+`.html`/`.htm` files without ever claiming programming symbols. `html` is
+registered at `LanguageTier.STRUCTURED` for real in `archex.languages`,
+so every test below builds `HtmlAdapter()` straight off the production
+registry entry -- no monkeypatched stand-in is needed. This module also
+covers the local `script`/`link`/`img`/`a` reference extraction and
+resolution that ships alongside the tier registration:
 `extract_references` and `resolve_import` only ever surface *local*
 file-path references, never a claimed programming symbol.
 """
@@ -62,10 +62,10 @@ def test_satisfies_language_adapter_protocol(adapter: HtmlAdapter) -> None:
 
 
 def test_html_registered_at_structured_tier() -> None:
-    """M12 flips `html` to STRUCTURED for real in `archex.languages` -- this
-    pins that registry fact directly, independent of any single adapter
-    call, so a tier regression fails here even if some other test's mocks
-    would otherwise mask it."""
+    """Pins that `html` is registered at STRUCTURED tier directly in the
+    registry, independent of any single adapter call, so a tier
+    regression fails here even if some other test's mocks would
+    otherwise mask it."""
     assert get_language_tier("html") == LanguageTier.STRUCTURED
 
 
@@ -145,7 +145,7 @@ def test_extract_chunk_ranges_on_realistic_fixture_outlines_the_document_element
 
 
 # ---------------------------------------------------------------------------
-# extract_symbols: never claims programming symbols (M12 invariant)
+# extract_symbols: never claims programming symbols
 # ---------------------------------------------------------------------------
 
 
@@ -185,7 +185,7 @@ def test_extract_symbols_on_realistic_fixture_with_function_and_class_in_script(
 
 
 # ---------------------------------------------------------------------------
-# extract_references: local script/link/img/a reference extraction (M12)
+# extract_references: local script/link/img/a reference extraction
 # ---------------------------------------------------------------------------
 
 
@@ -333,14 +333,14 @@ def test_extract_and_resolve_all_reference_kinds_against_realistic_fixture(
 
 
 # ---------------------------------------------------------------------------
-# Reference extraction never becomes a programming-symbol claim (M12 invariant)
+# Reference extraction never becomes a programming-symbol claim
 # ---------------------------------------------------------------------------
 
 
 def test_extract_symbols_stays_empty_while_extract_references_finds_local_targets(
     engine: TreeSitterEngine, adapter: HtmlAdapter
 ) -> None:
-    """M12 adds reference extraction on top of the M11 STRUCTURED base -- it
+    """Reference extraction is layered on top of the STRUCTURED base -- it
     must not also start claiming programming symbols. On the realistic
     fixture, references are non-empty but symbols remain empty."""
     with open(f"{FIXTURES_DIR}/index.html", "rb") as f:
@@ -355,14 +355,14 @@ def test_extract_symbols_stays_empty_while_extract_references_finds_local_target
 
 
 # ---------------------------------------------------------------------------
-# archex.api.file_outline: end-to-end M12 outline acceptance
+# archex.api.file_outline: end-to-end outline acceptance
 # ---------------------------------------------------------------------------
 
 
 def test_file_outline_returns_html_outline_and_local_references_end_to_end(
     tmp_path: Path,
 ) -> None:
-    """M12 acceptance: `archex.api.file_outline` against the realistic fixture
+    """Acceptance: `archex.api.file_outline` against the realistic fixture
     surfaces the HTML element outline plus the local references its
     `<head>`/`<body>` declare -- without ever claiming a function/class/
     method/interface symbol for markup. File-outline reference resolution uses

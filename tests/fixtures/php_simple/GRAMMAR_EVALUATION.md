@@ -1,4 +1,4 @@
-# PHP grammar evaluation (M6 prerequisite)
+# PHP grammar evaluation
 
 **Grammar:** `tree-sitter/tree-sitter-php` (official, `tree-sitter` GitHub org), resolved via the
 bundled `tree-sitter-language-pack==0.13.0` fallback under the pack name `"php"`

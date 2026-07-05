@@ -1,4 +1,4 @@
-# Ruby grammar evaluation (M7 prerequisite)
+# Ruby grammar evaluation
 
 **Grammar:** bundled Ruby grammar resolved by `tree_sitter_language_pack.get_language("ruby")` and Archex's existing `tree-sitter-language-pack==0.13.0` fallback. No new dependency is required; Ruby already resolves through this grammar at `CHUNK_ONLY` tier.
 

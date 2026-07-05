@@ -22,7 +22,7 @@ This baseline is a separate artifact from `benchmarks/dogfood_baseline.json` (th
 uv run archex dogfood --all --baseline .archex/baselines/pre-promotion.json --format json
 ```
 
-A clean run against an unpromoted index passes with zero regressions. Each language milestone (M6–M10, M12, M13) re-runs this exact command as part of its own verification before merging; a non-zero exit blocks the milestone.
+A clean run against an unpromoted index passes with zero regressions. Each language-tier promotion milestone re-runs this exact command as part of its own verification before merging; a non-zero exit blocks the milestone.
 
 ## Regenerating the baseline
 
