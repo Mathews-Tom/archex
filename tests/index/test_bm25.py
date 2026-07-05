@@ -668,6 +668,268 @@ def test_schema_migration_from_old_fts_schema(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Identifier-fragment tokenization: symbol_name and breadcrumbs (M17)
+#
+# `identifier_fragment_tokenization` defaults to False (see IndexConfig) —
+# measured on the self-repo identifier-fragment benchmark corpus, enabling it
+# regressed previously passing tasks (fragment collisions among related
+# PascalCase symbols outweighed the intended recall gain). These tests
+# exercise the flag explicitly; the default-off tests pin the safe fallback.
+# ---------------------------------------------------------------------------
+
+
+def test_default_flag_off_does_not_expand_symbol_name_or_breadcrumbs(tmp_path: Path) -> None:
+    """Without the opt-in flag, symbol_name/breadcrumbs are stored unexpanded."""
+    db = tmp_path / "symname_default_off.db"
+    store = IndexStore(db)
+    idx = BM25Index(store)
+    chunk = CodeChunk(
+        id="a.py:DependencyGraph:1",
+        content="class DependencyGraph:\n    pass",
+        file_path="a.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="DependencyGraph",
+        symbol_kind=SymbolKind.CLASS,
+        language="python",
+        token_count=5,
+        breadcrumbs="module: a > class: DependencyGraph",
+    )
+    store.insert_chunks([chunk])
+    idx.build([chunk])
+
+    row = store.conn.execute(
+        "SELECT symbol_name, breadcrumbs FROM chunks_fts WHERE chunk_id = ?", (chunk.id,)
+    ).fetchone()
+    assert row[0] == "DependencyGraph"
+    assert row[1] == "module: a > class: DependencyGraph"
+    store.close()
+
+
+def test_insert_rows_expands_symbol_name_camel_case_fragments(tmp_path: Path) -> None:
+    """symbol_name gets additive camelCase/PascalCase fragments, original token kept."""
+    db = tmp_path / "symname_fragments.db"
+    store = IndexStore(db)
+    idx = BM25Index(store, identifier_fragment_tokenization=True)
+    chunk = CodeChunk(
+        id="a.py:DependencyGraph:1",
+        content="class DependencyGraph:\n    pass",
+        file_path="a.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="DependencyGraph",
+        symbol_kind=SymbolKind.CLASS,
+        language="python",
+        token_count=5,
+        breadcrumbs="module: a > class: DependencyGraph",
+    )
+    store.insert_chunks([chunk])
+    idx.build([chunk])
+
+    row = store.conn.execute(
+        "SELECT symbol_name, breadcrumbs FROM chunks_fts WHERE chunk_id = ?", (chunk.id,)
+    ).fetchone()
+    assert "DependencyGraph" in row[0]
+    assert "dependency" in row[0]
+    assert "graph" in row[0]
+    assert "dependency" in row[1]
+    assert "graph" in row[1]
+    store.close()
+
+
+def test_symbol_name_original_token_still_searchable(tmp_path: Path) -> None:
+    """Fragment expansion is additive — the exact original identifier still matches."""
+    db = tmp_path / "symname_original.db"
+    store = IndexStore(db)
+    idx = BM25Index(store, identifier_fragment_tokenization=True)
+    chunk = CodeChunk(
+        id="a.py:DependencyGraph:1",
+        content="class DependencyGraph:\n    pass",
+        file_path="a.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="DependencyGraph",
+        symbol_kind=SymbolKind.CLASS,
+        language="python",
+        token_count=5,
+    )
+    store.insert_chunks([chunk])
+    idx.build([chunk])
+
+    results = idx.search("DependencyGraph")
+    ids = [c.id for c, _ in results]
+    assert chunk.id in ids
+    store.close()
+
+
+def test_symbol_name_fragments_outrank_generic_content_matches(tmp_path: Path) -> None:
+    """A space-separated fragment query ranks the PascalCase-named definition above
+    a chunk that only mentions the same words as unrelated prose.
+    """
+    db = tmp_path / "ranking_fragments.db"
+    store = IndexStore(db)
+    idx = BM25Index(store, identifier_fragment_tokenization=True)
+    target = CodeChunk(
+        id="widgets.py:WidgetRegistry:1",
+        content="class WidgetRegistry:\n    def __init__(self):\n        self._entries = {}",
+        file_path="widgets.py",
+        start_line=1,
+        end_line=3,
+        symbol_name="WidgetRegistry",
+        symbol_kind=SymbolKind.CLASS,
+        language="python",
+        token_count=15,
+    )
+    decoy = CodeChunk(
+        id="notes.py:jot_registry_notes:1",
+        content=(
+            "def jot_registry_notes():\n"
+            '    """A widget is a UI unit; a registry tracks named things."""\n'
+        ),
+        file_path="notes.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="jot_registry_notes",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=25,
+        docstring="A widget is a UI unit; a registry tracks named things.",
+    )
+    store.insert_chunks([target, decoy])
+    idx.build([target, decoy])
+
+    results = idx.search("widget registry")
+    assert results
+    assert results[0][0].id == target.id
+    store.close()
+
+
+def test_breadcrumbs_fragments_are_searchable(tmp_path: Path) -> None:
+    """Dotted qualified breadcrumbs also get identifier-fragment expansion."""
+    db = tmp_path / "breadcrumbs_fragments.db"
+    store = IndexStore(db)
+    idx = BM25Index(store, identifier_fragment_tokenization=True)
+    chunk = CodeChunk(
+        id="report.py:build_readiness_report:1",
+        content="def build_readiness_report():\n    pass",
+        file_path="report.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="build_readiness_report",
+        symbol_kind=SymbolKind.FUNCTION,
+        language="python",
+        token_count=10,
+        breadcrumbs="module: report > class: ReadinessReport > method: build_readiness_report",
+    )
+    store.insert_chunks([chunk])
+    idx.build([chunk])
+
+    row = store.conn.execute(
+        "SELECT breadcrumbs FROM chunks_fts WHERE chunk_id = ?", (chunk.id,)
+    ).fetchone()
+    assert "readiness" in row[0]
+    assert "report" in row[0]
+    store.close()
+
+
+def test_content_schema_version_bump_triggers_rebuild(tmp_path: Path) -> None:
+    """A stale bm25_content_version metadata value forces a full FTS rebuild."""
+    db = tmp_path / "content_version_test.db"
+    store = IndexStore(db)
+    idx = BM25Index(store, identifier_fragment_tokenization=True)
+    chunk = CodeChunk(
+        id="v.py:VersionProbe:1",
+        content="class VersionProbe:\n    pass",
+        file_path="v.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="VersionProbe",
+        symbol_kind=SymbolKind.CLASS,
+        language="python",
+        token_count=5,
+    )
+    store.insert_chunks([chunk])
+    idx.build([chunk])
+    assert idx.has_data
+
+    # Simulate a store stamped with a prior (pre-M17) content tokenization version.
+    store.set_metadata("bm25_content_version", "1")
+    stale_idx = BM25Index(store, identifier_fragment_tokenization=True)
+    assert not stale_idx.has_data
+
+    stale_idx.build([chunk])
+    row = store.conn.execute(
+        "SELECT symbol_name FROM chunks_fts WHERE chunk_id = ?", (chunk.id,)
+    ).fetchone()
+    assert "version" in row[0]
+    assert "probe" in row[0]
+    store.close()
+
+
+def test_flipping_fragment_flag_forces_rebuild(tmp_path: Path) -> None:
+    """Changing identifier_fragment_tokenization on an existing store forces a rebuild."""
+    db = tmp_path / "flag_flip_test.db"
+    store = IndexStore(db)
+    idx = BM25Index(store, identifier_fragment_tokenization=False)
+    chunk = CodeChunk(
+        id="f.py:FlagFlipProbe:1",
+        content="class FlagFlipProbe:\n    pass",
+        file_path="f.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="FlagFlipProbe",
+        symbol_kind=SymbolKind.CLASS,
+        language="python",
+        token_count=5,
+    )
+    store.insert_chunks([chunk])
+    idx.build([chunk])
+    row = store.conn.execute(
+        "SELECT symbol_name FROM chunks_fts WHERE chunk_id = ?", (chunk.id,)
+    ).fetchone()
+    assert row[0] == "FlagFlipProbe"
+
+    flipped_idx = BM25Index(store, identifier_fragment_tokenization=True)
+    assert not flipped_idx.has_data
+    flipped_idx.build([chunk])
+    row = store.conn.execute(
+        "SELECT symbol_name FROM chunks_fts WHERE chunk_id = ?", (chunk.id,)
+    ).fetchone()
+    assert "flag" in row[0]
+    assert "flip" in row[0]
+    assert "probe" in row[0]
+    store.close()
+
+
+def test_update_path_expands_symbol_name_fragments_same_as_build(tmp_path: Path) -> None:
+    """The delta insert-only update() path expands symbol_name identically to build()."""
+    db = tmp_path / "delta_fragment_parity.db"
+    store = IndexStore(db)
+    idx = BM25Index(store, identifier_fragment_tokenization=True)
+    chunk = CodeChunk(
+        id="delta.py:PatchApplier:1",
+        content="class PatchApplier:\n    pass",
+        file_path="delta.py",
+        start_line=1,
+        end_line=2,
+        symbol_name="PatchApplier",
+        symbol_kind=SymbolKind.CLASS,
+        language="python",
+        token_count=5,
+    )
+    store.insert_chunks([chunk])
+    idx.update([chunk])
+
+    row = store.conn.execute(
+        "SELECT symbol_name FROM chunks_fts WHERE chunk_id = ?", (chunk.id,)
+    ).fetchone()
+    assert "PatchApplier" in row[0]
+    assert "patch" in row[0]
+    assert "applier" in row[0]
+    store.close()
+
+
+# ---------------------------------------------------------------------------
 # AvgIDF tests
 # ---------------------------------------------------------------------------
 
