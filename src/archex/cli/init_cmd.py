@@ -6,8 +6,9 @@ from pathlib import Path
 
 import click
 
+from archex.config import load_config, load_index_config
 from archex.exceptions import ArchexError
-from archex.index.artifact import import_artifact
+from archex.index.artifact import import_artifact, sync_imported_artifact
 from archex.project import init_project
 
 
@@ -57,3 +58,16 @@ def init_cmd(source: str, force: bool, reset: bool, from_artifact_path: Path | N
         click.echo(
             f"Artifact corpus:         {header.file_count} files, {header.chunk_count} chunks"
         )
+
+        try:
+            config = load_config(source)
+            index_config = load_index_config(source)
+            sync_result = sync_imported_artifact(
+                result.state.repo_root, result.state.index_path, config, index_config
+            )
+        except ArchexError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(f"Delta-sync strategy:     {sync_result.strategy}")
+        if sync_result.strategy != "clean":
+            click.echo(f"Files changed since export: {sync_result.files_changed}")
+        click.echo(f"Sync time:               {sync_result.sync_time_ms} ms")
