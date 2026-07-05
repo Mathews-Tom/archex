@@ -1,0 +1,15 @@
+task_id: polyglot_catalog_html_assets
+repo: "tests/fixtures/polyglot_html_js_css/catalog"
+commit: "HEAD"
+languages: [html, javascript, css]
+question: "What script and stylesheet does the product catalog browser page load?"
+expected_files:
+  - index.html
+  - assets/inventory-list.js
+  - assets/inventory-grid.css
+token_budget: 400
+keywords:
+  - catalog
+  - product
+  - browser
+  - season

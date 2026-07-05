@@ -1,0 +1,15 @@
+task_id: polyglot_support_html_assets
+repo: "tests/fixtures/polyglot_html_js_css/support"
+commit: "HEAD"
+languages: [html, javascript, css]
+question: "What script and stylesheet does the customer support ticket desk page load?"
+expected_files:
+  - index.html
+  - assets/case-widget.js
+  - assets/case-panel.css
+token_budget: 400
+keywords:
+  - support
+  - ticket
+  - customer
+  - desk

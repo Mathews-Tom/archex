@@ -1,0 +1,15 @@
+task_id: polyglot_checkout_html_assets
+repo: "tests/fixtures/polyglot_html_js_css/checkout"
+commit: "HEAD"
+languages: [html, javascript, css]
+question: "What script and stylesheet does the cart checkout flow page load?"
+expected_files:
+  - index.html
+  - assets/purchase.js
+  - assets/purchase.css
+token_budget: 400
+keywords:
+  - checkout
+  - cart
+  - shipping
+  - order

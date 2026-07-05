@@ -1,0 +1,27 @@
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.inventory-grid__card {
+  border-radius: 4px;
+}
+
+.inventory-grid__season-badge {
+  background-color: #fff3cd;
+  color: #856404;
+  border-radius: 12px;
+  padding: 2px 8px;
+}
+
+.inventory-filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.inventory-pagination {
+  text-align: center;
+  margin-top: 24px;
+}
