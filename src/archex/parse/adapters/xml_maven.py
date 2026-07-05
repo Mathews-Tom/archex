@@ -79,6 +79,38 @@ def extract_maven_dependencies(
     return references
 
 
+def resolve_maven_dependency(imp: ImportStatement, file_map: dict[str, str]) -> str | None:
+    """Resolve a Maven coordinate (`groupId:artifactId[:version]`) to
+    another module's `pom.xml` by the widely-followed Maven convention
+    that a module's directory name equals its artifactId.
+
+    This is a bounded heuristic, not a verified groupId/artifactId
+    match: `resolve_import` only ever sees path strings via `file_map`
+    (the shared `LanguageAdapter` contract), so groupId is never itself
+    confirmed. Resolution returns `None` -- "not determinable within the
+    repo" -- when zero or more than one pom.xml lives in a directory
+    named after the artifactId (including every external/Maven Central
+    coordinate, which by construction never matches a repo path), or
+    when the only match is the dependency's own file.
+    """
+    parts = imp.module.split(":")
+    if len(parts) < 2:
+        return None
+    artifact_id = parts[1]
+
+    candidates = {
+        path
+        for path in file_map.values()
+        if posixpath.basename(path) == _POM_FILENAME
+        and posixpath.basename(posixpath.dirname(path)) == artifact_id
+    }
+    if len(candidates) != 1:
+        return None
+
+    resolved = next(iter(candidates))
+    return None if resolved == imp.file_path else resolved
+
+
 # ---------------------------------------------------------------------------
 # tree-sitter-xml node helpers
 # ---------------------------------------------------------------------------
