@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<library>
+  <book isbn="001">
+    <title>Sample Title</title>
+  </book>
+  <shelf label="reference">
+    <see-also ref="catalog.xml"/>
+  </shelf>
+</library>
