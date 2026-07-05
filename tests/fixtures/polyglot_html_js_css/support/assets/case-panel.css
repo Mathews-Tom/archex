@@ -1,0 +1,24 @@
+.case-panel {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.case-panel__status {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.case-panel__escalated {
+  border-left: 4px solid #d93025;
+}
+
+.case-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.case-survey-banner {
+  background-color: #e8f0fe;
+  padding: 10px;
+  border-radius: 4px;
+}

@@ -1,0 +1,26 @@
+.purchase-summary {
+  border: 1px solid #d0d0d0;
+  padding: 12px;
+}
+
+.purchase-summary__total {
+  font-size: 1.25rem;
+  text-align: right;
+}
+
+.address-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.address-form__warning {
+  color: #b00020;
+  font-size: 0.8rem;
+}
+
+.purchase-confirmation-banner {
+  background-color: #e6f4ea;
+  border-left: 4px solid #34a853;
+  padding: 8px 12px;
+}

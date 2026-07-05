@@ -1,0 +1,15 @@
+task_id: polyglot_kiosk_html_assets
+repo: "tests/fixtures/polyglot_html_js_css/kiosk"
+commit: "HEAD"
+languages: [html, javascript, css]
+question: "What script and stylesheet does the employee kiosk directory page load?"
+expected_files:
+  - index.html
+  - assets/roster.js
+  - assets/roster.css
+token_budget: 400
+keywords:
+  - kiosk
+  - directory
+  - terminal
+  - staff

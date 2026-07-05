@@ -1,0 +1,27 @@
+.roster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.roster-list__badge {
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.roster-list__department {
+  font-size: 0.85rem;
+  color: #4a4a4a;
+}
+
+.roster-header {
+  text-align: center;
+  padding: 16px 0;
+}
+
+.roster-callback-button {
+  background-color: #0057b8;
+  color: #ffffff;
+  border-radius: 6px;
+  padding: 10px 18px;
+}
