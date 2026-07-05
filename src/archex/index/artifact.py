@@ -460,3 +460,68 @@ def sync_imported_artifact(
         delta_meta=delta_meta,
         sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
     )
+
+
+_GITATTRIBUTES_COMMENT = "# archex portable index artifact — never diff/merge-conflict"
+
+
+def _ensure_local_merge_ours_driver(repo_root: Path) -> None:
+    """Best-effort: register the "ours" merge driver in this machine's local git config.
+
+    `.gitattributes`' `merge=ours` names a driver git must be told about via
+    `merge.ours.driver` — deliberately local, non-shareable config (a
+    security boundary: a malicious repo's committed config could otherwise
+    silently make merges no-ops). Every clone must set this once; the
+    one-line command is documented in docs/PORTABLE_INDEX_ARTIFACT.md for
+    teammates on a fresh clone. Never raises — a failure here (e.g. no git
+    binary, not a git repo) is not a reason to fail the export.
+    """
+    import contextlib
+    import subprocess
+
+    with contextlib.suppress(OSError):
+        subprocess.run(
+            ["git", "config", "merge.ours.driver", "true"],
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+
+
+def ensure_artifact_gitattributes(repo_root: Path, artifact_path: str | Path) -> bool:
+    """Ensure a `merge=ours` `.gitattributes` entry exists for an exported artifact.
+
+    Only touches `.gitattributes` when `artifact_path` resolves inside
+    `repo_root` — an artifact exported outside the repo (e.g. to `/tmp`) has
+    no repo-relative path to attach a merge strategy to, so this is a no-op.
+    The edit is written to disk only; it is never staged or committed —
+    export is opt-in, and so is deciding to commit its side effects.
+
+    Returns True if `.gitattributes` was created or modified.
+    """
+    repo_root = repo_root.resolve()
+    try:
+        relative = Path(artifact_path).resolve().relative_to(repo_root)
+    except ValueError:
+        return False
+
+    entry = f"{relative.as_posix()} merge=ours -diff"
+    gitattributes_path = repo_root / ".gitattributes"
+    lines = (
+        gitattributes_path.read_text(encoding="utf-8").splitlines()
+        if gitattributes_path.exists()
+        else []
+    )
+
+    _ensure_local_merge_ours_driver(repo_root)
+
+    if entry in {line.strip() for line in lines}:
+        return False
+
+    if lines and lines[-1] != "":
+        lines.append("")
+    lines.append(_GITATTRIBUTES_COMMENT)
+    lines.append(entry)
+    gitattributes_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
