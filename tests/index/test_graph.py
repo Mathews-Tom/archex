@@ -165,6 +165,35 @@ def test_structured_tier_parsed_file_emits_import_edge_without_symbols(
     assert edge.confidence == EdgeConfidence.EXTRACTED
 
 
+def test_cross_language_html_to_js_and_css_edges_resolve_to_correct_targets(
+    tmp_path: Path,
+) -> None:
+    """An HTML file's `script src`/`link href` references become IMPORTS
+    edges to the exact JS/CSS files they name, even when the JS and CSS
+    sibling both share a directory and basename -- a collision that a
+    naive extension-stripped module-key lookup would resolve to only one
+    of the two targets, silently dropping (or misdirecting) the other."""
+    from archex.models import Config
+    from archex.parse.adapters import default_adapter_registry
+    from archex.pipeline.service import parse_repository
+
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text(
+        '<html><head><link rel="stylesheet" href="assets/app.css">'
+        '<script src="assets/app.js"></script></head><body></body></html>'
+    )
+    (tmp_path / "assets" / "app.js").write_text("console.log('app');\n")
+    (tmp_path / "assets" / "app.css").write_text("body { color: black; }\n")
+
+    config = Config(languages=["html", "javascript", "css"], parallel=False)
+    adapters = default_adapter_registry.build_all()
+    artifacts = parse_repository(tmp_path, config, adapters)
+
+    graph = DependencyGraph.from_parsed_files(artifacts.parsed_files, artifacts.resolved_imports)
+
+    assert graph.imports_of("index.html") == {"assets/app.js", "assets/app.css"}
+
+
 def test_neighborhood_bfs() -> None:
     parsed = _make_parsed_files()
     import_map = _make_import_map()

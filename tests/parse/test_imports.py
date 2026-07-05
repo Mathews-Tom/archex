@@ -320,6 +320,45 @@ def test_build_file_map_non_python_extension() -> None:
     assert result["cmd.main"] == "cmd/main.go"
 
 
+def test_build_file_map_registers_literal_path_for_each_file() -> None:
+    """Every discovered file gets its own literal repo-relative path as a
+    lookup key, in addition to the extension-stripped dotted module key --
+    so path-based adapters (HTML/CSS) can resolve an exact reference even
+    when two files share a directory and basename across extensions."""
+    files = [
+        DiscoveredFile(
+            path="assets/app.js",
+            absolute_path="/tmp/assets/app.js",
+            language="typescript",
+        ),
+        DiscoveredFile(
+            path="assets/app.css",
+            absolute_path="/tmp/assets/app.css",
+            language="css",
+        ),
+    ]
+    result = build_file_map(files)
+    assert result["assets/app.js"] == "assets/app.js"
+    assert result["assets/app.css"] == "assets/app.css"
+
+
+def test_build_file_map_literal_path_never_overwrites_existing_dotted_key() -> None:
+    """A literal-path key is only added via ``setdefault`` -- it must not
+    clobber an existing dotted-module-key entry belonging to another file."""
+    files = [
+        DiscoveredFile(
+            path="pkg/mod.py",
+            absolute_path="/tmp/pkg/mod.py",
+            language="python",
+        ),
+    ]
+    result = build_file_map(files)
+    # Sanity: the dotted module key still resolves as before.
+    assert result["pkg.mod"] == "pkg/mod.py"
+    # And the literal path is also registered for path-based lookups.
+    assert result["pkg/mod.py"] == "pkg/mod.py"
+
+
 def test_strict_parallel_raises_on_bad_file(
     tmp_path: Path,
     engine: TreeSitterEngine,

@@ -304,6 +304,27 @@ def test_resolve_import_returns_none_for_unresolvable_local_reference(adapter: H
     assert adapter.resolve_import(imp, {"pages/about.html": "pages/about.html"}) is None
 
 
+def test_resolve_import_does_not_collide_across_extensions_sharing_a_basename(
+    adapter: HtmlAdapter,
+) -> None:
+    """`script src="assets/app.js"` and `link href="assets/app.css"` must
+    resolve to their own distinct targets even though both files share the
+    same directory and basename -- a naive extension-stripped module-key
+    lookup would collapse both references onto whichever file happened to
+    occupy that shared key, silently misrouting one of the two edges."""
+    file_map = {"assets/app.js": "assets/app.js", "assets/app.css": "assets/app.css"}
+
+    js_ref = ImportStatement(
+        module="assets/app.js", file_path="index.html", line=1, is_relative=True
+    )
+    css_ref = ImportStatement(
+        module="assets/app.css", file_path="index.html", line=2, is_relative=True
+    )
+
+    assert adapter.resolve_import(js_ref, file_map) == "assets/app.js"
+    assert adapter.resolve_import(css_ref, file_map) == "assets/app.css"
+
+
 def test_extract_and_resolve_all_reference_kinds_against_realistic_fixture(
     engine: TreeSitterEngine, adapter: HtmlAdapter
 ) -> None:
