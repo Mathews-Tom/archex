@@ -30,17 +30,24 @@ loudly without ever writing a partial index to disk.
 from __future__ import annotations
 
 import json
+import logging
 import lzma
 import sqlite3
 import struct
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from archex import __version__
 from archex.exceptions import ArtifactError, ArtifactVersionError
 from archex.index.store import IndexStore
+from archex.models import IndexConfig
+
+if TYPE_CHECKING:
+    from archex.models import Config, DeltaMeta
+
+logger = logging.getLogger(__name__)
 
 ARTIFACT_MAGIC = b"ARCHEXIDXv1\n"
 
@@ -310,3 +317,146 @@ def import_artifact(path: str | Path, dest_db_path: str | Path) -> ArtifactHeade
         store.close()
 
     return header
+
+
+_STALE_FALLBACK_LOG = (
+    "Imported artifact is stale: %.0f%% of files changed since export "
+    "(delta_threshold=%.0f%%) — falling back to a full re-index."
+)
+
+
+@dataclass(frozen=True)
+class ArtifactSyncResult:
+    """Outcome of syncing a freshly-imported artifact store to the working tree."""
+
+    strategy: str
+    """One of ``"clean"`` (no drift), ``"delta"``, or ``"full_reindex"``."""
+
+    files_changed: int
+    delta_meta: DeltaMeta | None
+    sync_time_ms: float
+
+
+def _full_reindex_in_place(
+    repo_root: Path,
+    dest_db_path: Path,
+    config: Config,
+    index_config: IndexConfig,
+) -> None:
+    """Discard a too-stale imported store and perform an ordinary full re-index in place.
+
+    Builds via the same `_full_index` pipeline `archex index` itself uses,
+    then explicitly copies the result onto `dest_db_path` — rather than
+    relying on `index_repository()`'s cache-key/project-layout detection to
+    land at the right path, which would silently miss `dest_db_path`
+    whenever the repo-local project has not been initialized yet (exactly
+    the state `archex init --from-artifact` is in when this fallback runs).
+    Always builds with caching enabled internally (regardless of the
+    caller's own `config.cache`) so `commit_hash`/`source_identity` land in
+    the fresh store's metadata, which `sync_imported_artifact` and future
+    re-exports depend on.
+    """
+    import shutil
+    import tempfile
+
+    from archex.api import _full_index  # pyright: ignore[reportPrivateUsage]
+    from archex.cache import CacheManager
+    from archex.models import RepoSource
+
+    source = RepoSource(local_path=str(repo_root))
+    fallback_config = config.model_copy(update={"cache": True})
+    scratch_dir = Path(tempfile.mkdtemp(prefix="archex-artifact-fallback-"))
+    try:
+        scratch_cache = CacheManager(cache_dir=str(scratch_dir))
+        cache_key = scratch_cache.cache_key(source)
+        fresh_store = _full_index(
+            source,
+            fallback_config,
+            scratch_cache,
+            cache_key,
+            timing=None,
+            index_config=index_config,
+        )
+        fresh_db_path = fresh_store.db_path
+        fresh_store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+        fresh_store.close()
+
+        dest_db_path.parent.mkdir(parents=True, exist_ok=True)
+        for suffix in ("-wal", "-shm"):
+            stale_sidecar = dest_db_path.with_name(dest_db_path.name + suffix)
+            if stale_sidecar.exists():
+                stale_sidecar.unlink()
+        shutil.copy2(fresh_db_path, dest_db_path)
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+
+def sync_imported_artifact(
+    repo_root: Path,
+    dest_db_path: str | Path,
+    config: Config,
+    index_config: IndexConfig | None = None,
+) -> ArtifactSyncResult:
+    """Bring a freshly-imported artifact store up to date with the working tree.
+
+    Applies `compute_working_tree_delta()` + `apply_delta()` — the same
+    targeted-update machinery `apply_delta` already provides for ordinary
+    delta re-indexing — scoped against the artifact's imported
+    `file_states`. When the change set is at or above `config.delta_threshold`
+    (the same staleness knob the ordinary delta-indexing path uses), the
+    imported store is discarded in favor of an ordinary full re-index: past
+    that point a targeted delta costs more than starting fresh, and a loud
+    fallback is safer than silently syncing a misleadingly "close enough"
+    index.
+    """
+    from archex.acquire import discover_files
+    from archex.cache import CacheManager
+    from archex.index.delta import apply_delta, compute_working_tree_delta
+    from archex.index.graph import DependencyGraph
+
+    dest_db_path = Path(dest_db_path)
+    effective_index_config = index_config or IndexConfig()
+    t_start = time.perf_counter()
+
+    store = IndexStore(dest_db_path)
+    manifest = compute_working_tree_delta(repo_root, store, config)
+    manifest.base_commit = store.get_metadata("commit_hash") or manifest.base_commit
+    current_commit = CacheManager.git_head(str(repo_root))
+    if current_commit:
+        manifest.current_commit = current_commit
+
+    if not manifest.changes:
+        store.set_metadata("indexed_at", str(time.time()))
+        store.close()
+        return ArtifactSyncResult(
+            strategy="clean",
+            files_changed=0,
+            delta_meta=None,
+            sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
+        )
+
+    total_files = len(
+        discover_files(repo_root, languages=config.languages, max_file_size=config.max_file_size)
+    )
+    change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
+
+    if change_ratio >= config.delta_threshold:
+        store.close()
+        logger.warning(_STALE_FALLBACK_LOG, change_ratio * 100, config.delta_threshold * 100)
+        _full_reindex_in_place(repo_root, dest_db_path, config, effective_index_config)
+        return ArtifactSyncResult(
+            strategy="full_reindex",
+            files_changed=len(manifest.changes),
+            delta_meta=None,
+            sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
+        )
+
+    graph = DependencyGraph.from_edges(store.get_edges())
+    delta_meta = apply_delta(store, graph, manifest, repo_root, config, effective_index_config)
+    store.close()
+    return ArtifactSyncResult(
+        strategy="delta",
+        files_changed=len(manifest.changes),
+        delta_meta=delta_meta,
+        sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
+    )
