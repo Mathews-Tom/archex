@@ -31,21 +31,47 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 
 _DROP_FTS_ROWS = "DELETE FROM chunks_fts;"
 
+#: Bumped whenever `_insert_rows` changes what text lands in an FTS column
+#: (e.g. adding identifier-fragment splitting to a new column). Combined with
+#: the `identifier_fragment_tokenization` flag value into a composite version
+#: string so flipping the flag also forces a rebuild — a mismatch drops and
+#: rebuilds `chunks_fts` on next use so existing stores pick up the new
+#: tokenization instead of silently serving stale content.
+_BM25_CONTENT_SCHEMA_VERSION = "2"
+_BM25_CONTENT_VERSION_KEY = "bm25_content_version"
 
-def _ensure_fts_schema(conn: sqlite3.Connection) -> None:
-    """Ensure the FTS table has the current schema (including breadcrumbs and summary columns).
 
-    FTS5 does not support ALTER TABLE, so we detect stale schemas
-    by probing for the latest column and recreate if needed.
+def _content_version_for(identifier_fragment_tokenization: bool) -> str:
+    return f"{_BM25_CONTENT_SCHEMA_VERSION}:{identifier_fragment_tokenization}"
+
+
+def _ensure_fts_schema(store: IndexStore, identifier_fragment_tokenization: bool) -> None:
+    """Ensure the FTS table has the current schema and content-tokenization version.
+
+    FTS5 does not support ALTER TABLE, so a stale schema (missing columns) or a
+    stale content version (a prior tokenization scheme, or a different
+    ``identifier_fragment_tokenization`` setting, baked into existing rows) is
+    handled the same way: drop and rebuild the table. Callers detect the
+    resulting empty table via `has_data` and trigger a full re-insert.
     """
+    conn = store.conn
+    needs_rebuild = False
     try:
         # Probe for the newest columns (breadcrumbs and summary)
         conn.execute("SELECT chunk_id FROM chunks_fts WHERE summary MATCH 'probe' LIMIT 0")
         conn.execute("SELECT chunk_id FROM chunks_fts WHERE breadcrumbs MATCH 'probe' LIMIT 0")
     except sqlite3.OperationalError:
-        # breadcrumbs or summary column missing — drop and recreate with new schema
+        # breadcrumbs or summary column missing — stale schema, needs recreation
+        needs_rebuild = True
+
+    expected_version = _content_version_for(identifier_fragment_tokenization)
+    if not needs_rebuild and store.get_metadata(_BM25_CONTENT_VERSION_KEY) != expected_version:
+        needs_rebuild = True
+
+    if needs_rebuild:
         conn.execute("DROP TABLE IF EXISTS chunks_fts")
         conn.execute(_CREATE_FTS)
+        store.set_metadata(_BM25_CONTENT_VERSION_KEY, expected_version)
         conn.commit()
 
 
@@ -129,10 +155,13 @@ def escape_fts_query(query: str) -> str:
 class BM25Index:
     """BM25 keyword index using SQLite FTS5."""
 
-    def __init__(self, store: IndexStore) -> None:
+    def __init__(
+        self, store: IndexStore, *, identifier_fragment_tokenization: bool = False
+    ) -> None:
         self._store = store
+        self._identifier_fragment_tokenization = identifier_fragment_tokenization
         store.conn.execute(_CREATE_FTS)
-        _ensure_fts_schema(store.conn)
+        _ensure_fts_schema(store, identifier_fragment_tokenization)
         store.conn.commit()
 
     @property
@@ -164,6 +193,9 @@ class BM25Index:
     def _insert_rows(self, chunks: Iterable[CodeChunk]) -> None:
         from archex.pipeline.chunker import expand_identifiers
 
+        def _maybe_expand(text: str) -> str:
+            return expand_identifiers(text) if self._identifier_fragment_tokenization else text
+
         self._store.conn.executemany(
             "INSERT INTO chunks_fts "
             "(chunk_id, content, symbol_name, file_path, docstring, breadcrumbs, summary) "
@@ -172,10 +204,10 @@ class BM25Index:
                 (
                     c.id,
                     expand_identifiers(c.content),
-                    c.symbol_name or "",
+                    _maybe_expand(c.symbol_name or ""),
                     c.file_path,
                     c.docstring or "",
-                    c.breadcrumbs,
+                    _maybe_expand(c.breadcrumbs),
                     c.summary or "",
                 )
                 for c in chunks
