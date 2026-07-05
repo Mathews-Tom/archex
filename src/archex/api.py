@@ -1812,7 +1812,10 @@ def query(
                     )
                     return pt
 
-                bm25 = BM25Index(store)
+                bm25 = BM25Index(
+                    store,
+                    identifier_fragment_tokenization=index_config.identifier_fragment_tokenization,
+                )
                 stored_edges = store.get_edges()
                 graph = DependencyGraph.from_edges(stored_edges)
 
@@ -2069,7 +2072,10 @@ def query(
         )
 
         try:
-            bm25 = BM25Index(store)
+            bm25 = BM25Index(
+                store,
+                identifier_fragment_tokenization=index_config.identifier_fragment_tokenization,
+            )
             store.insert_chunks(all_chunks)
             if chunk_surrogates:
                 store.insert_chunk_surrogates(chunk_surrogates)

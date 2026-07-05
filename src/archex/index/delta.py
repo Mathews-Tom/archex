@@ -372,12 +372,16 @@ def apply_delta(
     from archex.pipeline.chunker import chunker_revision, create_chunker
 
     t_start = time.perf_counter()
+    effective_index_config = index_config or IndexConfig()
 
     # Ensure chunks_fts has the current schema before any delete operations
     # below. A stale-schema migration here drops and recreates the table,
     # emptying it — capture that so step 5 knows a full rebuild (not a
     # targeted update) is required.
-    bm25 = BM25Index(store)
+    bm25 = BM25Index(
+        store,
+        identifier_fragment_tokenization=effective_index_config.identifier_fragment_tokenization,
+    )
     needs_full_bm25_rebuild = not bm25.has_data
 
     # 1. Handle renames
@@ -401,7 +405,6 @@ def apply_delta(
     new_chunks: list[CodeChunk] = []
     new_edges: list[Edge] = []
     new_surrogates = []
-    effective_index_config = index_config or IndexConfig()
 
     if reprocess:
         all_files = discover_files(
