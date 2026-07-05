@@ -422,6 +422,23 @@ def run_raw_files(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
 
+_GREP_EXCLUDE_DIRS = (
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
+    ".eggs",
+    "target",
+    ".archex",
+)
+
+
 def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Grep-based strategy: search repo for keywords, read matched files."""
     t0 = time.perf_counter()
@@ -443,6 +460,7 @@ def run_raw_grepped(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
                 "--include=*.kt",
                 "--include=*.cs",
                 "--include=*.swift",
+                *[f"--exclude-dir={name}" for name in _GREP_EXCLUDE_DIRS],
                 "-i",
                 kw,
                 ".",
