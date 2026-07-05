@@ -86,3 +86,49 @@ tokenization technique's own well-known precision/recall tradeoff for a
 codebase with a family of derived/related type names (`X`, `XLike`,
 `FooX`, `BarX`), which is common in this repository given its dataclass and
 protocol-heavy style.
+
+## M5 gate — general-corpus regression check
+
+`uv run archex dogfood --all --baseline .archex/baselines/pre-promotion.json`
+(after fixing the unrelated `raw_grepped` hang documented in `BASELINE.md`)
+reports 9 metric regressions against `pre-promotion.json` and 0 ranking
+(`structural_centrality`/`symbol_count`) violations.
+
+**All 9 are pre-existing baseline drift, confirmed unrelated to this
+milestone**: re-run on an unmodified `main` checkout (`git stash` of every
+M17 commit) reproduces the identical regressed values — e.g.
+`archex_adapter_registry`/`archex_query` recall is `0.333` on both
+unmodified `main` and this stack's flagged-off default. `pre-promotion.json`
+predates the M11–M13 STRUCTURED-tier adapters (HTML/XML/YAML/Markdown); those
+adapters now compete as additional candidates for "adapter registry"-style
+queries, which is expected drift from later, independently-gated milestones,
+not something this milestone introduces or is responsible for re-baselining.
+
+With `identifier_fragment_tokenization` at its shipped default (`False`),
+`archex_query`'s `IndexConfig` is unchanged from before this milestone, so
+this stack changes **zero** bytes of BM25-indexed content and reproduces
+byte-for-byte identical `archex_query` results to unmodified `main` on every
+spot-checked task (`archex_adapter_registry` verified explicitly). No new
+regression is introduced by this stack.
+
+Reproduce:
+
+```
+uv run archex dogfood --all --baseline .archex/baselines/pre-promotion.json
+```
+
+## Decision
+
+**Do not enable by default.** The milestone's own corpus — built specifically
+to demonstrate this feature's benefit — shows a net regression (recall
+−0.222, MRR −0.167), with zero of the four targeted zero-recall cases
+recovering and two previously-passing cases breaking. Per the milestone's
+stated fallback: `identifier_fragment_tokenization` ships as an
+`IndexConfig` flag, **defaulting to `False`**, so every store's BM25 content
+is byte-for-byte unchanged from pre-M17 behavior unless a caller opts in.
+The tokenization implementation, schema-versioning/rebuild-on-flip
+machinery, and delta/full-build parity are still merged and tested — real,
+reusable infrastructure for a future, more targeted approach (e.g. scoping
+fragmentation to symbols without a same-file/same-module sibling sharing a
+fragment, or applying it only to non-derived/non-Protocol type names) — but
+the always-on behavior this milestone originally proposed is not shipped.
