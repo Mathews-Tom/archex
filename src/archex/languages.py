@@ -100,7 +100,12 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
         "json", "JSON", (".json",), _CHUNK, "json", frozenset({"object", "array"})
     ),
     "markdown": LanguageSupport(
-        "markdown", "Markdown", (".md", ".markdown"), _CHUNK, "markdown", frozenset({"section"})
+        "markdown",
+        "Markdown",
+        (".md", ".markdown"),
+        _STRUCTURED,
+        "markdown",
+        frozenset({"section"}),
     ),
     "solidity": LanguageSupport(
         "solidity",
