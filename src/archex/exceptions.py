@@ -45,3 +45,15 @@ class LSAPError(ArchexError):
 
 class BenchmarkCloneError(ArchexError):
     """Raised when cloning or checking out a benchmark task repository fails."""
+
+
+class ArtifactError(ArchexError):
+    """Raised when portable index artifact export or import fails."""
+
+
+class ArtifactVersionError(ArtifactError):
+    """Raised when an artifact's format or archex-version compat range is unsupported.
+
+    Always a loud, hard failure — an out-of-range artifact must never be
+    imported partially or silently.
+    """

@@ -12,6 +12,7 @@ from archex.api import index_repository
 from archex.cache import CacheManager
 from archex.config import load_config, load_index_config, persist_project_index_settings
 from archex.exceptions import ArchexError
+from archex.index.artifact import export_artifact
 from archex.models import PipelineTiming, RepoSource
 from archex.project import uses_project_cache_layout
 
@@ -57,6 +58,13 @@ def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int
     type=click.Choice(["2", "4"]),
     help="TurboQuant bit-width for vector indexes.",
 )
+@click.option(
+    "--export-artifact",
+    "export_artifact_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Export a compacted, compressed, portable index artifact to PATH after indexing.",
+)
 def index_cmd(
     source: str,
     output_format: str,
@@ -65,6 +73,7 @@ def index_cmd(
     allow_remote_code: bool,
     quantize_vectors: bool | None,
     quantize_bits: str | None,
+    export_artifact_path: Path | None,
 ) -> None:
     """Build or refresh the index for SOURCE without running a query."""
     repo_source = RepoSource(local_path=source)
@@ -129,6 +138,14 @@ def index_cmd(
             "embedding_cache_hits": int(store.get_metadata("embedding_cache_hits") or "0"),
             "embedding_cache_misses": int(store.get_metadata("embedding_cache_misses") or "0"),
         }
+        if export_artifact_path is not None:
+            try:
+                artifact_header = export_artifact(store, export_artifact_path)
+            except ArchexError as exc:
+                raise click.ClickException(str(exc)) from exc
+            summary["artifact_path"] = str(export_artifact_path)
+            summary["artifact_index_revision"] = artifact_header.index_revision
+            summary["artifact_size_bytes"] = export_artifact_path.stat().st_size
     finally:
         store.close()
 
@@ -152,3 +169,7 @@ def index_cmd(
         f"hits={summary['embedding_cache_hits']}, misses={summary['embedding_cache_misses']}"
     )
     click.echo(f"Duration:           {summary['duration_ms']} ms")
+    if export_artifact_path is not None:
+        click.echo(f"Artifact exported:  {summary['artifact_path']}")
+        click.echo(f"Artifact revision:  {summary['artifact_index_revision']}")
+        click.echo(f"Artifact size:      {summary['artifact_size_bytes']} bytes")
