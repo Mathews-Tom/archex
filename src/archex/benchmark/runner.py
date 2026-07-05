@@ -146,6 +146,35 @@ def _run_git(
         raise BenchmarkCloneError(f"git timed out after {timeout}s: {' '.join(args)}") from exc
 
 
+def _prepare_local_fixture_repo(repo_spec: str) -> tuple[Path, bool] | None:
+    """Materialize a local benchmark-fixture directory as an ephemeral git repo.
+
+    A ``repo`` value other than ``"."`` that resolves to an existing local
+    directory (relative to the invocation cwd — e.g. a fixture checked into
+    ``tests/fixtures/``) is copied into a temp directory and ``git init``'d
+    there, offline and without cloning. This lets benchmark tasks target
+    small, deterministic fixtures that live in-repo but aren't the current
+    working tree and aren't published to GitHub (``archex.acquire.local.open_local``
+    requires a ``.git`` directory, which a plain fixture checkout doesn't have).
+
+    Returns ``None`` when ``repo_spec`` is not a local directory, so callers
+    fall through to ``clone_at_commit``.
+    """
+    if repo_spec == ".":
+        return None
+    source = Path(repo_spec)
+    if not source.is_dir():
+        return None
+    target = Path(tempfile.mkdtemp(prefix="archex-bench-fixture-"))
+    _copy_benchmark_path(source, target)
+    init = _run_git(["git", "init", "--quiet"], cwd=target, timeout=30)
+    if init.returncode != 0:
+        shutil.rmtree(target, ignore_errors=True)
+        detail = init.stderr.strip() or "unknown git error"
+        raise BenchmarkCloneError(f"git init failed for local fixture repo {repo_spec!r}: {detail}")
+    return target, True
+
+
 def clone_at_commit(repo_slug: str, commit: str) -> tuple[Path, bool]:
     """Clone a GitHub repo and checkout a specific commit/tag. Returns (path, needs_cleanup).
 
@@ -199,6 +228,8 @@ def run_benchmark(
     if repo_path is None:
         if task.repo == ".":
             repo_path = Path.cwd()
+        elif (local_fixture := _prepare_local_fixture_repo(task.repo)) is not None:
+            repo_path, needs_cleanup = local_fixture
         else:
             repo_path, needs_cleanup = clone_at_commit(task.repo, task.commit)
 
@@ -394,6 +425,14 @@ def repo_path_for_task(
     cached = repo_cache.get(key)
     if cached is not None:
         return cached
+
+    local_fixture = _prepare_local_fixture_repo(task.repo)
+    if local_fixture is not None:
+        repo_path, needs_cleanup = local_fixture
+        if needs_cleanup:
+            cleanup_paths.append(repo_path)
+        repo_cache[key] = repo_path
+        return repo_path
 
     clone_path, needs_cleanup = clone_at_commit(task.repo, task.commit)
     if needs_cleanup:
