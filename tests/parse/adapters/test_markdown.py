@@ -123,6 +123,38 @@ def test_extract_symbols_is_always_empty(
     assert adapter.extract_symbols(parse(engine, source), source, "index.md") == []
 
 
+def test_extract_symbols_ignores_fenced_code_blocks_with_real_function_and_class_definitions(
+    engine: TreeSitterEngine, adapter: MarkdownAdapter
+) -> None:
+    """A fenced code block containing a genuine `def`/`class` definition
+    is still just prose content to Markdown -- `extract_symbols` is
+    `@final` on the `StructuredAdapter` base and can never be overridden
+    to reach into a fenced block's language and claim its symbols."""
+    source = (
+        b"# Cart\n\n"
+        b"```python\n"
+        b"def compute_total(items):\n"
+        b"    return sum(items)\n\n"
+        b"class Cart:\n"
+        b"    pass\n"
+        b"```\n"
+    )
+
+    assert adapter.extract_symbols(parse(engine, source), source, "adversarial.md") == []
+
+
+def test_extract_references_ignores_fenced_code_block_content(
+    engine: TreeSitterEngine, adapter: MarkdownAdapter
+) -> None:
+    """The same fenced code block must not leak an import-shaped reference
+    either -- only Markdown's own link/image/reference-definition syntax
+    counts as a native cross-reference, never a fenced block's language
+    content."""
+    source = b"# Cart\n\n```python\nfrom ./sibling import helper\n```\n"
+
+    assert adapter.extract_references(parse(engine, source), source, "adversarial.md") == []
+
+
 # ---------------------------------------------------------------------------
 # extract_references: link / image / reference-style / section-anchor extraction
 # ---------------------------------------------------------------------------
@@ -258,3 +290,19 @@ def test_file_outline_returns_markdown_outline_and_resolved_references_end_to_en
         SymbolKind.INTERFACE,
     }
     assert not programming_kinds & set(_iter_kinds(result.symbols))
+
+
+# ---------------------------------------------------------------------------
+# Cross-stack verification: JSON and TOML are unaffected
+# ---------------------------------------------------------------------------
+
+
+def test_json_and_toml_remain_chunk_only() -> None:
+    """JSON and TOML have no generic cross-file reference syntax and stay
+    `CHUNK_ONLY` permanently. This pins that neither was swept up by the
+    XML/YAML/Markdown/CSS STRUCTURED promotion in this stack."""
+    from archex.languages import CHUNK_ONLY_LANGUAGE_IDS
+
+    assert get_language_tier("json") == LanguageTier.CHUNK_ONLY
+    assert get_language_tier("toml") == LanguageTier.CHUNK_ONLY
+    assert {"json", "toml"} <= CHUNK_ONLY_LANGUAGE_IDS
