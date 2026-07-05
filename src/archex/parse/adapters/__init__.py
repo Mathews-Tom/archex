@@ -25,6 +25,7 @@ from archex.parse.adapters.structured import make_structured_adapter
 from archex.parse.adapters.swift import SwiftAdapter
 from archex.parse.adapters.typescript import TypeScriptAdapter
 from archex.parse.adapters.xml import XmlAdapter
+from archex.parse.adapters.yaml import YamlAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,8 @@ for _language_id in sorted(STRUCTURED_LANGUAGE_IDS):
         default_adapter_registry.register(_language_id, HtmlAdapter)
     elif _language_id == "xml":
         default_adapter_registry.register(_language_id, XmlAdapter)
+    elif _language_id == "yaml":
+        default_adapter_registry.register(_language_id, YamlAdapter)
     else:
         default_adapter_registry.register(_language_id, make_structured_adapter(_language_id))
 
