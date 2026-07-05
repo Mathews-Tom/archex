@@ -178,4 +178,16 @@ def build_file_map(files: list[DiscoveredFile]) -> dict[str, str]:
                     file_map[stripped_key] = path
                 break
 
+    # Also register each file's literal repo-relative path (extension
+    # preserved) as its own lookup key. Path-based references (HTML/CSS
+    # local file targets) carry their extension explicitly, unlike
+    # Python-style dotted module names built above — so they must resolve
+    # to an exact path, not an extension-stripped module key, which can
+    # collide across different extensions sharing a directory and
+    # basename (e.g. ``app.js`` / ``app.css`` both collapse to the module
+    # key ``app``). ``setdefault`` never overwrites an existing dotted-key
+    # entry, so this cannot regress module-style resolution.
+    for f in files:
+        file_map.setdefault(f.path.replace(os.sep, "/"), f.path)
+
     return file_map

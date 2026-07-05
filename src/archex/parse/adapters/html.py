@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from archex.models import ImportStatement
-from archex.parse.adapters.structured import StructuredAdapter
+from archex.parse.adapters.structured import StructuredAdapter, resolve_path_reference
 
 _REFERENCE_ATTRIBUTES = {
     "a": "href",
@@ -142,10 +142,9 @@ def _normalize_path(path: str) -> str:
 
 def _resolve_html_reference(candidate: str, file_map: dict[str, str]) -> str | None:
     normalized = _normalize_path(candidate)
-    if normalized in file_map:
-        return file_map[normalized]
+    resolved = resolve_path_reference(normalized, file_map)
+    if resolved is not None:
+        return resolved
     module_key, _ = posixpath.splitext(normalized)
     dotted_key = module_key.replace("/", ".")
-    if dotted_key in file_map:
-        return file_map[dotted_key]
-    return None
+    return file_map.get(dotted_key)
