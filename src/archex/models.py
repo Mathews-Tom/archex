@@ -242,6 +242,13 @@ class IndexConfig(BaseModel):
     allow_remote_code: bool = False
     quantize_vectors: bool = True
     quantize_bits: int = 4
+    #: Additive camelCase/PascalCase identifier-fragment splitting for the BM25
+    #: symbol_name/breadcrumbs FTS columns (M17). Defaults off: measured on the
+    #: self-repo identifier-fragment benchmark corpus, it regressed previously
+    #: passing tasks (fragment collisions among related PascalCase symbols
+    #: outweighed the intended recall gain) — see
+    #: benchmarks/results/m17_identifier_bm25/DECISION.md.
+    identifier_fragment_tokenization: bool = False
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
