@@ -8,6 +8,7 @@ from archex.index.graph import DependencyGraph
 from archex.languages import CHUNK_ONLY_LANGUAGE_IDS, LANGUAGE_SUPPORT, get_language_tier
 from archex.models import Config, LanguageTier, ParsedFile, RepoMetadata
 from archex.parse.adapters import LanguageAdapter, default_adapter_registry
+from archex.parse.adapters.html import HtmlAdapter
 from archex.pipeline.service import produce_artifacts
 from archex.serve.profile import build_profile
 
@@ -26,11 +27,6 @@ CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
         "SELECT * FROM users;\n"
         "CREATE VIEW active_users AS SELECT id FROM users;\n",
         [(1, 1), (2, 2), (3, 3)],
-    ),
-    "html": (
-        "index.html",
-        "<html><body><section><h1>Hello</h1></section></body></html>\n",
-        [(1, 1)],
     ),
     "xml": (
         "MoquiEntity.xml",
@@ -124,6 +120,15 @@ def test_full_tier_languages_extract_symbols_and_imports(language_id: str) -> No
 @pytest.mark.parametrize("language_id", sorted(CHUNK_ONLY_LANGUAGE_IDS))
 def test_chunk_only_languages_report_chunk_only_tier(language_id: str) -> None:
     assert get_language_tier(language_id) == LanguageTier.CHUNK_ONLY
+
+
+def test_html_registered_as_structured_tier_with_html_adapter() -> None:
+    """M12 flips `html` from CHUNK_ONLY to STRUCTURED and wires the real
+    `HtmlAdapter` into the default registry -- it must no longer show up
+    among the chunk-only languages exercised above."""
+    assert get_language_tier("html") == LanguageTier.STRUCTURED
+    assert "html" not in CHUNK_ONLY_LANGUAGE_IDS
+    assert default_adapter_registry.get("html") is HtmlAdapter
 
 
 def test_javascript_full_tier_extracts_symbols_and_imports(tmp_path: Path) -> None:

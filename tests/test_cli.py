@@ -963,6 +963,45 @@ class TestOutlineCmd:
         assert "L3-12" in result.output
         assert "method bar" in result.output
         assert "def bar(self)" in result.output
+        assert "references:" not in result.output
+
+    def test_outline_human_renders_references(self) -> None:
+        from unittest.mock import patch
+
+        from archex.models import ChunkRange, FileOutline, ImportStatement
+
+        outline = FileOutline(
+            file_path="index.html",
+            language="html",
+            lines=36,
+            symbols=[],
+            token_count_raw=120,
+            outline_ranges=[ChunkRange(start_line=2, end_line=36)],
+            references=[
+                ImportStatement(
+                    module="./styles/main.css",
+                    file_path="index.html",
+                    line=6,
+                    is_relative=True,
+                ),
+                ImportStatement(
+                    module="./about.html",
+                    file_path="index.html",
+                    line=12,
+                    is_relative=True,
+                    resolved_path="about.html",
+                ),
+            ],
+        )
+        runner = CliRunner()
+        with patch("archex.cli.outline_cmd.file_outline", return_value=outline):
+            result = runner.invoke(cli, ["outline", "/repo", "index.html"])
+        assert result.exit_code == 0, result.output
+        assert "outline:" in result.output
+        assert "  lines [L2-36]" in result.output
+        assert "references:" in result.output
+        assert "  ./styles/main.css [L6]" in result.output
+        assert "  ./about.html -> about.html [L12]" in result.output
 
     def test_outline_json(self) -> None:
         from unittest.mock import patch

@@ -56,6 +56,15 @@ def outline_cmd(source: str, file_path: str, output_json: bool, timing: bool) ->
             f"lines: {result.lines}",
         ]
         lines.extend(_render_symbols(result.symbols))
+        if result.outline_ranges:
+            lines.append("outline:")
+            for outline_range in result.outline_ranges:
+                lines.append(f"  lines [L{outline_range.start_line}-{outline_range.end_line}]")
+        if result.references:
+            lines.append("references:")
+            for ref in result.references:
+                resolved = f" -> {ref.resolved_path}" if ref.resolved_path else ""
+                lines.append(f"  {ref.module}{resolved} [L{ref.line}]")
         output = "\n".join(lines)
     click.echo(output)
 

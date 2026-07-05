@@ -894,13 +894,15 @@ class SymbolOutline(BaseModel):
 
 
 class FileOutline(BaseModel):
-    """Symbol hierarchy for a single file."""
+    """Symbol hierarchy, structural ranges, and local references for a single file."""
 
     file_path: str
     language: str
     lines: int
     symbols: list[SymbolOutline]
     token_count_raw: int
+    outline_ranges: list[ChunkRange] = []
+    references: list[ImportStatement] = []
 
 
 class SymbolMatch(BaseModel):

@@ -13,6 +13,7 @@ from archex.parse.adapters.chunk_only import make_chunk_only_adapter
 from archex.parse.adapters.cpp import CppAdapter
 from archex.parse.adapters.csharp import CSharpAdapter
 from archex.parse.adapters.go import GoAdapter
+from archex.parse.adapters.html import HtmlAdapter
 from archex.parse.adapters.java import JavaAdapter
 from archex.parse.adapters.kotlin import KotlinAdapter
 from archex.parse.adapters.php import PHPAdapter
@@ -104,7 +105,10 @@ default_adapter_registry.register("cpp", CppAdapter)  # type: ignore[type-abstra
 for _language_id in sorted(CHUNK_ONLY_LANGUAGE_IDS):
     default_adapter_registry.register(_language_id, make_chunk_only_adapter(_language_id))
 for _language_id in sorted(STRUCTURED_LANGUAGE_IDS):
-    default_adapter_registry.register(_language_id, make_structured_adapter(_language_id))
+    if _language_id == "html":
+        default_adapter_registry.register(_language_id, HtmlAdapter)
+    else:
+        default_adapter_registry.register(_language_id, make_structured_adapter(_language_id))
 
 # Legacy compat
 ADAPTERS: dict[str, type[LanguageAdapter]] = default_adapter_registry.adapter_classes

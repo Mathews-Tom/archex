@@ -77,7 +77,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
         "html",
         "HTML",
         (".html", ".htm"),
-        _CHUNK,
+        _STRUCTURED,
         "html",
         frozenset({"element", "script_element", "style_element"}),
     ),
