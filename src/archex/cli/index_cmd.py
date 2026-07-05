@@ -12,7 +12,7 @@ from archex.api import index_repository
 from archex.cache import CacheManager
 from archex.config import load_config, load_index_config, persist_project_index_settings
 from archex.exceptions import ArchexError
-from archex.index.artifact import export_artifact
+from archex.index.artifact import ensure_artifact_gitattributes, export_artifact
 from archex.models import PipelineTiming, RepoSource
 from archex.project import uses_project_cache_layout
 
@@ -146,6 +146,9 @@ def index_cmd(
             summary["artifact_path"] = str(export_artifact_path)
             summary["artifact_index_revision"] = artifact_header.index_revision
             summary["artifact_size_bytes"] = export_artifact_path.stat().st_size
+            summary["gitattributes_updated"] = ensure_artifact_gitattributes(
+                repo_root, export_artifact_path
+            )
     finally:
         store.close()
 
@@ -173,3 +176,5 @@ def index_cmd(
         click.echo(f"Artifact exported:  {summary['artifact_path']}")
         click.echo(f"Artifact revision:  {summary['artifact_index_revision']}")
         click.echo(f"Artifact size:      {summary['artifact_size_bytes']} bytes")
+        if summary["gitattributes_updated"]:
+            click.echo(f"Updated .gitattributes: {repo_root / '.gitattributes'}")

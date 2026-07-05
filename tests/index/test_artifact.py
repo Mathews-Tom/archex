@@ -20,6 +20,7 @@ from archex.index.artifact import (
     ARTIFACT_FORMAT_VERSION,
     ARTIFACT_MAGIC,
     ArtifactHeader,
+    ensure_artifact_gitattributes,
     export_artifact,
     import_artifact,
     read_artifact_header,
@@ -33,6 +34,11 @@ from archex.project import init_project
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+def _git_output(repo: Path, *args: str) -> str:
+    result = subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+    return result.stdout.strip()
 
 
 def _build_store(repo: Path, cache_dir: Path) -> IndexStore:
@@ -619,3 +625,128 @@ class TestFromArtifactCliSync:
             assert any("added_after_export" in c.content for c in chunks)
         finally:
             store.close()
+
+
+class TestEnsureArtifactGitattributes:
+    def test_creates_entry_for_artifact_inside_repo(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = python_simple_repo / ".archex-artifact.xz"
+            export_artifact(store, artifact_path)
+        finally:
+            store.close()
+
+        changed = ensure_artifact_gitattributes(python_simple_repo, artifact_path)
+
+        assert changed is True
+        gitattributes = (python_simple_repo / ".gitattributes").read_text(encoding="utf-8")
+        assert ".archex-artifact.xz merge=ours -diff" in gitattributes
+
+    def test_is_idempotent(self, python_simple_repo: Path, tmp_path: Path) -> None:
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = python_simple_repo / ".archex-artifact.xz"
+            export_artifact(store, artifact_path)
+        finally:
+            store.close()
+
+        first = ensure_artifact_gitattributes(python_simple_repo, artifact_path)
+        content_after_first = (python_simple_repo / ".gitattributes").read_text(encoding="utf-8")
+        second = ensure_artifact_gitattributes(python_simple_repo, artifact_path)
+        content_after_second = (python_simple_repo / ".gitattributes").read_text(encoding="utf-8")
+
+        assert first is True
+        assert second is False
+        assert content_after_first == content_after_second
+
+    def test_noop_for_artifact_outside_repo(self, python_simple_repo: Path, tmp_path: Path) -> None:
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = tmp_path / "outside" / "artifact.xz"
+            export_artifact(store, artifact_path)
+        finally:
+            store.close()
+
+        changed = ensure_artifact_gitattributes(python_simple_repo, artifact_path)
+
+        assert changed is False
+        assert not (python_simple_repo / ".gitattributes").exists()
+
+    def test_appends_to_existing_gitattributes(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        (python_simple_repo / ".gitattributes").write_text("*.png binary\n", encoding="utf-8")
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = python_simple_repo / ".archex-artifact.xz"
+            export_artifact(store, artifact_path)
+        finally:
+            store.close()
+
+        ensure_artifact_gitattributes(python_simple_repo, artifact_path)
+
+        content = (python_simple_repo / ".gitattributes").read_text(encoding="utf-8")
+        assert "*.png binary" in content
+        assert ".archex-artifact.xz merge=ours -diff" in content
+
+    def test_sets_local_merge_ours_driver_config(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = python_simple_repo / ".archex-artifact.xz"
+            export_artifact(store, artifact_path)
+        finally:
+            store.close()
+
+        ensure_artifact_gitattributes(python_simple_repo, artifact_path)
+
+        driver = _git_output(python_simple_repo, "config", "--get", "merge.ours.driver")
+        assert driver == "true"
+
+
+class TestExportArtifactCliGitattributes:
+    def test_index_export_artifact_inside_repo_updates_gitattributes(
+        self, python_simple_repo: Path
+    ) -> None:
+        init_project(python_simple_repo)
+        artifact_path = python_simple_repo / ".archex-artifact.xz"
+        runner = CliRunner()
+
+        result = runner.invoke(
+            cli,
+            [
+                "index",
+                str(python_simple_repo),
+                "--export-artifact",
+                str(artifact_path),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Updated .gitattributes" in result.output
+        gitattributes = (python_simple_repo / ".gitattributes").read_text(encoding="utf-8")
+        assert ".archex-artifact.xz merge=ours -diff" in gitattributes
+
+    def test_index_export_artifact_outside_repo_skips_gitattributes(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        init_project(python_simple_repo)
+        artifact_path = tmp_path / "artifact.xz"
+        runner = CliRunner()
+
+        result = runner.invoke(
+            cli,
+            [
+                "index",
+                str(python_simple_repo),
+                "--export-artifact",
+                str(artifact_path),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Updated .gitattributes" not in result.output
+        assert not (python_simple_repo / ".gitattributes").exists()
