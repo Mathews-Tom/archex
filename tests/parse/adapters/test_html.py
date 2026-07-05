@@ -14,13 +14,26 @@ file-path references, never a claimed programming symbol.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from pathlib import Path
+
 import pytest
 
+from archex.api import file_outline
 from archex.languages import get_language_tier
-from archex.models import ChunkRange, ImportStatement, LanguageTier
+from archex.models import (
+    ChunkRange,
+    Config,
+    ImportStatement,
+    LanguageTier,
+    RepoSource,
+    SymbolKind,
+    SymbolOutline,
+)
 from archex.parse.adapters.base import LanguageAdapter
 from archex.parse.adapters.html import HtmlAdapter
 from archex.parse.engine import TreeSitterEngine
+from tests.conftest import _init_fixture_repo  # pyright: ignore[reportPrivateUsage]
 
 FIXTURES_DIR = "tests/fixtures/html_structured"
 
@@ -339,3 +352,52 @@ def test_extract_symbols_stays_empty_while_extract_references_finds_local_target
 
     assert references != []
     assert symbols == []
+
+
+# ---------------------------------------------------------------------------
+# archex.api.file_outline: end-to-end M12 outline acceptance
+# ---------------------------------------------------------------------------
+
+
+def test_file_outline_returns_html_outline_and_local_references_end_to_end(
+    tmp_path: Path,
+) -> None:
+    """M12 acceptance: `archex.api.file_outline` against the realistic fixture
+    surfaces the HTML element outline plus the local references its
+    `<head>`/`<body>` declare -- without ever claiming a function/class/
+    method/interface symbol for markup. File-outline reference resolution uses
+    the repository's actual file tree, so local CSS, JavaScript, HTML, and image
+    targets all resolve to fixture-relative paths without adding graph edges."""
+    repo = _init_fixture_repo(tmp_path, "html_structured")
+    source = RepoSource(local_path=str(repo))
+
+    result = file_outline(
+        source, file_path="index.html", config=Config(languages=["html"], cache=False)
+    )
+
+    assert result.language == "html"
+    assert result.symbols == []
+    assert [(item.start_line, item.end_line) for item in result.outline_ranges] == [(1, 1), (2, 36)]
+
+    def _iter_kinds(symbols: Sequence[SymbolOutline]) -> list[SymbolKind]:
+        kinds: list[SymbolKind] = []
+        for sym in symbols:
+            kinds.append(sym.kind)
+            kinds.extend(_iter_kinds(sym.children))
+        return kinds
+
+    programming_kinds = {
+        SymbolKind.FUNCTION,
+        SymbolKind.CLASS,
+        SymbolKind.METHOD,
+        SymbolKind.INTERFACE,
+    }
+    assert not programming_kinds & set(_iter_kinds(result.symbols))
+
+    resolved_by_module = {ref.module: ref.resolved_path for ref in result.references}
+    assert resolved_by_module == {
+        "./styles/main.css": "styles/main.css",
+        "./scripts/app.js": "scripts/app.js",
+        "./about.html": "about.html",
+        "./images/logo.png": "images/logo.png",
+    }

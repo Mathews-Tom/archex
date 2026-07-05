@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from archex.languages import get_language_tier
 from archex.models import (
+    ChunkRange,
     CodeChunk,
     Config,
     FileOutline,
     FileTree,
     FileTreeEntry,
+    ImportStatement,
     IndexConfig,
+    LanguageTier,
     PipelineTiming,
     RepoSource,
     SymbolKind,
@@ -142,20 +147,29 @@ def file_outline(
     language = chunks[0].language
     max_line = max(c.end_line for c in chunks)
     token_count_raw = sum(c.token_count for c in chunks)
-    outlines = [_chunk_to_symbol_outline(c) for c in chunks]
+    is_structured = get_language_tier(language) is LanguageTier.STRUCTURED
+    if is_structured:
+        symbol_chunks: list[CodeChunk] = []
+        outline_ranges = [
+            ChunkRange(start_line=chunk.start_line, end_line=chunk.end_line) for chunk in chunks
+        ]
+    else:
+        symbol_chunks = chunks
+        outline_ranges: list[ChunkRange] = []
+    outlines = [_chunk_to_symbol_outline(c) for c in symbol_chunks]
 
     top_level: list[SymbolOutline] = []
     by_qname: dict[str, SymbolOutline] = {}
 
     for outline in outlines:
         qname = outline.name
-        chunk = next((c for c in chunks if (c.symbol_id or c.id) == outline.symbol_id), None)
+        chunk = next((c for c in symbol_chunks if (c.symbol_id or c.id) == outline.symbol_id), None)
         if chunk and chunk.qualified_name:
             qname = chunk.qualified_name
         by_qname[qname] = outline
 
     for outline in outlines:
-        chunk = next((c for c in chunks if (c.symbol_id or c.id) == outline.symbol_id), None)
+        chunk = next((c for c in symbol_chunks if (c.symbol_id or c.id) == outline.symbol_id), None)
         qname = chunk.qualified_name if chunk and chunk.qualified_name else outline.name
         parent_name = _get_parent_qname(qname)
         if parent_name and parent_name in by_qname:
@@ -165,13 +179,62 @@ def file_outline(
 
     if timing is not None:
         timing.total_ms = _elapsed_ms(t0)
+    references = (
+        _extract_file_references(source, file_path, language, config) if is_structured else []
+    )
     return FileOutline(
         file_path=file_path,
         language=language,
         lines=max_line,
         symbols=top_level,
         token_count_raw=token_count_raw,
+        outline_ranges=outline_ranges,
+        references=references,
     )
+
+
+def _extract_file_references(
+    source: RepoSource,
+    file_path: str,
+    language: str,
+    config: Config | None,  # noqa: ARG001
+) -> list[ImportStatement]:
+    if source.local_path is None:
+        return []
+
+    repo_path = Path(source.local_path)
+    absolute_path = repo_path / file_path
+    if not absolute_path.is_file():
+        return []
+
+    from archex.parse import TreeSitterEngine
+    from archex.parse.adapters import default_adapter_registry
+
+    adapter_cls = default_adapter_registry.get(language)
+    if adapter_cls is None:
+        return []
+    adapter = adapter_cls()
+
+    source_bytes = absolute_path.read_bytes()
+    tree = TreeSitterEngine().parse_bytes(source_bytes, language)
+    references = adapter.parse_imports(tree, source_bytes, file_path)
+    if not references:
+        return []
+
+    file_map = _local_file_map(repo_path)
+    for reference in references:
+        reference.resolved_path = adapter.resolve_import(reference, file_map)
+    return references
+
+
+def _local_file_map(repo_path: Path) -> dict[str, str]:
+    file_map: dict[str, str] = {}
+    for path in repo_path.rglob("*"):
+        if not path.is_file() or ".git" in path.relative_to(repo_path).parts:
+            continue
+        relative_path = path.relative_to(repo_path).as_posix()
+        file_map[relative_path] = relative_path
+    return file_map
 
 
 def search_symbols(

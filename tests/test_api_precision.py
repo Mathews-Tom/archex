@@ -228,6 +228,24 @@ class TestFileOutline:
         assert result.lines > 0
         assert result.token_count_raw > 0
 
+    def test_full_tier_outline_does_not_extract_references(
+        self, populated_store: IndexStore
+    ) -> None:
+        from archex.api import file_outline
+        from archex.models import RepoSource
+
+        source = RepoSource(local_path="/fake")
+        with (
+            _patch_ensure(populated_store),
+            patch(
+                "archex.precision._extract_file_references",
+                side_effect=AssertionError("non-STRUCTURED references must not run"),
+            ),
+        ):
+            result = file_outline(source, file_path="src/main.py")
+
+        assert result.references == []
+
     def test_missing_file_returns_empty_outline(self, populated_store: IndexStore) -> None:
         from archex.api import file_outline
         from archex.models import RepoSource

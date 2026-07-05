@@ -142,9 +142,10 @@ def _normalize_path(path: str) -> str:
 
 def _resolve_html_reference(candidate: str, file_map: dict[str, str]) -> str | None:
     normalized = _normalize_path(candidate)
-    values = {_normalize_path(path): path for path in file_map.values()}
-    if normalized in values:
-        return values[normalized]
     if normalized in file_map:
         return file_map[normalized]
+    module_key, _ = posixpath.splitext(normalized)
+    dotted_key = module_key.replace("/", ".")
+    if dotted_key in file_map:
+        return file_map[dotted_key]
     return None
