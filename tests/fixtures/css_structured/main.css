@@ -1,0 +1,17 @@
+@import "./base.css";
+@import url("./variables.css");
+@import url(https://fonts.example.com/font.css);
+
+.logo {
+  background: url("./assets/logo.png");
+}
+
+.hero {
+  background-image: url(hero-bg.png);
+}
+
+@media screen {
+  .bar {
+    color: red;
+  }
+}

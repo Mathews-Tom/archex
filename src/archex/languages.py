@@ -85,7 +85,7 @@ LANGUAGE_SUPPORT: dict[str, LanguageSupport] = {
         "css",
         "CSS",
         (".css",),
-        _CHUNK,
+        _STRUCTURED,
         "css",
         frozenset({"rule_set", "media_statement", "import_statement"}),
     ),
