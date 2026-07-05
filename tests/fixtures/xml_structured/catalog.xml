@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog>
+  <product id="1">
+    <name>Widget</name>
+    <price>9.99</price>
+  </product>
+  <product id="2" ref="other.xml">
+    <name>Gadget</name>
+    <price>19.99</price>
+  </product>
+</catalog>

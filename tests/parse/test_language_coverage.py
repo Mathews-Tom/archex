@@ -28,25 +28,6 @@ CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
         "CREATE VIEW active_users AS SELECT id FROM users;\n",
         [(1, 1), (2, 2), (3, 3)],
     ),
-    "xml": (
-        "MoquiEntity.xml",
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<entity name="Foo" package="example">\n'
-        '    <field name="id" type="id"/>\n'
-        '    <field name="name" type="text-medium"/>\n'
-        '    <relationship type="one" related="Bar"/>\n'
-        "</entity>\n"
-        '<service name="bar#Create" verb="create" noun="Bar">\n'
-        "    <in-parameters>\n"
-        '        <parameter name="id"/>\n'
-        '        <parameter name="name"/>\n'
-        "    </in-parameters>\n"
-        "    <actions>\n"
-        '        <service-call name="create#Bar" in-map="context"/>\n'
-        "    </actions>\n"
-        "</service>\n",
-        [(2, 6), (7, 15)],
-    ),
     "css": (
         "style.css",
         '@import url("x.css");\n.foo { color: red; }\n@media screen { .bar { display: none; } }\n',
@@ -123,12 +104,23 @@ def test_chunk_only_languages_report_chunk_only_tier(language_id: str) -> None:
 
 
 def test_html_registered_as_structured_tier_with_html_adapter() -> None:
-    """M12 flips `html` from CHUNK_ONLY to STRUCTURED and wires the real
-    `HtmlAdapter` into the default registry -- it must no longer show up
-    among the chunk-only languages exercised above."""
+    """`html` is flipped from CHUNK_ONLY to STRUCTURED and the real
+    `HtmlAdapter` is wired into the default registry -- it must no longer
+    show up among the chunk-only languages exercised above."""
     assert get_language_tier("html") == LanguageTier.STRUCTURED
     assert "html" not in CHUNK_ONLY_LANGUAGE_IDS
     assert default_adapter_registry.get("html") is HtmlAdapter
+
+
+def test_xml_registered_as_structured_tier_with_xml_adapter() -> None:
+    """`xml` is flipped from CHUNK_ONLY to STRUCTURED and the real
+    `XmlAdapter` is wired into the default registry -- it must no longer
+    show up among the chunk-only languages exercised above."""
+    from archex.parse.adapters.xml import XmlAdapter
+
+    assert get_language_tier("xml") == LanguageTier.STRUCTURED
+    assert "xml" not in CHUNK_ONLY_LANGUAGE_IDS
+    assert default_adapter_registry.get("xml") is XmlAdapter
 
 
 def test_javascript_full_tier_extracts_symbols_and_imports(tmp_path: Path) -> None:
