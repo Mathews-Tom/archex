@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import lzma
+import shutil
 import sqlite3
 import struct
 from pathlib import Path
@@ -19,6 +20,7 @@ from archex.index.artifact import (
     ARTIFACT_MAGIC,
     ArtifactHeader,
     export_artifact,
+    import_artifact,
     read_artifact_header,
     validate_artifact_compat,
 )
@@ -40,6 +42,21 @@ def _decompress_payload(artifact_path: Path) -> bytes:
         handle.read(header_len)
         payload = handle.read()
     return lzma.decompress(payload)
+
+
+def _write_raw_artifact(path: Path, header: dict[str, object], payload: bytes) -> None:
+    """Hand-frame an artifact file from an arbitrary header, bypassing export_artifact.
+
+    Used to construct headers `export_artifact` would never itself produce
+    (an out-of-range format/compat version) so compat validation can be
+    tested independently of the export path.
+    """
+    header_bytes = json.dumps(header, sort_keys=True).encode("utf-8")
+    with path.open("wb") as handle:
+        handle.write(ARTIFACT_MAGIC)
+        handle.write(struct.pack(">I", len(header_bytes)))
+        handle.write(header_bytes)
+        handle.write(lzma.compress(payload))
 
 
 class TestExportArtifact:
@@ -248,3 +265,195 @@ class TestExportArtifactCli:
         assert result.exit_code == 0, result.output
         summary = json.loads(result.output)
         assert "artifact_path" not in summary
+
+
+_INCOMPATIBLE_FORMAT_HEADER: dict[str, object] = {
+    "format_version": ARTIFACT_FORMAT_VERSION + 1,
+    "created_by_version": "99.0.0",
+    "compat_min_version": "0.0.0",
+    "compat_max_version": "99.99.99",
+    "index_revision": "deadbeef",
+    "schema_version": "5",
+    "chunk_count": 1,
+    "file_count": 1,
+    "created_at": 0.0,
+}
+
+_INCOMPATIBLE_VERSION_HEADER: dict[str, object] = {
+    "format_version": ARTIFACT_FORMAT_VERSION,
+    "created_by_version": "99.0.0",
+    "compat_min_version": "99.0.0",
+    "compat_max_version": "99.99.99",
+    "index_revision": "deadbeef",
+    "schema_version": "5",
+    "chunk_count": 1,
+    "file_count": 1,
+    "created_at": 0.0,
+}
+
+
+class TestImportArtifact:
+    def test_import_produces_ready_to_use_store(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = tmp_path / "artifact.xz"
+            export_artifact(store, artifact_path)
+            original_chunks = {
+                (c.file_path, c.symbol_name or "", c.start_line, c.end_line)
+                for c in store.get_chunks()
+            }
+            original_edges = {(e.source, e.target, e.kind.value) for e in store.get_edges()}
+        finally:
+            store.close()
+
+        dest_db_path = tmp_path / "imported" / "index.db"
+        header = import_artifact(artifact_path, dest_db_path)
+
+        assert header.index_revision
+
+        imported = IndexStore(dest_db_path)
+        try:
+            imported_chunks = {
+                (c.file_path, c.symbol_name or "", c.start_line, c.end_line)
+                for c in imported.get_chunks()
+            }
+            imported_edges = {(e.source, e.target, e.kind.value) for e in imported.get_edges()}
+            assert imported_chunks == original_chunks
+            assert imported_edges == original_edges
+
+            fts_count = imported.conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()[0]
+            assert fts_count == imported.get_chunk_count()
+            symbols_fts_count = imported.conn.execute(
+                "SELECT COUNT(*) FROM symbols_fts"
+            ).fetchone()[0]
+            assert symbols_fts_count > 0
+        finally:
+            imported.close()
+
+    def test_import_bm25_search_parity_with_original(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        from archex.index.bm25 import BM25Index
+
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = tmp_path / "artifact.xz"
+            export_artifact(store, artifact_path)
+            original_bm25 = BM25Index(store)
+            original_bm25.build(store.get_chunks())
+            queries = ["util", "process", "add", "compute"]
+            original_results = {
+                q: [(c.id, score) for c, score in original_bm25.search(q)] for q in queries
+            }
+        finally:
+            store.close()
+
+        dest_db_path = tmp_path / "imported" / "index.db"
+        import_artifact(artifact_path, dest_db_path)
+
+        imported = IndexStore(dest_db_path)
+        try:
+            imported_bm25 = BM25Index(imported)
+            for query in queries:
+                imported_results = [(c.id, score) for c, score in imported_bm25.search(query)]
+                assert imported_results == original_results[query], f"parity mismatch: {query!r}"
+        finally:
+            imported.close()
+
+    def test_import_rejects_bogus_file_without_writing_dest(self, tmp_path: Path) -> None:
+        bogus = tmp_path / "bogus.xz"
+        bogus.write_bytes(b"definitely not an artifact")
+        dest = tmp_path / "dest" / "index.db"
+
+        with pytest.raises(ArtifactError, match="bad magic"):
+            import_artifact(bogus, dest)
+
+        assert not dest.exists()
+
+    def test_import_rejects_unsupported_format_version_without_writing_dest(
+        self, tmp_path: Path
+    ) -> None:
+        artifact_path = tmp_path / "future.xz"
+        _write_raw_artifact(artifact_path, _INCOMPATIBLE_FORMAT_HEADER, b"irrelevant payload")
+        dest = tmp_path / "dest" / "index.db"
+
+        with pytest.raises(ArtifactVersionError, match="format version"):
+            import_artifact(artifact_path, dest)
+
+        assert not dest.exists()
+
+    def test_import_rejects_out_of_range_archex_version_without_writing_dest(
+        self, tmp_path: Path
+    ) -> None:
+        artifact_path = tmp_path / "incompatible.xz"
+        _write_raw_artifact(artifact_path, _INCOMPATIBLE_VERSION_HEADER, b"irrelevant payload")
+        dest = tmp_path / "dest" / "index.db"
+
+        with pytest.raises(ArtifactVersionError, match="archex"):
+            import_artifact(artifact_path, dest)
+
+        assert not dest.exists()
+
+    def test_import_never_overwrites_existing_dest_on_compat_failure(self, tmp_path: Path) -> None:
+        """A stale, incompatible artifact must never clobber an already-good index."""
+        dest = tmp_path / "index.db"
+        dest.write_bytes(b"pretend this is a valid, already-good index file")
+        original_bytes = dest.read_bytes()
+
+        artifact_path = tmp_path / "incompatible.xz"
+        _write_raw_artifact(artifact_path, _INCOMPATIBLE_FORMAT_HEADER, b"irrelevant payload")
+
+        with pytest.raises(ArtifactVersionError):
+            import_artifact(artifact_path, dest)
+
+        assert dest.read_bytes() == original_bytes
+
+
+class TestFromArtifactCli:
+    def test_init_from_artifact_bootstraps_project_index(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        init_project(python_simple_repo)
+        runner = CliRunner()
+        artifact_path = tmp_path / "artifact.xz"
+
+        exported = runner.invoke(
+            cli, ["index", str(python_simple_repo), "--export-artifact", str(artifact_path)]
+        )
+        assert exported.exit_code == 0, exported.output
+
+        fresh_repo = tmp_path / "fresh_clone"
+        shutil.copytree(python_simple_repo, fresh_repo)
+        shutil.rmtree(fresh_repo / ".archex")
+
+        result = runner.invoke(
+            cli, ["init", str(fresh_repo), "--from-artifact", str(artifact_path)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Imported index artifact" in result.output
+        index_path = fresh_repo / ".archex" / "index.db"
+        assert index_path.exists()
+        store = IndexStore(index_path)
+        try:
+            assert store.get_chunk_count() > 0
+        finally:
+            store.close()
+
+    def test_init_from_artifact_fails_loudly_on_incompatible_artifact(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        artifact_path = tmp_path / "incompatible.xz"
+        _write_raw_artifact(artifact_path, _INCOMPATIBLE_FORMAT_HEADER, b"irrelevant payload")
+        runner = CliRunner()
+
+        result = runner.invoke(
+            cli, ["init", str(python_simple_repo), "--from-artifact", str(artifact_path)]
+        )
+
+        assert result.exit_code != 0
+        assert "format version" in result.output
+        index_path = python_simple_repo / ".archex" / "index.db"
+        assert not index_path.exists()
