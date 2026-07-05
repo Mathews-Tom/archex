@@ -1,0 +1,15 @@
+task_id: idfrag_tree_sitter_engine
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "tree sitter engine"
+expected_files:
+  - src/archex/parse/engine.py
+expected_symbols:
+  - TreeSitterEngine
+token_budget: 8192
+keywords:
+  - tree
+  - sitter
+  - engine

@@ -1,0 +1,14 @@
+task_id: idfrag_symbol_source
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "symbol source"
+expected_files:
+  - src/archex/models.py
+expected_symbols:
+  - SymbolSource
+token_budget: 8192
+keywords:
+  - symbol
+  - source

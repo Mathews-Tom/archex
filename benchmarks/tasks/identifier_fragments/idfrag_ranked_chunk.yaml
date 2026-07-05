@@ -1,0 +1,14 @@
+task_id: idfrag_ranked_chunk
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "ranked chunk"
+expected_files:
+  - src/archex/models.py
+expected_symbols:
+  - RankedChunk
+token_budget: 8192
+keywords:
+  - ranked
+  - chunk
