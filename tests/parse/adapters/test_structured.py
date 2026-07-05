@@ -1,6 +1,6 @@
 """Tests for the shared STRUCTURED-tier base adapter.
 
-`StructuredAdapter` (src/archex/parse/adapters/structured.py) is the M11 base
+`StructuredAdapter` (src/archex/parse/adapters/structured.py) is the shared base
 for outline-plus-native-cross-reference languages: it must never claim
 programming symbols, must produce chunk-node-driven outline ranges the same
 way `ChunkOnlyAdapter` does, and must route `parse_imports` through an
@@ -75,7 +75,7 @@ def _fixture_tree() -> _FakeTree:
 
 
 class _StubStructuredAdapter(StructuredAdapter):
-    """Stands in for a future concrete adapter (e.g. M12's html.py)."""
+    """Stands in for a future concrete adapter (e.g. `html.py`)."""
 
     _language_id = "structured_stub"
 
