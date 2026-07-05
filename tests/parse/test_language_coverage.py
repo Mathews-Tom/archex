@@ -33,7 +33,6 @@ CHUNK_ONLY_SAMPLES: dict[str, tuple[str, str, list[tuple[int, int]]]] = {
         '@import url("x.css");\n.foo { color: red; }\n@media screen { .bar { display: none; } }\n',
         [(1, 1), (2, 2), (3, 3)],
     ),
-    "yaml": ("config.yaml", "name: test\nitems:\n  - one\n", [(1, 3)]),
     "toml": ("config.toml", '[a]\nname = "a"\n\n[b]\nname = "b"\n', [(1, 3), (4, 5)]),
     "json": ("data.json", '{"name": "x", "items": [1, 2]}\n', [(1, 1)]),
     "markdown": ("README.md", "# Title\n\nBody\n\n## Section\n\nMore\n", [(1, 7)]),
@@ -121,6 +120,17 @@ def test_xml_registered_as_structured_tier_with_xml_adapter() -> None:
     assert get_language_tier("xml") == LanguageTier.STRUCTURED
     assert "xml" not in CHUNK_ONLY_LANGUAGE_IDS
     assert default_adapter_registry.get("xml") is XmlAdapter
+
+
+def test_yaml_registered_as_structured_tier_with_yaml_adapter() -> None:
+    """`yaml` is flipped from CHUNK_ONLY to STRUCTURED and the real
+    `YamlAdapter` is wired into the default registry -- it must no longer
+    show up among the chunk-only languages exercised above."""
+    from archex.parse.adapters.yaml import YamlAdapter
+
+    assert get_language_tier("yaml") == LanguageTier.STRUCTURED
+    assert "yaml" not in CHUNK_ONLY_LANGUAGE_IDS
+    assert default_adapter_registry.get("yaml") is YamlAdapter
 
 
 def test_javascript_full_tier_extracts_symbols_and_imports(tmp_path: Path) -> None:
