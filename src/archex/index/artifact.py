@@ -36,13 +36,11 @@ import struct
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from archex import __version__
 from archex.exceptions import ArtifactError, ArtifactVersionError
-
-if TYPE_CHECKING:
-    from archex.index.store import IndexStore
+from archex.index.store import IndexStore
 
 ARTIFACT_MAGIC = b"ARCHEXIDXv1\n"
 
@@ -246,5 +244,69 @@ def export_artifact(store: IndexStore, output_path: str | Path) -> ArtifactHeade
         handle.write(header_bytes)
         handle.write(compressed)
     tmp_output.replace(output_path)
+
+    return header
+
+
+def _rebuild_symbols_fts(store: IndexStore) -> None:
+    """Repopulate `symbols_fts` from `chunks` after an artifact import.
+
+    `chunks_fts` has a store-provided rebuild path (`BM25Index.build()`);
+    `symbols_fts` (symbol-name search) has no equivalent helper on
+    `IndexStore`, so it is rebuilt directly here from the chunks the
+    artifact already carries.
+    """
+    conn = store.conn
+    conn.execute("DELETE FROM symbols_fts")
+    conn.executemany(
+        "INSERT INTO symbols_fts (symbol_id, symbol_name, qualified_name, file_path) "
+        "VALUES (?, ?, ?, ?)",
+        (
+            (chunk.symbol_id, chunk.symbol_name, chunk.qualified_name, chunk.file_path)
+            for chunk in store.iter_chunks()
+            if chunk.symbol_id is not None
+        ),
+    )
+    conn.commit()
+
+
+def import_artifact(path: str | Path, dest_db_path: str | Path) -> ArtifactHeader:
+    """Import a portable index artifact, writing a ready-to-use store at `dest_db_path`.
+
+    The artifact's header is read and its format/compat range validated
+    BEFORE the payload is decompressed — an out-of-range artifact raises
+    `ArtifactVersionError` and never touches `dest_db_path`, so a failed
+    import is always loud and never partial.
+
+    The two FTS5 derived tables stripped at export time (`chunks_fts`,
+    `symbols_fts`) are rebuilt locally from the imported `chunks` table
+    once the database is on disk.
+    """
+    from archex.index.bm25 import BM25Index
+
+    path = Path(path)
+    dest_db_path = Path(dest_db_path)
+
+    with path.open("rb") as handle:
+        header = _read_header(handle, path)
+        validate_artifact_compat(header)
+        compressed_payload = handle.read()
+
+    decompressed = lzma.decompress(compressed_payload)
+
+    dest_db_path.parent.mkdir(parents=True, exist_ok=True)
+    for suffix in ("-wal", "-shm"):
+        sidecar = dest_db_path.with_name(dest_db_path.name + suffix)
+        if sidecar.exists():
+            sidecar.unlink()
+    dest_db_path.write_bytes(decompressed)
+
+    store = IndexStore(dest_db_path)
+    try:
+        bm25 = BM25Index(store)
+        bm25.build(store.iter_chunks())
+        _rebuild_symbols_fts(store)
+    finally:
+        store.close()
 
     return header
