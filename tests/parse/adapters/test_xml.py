@@ -121,6 +121,40 @@ def test_extract_symbols_is_always_empty(engine: TreeSitterEngine, adapter: XmlA
     assert adapter.extract_symbols(parse(engine, source), source, "catalog.xml") == []
 
 
+def test_extract_symbols_ignores_elements_named_like_programming_constructs(
+    engine: TreeSitterEngine, adapter: XmlAdapter
+) -> None:
+    """Elements literally named `<function>`/`<class>`/`<interface>` are
+    still just XML elements -- `extract_symbols` is `@final` on the
+    `StructuredAdapter` base and can never be overridden to claim them as
+    programming symbols, regardless of how symbol-shaped the tag names
+    look."""
+    source = (
+        b'<function name="computeTotal">\n'
+        b'  <class name="Cart"/>\n'
+        b'  <interface implements="Payable"/>\n'
+        b"</function>\n"
+    )
+
+    assert adapter.extract_symbols(parse(engine, source), source, "adversarial.xml") == []
+
+
+def test_extract_references_ignores_elements_named_like_programming_constructs(
+    engine: TreeSitterEngine, adapter: XmlAdapter
+) -> None:
+    """The same symbol-shaped tag names must not leak into references
+    either -- generic XML's `extract_references` stays on the empty-list
+    default no matter what the elements are named."""
+    source = (
+        b'<function name="computeTotal">\n'
+        b'  <class name="Cart"/>\n'
+        b'  <interface implements="Payable"/>\n'
+        b"</function>\n"
+    )
+
+    assert adapter.extract_references(parse(engine, source), source, "adversarial.xml") == []
+
+
 # ---------------------------------------------------------------------------
 # extract_references: generic XML has no native cross-reference mechanism
 # ---------------------------------------------------------------------------
@@ -201,3 +235,54 @@ def test_file_outline_returns_xml_element_outline_with_no_references_end_to_end(
         SymbolKind.INTERFACE,
     }
     assert not programming_kinds & set(_iter_kinds(result.symbols))
+
+
+# ---------------------------------------------------------------------------
+# Cross-stack verification: JSON and TOML are unaffected
+# ---------------------------------------------------------------------------
+
+
+def test_json_remains_chunk_only_and_gained_no_dedicated_adapter() -> None:
+    """JSON has no generic cross-file reference syntax and stays
+    `CHUNK_ONLY` permanently. This pins that JSON was not swept up by the
+    XML/YAML/Markdown/CSS STRUCTURED promotion in this stack, and that no
+    dedicated `archex/parse/adapters/json.py` module was added -- `json`
+    is still served by the generic chunk-only factory, the same as every
+    other untouched `CHUNK_ONLY` language."""
+    import importlib
+
+    from archex.languages import CHUNK_ONLY_LANGUAGE_IDS
+
+    assert get_language_tier("json") == LanguageTier.CHUNK_ONLY
+    assert "json" in CHUNK_ONLY_LANGUAGE_IDS
+
+    from archex.parse.adapters import default_adapter_registry
+
+    json_adapter_cls = default_adapter_registry.get("json")
+    assert json_adapter_cls is not None
+    assert json_adapter_cls.__name__ == "JsonChunkOnlyAdapter"
+    assert json_adapter_cls.__module__ == "archex.parse.adapters.chunk_only"
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("archex.parse.adapters.json")
+
+
+def test_toml_remains_chunk_only_and_gained_no_dedicated_adapter() -> None:
+    """Same guarantee as JSON above, for TOML -- both are explicitly out
+    of scope for this stack per the report's exclusion."""
+    import importlib
+
+    from archex.languages import CHUNK_ONLY_LANGUAGE_IDS
+
+    assert get_language_tier("toml") == LanguageTier.CHUNK_ONLY
+    assert "toml" in CHUNK_ONLY_LANGUAGE_IDS
+
+    from archex.parse.adapters import default_adapter_registry
+
+    toml_adapter_cls = default_adapter_registry.get("toml")
+    assert toml_adapter_cls is not None
+    assert toml_adapter_cls.__name__ == "TomlChunkOnlyAdapter"
+    assert toml_adapter_cls.__module__ == "archex.parse.adapters.chunk_only"
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("archex.parse.adapters.toml")

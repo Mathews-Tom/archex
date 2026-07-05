@@ -113,6 +113,32 @@ def test_extract_symbols_is_always_empty(engine: TreeSitterEngine, adapter: Yaml
     assert adapter.extract_symbols(parse(engine, source), source, "config.yaml") == []
 
 
+def test_extract_symbols_ignores_keys_named_like_programming_constructs(
+    engine: TreeSitterEngine, adapter: YamlAdapter
+) -> None:
+    """Mapping keys literally named `function`/`class`/`interface` are
+    still just YAML scalar keys -- `extract_symbols` is `@final` on the
+    `StructuredAdapter` base and can never be overridden to claim them
+    as programming symbols, regardless of how symbol-shaped the key
+    names look."""
+    source = b"function: computeTotal\nclass: Cart\ninterface: Payable\n"
+
+    assert adapter.extract_symbols(parse(engine, source), source, "adversarial.yaml") == []
+
+
+def test_extract_references_ignores_plain_scalars_that_look_like_file_paths(
+    engine: TreeSitterEngine, adapter: YamlAdapter
+) -> None:
+    """A plain scalar value that merely *looks* like a relative file path
+    (`path: ./other.yaml`) is not YAML's native cross-reference mechanism
+    -- only a genuine `&anchor`/`*alias` pair is. Treating arbitrary
+    path-shaped strings as references would invent a cross-file import
+    syntax YAML does not have."""
+    source = b"path: ./other.yaml\nfunction: computeTotal\n"
+
+    assert adapter.extract_references(parse(engine, source), source, "adversarial.yaml") == []
+
+
 # ---------------------------------------------------------------------------
 # extract_references: anchor/alias native cross-reference extraction
 # ---------------------------------------------------------------------------
@@ -227,3 +253,33 @@ def test_file_outline_returns_yaml_outline_and_anchor_alias_references_end_to_en
         SymbolKind.INTERFACE,
     }
     assert not programming_kinds & set(_iter_kinds(result.symbols))
+
+
+# ---------------------------------------------------------------------------
+# Cross-stack verification: TOML is unaffected
+# ---------------------------------------------------------------------------
+
+
+def test_toml_remains_chunk_only_and_gained_no_dedicated_adapter() -> None:
+    """TOML has no generic cross-file reference syntax and stays
+    `CHUNK_ONLY` permanently. This pins that TOML was not swept up by the
+    XML/YAML/Markdown/CSS STRUCTURED promotion in this stack, and that no
+    dedicated `archex/parse/adapters/toml.py` module was added -- `toml`
+    is still served by the generic chunk-only factory, the same as every
+    other untouched `CHUNK_ONLY` language."""
+    import importlib
+
+    from archex.languages import CHUNK_ONLY_LANGUAGE_IDS
+
+    assert get_language_tier("toml") == LanguageTier.CHUNK_ONLY
+    assert "toml" in CHUNK_ONLY_LANGUAGE_IDS
+
+    from archex.parse.adapters import default_adapter_registry
+
+    toml_adapter_cls = default_adapter_registry.get("toml")
+    assert toml_adapter_cls is not None
+    assert toml_adapter_cls.__name__ == "TomlChunkOnlyAdapter"
+    assert toml_adapter_cls.__module__ == "archex.parse.adapters.chunk_only"
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("archex.parse.adapters.toml")
