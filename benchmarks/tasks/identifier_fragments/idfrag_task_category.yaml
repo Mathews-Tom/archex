@@ -1,0 +1,14 @@
+task_id: idfrag_task_category
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "task category"
+expected_files:
+  - src/archex/benchmark/models.py
+expected_symbols:
+  - TaskCategory
+token_budget: 8192
+keywords:
+  - task
+  - category

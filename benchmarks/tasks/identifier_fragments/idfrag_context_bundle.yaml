@@ -1,0 +1,14 @@
+task_id: idfrag_context_bundle
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "context bundle"
+expected_files:
+  - src/archex/models.py
+expected_symbols:
+  - ContextBundle
+token_budget: 8192
+keywords:
+  - context
+  - bundle
