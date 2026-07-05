@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="fixture-build" default="compile">
+  <target name="compile">
+    <echo message="compiling"/>
+  </target>
+</project>
