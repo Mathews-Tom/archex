@@ -123,6 +123,41 @@ def test_extract_symbols_is_always_empty(engine: TreeSitterEngine, adapter: CssA
     assert adapter.extract_symbols(parse(engine, source), source, "main.css") == []
 
 
+def test_extract_symbols_ignores_selectors_and_custom_properties_named_like_programming_constructs(
+    engine: TreeSitterEngine, adapter: CssAdapter
+) -> None:
+    """A class selector, custom property, and id selector named
+    `function-name`/`class-name`/`interface-id` are still just CSS
+    selectors and properties -- `extract_symbols` is `@final` on the
+    `StructuredAdapter` base and can never be overridden to claim them
+    as programming symbols, regardless of how symbol-shaped the names
+    look."""
+    source = (
+        b".function-name {\n"
+        b"  --class-name: Cart;\n"
+        b"  color: red;\n"
+        b"}\n"
+        b"#interface-id {\n"
+        b"  width: 10px;\n"
+        b"}\n"
+    )
+
+    assert adapter.extract_symbols(parse(engine, source), source, "adversarial.css") == []
+
+
+def test_extract_references_ignores_plain_string_values_outside_url_or_import(
+    engine: TreeSitterEngine, adapter: CssAdapter
+) -> None:
+    """A quoted string value that merely *looks* like a file path (e.g. a
+    `content: "styles/other.css";` declaration) is not CSS's native
+    cross-reference mechanism unless it is wrapped in `url(...)` or is an
+    `@import` target -- treating any path-shaped string as a reference
+    would invent semantics CSS's grammar does not assign to it."""
+    source = b'.a::before { content: "styles/other.css"; }\n'
+
+    assert adapter.extract_references(parse(engine, source), source, "adversarial.css") == []
+
+
 # ---------------------------------------------------------------------------
 # extract_references: @import and url() native reference extraction
 # ---------------------------------------------------------------------------
@@ -246,3 +281,19 @@ def test_file_outline_returns_css_outline_and_resolved_references_end_to_end(
         SymbolKind.INTERFACE,
     }
     assert not programming_kinds & set(_iter_kinds(result.symbols))
+
+
+# ---------------------------------------------------------------------------
+# Cross-stack verification: JSON and TOML are unaffected
+# ---------------------------------------------------------------------------
+
+
+def test_json_and_toml_remain_chunk_only() -> None:
+    """JSON and TOML have no generic cross-file reference syntax and stay
+    `CHUNK_ONLY` permanently. This pins that neither was swept up by the
+    XML/YAML/Markdown/CSS STRUCTURED promotion in this stack."""
+    from archex.languages import CHUNK_ONLY_LANGUAGE_IDS
+
+    assert get_language_tier("json") == LanguageTier.CHUNK_ONLY
+    assert get_language_tier("toml") == LanguageTier.CHUNK_ONLY
+    assert {"json", "toml"} <= CHUNK_ONLY_LANGUAGE_IDS
