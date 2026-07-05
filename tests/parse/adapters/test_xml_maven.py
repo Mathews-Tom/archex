@@ -18,13 +18,16 @@ from pathlib import Path
 
 import pytest
 
-from archex.models import ImportStatement
+from archex.api import index_repository
+from archex.graph_query import GraphQuery
+from archex.models import Config, ImportStatement, RepoSource
 from archex.parse.adapters.xml_maven import (
     extract_maven_dependencies,
     is_maven_pom,
     resolve_maven_dependency,
 )
 from archex.parse.engine import TreeSitterEngine
+from tests.conftest import _init_fixture_repo  # pyright: ignore[reportPrivateUsage]
 
 FIXTURES_DIR = "tests/fixtures/xml_maven"
 GENERIC_XML_FIXTURES_DIR = "tests/fixtures/xml_structured"
@@ -237,3 +240,47 @@ def test_resolve_maven_dependency_returns_none_for_malformed_coordinate() -> Non
     imp = ImportStatement(module="not-a-coordinate", file_path="module-b/pom.xml", line=1)
 
     assert resolve_maven_dependency(imp, _file_map()) is None
+
+
+# ---------------------------------------------------------------------------
+# M14 acceptance: indexing the fixture produces graph edges
+# ---------------------------------------------------------------------------
+
+
+def test_indexing_the_maven_fixture_produces_dependency_edges_via_graph_query(
+    tmp_path: Path,
+) -> None:
+    """Acceptance for M14: indexing the multi-module fixture produces
+    IMPORTS edges matching the declared `<dependency>` relationships,
+    verified the same way `archex graph neighbors`/`archex graph path`
+    and the `graph_neighbors`/`graph_path` MCP tools verify them --
+    through `GraphQuery`, the shared API both are built on."""
+    repo = _init_fixture_repo(tmp_path, "xml_maven")
+    source = RepoSource(local_path=str(repo))
+
+    store = index_repository(source, config=Config(languages=["xml"], cache=False))
+    try:
+        graph_query = GraphQuery.from_store(store, repo_root=repo)
+    finally:
+        store.close()
+
+    module_b_neighbors = graph_query.neighbors("module-b/pom.xml", direction="out")
+    assert [edge.target.path for edge in module_b_neighbors.edges] == ["module-a/pom.xml"]
+    assert module_b_neighbors.edges[0].type == "imports"
+
+    module_c_neighbors = graph_query.neighbors("module-c/pom.xml", direction="out")
+    assert {edge.target.path for edge in module_c_neighbors.edges} == {"module-b/pom.xml"}
+
+    path_result = graph_query.shortest_path("module-c/pom.xml", "module-a/pom.xml", direction="out")
+    assert path_result.found is True
+    assert [node.path for node in path_result.nodes] == [
+        "module-c/pom.xml",
+        "module-b/pom.xml",
+        "module-a/pom.xml",
+    ]
+
+    # The external junit:junit dependency has no repo path to resolve to,
+    # so it never becomes a graph edge -- "where determinable", not a
+    # fabricated node for every declared coordinate.
+    junit_lookup = graph_query.lookup("junit")
+    assert junit_lookup.matches == []
