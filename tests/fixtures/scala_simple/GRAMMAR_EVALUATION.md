@@ -1,4 +1,4 @@
-# Scala grammar evaluation (M8 prerequisite)
+# Scala grammar evaluation
 
 **Grammar:** bundled Scala grammar resolved by `tree_sitter_language_pack.get_language("scala")` and Archex's existing `tree-sitter-language-pack==0.13.0` fallback. No new dependency is required; Scala already resolves through this grammar at `CHUNK_ONLY` tier. The pack maps its `"scala"` key to `tree-sitter/tree-sitter-scala` — an official `tree-sitter` org grammar (the same maturity tier as the bundled Java, Python, and Ruby grammars), not a third-party or single-purpose fork.
 

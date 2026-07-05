@@ -1,4 +1,4 @@
-# C++ grammar evaluation (M10 prerequisite)
+# C++ grammar evaluation
 
 **Grammar:** `tree-sitter/tree-sitter-cpp`, the official `tree-sitter` GitHub
 org grammar, resolved via the bundled `tree-sitter-language-pack==0.13.0`
