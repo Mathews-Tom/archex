@@ -39,6 +39,12 @@ if TYPE_CHECKING:
     help="Output format.",
 )
 @click.option(
+    "--full",
+    is_flag=True,
+    default=False,
+    help="Restore the unfiltered --format json dump (all fields, including None/empty).",
+)
+@click.option(
     "--no-refresh",
     is_flag=True,
     default=False,
@@ -48,6 +54,7 @@ def scout_cmd(
     args: tuple[str, ...],
     budget: int,
     output_format: ScoutFormat,
+    full: bool,
     no_refresh: bool,
 ) -> None:
     """Return a compact no-body structural map for a repository question."""
@@ -63,7 +70,7 @@ def scout_cmd(
         )
     except (ArchexError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
-    rendered = render_scout(result, output_format=output_format)
+    rendered = render_scout(result, output_format=output_format, full=full)
     click.echo(rendered, nl=False)
     _record_metrics(repo_source, result, rendered)
 

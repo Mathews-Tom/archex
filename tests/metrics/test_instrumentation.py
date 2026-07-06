@@ -29,7 +29,7 @@ class FakeBundle:
     receipt = None
     retrieval_metadata = SimpleNamespace(seed_file_paths=[], expanded_file_paths=[])
 
-    def to_prompt(self, format: str = "xml") -> str:
+    def to_prompt(self, format: str = "xml", *, full: bool = False) -> str:
         return "FAKE CONTEXT"
 
 

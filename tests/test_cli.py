@@ -438,7 +438,7 @@ def test_query_command_defaults_source_to_cwd(
         chunks: list[object] = []
         token_count = 0
 
-        def to_prompt(self, *, format: str) -> str:
+        def to_prompt(self, *, format: str, full: bool = False) -> str:
             return f"format={format}"
 
     init_project(python_simple_repo)
@@ -462,7 +462,7 @@ def test_query_command_no_refresh_disables_inline_refresh(
         chunks: list[object] = []
         token_count = 0
 
-        def to_prompt(self, *, format: str) -> str:
+        def to_prompt(self, *, format: str, full: bool = False) -> str:
             return f"format={format}"
 
     runner = CliRunner()
@@ -484,7 +484,7 @@ def test_query_command_allow_remote_code_flag_enables_policy(
         chunks: list[object] = []
         token_count = 0
 
-        def to_prompt(self, *, format: str) -> str:
+        def to_prompt(self, *, format: str, full: bool = False) -> str:
             return f"format={format}"
 
     runner = CliRunner()
@@ -600,7 +600,7 @@ def test_query_uses_project_config_when_cli_args_omitted(python_simple_repo: Pat
         chunks: list[object] = []
         token_count = 0
 
-        def to_prompt(self, *, format: str) -> str:
+        def to_prompt(self, *, format: str, full: bool = False) -> str:
             return f"format={format}"
 
     init_project(python_simple_repo)
@@ -632,7 +632,7 @@ def test_query_budget_flag_overrides_intent_routing(python_simple_repo: Path) ->
         chunks: list[object] = []
         token_count = 0
 
-        def to_prompt(self, *, format: str) -> str:
+        def to_prompt(self, *, format: str, full: bool = False) -> str:
             return f"format={format}"
 
     init_project(python_simple_repo)
@@ -656,7 +656,7 @@ def test_query_cli_options_override_project_config(python_simple_repo: Path) -> 
         chunks: list[object] = []
         token_count = 0
 
-        def to_prompt(self, *, format: str) -> str:
+        def to_prompt(self, *, format: str, full: bool = False) -> str:
             return f"format={format}"
 
     init_project(python_simple_repo)

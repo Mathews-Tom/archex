@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
     type=click.Choice(["xml", "json", "markdown"]),
     help="Output format.",
 )
+@click.option(
+    "--full",
+    is_flag=True,
+    default=False,
+    help="Restore the unfiltered --format json dump (all chunk fields, including None/empty).",
+)
 @click.option("-l", "--language", multiple=True, help="Filter to specific languages.")
 @click.option(
     "--strategy",
@@ -76,6 +82,7 @@ def query_cmd(
     args: tuple[str, ...],
     budget: int | None,
     output_format: str,
+    full: bool,
     language: tuple[str, ...],
     strategy: str | None,
     timing: bool,
@@ -123,7 +130,7 @@ def query_cmd(
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    click.echo(bundle.to_prompt(format=output_format))
+    click.echo(bundle.to_prompt(format=output_format, full=full))
 
     unique_files = list({c.chunk.file_path for c in bundle.chunks})
     raw_tokens: int | None = None
