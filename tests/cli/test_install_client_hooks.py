@@ -6,12 +6,12 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-import pytest
 from click.testing import CliRunner
 
 from archex.cli.main import cli
 from archex.client_setup import (
     CodexHookInstallPlan,
+    CursorHookInstallPlan,
     TsHookInstallPlan,
     build_hook_install_plan,
     render_hook_install_preview,
@@ -23,7 +23,7 @@ from archex.integrations.hook import HOOK_MATCHER
 if TYPE_CHECKING:
     from typing import Any
 
-    from archex.client_setup import ClientName
+    import pytest
 
 
 def _seed_payload() -> dict[str, Any]:
@@ -277,18 +277,6 @@ def test_render_hook_install_preview_remove_does_not_write(tmp_path: Path) -> No
 
     assert "Remove" in preview
     assert target.read_text(encoding="utf-8") == before
-
-
-@pytest.mark.parametrize("client", ["cursor"])
-def test_build_hook_install_plan_rejects_unsupported_clients(client: ClientName) -> None:
-    with pytest.raises(ValueError) as exc_info:
-        build_hook_install_plan(client, action="install")
-
-    message = str(exc_info.value)
-    assert "claude-code" in message
-    assert "M19" in message
-    assert "M21" in message
-    assert "M22" in message
 
 
 # --- omp TS hook module (M20) ---
@@ -916,6 +904,194 @@ def test_codex_hook_toml_block_bakes_in_active_python_interpreter(tmp_path: Path
     assert "-m archex.integrations.codex_hook" in plan.block_content
 
 
+# --- Cursor beforeSubmitPrompt hook (M23, diagnostics-only) ---
+#
+# Unlike claude-code (a JSON entry merged into settings.json) or omp/pi/
+# opencode (a standalone .ts module), Cursor's hook lives in its own
+# hooks.json -- a different file from mcp.json. See
+# `archex.integrations.cursor_hook` for why this hook is diagnostics-only
+# (Cursor's beforeSubmitPrompt output schema has no context-injection field
+# at all) rather than injecting context like the claude-code/omp/pi/opencode
+# hooks above.
+
+
+def test_build_hook_install_plan_cursor_project_scope_produces_expected_shape(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    plan = build_hook_install_plan("cursor", str(repo), scope="project", action="install")
+    target = write_hook_install_plan(plan)
+
+    assert isinstance(plan, CursorHookInstallPlan)
+    assert plan.scope == "project"
+    assert target == repo / ".cursor" / "hooks.json"
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload == {
+        "version": 1,
+        "hooks": {
+            "beforeSubmitPrompt": [
+                {
+                    "command": f"{sys.executable} -m archex.integrations.cursor_hook",
+                    "timeout": 1,
+                }
+            ]
+        },
+    }
+
+
+def test_build_hook_install_plan_cursor_user_scope_produces_expected_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    plan = build_hook_install_plan("cursor", action="install")
+    target = write_hook_install_plan(plan)
+
+    assert isinstance(plan, CursorHookInstallPlan)
+    assert plan.scope == "user"
+    assert target == tmp_path / ".cursor" / "hooks.json"
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    entry = payload["hooks"]["beforeSubmitPrompt"][0]
+    assert entry["command"] == f"{sys.executable} -m archex.integrations.cursor_hook"
+
+
+def test_write_hook_install_plan_cursor_idempotent_on_reinstall(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("cursor", str(repo), scope="project", action="install")
+    write_hook_install_plan(plan)
+    after_first = plan.target_path.read_text(encoding="utf-8")
+
+    write_hook_install_plan(plan)
+    after_second = plan.target_path.read_text(encoding="utf-8")
+
+    assert after_first == after_second
+
+
+def test_write_hook_install_plan_cursor_preserves_unrelated_content(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / ".cursor" / "hooks.json"
+    _write_json(
+        target,
+        {
+            "version": 1,
+            "hooks": {
+                "afterFileEdit": [{"command": "./hooks/format.sh"}],
+                "beforeSubmitPrompt": [{"command": "./hooks/audit.sh"}],
+            },
+        },
+    )
+    plan = build_hook_install_plan("cursor", str(repo), scope="project", action="install")
+
+    write_hook_install_plan(plan)
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["hooks"]["afterFileEdit"] == [{"command": "./hooks/format.sh"}]
+    before_submit = payload["hooks"]["beforeSubmitPrompt"]
+    assert {"command": "./hooks/audit.sh"} in before_submit
+    assert any("archex.integrations.cursor_hook" in e["command"] for e in before_submit)
+
+
+def test_write_hook_install_plan_cursor_config_assertion_never_wires_before_read_file(
+    tmp_path: Path,
+) -> None:
+    """M23 acceptance criterion: the installed config never wires anything to
+    `beforeReadFile`. Seeded with a pre-existing `beforeReadFile` entry to
+    prove install/remove never even reads that key, let alone writes to it.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / ".cursor" / "hooks.json"
+    seed = {
+        "version": 1,
+        "hooks": {"beforeReadFile": [{"command": "./hooks/gate-secrets.sh"}]},
+    }
+    _write_json(target, seed)
+    plan = build_hook_install_plan("cursor", str(repo), scope="project", action="install")
+
+    write_hook_install_plan(plan)
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["hooks"]["beforeReadFile"] == [{"command": "./hooks/gate-secrets.sh"}]
+    assert "archex.integrations.cursor_hook" not in json.dumps(payload["hooks"]["beforeReadFile"])
+    assert any(
+        "archex.integrations.cursor_hook" in entry["command"]
+        for entry in payload["hooks"]["beforeSubmitPrompt"]
+    )
+
+    remove_plan = build_hook_install_plan("cursor", str(repo), scope="project", action="remove")
+    write_hook_install_plan(remove_plan)
+
+    after_remove = json.loads(target.read_text(encoding="utf-8"))
+    assert after_remove["hooks"]["beforeReadFile"] == [{"command": "./hooks/gate-secrets.sh"}]
+    assert "beforeSubmitPrompt" not in after_remove["hooks"]
+
+
+def test_write_hook_install_plan_cursor_remove_leaves_bare_version_stamp(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    install_plan = build_hook_install_plan("cursor", str(repo), scope="project", action="install")
+    target = write_hook_install_plan(install_plan)
+    remove_plan = build_hook_install_plan("cursor", str(repo), scope="project", action="remove")
+
+    write_hook_install_plan(remove_plan)
+
+    assert json.loads(target.read_text(encoding="utf-8")) == {"version": 1}
+
+
+def test_write_hook_install_plan_cursor_remove_missing_file_is_noop(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("cursor", str(repo), scope="project", action="remove")
+
+    result_target = write_hook_install_plan(plan)
+
+    assert not result_target.exists()
+
+
+def test_write_hook_install_plan_cursor_remove_without_archex_entry_is_noop(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / ".cursor" / "hooks.json"
+    seed = {"version": 1, "hooks": {"afterFileEdit": [{"command": "./hooks/format.sh"}]}}
+    _write_json(target, seed)
+    before = target.read_text(encoding="utf-8")
+    plan = build_hook_install_plan("cursor", str(repo), scope="project", action="remove")
+
+    write_hook_install_plan(plan)
+
+    assert target.read_text(encoding="utf-8") == before
+
+
+def test_render_hook_install_preview_cursor_install_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("cursor", str(repo), scope="project", action="install")
+
+    preview = render_hook_install_preview(plan)
+
+    assert "Dry run." in preview
+    assert not plan.target_path.exists()
+
+
+def test_render_hook_install_preview_cursor_remove_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    install_plan = build_hook_install_plan("cursor", str(repo), scope="project", action="install")
+    write_hook_install_plan(install_plan)
+    before = install_plan.target_path.read_text(encoding="utf-8")
+    remove_plan = build_hook_install_plan("cursor", str(repo), scope="project", action="remove")
+
+    render_hook_install_preview(remove_plan)
+
+    assert install_plan.target_path.read_text(encoding="utf-8") == before
+
+
 # --- CLI wiring: install-client --hooks / --remove-hooks ---
 
 
@@ -968,20 +1144,6 @@ def test_cli_hooks_and_remove_hooks_are_mutually_exclusive(
     assert result.exit_code != 0
     assert "mutually exclusive" in result.output
     assert not (tmp_path / ".claude" / "settings.json").exists()
-
-
-def test_cli_hooks_rejects_unsupported_client_and_writes_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-    result = CliRunner().invoke(cli, ["install-client", "cursor", "--hooks"])
-
-    assert result.exit_code != 0
-    assert "claude-code" in result.output
-    assert "M19" in result.output
-    assert not (tmp_path / ".claude").exists()
-    assert not (tmp_path / ".cursor").exists()
 
 
 def test_cli_plain_install_client_still_writes_mcp_config_not_hook_settings(
@@ -1228,3 +1390,76 @@ def test_opencode_ts_hook_module_subagent_dispatch_reachability(tmp_path: Path) 
 
     assert "sessionID" not in handler_body
     assert "callID" not in handler_body
+
+
+# --- Cursor CLI wiring: install-client cursor --hooks (M23 PR-2) ---
+
+
+def test_cli_hooks_installs_cursor_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "cursor", "--hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Installed" in result.output
+    target = tmp_path / ".cursor" / "hooks.json"
+    assert target.exists()
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    entry = payload["hooks"]["beforeSubmitPrompt"][0]
+    assert "archex.integrations.cursor_hook" in entry["command"]
+
+
+def test_cli_hooks_cursor_dry_run_previews_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "cursor", "--hooks", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Dry run." in result.output
+    assert not (tmp_path / ".cursor" / "hooks.json").exists()
+
+
+def test_cli_remove_hooks_cursor_removes_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    CliRunner().invoke(cli, ["install-client", "cursor", "--hooks"])
+    target = tmp_path / ".cursor" / "hooks.json"
+    assert target.exists()
+
+    result = CliRunner().invoke(cli, ["install-client", "cursor", "--remove-hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Removed" in result.output
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert "beforeSubmitPrompt" not in payload.get("hooks", {})
+
+
+def test_cli_hooks_cursor_installed_file_never_targets_before_read_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M23 acceptance criterion (config assertion), proven against the file
+    the CLI actually writes to disk: the installed hooks.json never wires
+    anything under `beforeReadFile`, even when one already existed.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / ".cursor" / "hooks.json"
+    _write_json(
+        target,
+        {"version": 1, "hooks": {"beforeReadFile": [{"command": "./hooks/gate-secrets.sh"}]}},
+    )
+
+    result = CliRunner().invoke(cli, ["install-client", "cursor", "--hooks"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["hooks"]["beforeReadFile"] == [{"command": "./hooks/gate-secrets.sh"}]
+    assert "archex.integrations.cursor_hook" not in json.dumps(payload["hooks"]["beforeReadFile"])
+    assert any(
+        "archex.integrations.cursor_hook" in entry["command"]
+        for entry in payload["hooks"]["beforeSubmitPrompt"]
+    )
