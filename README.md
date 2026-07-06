@@ -26,7 +26,7 @@ It runs locally, uses deterministic retrieval and analysis, and does not require
 
 **Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Advanced workflows](#advanced-workflows) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development) · [Documentation map](#documentation-map)
 
-[![archex infographic](assets/archex-infographic-landscape.png)](assets/archex-infographic-landscape.svg)
+[![archex explainer](assets/archex-explainer.gif)](assets/archex-explainer.gif)
 
 [Watch the explainer](assets/archex-explainer.mp4) · [Open banner SVG](assets/archex-banner.svg) · [Open infographic SVG](assets/archex-infographic-landscape.svg) · [Read the measured comparison](docs/ARCHEX_VS_COCOINDEX.md)
 
