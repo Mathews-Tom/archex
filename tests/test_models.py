@@ -546,6 +546,23 @@ def test_context_bundle_to_prompt_json() -> None:
     assert isinstance(parsed, dict)
 
 
+def test_context_bundle_to_prompt_json_full_flag_restores_none_fields() -> None:
+    """to_prompt('json', full=True) restores None-valued fields M1 hides by default."""
+    import json
+
+    bundle = _make_bundle("list modules")
+    minimal = json.loads(bundle.to_prompt(format="json"))
+    full = json.loads(bundle.to_prompt(format="json", full=True))
+    minimal_chunk = minimal["chunks"][0]["chunk"]
+    full_chunk = full["chunks"][0]["chunk"]
+    assert "qualified_name" not in minimal_chunk
+    assert full_chunk["qualified_name"] is None
+    # A populated field (symbol_name="fn", set by _make_bundle) must survive
+    # the minimal path unchanged -- only unset/empty fields are dropped.
+    assert minimal_chunk["symbol_name"] == "fn"
+    assert full_chunk["symbol_name"] == "fn"
+
+
 def test_context_bundle_to_prompt_unknown_format_raises() -> None:
     """to_prompt raises ValueError for unrecognised format."""
     import pytest as _pytest
