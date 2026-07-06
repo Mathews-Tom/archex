@@ -143,6 +143,94 @@ def test_glob_pattern_without_identifier_tokens_returns_none(indexed_repo: Path)
 
 
 # ---------------------------------------------------------------------------
+# M20 client-shim payload translation (oh-my-pi / Pi)
+#
+# The TS hook module installed for omp/pi (`archex.client_setup`) translates
+# each host's native grep/glob-equivalent tool_result event into exactly this
+# subprocess's existing Grep/Glob contract before ever invoking it -- this
+# module gains no client-specific branches. These tests exercise that
+# contract with the payload shapes the shim actually sends for each host.
+# ---------------------------------------------------------------------------
+
+
+def test_omp_grep_shim_payload_returns_receipt_stamped_context(indexed_repo: Path) -> None:
+    """oh-my-pi's `grep` tool already carries its query in a `pattern`-named
+    field, so the shim's translation is an identity mapping onto Grep.
+    """
+    payload: dict[str, Any] = {
+        "tool_name": "Grep",
+        "tool_input": {"pattern": "AuthService"},
+        "cwd": str(indexed_repo),
+    }
+
+    result = handle_pre_tool_use(payload)
+
+    assert result is not None
+    assert "AuthService" in result["hookSpecificOutput"]["additionalContext"]
+
+
+def test_omp_glob_shim_translates_path_field_to_subprocess_glob_payload(
+    indexed_repo: Path,
+) -> None:
+    """oh-my-pi has no `pattern` field on its `glob` tool -- the query lives in
+    `path` (e.g. `{"path": "**/*_service.py"}`). The shim reads that field and
+    sends it to the subprocess as `tool_input.pattern`, exactly like Claude
+    Code's own Glob tool would -- proving the translation, not a client-aware
+    branch in `archex.integrations.hook`, is what bridges the field-name gap.
+    """
+    payload: dict[str, Any] = {
+        "tool_name": "Glob",
+        "tool_input": {"pattern": "**/*_service.py"},
+        "cwd": str(indexed_repo),
+    }
+
+    result = handle_pre_tool_use(payload)
+
+    assert result is None or (
+        isinstance(result["hookSpecificOutput"]["additionalContext"], str)
+        and result["hookSpecificOutput"]["additionalContext"]
+    )
+
+
+def test_pi_find_shim_translates_pattern_field_to_subprocess_glob_payload(
+    indexed_repo: Path,
+) -> None:
+    """Pi has no `glob` tool at all -- its glob-equivalent is `find`, whose
+    query already lives in a field named `pattern`. The shim maps `find` to
+    the subprocess's `Glob` tool_name, carrying the `pattern` value through
+    unchanged.
+    """
+    payload: dict[str, Any] = {
+        "tool_name": "Glob",
+        "tool_input": {"pattern": "AuthService"},
+        "cwd": str(indexed_repo),
+    }
+
+    result = handle_pre_tool_use(payload)
+
+    assert result is not None
+    assert "AuthService" in result["hookSpecificOutput"]["additionalContext"]
+
+
+def test_hook_py_stays_client_agnostic_after_m20(indexed_repo: Path) -> None:
+    """M20 reuses this subprocess contract unmodified (DEVELOPMENT_PLAN.md
+    Section G assumption): it still recognizes only the capitalized Claude
+    Code tool names, never a native omp/Pi tool name directly. Translation is
+    entirely the TS shim's responsibility (see
+    `tests/cli/test_install_client_hooks.py`'s `test_omp_ts_hook_module_*`
+    tests), not something smuggled into this module.
+    """
+    assert {"Grep", "Glob"} == AUGMENTED_TOOLS
+    for native_tool_name in ("grep", "glob", "find"):
+        payload: dict[str, Any] = {
+            "tool_name": native_tool_name,
+            "tool_input": {"pattern": "AuthService"},
+            "cwd": str(indexed_repo),
+        }
+        assert handle_pre_tool_use(payload) is None
+
+
+# ---------------------------------------------------------------------------
 # Read (and other non-augmented tools) are never intercepted
 # ---------------------------------------------------------------------------
 
