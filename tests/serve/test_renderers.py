@@ -357,3 +357,128 @@ def test_json_uncompressed_row_has_null_compression() -> None:
     assert rows  # non-empty so the assertion below actually runs
     for item in rows:
         assert item["compression"] is None
+
+
+# ---------------------------------------------------------------------------
+# JSON renderer: minimal-by-default field selection (M1)
+# ---------------------------------------------------------------------------
+
+_NONE_VALUED_CHUNK_KEYS = (
+    "symbol_name",
+    "symbol_kind",
+    "symbol_id",
+    "qualified_name",
+    "visibility",
+    "signature",
+    "docstring",
+    "summary",
+)
+_EMPTY_STRING_CHUNK_KEYS = ("imports_context", "breadcrumbs")
+
+
+def _none_heavy_chunk() -> CodeChunk:
+    return CodeChunk(
+        id="c-none",
+        content="def run(): pass",
+        file_path="src/app.py",
+        start_line=1,
+        end_line=5,
+        language="python",
+        symbol_name=None,
+        symbol_kind=None,
+        symbol_id=None,
+        qualified_name=None,
+        visibility=None,
+        signature=None,
+        docstring=None,
+        summary=None,
+        imports_context="",
+        breadcrumbs="",
+    )
+
+
+def test_json_default_omits_none_and_empty_chunk_fields() -> None:
+    import json
+
+    bundle = _base_bundle(chunks=[_ranked(_none_heavy_chunk())])
+    data = json.loads(render_json(bundle))
+    chunk = data["chunks"][0]["chunk"]
+    for key in (*_NONE_VALUED_CHUNK_KEYS, *_EMPTY_STRING_CHUNK_KEYS):
+        assert key not in chunk, f"{key} should be omitted from minimal output"
+
+
+def test_json_full_restores_all_chunk_fields() -> None:
+    import json
+
+    bundle = _base_bundle(chunks=[_ranked(_none_heavy_chunk())])
+    data = json.loads(render_json(bundle, full=True))
+    chunk = data["chunks"][0]["chunk"]
+    for key in _NONE_VALUED_CHUNK_KEYS:
+        assert key in chunk
+        assert chunk[key] is None
+    for key in _EMPTY_STRING_CHUNK_KEYS:
+        assert chunk[key] == ""
+
+
+def test_json_default_keeps_populated_chunk_fields() -> None:
+    import json
+
+    populated = CodeChunk(
+        id="c-populated",
+        content="def run(): pass",
+        file_path="src/app.py",
+        start_line=1,
+        end_line=5,
+        language="python",
+        symbol_name="run",
+        symbol_kind=SymbolKind.FUNCTION,
+        symbol_id="src/app.py::run#function",
+        qualified_name="app.run",
+        visibility="public",
+        signature="def run() -> None",
+        docstring="Run the app.",
+        summary="Entry point.",
+        imports_context="import os",
+        breadcrumbs="app > run",
+    )
+    bundle = _base_bundle(chunks=[_ranked(populated)])
+    data = json.loads(render_json(bundle))
+    chunk = data["chunks"][0]["chunk"]
+    assert chunk["symbol_name"] == "run"
+    assert chunk["symbol_kind"] == "function"
+    assert chunk["symbol_id"] == "src/app.py::run#function"
+    assert chunk["qualified_name"] == "app.run"
+    assert chunk["visibility"] == "public"
+    assert chunk["signature"] == "def run() -> None"
+    assert chunk["docstring"] == "Run the app."
+    assert chunk["summary"] == "Entry point."
+    assert chunk["imports_context"] == "import os"
+    assert chunk["breadcrumbs"] == "app > run"
+
+
+def test_json_zero_score_ranked_chunk_present_in_default_and_full() -> None:
+    import json
+
+    zero_ranked = RankedChunk(
+        chunk=_none_heavy_chunk(),
+        relevance_score=0.0,
+        structural_score=0.0,
+        type_coverage_score=0.0,
+        cohesion_score=0.0,
+        final_score=0.0,
+    )
+    bundle = _base_bundle(chunks=[zero_ranked])
+
+    minimal = json.loads(render_json(bundle))["chunks"][0]
+    full = json.loads(render_json(bundle, full=True))["chunks"][0]
+    for payload in (minimal, full):
+        assert payload["relevance_score"] == 0.0
+        assert payload["structural_score"] == 0.0
+        assert payload["type_coverage_score"] == 0.0
+        assert payload["cohesion_score"] == 0.0
+        assert payload["final_score"] == 0.0
+
+
+def test_json_minimal_output_smaller_than_full_for_none_heavy_chunk() -> None:
+    bundle = _base_bundle(chunks=[_ranked(_none_heavy_chunk())])
+    assert len(render_json(bundle)) < len(render_json(bundle, full=True))
