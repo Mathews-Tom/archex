@@ -22,6 +22,7 @@ This matrix separates config-shape verification from actual client smoke tests. 
 | OpenCode | Config shape verified; client smoke unverified | `archex install-client opencode` writes `~/.config/opencode/opencode.json` (global); `archex install-client opencode . --scope project` writes `opencode.json`, setting `mcp.archex = { type = "local", command = ["archex", "mcp"], enabled = true }`. `--dry-run` previews. | Client-dependent; server supports `--watch`. | Same server-side freshness semantics as other stdio clients. | No OpenCode client smoke in this stack. | 2026-06-16 |
 | OpenCode `tool.execute.after` plugin (opt-in) | Config-shape tested end-to-end (install, remove, idempotent reinstall, native-vs-MCP dispatch-table assertion, subagent-dispatch reachability confirmed both structurally and via a live session); confirmed against a real installed `opencode-ai` 1.14.33 client | `archex install-client opencode --hooks` writes a standalone plugin file to `.opencode/plugins/archex-hook.ts` (project scope) or `~/.config/opencode/plugins/archex-hook.ts` (user scope, default) — OpenCode auto-loads local plugin files from these directories, so no `opencode.json` entry is written or needed. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#opencode-toolexecuteafter-plugin-opt-in) for the full contract, the confirmation-spike findings, and the live verification. | N/A — one subprocess per matched tool call, not a warm process | Same receipt/timeout/diagnostics semantics as the Claude Code hook above — this module shells out to the identical `python -m archex.integrations.hook` subprocess, unmodified. | Opt-in, never installed by default; augments only native `grep`/`glob` tool calls, never `read` or any MCP-routed tool. | 2026-07-06 |
 | Cursor | Config shape verified; client smoke unverified | `archex install-client cursor` writes `~/.cursor/mcp.json` (global); `archex install-client cursor . --scope project` writes `.cursor/mcp.json` with `mcpServers.archex.command = "archex"`, `args = ["mcp"]`. `--dry-run` previews. | Yes — with a warm `archex mcp --watch --watch-path .` process. | Inline query refresh by default; watch keeps a warm process subscribed to file events. | No Cursor UI smoke in this stack. | 2026-06-16 |
+| Cursor `beforeSubmitPrompt` hook (opt-in, diagnostics-only, prompt-level) | Config-shape tested end-to-end (install, remove, idempotent reinstall, preserves unrelated `hooks.json` content, `beforeReadFile`-never-wired assertion); no live Cursor UI smoke | `archex install-client cursor --hooks` writes `~/.cursor/hooks.json` (global) or `.cursor/hooks.json` (project) — a different file from the MCP config above. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#cursor-beforesubmitprompt-hook-opt-in-diagnostics-only) for the full contract and the confirmation-spike findings. | N/A — one subprocess per submitted prompt, not a warm process | Diagnostics-only — no injected context, ever (see limitations); a missing/stale index degrades to no diagnostic, or the same `index_not_fresh`/`status_error` diagnostic the other hooks log. | Prompt-level, not per-tool-call: fires on every submitted prompt regardless of whether a lookup is relevant. Cursor's `beforeSubmitPrompt` output schema has no context-injection field at all (confirmed against Cursor's own docs), so this is diagnostics-only, unlike the augmenting Claude Code/omp/Pi/OpenCode hooks above. | 2026-07-06 |
 | Dockerized MCP server | Server path tested; client smoke unverified | Run `docker run -d --name archex-mcp -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim sleep infinity` then point the client to `docker exec -i archex-mcp archex mcp`. | Yes — run the MCP process with `--watch`. | Same server-side freshness semantics as stdio. | Client-specific Docker registration varies; use the same client config shapes above, but replace the command with `docker` / `exec`. | 2026-06-16 |
 
 ## First-party bootstrap command
@@ -142,7 +143,7 @@ echo '{"tool_name":"Grep","tool_input":{"pattern":"compute_delta"}}' \
 
 A repo with a fresh index returns JSON on stdout shaped `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "..."}}`. A repo with no index, a stale index, or a `cwd` outside a Git working tree exits 0 with empty stdout and a diagnostics log line instead.
 
-Section G of the development plan (M20–M23) extends this same `python -m archex.integrations.hook` subprocess contract to other clients with per-client installer shims. M20 (oh-my-pi and Pi), M21 (Codex CLI, diagnostics-only), and M22 (OpenCode) are implemented; Cursor's weaker prompt-level mechanism is a planned exception.
+Section G of the development plan (M20–M23) extends this same `python -m archex.integrations.hook` subprocess contract to other clients with per-client installer shims. M20 (oh-my-pi and Pi), M21 (Codex CLI, diagnostics-only), M22 (OpenCode), and M23 (Cursor, diagnostics-only, prompt-level) are all implemented.
 
 ## oh-my-pi (omp) / Pi `tool_result` hook (opt-in)
 
@@ -283,3 +284,61 @@ echo '{"tool_name":"Grep","tool_input":{"pattern":"compute_delta"}}' \
 - **Hard ~500ms lookup timeout**, matching `DEFAULT_HOOK_TIMEOUT_SECONDS`: the plugin's own `setTimeout` guard `SIGKILL`s a subprocess still running past the budget, independent of whatever timeout the subprocess enforces on itself.
 - **No field-name translation needed.** Both `grep` and `glob` already carry their query in a field named `pattern`, so the plugin's mapping onto the subprocess's `{"tool_name": "Grep"|"Glob", "tool_input": {"pattern": ...}}` contract is an identity mapping on the field, keyed only on the tool id.
 - **Subagent-reachable.** The handler registers unconditionally with no `sessionID`/`callID`-based gating, and both source inspection and a live nested-subagent run confirm `tool.execute.after` fires for subagent-issued calls in the verified version — see the confirmation spike above.
+
+## Cursor `beforeSubmitPrompt` hook (opt-in, diagnostics-only)
+
+`archex install-client cursor --hooks` installs `src/archex/integrations/cursor_hook.py` (invoked as `python -m archex.integrations.cursor_hook`) as a Cursor `beforeSubmitPrompt` hook. **This is prompt-level context, not per-tool-call augmentation** — it fires once per submitted prompt, not once per Grep/Glob-equivalent tool call the way the Claude Code/omp/Pi/OpenCode hooks above do, and (per the confirmation spike below) it never injects anything into the conversation at all. It is opt-in — plain `archex install-client cursor` never installs it — and it writes to a *different* file than MCP server registration:
+
+```bash
+archex install-client cursor --hooks                     # global: ~/.cursor/hooks.json
+archex install-client cursor . --hooks --scope project   # repo-local: .cursor/hooks.json
+archex install-client cursor --hooks --dry-run           # preview only, writes nothing
+archex install-client cursor --remove-hooks              # clean uninstall
+```
+
+### Confirmation-spike findings (M23 §2 assumption, corrected)
+
+`.docs/DEVELOPMENT_PLAN.md`'s M23 assumption framed `beforeSubmitPrompt` as Cursor's "content-bearing" prompt-level hook and planned to inject an archex `scout`-style summary through its output. Read directly against Cursor's own official docs (`cursor.com/docs/hooks`, `cursor.com/docs/reference/third-party-hooks`, fetched 2026-07-06), not secondary sources:
+
+- Cursor has no Grep/Glob-equivalent tool-call hook at all — `preToolUse`/`postToolUse` fire generically for every tool with no per-tool augmentation scoping, unlike Claude Code's `Grep`/`Glob` matcher, oh-my-pi/Pi's `grep`/`glob`/`find` dispatch, or OpenCode's native-tool `tool.execute.after`.
+- **`beforeSubmitPrompt`'s own output schema is `{"continue": bool, "user_message": str | None}` only.** There is no context-injection output field, nested or flat. This differs from `sessionStart` and `postToolUse`, which both support an `additional_context`/`additionalContext` output field. The "Response Format Compatibility" section of the third-party-hooks doc documents a Claude-Code-style nested `hookSpecificOutput` translation only for `PreToolUse` and `Stop`/`SubagentStop` — none is documented for `UserPromptSubmit` (which Cursor maps to `beforeSubmitPrompt`), and no `additionalContext` passthrough exists for it despite Claude Code's own `UserPromptSubmit` hook supporting that field.
+- `user_message` is documented as shown only when a submission is blocked (`continue: false`) — deny/blocking behavior is explicitly out of scope for this milestone, so it cannot carry injected context on the normal path either.
+
+**Consequence:** as specified, Cursor cannot deliver prompt-level context injection today — there is no output field to carry it. Per the same discipline M21 applied when Codex's hook schema turned out to have no Grep/Glob-equivalent event to scope augmentation to, this hook ships the plan's own accepted fallback instead: **diagnostics-only**. It performs the same lookup and logs what it would have injected, but never returns it to Cursor and never blocks prompt submission.
+
+### Installed config shape
+
+Unlike Claude Code (a JSON entry merged into `settings.json`) or Codex (a marker-delimited TOML block), this merges a single-entry array under a `hooks.beforeSubmitPrompt` key into `hooks.json` — a key structurally separate from `hooks.beforeReadFile`, so "never touches `beforeReadFile`" is a property of only ever writing under this one key, not something a shared matcher regex has to get right:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "/path/to/venv/bin/python -m archex.integrations.cursor_hook",
+        "timeout": 1
+      }
+    ]
+  }
+}
+```
+
+Contract:
+
+- **Never wires anything to `beforeReadFile`, or any hook besides `beforeSubmitPrompt`.** The installer only ever reads and writes `hooks.beforeSubmitPrompt`; any other `hooks.*` key already present (including `beforeReadFile`) is left byte-for-byte untouched by both install and remove. `tests/cli/test_install_client_hooks.py`'s `test_write_hook_install_plan_cursor_config_assertion_never_wires_before_read_file` and `test_cli_hooks_cursor_installed_file_never_targets_before_read_file` assert this against both the in-memory plan and the file the CLI actually writes, seeded with a pre-existing `beforeReadFile` entry.
+- **Never returns context injection, and never blocks.** No code path in `archex.integrations.cursor_hook` ever sets anything but `{"continue": true}` — there is no field to carry injected context (see the confirmation spike above), and deny/blocking behavior is out of scope for this milestone regardless.
+- **Exits 0 on every path.** A missing/stale index, a malformed payload, a prompt with no identifier-like tokens, a timeout, or any internal error all degrade to no diagnostic (or a diagnostic-only log line) — never a blocked or errored prompt submission.
+- **Reuses `archex.integrations.hook`'s engine in-process.** `lookup_with_timeout`/`log_diagnostic` are called directly (no second subprocess spawned), so freshness/timeout/diagnostics semantics exactly match the Claude Code hook, appending to the same `~/.archex/hook-diagnostics.log` (override with `ARCHEX_HOOK_DIAGNOSTICS_LOG`).
+- **Query extraction picks a single strongest token, not the whole prompt.** `IndexStore.search_symbols` phrase-matches its entire query as one quoted FTS5 phrase, so passing a full natural-language sentence would require that exact word sequence to appear verbatim in the indexed content — true for a single Grep/Glob pattern fragment, never true for prose. `cursor_hook._extract_query` instead picks the single longest identifier-like token in the prompt as a heuristic stand-in for "the symbol the user is probably asking about."
+- **Prompt-level, not per-tool-call.** Every submitted prompt triggers a lookup attempt regardless of whether the agent is about to search for anything — there is no matcher-based scoping the way Grep/Glob-only hooks have, because `beforeSubmitPrompt` is not a per-tool event.
+- **Non-destructive install/uninstall.** Any other `hooks.json` content — other hook types, unrelated top-level keys — is left untouched by both `--hooks` and `--remove-hooks`. Re-running `--hooks` is an idempotent no-op once installed, even across a venv move (the command converges on the active `sys.executable` each time).
+
+Manual verification (bypassing Cursor entirely — this is exactly what the hook receives on stdin for a submitted prompt):
+
+```bash
+echo '{"prompt":"How does compute_delta handle renames?","attachments":[]}' \
+  | python -m archex.integrations.cursor_hook
+```
+
+Always exits 0 with `{"continue": true}` on stdout. A repo with a fresh index and a prompt containing a real identifier appends a `cursor_context_injection_unsupported` diagnostic line to the log describing the withheld match, instead of injecting it; a repo with no index, a stale index, or a prompt with no identifier-like tokens produces no diagnostic (or the same `index_not_fresh`/`status_error` diagnostic the Claude Code hook logs) and no injected context either way.
