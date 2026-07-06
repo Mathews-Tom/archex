@@ -4,8 +4,8 @@
 [![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
 [![Downloads](https://img.shields.io/pypi/dm/archex)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
-[![Tests](https://img.shields.io/badge/tests-2912_passing-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-90.7%25-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-3603_passing-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-91.1%25-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![Languages](https://img.shields.io/badge/languages-26-orange)](#language-support)
 [![MCP tools](https://img.shields.io/badge/MCP_tools-17-purple)](#mcp-and-claude-code)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -20,7 +20,7 @@
 
 AI coding agents usually start by opening a file, following an import, checking a type definition, and backtracking through the repo until the context window is partly spent before the real task starts. archex does that retrieval and structural expansion up front and returns a ranked, token-budgeted context bundle plus a receipt that records what was included, what was skipped, and whether the bundle is complete enough to act on.
 
-It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.16 line adds five full-tier language promotions (PHP, Ruby, Scala, C, C++), a new `structured` tier for markup/config languages (HTML, XML, YAML, Markdown, CSS) with a Maven POM dependency-graph plugin, portable index artifacts for team-shared bootstrap, and diff-scoped blast-radius analysis with per-symbol risk classification.
+It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.16 line adds five full-tier language promotions (PHP, Ruby, Scala, C, C++), a new `structured` tier for markup/config languages (HTML, XML, YAML, Markdown, CSS) with a Maven POM dependency-graph plugin, portable index artifacts for team-shared bootstrap, and diff-scoped blast-radius analysis with per-symbol risk classification. The v0.17 line adds opt-in, non-blocking tool-call hooks across six clients (Claude Code, oh-my-pi, Pi, OpenCode, Codex CLI, Cursor) that augment `grep`/`glob`-shaped calls with archex results — or, where a client has no matching hook to augment, log a diagnostics-only trace instead of claiming a capability that isn't there.
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Local metrics](docs/LOCAL_METRICS.md) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
@@ -140,7 +140,7 @@ Use [CONTEXT_RECEIPTS](docs/CONTEXT_RECEIPTS.md) for the full field contract.
 
 ## Why archex is different
 
-Agents usually explore repositories by opening one file, following imports, checking type definitions, and backtracking. That burns context before the real task starts. archex performs local retrieval and structural expansion first: BM25F, optional local vector/SPLADE signals, graph expansion with edge confidence, type-definition packing, and intent-routed token budgets.
+Agents usually explore repositories by opening one file, following imports, checking type definitions, and backtracking. That burns context before the real task starts. Unlike a hosted RAG service, a vector database, or a chatbot, archex does not answer questions, host anything remotely, or require vector search to work — it performs local retrieval and structural expansion first: BM25F, optional local vector/SPLADE signals, graph expansion with edge confidence, type-definition packing, and intent-routed token budgets.
 
 ```text
 Repository → repo-local index → intent routing → retrieval → graph/type expansion → token-budgeted bundle → agent / MCP client
@@ -201,7 +201,7 @@ archex install-client omp --agent-file ~/.omp/agent/AGENTS.md
 
 The in-repo Claude Code skill lives at [`skills/archex/`](skills/archex/). Its `/archex` command runs `archex doctor`, initializes/indexes when needed, scouts first for broad questions, then fetches exact `symbol:` or `chunk:` handles before a larger bundle query.
 
-Claude Code also gets an opt-in, non-blocking `PreToolUse` hook: `archex install-client claude-code --hooks` augments `Grep`/`Glob` tool calls with archex symbol-search results (`additionalContext`, receipt-stamped), degrading silently to no context on a missing/stale index, a timeout (~500ms hard budget), or any internal error — it never blocks a tool call and never intercepts `Read`. `--remove-hooks` uninstalls it cleanly. Full contract and manual verification steps live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md#claude-code-pretooluse-hook-opt-in).
+Six of those clients also get an opt-in, non-blocking tool-call hook: `archex install-client <client> --hooks` (`--remove-hooks` to uninstall) wires `python -m archex.integrations.hook`'s lookup/timeout/freshness engine into the client's own hook mechanism. On Claude Code, oh-my-pi, Pi, and OpenCode it augments `grep`/`glob`-equivalent tool calls with archex symbol-search results (receipt-stamped, freshness-marked); Codex CLI and Cursor have no matching tool-call hook to attach that to, so they ship a diagnostics-only fallback that logs what would have been surfaced instead of injecting anything. Every one of the six degrades silently on a missing/stale index, a timeout (~500ms hard budget), or any internal error — none of them ever block a tool call, and none ever match `Read`/`beforeReadFile`. Full per-client contracts, confirmation-spike findings, and manual verification steps live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md#claude-code-pretooluse-hook-opt-in).
 
 Exact install, MCP, Docker, cache, uninstall, and trust semantics are documented in the [installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md). Client-specific config targets and bootstrap paths live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md).
 

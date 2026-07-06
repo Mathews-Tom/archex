@@ -25,8 +25,11 @@ import click
 def mcp_cmd(watch: bool, watch_path: str, watch_debounce_ms: int) -> None:
     """Start the archex MCP server (stdio transport).
 
-    Exposes analyze_repo, query_repo, and compare_repos as MCP tools.
-    Connect an MCP-compatible client (e.g. Claude Desktop) to stdin/stdout.
+    Exposes 17 MCP tools (analyze_repo, query_repo, scout_repo, compare_repos,
+    get_file_tree, get_file_outline, search_symbols, get_symbol,
+    get_symbols_batch, get_impact, explain_target, generate_onboarding, and
+    the graph_* lookup/neighbors/path/stats/hubs tools). Connect an
+    MCP-compatible client (e.g. Claude Code) to stdin/stdout.
     """
     try:
         from archex.integrations.mcp import run_stdio_server
