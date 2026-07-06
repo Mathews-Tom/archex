@@ -1,6 +1,6 @@
 # Client Compatibility Matrix
 
-Last updated: 2026-06-20
+Last updated: 2026-07-06
 
 This matrix separates config-shape verification from actual client smoke tests. `archex install-client <client>` writes the config by default (global/user scope; a SOURCE path or `--scope project` installs repo-local). Add `--dry-run` to preview the exact target and config without writing.
 
@@ -9,6 +9,7 @@ This matrix separates config-shape verification from actual client smoke tests. 
 | Client / path | Tested status | Setup command / config | Watch support | Freshness semantics | Known limitations | Last verified |
 | --- | --- | --- | --- | --- | --- | --- |
 | Claude Code MCP stdio | Config-path tested; client smoke unverified | `archex install-client claude-code` writes `~/.claude.json` (global); `archex install-client claude-code . --scope project` writes `.mcp.json` with `mcpServers.archex.command = "archex"` and `args = ["mcp"]`. `--dry-run` previews either. | Yes — `archex mcp --watch --watch-path .` | Inline query refresh by default; `--no-refresh` leaves freshness `unknown`; watch keeps a warm process subscribed to file events. | This stack did not run a live Claude Code UI smoke. Skill and MCP are separate rows. | 2026-06-16 |
+| Claude Code PreToolUse hook (opt-in) | Config-shape tested end-to-end (install, remove, non-destructive merge, matcher-only-Grep/Glob assertion); no live Claude Code UI smoke | `archex install-client claude-code --hooks` writes `~/.claude/settings.json` (global) or `.claude/settings.json` (project) — a different file from the MCP config above. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#claude-code-pretooluse-hook-opt-in) for the full contract. | N/A — one subprocess per matched tool call, not a warm process | Every injected block carries `index_revision=`/`generated_at=` receipt fields; a missing/stale index degrades to no injected context plus a diagnostics log line. | Opt-in, never installed by default; augments only (`additionalContext`, never `permissionDecision`); matcher is `Grep`/`Glob` only, `Read` is never intercepted; hard ~500ms lookup timeout; diagnostics at `~/.archex/hook-diagnostics.log`. | 2026-07-06 |
 | Claude Code skill command | Existing skill path tested in-repo; client smoke unverified | Use `skills/archex/` and the `/archex` command flow. No config file is written by `install-client`; this is command-only onboarding. | Indirect — skill can target a warm MCP server. | Same as MCP/query/scout paths underneath. | Skill setup remains repo-local documentation, not a writable client config target. | 2026-06-16 |
 | CLI-only query/scout | Tested | No client config required. Run `archex doctor`, `archex scout`, `archex query`. | N/A | Query checks freshness inline unless `--no-refresh`; scout inherits query freshness in its receipt. | Not an MCP client. | 2026-06-16 |
 | Generic MCP stdio client | Unverified | Use a JSON config shaped like `{ "mcpServers": { "archex": { "command": "archex", "args": ["mcp"] }}}`. `archex install-client claude-code --dry-run` prints a compatible snippet. | Client-dependent | Same server-side freshness semantics as Claude Code / Cursor. | No live generic-client smoke in this stack. | 2026-06-16 |
@@ -87,3 +88,54 @@ For Cursor, inspect `.cursor/mcp.json` or `~/.cursor/mcp.json` and restart the c
 For OpenCode, inspect `opencode.json` and run `opencode mcp list` if available in your installed version.
 For Pi, inspect `~/.pi/agent/mcp.json` and open the MCP panel documented by your Pi build.
 For oh-my-pi, inspect `~/.omp/agent/mcp.json` and confirm the archex tools are activated in your session (discovery-gated harnesses require explicit activation).
+
+## Claude Code PreToolUse hook (opt-in)
+
+`archex install-client claude-code --hooks` installs a Claude Code `PreToolUse` hook (`src/archex/integrations/hook.py`, invoked as `python -m archex.integrations.hook`) that augments `Grep`/`Glob` tool calls with archex symbol-search results, injected as `additionalContext`. It is opt-in — plain `archex install-client claude-code` never installs it — and it writes to a different file than MCP server registration:
+
+```bash
+archex install-client claude-code --hooks                     # global: ~/.claude/settings.json
+archex install-client claude-code . --hooks --scope project   # repo-local: .claude/settings.json
+archex install-client claude-code --hooks --dry-run           # preview only, writes nothing
+archex install-client claude-code --remove-hooks              # clean uninstall
+```
+
+Installed config shape (the `command` path is the Python interpreter active when `--hooks` was run, so the hook always runs in the same environment archex was installed into):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/venv/bin/python",
+            "args": ["-m", "archex.integrations.hook"]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Non-blocking contract:
+
+- **Never intercepts `Read`.** The installed matcher is `Grep`/`Glob` only — read-before-edit semantics are preserved. Every install writes exactly this matcher; a repo-level assertion test (`tests/cli/test_install_client_hooks.py`) checks the written config never reaches an archex hook entry through a matcher that includes `Read`.
+- **Exits 0 on every path.** A missing or stale index, a malformed payload, a timeout, or any internal error all degrade to no injected context — never a blocked or errored tool call. Failures are never surfaced to the agent; they are appended as JSON lines to a local diagnostics log instead (`~/.archex/hook-diagnostics.log` by default, override with `ARCHEX_HOOK_DIAGNOSTICS_LOG`).
+- **Hard ~500ms lookup timeout** (override with `ARCHEX_HOOK_TIMEOUT_SECONDS`) — a lookup still running past the budget is abandoned in place and the process exits immediately, so a stuck lookup can never block the agent loop.
+- **Every injected block carries a freshness/receipt marker** — `index_revision=<hash prefix> generated_at=<UTC timestamp>` — mirroring the receipt contract `query`/`scout` already expose, so a downstream agent can tell how current the injected context is.
+- **Non-destructive install/uninstall.** Any other hooks already configured in the same settings file — other tools' `PreToolUse` matcher groups, other hook events entirely, unrelated top-level settings — are left untouched by both `--hooks` and `--remove-hooks`. Re-running `--hooks` is an idempotent no-op once installed.
+
+Manual verification (bypassing Claude Code entirely — this is exactly what the hook receives on stdin for a `Grep` tool call):
+
+```bash
+echo '{"tool_name":"Grep","tool_input":{"pattern":"compute_delta"}}' \
+  | python -m archex.integrations.hook
+```
+
+A repo with a fresh index returns JSON on stdout shaped `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "..."}}`. A repo with no index, a stale index, or a `cwd` outside a Git working tree exits 0 with empty stdout and a diagnostics log line instead.
+
+Section G of the development plan (M20–M23) extends this same `python -m archex.integrations.hook` subprocess contract to oh-my-pi/Pi, Codex CLI, and OpenCode with per-client installer shims; Cursor's weaker prompt-level mechanism is a planned exception. None of that is implemented yet — this section documents Claude Code only.
