@@ -10,11 +10,15 @@ import click
 from archex.client_setup import (
     ClientName,
     ClientScope,
+    HookAction,
     append_agent_guidance,
     build_client_install_plan,
+    build_hook_install_plan,
     render_agent_guidance_preview,
     render_client_install_preview,
+    render_hook_install_preview,
     write_client_install_plan,
+    write_hook_install_plan,
 )
 
 
@@ -42,14 +46,42 @@ from archex.client_setup import (
     default=None,
     help="Append the archex MCP guidance prompt to this agent file (CLAUDE.md, AGENTS.md).",
 )
+@click.option(
+    "--hooks",
+    is_flag=True,
+    default=False,
+    help=(
+        "Install the Claude Code PreToolUse hook that augments Grep/Glob calls with "
+        "archex context (opt-in, never installed without this flag; claude-code only)."
+    ),
+)
+@click.option(
+    "--remove-hooks",
+    is_flag=True,
+    default=False,
+    help="Remove the archex PreToolUse hook previously installed by --hooks.",
+)
 def install_client_cmd(
     client: str,
     source: str | None,
     scope: str | None,
     dry_run: bool,
     agent_file: Path | None,
+    hooks: bool,
+    remove_hooks: bool,
 ) -> None:
     """Install MCP client configuration for archex (preview with --dry-run)."""
+    if hooks and remove_hooks:
+        raise click.ClickException("--hooks and --remove-hooks are mutually exclusive")
+    if hooks or remove_hooks:
+        _run_hook_action(
+            cast("ClientName", client),
+            source,
+            scope=cast("ClientScope | None", scope),
+            dry_run=dry_run,
+            action="install" if hooks else "remove",
+        )
+        return
     try:
         plan = build_client_install_plan(
             cast("ClientName", client),
@@ -71,3 +103,25 @@ def install_client_cmd(
                     click.echo(f"archex MCP guidance already present: {resolved}")
     except (ValueError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+def _run_hook_action(
+    client: ClientName,
+    source: str | None,
+    *,
+    scope: ClientScope | None,
+    dry_run: bool,
+    action: HookAction,
+) -> None:
+    try:
+        plan = build_hook_install_plan(client, source, scope=scope, action=action)
+        if dry_run:
+            click.echo(render_hook_install_preview(plan), nl=False)
+            return
+        target = write_hook_install_plan(plan)
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if action == "install":
+        click.echo(f"Installed Claude Code PreToolUse hook: {target}")
+    else:
+        click.echo(f"Removed archex PreToolUse hook (if present): {target}")
