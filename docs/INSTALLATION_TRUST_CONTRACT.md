@@ -194,8 +194,11 @@ Explicit, user-initiated config writes happen only when you run `archex install-
 
 - the selected client's MCP config (for example `~/.claude.json`, `.mcp.json`, `~/.codex/config.toml`, `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`, `~/.pi/agent/mcp.json`, or `~/.omp/agent/mcp.json`) — merged non-destructively, never clobbering unrelated entries
 - the agent file passed to `--agent-file` (for example `CLAUDE.md` or `AGENTS.md`) — a delimited `archex:mcp-guidance` block appended idempotently
+- with `--hooks` (opt-in, never written by plain `install-client`): a client-specific hook file separate from the MCP config above — `~/.claude/settings.json` or `.claude/settings.json` (Claude Code), `~/.omp/agent/extensions/archex-hook.ts` or `.omp/extensions/archex-hook.ts` (oh-my-pi), `~/.pi/agent/extensions/archex-hook.ts` or `.pi/extensions/archex-hook.ts` (Pi), `~/.config/opencode/plugins/archex-hook.ts` or `.opencode/plugins/archex-hook.ts` (OpenCode), a marker-delimited block appended to the same `config.toml` as the MCP config (Codex), or `~/.cursor/hooks.json`/`.cursor/hooks.json` (Cursor). `--remove-hooks` reverses each of these. Full per-client contracts live in the [compatibility matrix](CLIENT_COMPATIBILITY_MATRIX.md).
 
-`--dry-run` previews both without writing.
+`--dry-run` previews all of the above without writing.
+
+A hook, once installed, additionally appends line-delimited JSON to a local diagnostics log (`~/.archex/hook-diagnostics.log` by default, overridable via `ARCHEX_HOOK_DIAGNOSTICS_LOG`) whenever a lookup degrades — a missing/stale index, a timeout, a malformed payload, or an internal error. Most entries carry only a degradation reason and timestamp. The two diagnostics-only clients are the exception, by design: since Codex and Cursor never inject the archex results they find, the log is the only place those results go, so `codex_augmentation_withheld` includes the raw Bash command that looked like a search and `cursor_context_injection_unsupported` includes the withheld archex context text itself. On every client the log is local-only, appended to a file under your control, and never read back or transmitted anywhere by archex.
 
 ## Network behavior by feature
 
