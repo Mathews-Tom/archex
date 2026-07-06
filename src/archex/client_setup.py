@@ -252,7 +252,7 @@ def build_hook_install_plan(
             action=action,
             hook_entry=_render_hook_entry(),
         )
-    if client == "omp":
+    if client in {"omp", "pi"}:
         selected_scope = _resolve_hook_scope(source, scope)
         return TsHookInstallPlan(
             client=client,
@@ -262,7 +262,8 @@ def build_hook_install_plan(
             module_content=_render_ts_hook_module(),
         )
     raise ValueError(
-        f"--hooks/--remove-hooks is only supported for claude-code (M19), omp (M20); got {client!r}"
+        "--hooks/--remove-hooks is only supported for claude-code (M19), omp, pi (M20); "
+        f"got {client!r}"
     )
 
 
@@ -369,6 +370,12 @@ def _ts_hook_module_path(client: ClientName, repo_root: Path, scope: ClientScope
             repo_root / ".omp" / "extensions" / _TS_HOOK_MODULE_FILENAME
             if scope == "project"
             else Path.home() / ".omp" / "agent" / "extensions" / _TS_HOOK_MODULE_FILENAME
+        )
+    if client == "pi":
+        return (
+            repo_root / ".pi" / "extensions" / _TS_HOOK_MODULE_FILENAME
+            if scope == "project"
+            else Path.home() / ".pi" / "agent" / "extensions" / _TS_HOOK_MODULE_FILENAME
         )
     raise ValueError(f"unsupported TS hook client: {client}")
 
