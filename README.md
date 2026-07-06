@@ -20,7 +20,7 @@
 
 AI coding agents usually start by opening a file, following an import, checking a type definition, and backtracking through the repo until the context window is partly spent before the real task starts. archex does that retrieval and structural expansion up front and returns a ranked, token-budgeted context bundle plus a receipt that records what was included, what was skipped, and whether the bundle is complete enough to act on.
 
-It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.13 line adds stronger benchmark trust surfaces, bundle-only evaluator support, and default 4-bit TurboQuant vector storage for local vector indexes.
+It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.16 line adds five full-tier language promotions (PHP, Ruby, Scala, C, C++), a new `structured` tier for markup/config languages (HTML, XML, YAML, Markdown, CSS) with a Maven POM dependency-graph plugin, portable index artifacts for team-shared bootstrap, and diff-scoped blast-radius analysis with per-symbol risk classification.
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Local metrics](docs/LOCAL_METRICS.md) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
@@ -34,7 +34,7 @@ It runs locally, uses deterministic retrieval and analysis, and does not require
 
 | Safe-to-act signals | Surfaces | Language coverage | Public evidence |
 | --- | --- | --- | --- |
-| Query/scout receipts expose freshness, index revision, skipped candidates, omitted edges, completeness, and next action | CLI, MCP, Python API, Docker, Claude Code skill | 26 declared language IDs with explicit `full` vs `chunk-only` tiers | C1 public comparison, raw-ripgrep/read baseline, bundle-only evaluator lane, and TurboQuant A/B measurement with 7.07× mean vector `.npz` compression |
+| Query/scout receipts expose freshness, index revision, skipped candidates, omitted edges, completeness, and next action | CLI, MCP, Python API, Docker, Claude Code skill | 26 declared language IDs across `full`, `structured`, and `chunk-only` tiers | C1 public comparison, raw-ripgrep/read baseline, bundle-only evaluator lane, and TurboQuant A/B measurement with 7.07× mean vector `.npz` compression |
 
 archex does not ask the downstream agent to trust ranking alone. Every query/scout receipt explains what was returned, what was skipped, whether freshness was current, and whether the bundle is complete enough to act on.
 
@@ -317,6 +317,8 @@ TurboQuant evidence is measured separately with `archex_query_hybrid_quantized_4
 # Repo-local lifecycle
 archex init
 archex index
+archex index --export-artifact .archex/index.archexidx
+archex init --from-artifact .archex/index.archexidx
 archex status --strict
 archex doctor --format json
 
@@ -326,6 +328,7 @@ archex onboard
 archex graph export --output .archex/archgraph.json
 archex graph path src/archex/cli/query_cmd.py src/archex/serve/context.py --graph .archex/archgraph.json --format markdown
 archex impact --changed-file src/archex/serve/context.py
+archex impact --diff HEAD~1
 
 # Benchmarks and gates
 archex benchmark headtohead report --input .archex/headtohead --format markdown
@@ -371,7 +374,8 @@ For the full trust contract, including exact MCP JSON, Docker commands, cache lo
 | Tier | Languages | Extraction |
 | --- | --- | --- |
 | `full` | Python, JavaScript, TypeScript/TSX, Go, Rust, Java, Kotlin, C#, Swift, PHP, Ruby, Scala, C, C++ | Symbols, imports, graph edges |
-| `chunk-only` | Lua, Bash/Shell, SQL, HTML, CSS, XML, YAML, TOML, JSON, Markdown, Solidity | AST chunking + retrieval; no symbol/import graph claim |
+| `structured` | HTML, XML, YAML, Markdown, CSS | Outline + native cross-file reference edges (script/link/img/a for HTML; anchors/aliases for YAML; links/section-anchors for Markdown; `@import`/`url()` for CSS); no programming-symbol claim |
+| `chunk-only` | Lua, Bash/Shell, SQL, TOML, JSON, Solidity | AST chunking + retrieval; no symbol/import graph claim |
 | `unknown` | any other text file | line-window chunks for BM25 visibility |
 
 Need another language? Register an adapter via Python entry points. See [System Design](docs/SYSTEM_DESIGN.md) for the extension contract.
@@ -407,6 +411,8 @@ Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs.
 - [Retrieval Default Decisions](docs/RETRIEVAL_DEFAULT_DECISIONS.md) — default-strategy and TurboQuant evidence gates
 - [Context Receipts](docs/CONTEXT_RECEIPTS.md) — receipt field contract and safe-to-act semantics
 - [Local Metrics](docs/LOCAL_METRICS.md) — token-savings math, privacy boundary, and default-off versus opt-in behavior
+- [Portable Index Artifact](docs/PORTABLE_INDEX_ARTIFACT.md) — export/import format, compression, staleness fallback, and `.gitattributes` handling for team-shared index bootstrap
+- [Language Promotion Gate](docs/LANGUAGE_PROMOTION_GATE.md) — the recall/ranking-stability regression gate every language-tier promotion runs against
 
 ## License
 
