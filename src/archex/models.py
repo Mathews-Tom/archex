@@ -836,8 +836,12 @@ class ContextBundle(BaseModel):
     retrieval_metadata: RetrievalMetadata = RetrievalMetadata()
     receipt: ContextReceipt | None = None
 
-    def to_prompt(self, format: str = "xml") -> str:
-        """Render the context bundle as an LLM prompt string."""
+    def to_prompt(self, format: str = "xml", *, full: bool = False) -> str:
+        """Render the context bundle as an LLM prompt string.
+
+        `full` only affects `format="json"`: by default the JSON renderer
+        drops unset/empty chunk fields; `full=True` restores every field.
+        """
         from archex.serve.renderers.json import render_json
         from archex.serve.renderers.markdown import render_markdown
         from archex.serve.renderers.xml import render_xml
@@ -847,7 +851,7 @@ class ContextBundle(BaseModel):
         if format == "markdown":
             return render_markdown(self)
         if format == "json":
-            return render_json(self)
+            return render_json(self, full=full)
         raise ValueError(f"Unknown format: {format}")
 
     def to_dict(self) -> dict[str, Any]:
