@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.0] - 2026-07-06
+
+### Added
+
+- **Opt-in, non-blocking tool-call hook integration across six clients.** `archex install-client <client> --hooks` (`--remove-hooks` to uninstall) now installs a per-client hook wired to the same `python -m archex.integrations.hook` lookup/timeout/freshness engine, so a Grep/Glob-shaped tool call can be augmented with archex symbol-search results without a manual `query`/`scout` call. Every client shares one contract regardless of mechanism: opt-in only (never installed by plain `install-client`), exits/returns non-blocking on every path (a missing or stale index, a timeout, a malformed payload, or any internal error all degrade silently rather than blocking or erroring the calling tool), a hard ~500ms lookup budget (`ARCHEX_HOOK_TIMEOUT_SECONDS`), failures logged to `~/.archex/hook-diagnostics.log` (`ARCHEX_HOOK_DIAGNOSTICS_LOG`) rather than surfaced to the agent, and `Read`/`beforeReadFile` is never a match target on any client. Install/uninstall is idempotent and non-destructive to unrelated config in the same file.
+  - Claude Code: a `PreToolUse` hook (`src/archex/integrations/hook.py`) matched on `Glob|Grep`, written to `settings.json`, injecting results as `additionalContext`.
+  - oh-my-pi and Pi: an identical shared TypeScript extension module (`archex-hook.ts`, auto-discovered from each host's own extension directory) registering `pi.on("tool_result", ...)` scoped to `grep`/`glob`-equivalent calls (Pi's glob-equivalent is `find`), translating each client's field names onto the subprocess's contract at the edge before shelling out to the same Python engine.
+  - OpenCode: a standalone `tool.execute.after` plugin file (auto-loaded from `.opencode/plugins/` or `~/.config/opencode/plugins/`, no `opencode.json` entry needed) scoped to native `grep`/`glob` tool ids only — MCP-routed tool calls are explicitly excluded given a confirmed output-shape inconsistency in OpenCode's own `.after` hook for MCP tools; confirmed reachable for subagent-dispatched calls, not just top-level ones.
+  - Codex CLI and Cursor ship a **diagnostics-only** fallback rather than a matching augmentation feature, because neither client exposes a safe Grep/Glob-equivalent hook target: Codex's only `PreToolUse` tool name broad enough to catch search is `Bash` (every shell command, including destructive ones), so `codex_hook.py` matches `^Bash$`, detects search-shaped commands, and only logs what would have been surfaced; Cursor's `beforeSubmitPrompt` hook (the closest thing it has to content-bearing) has no context-injection output field at all, so `cursor_hook.py` fires once per submitted prompt and only logs a withheld match. Both reuse the Claude Code hook's lookup/timeout/diagnostics engine in-process (`hook.py`'s helpers were promoted to a public API for this) rather than duplicating it.
+- **`install-client --hooks` help text** now states exactly which clients augment (`claude-code`, `omp`, `pi`, `opencode`) versus ship the diagnostics-only fallback (`codex`, `cursor`), so the CLI's own `--help` output never implies a capability a client can't deliver.
+
 ## [0.16.0] - 2026-07-06
 
 ### Added
