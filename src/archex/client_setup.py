@@ -215,12 +215,16 @@ class ClaudeCodeHookInstallPlan:
 
 @dataclass(frozen=True)
 class TsHookInstallPlan:
-    """Install or remove the shared TS ``tool_result`` hook module (M20; omp/pi).
+    """Install or remove the shared TS hook module (M20 omp/pi; M22 opencode).
 
     Unlike the Claude Code hook (a JSON command entry merged into an existing
-    settings file), this installs a standalone TypeScript extension module —
-    see ``_render_ts_hook_module`` for the implementation both clients load
-    unmodified.
+    settings file), this installs a standalone TypeScript module — see
+    ``_render_ts_hook_module`` for the per-client template dispatch. omp and
+    pi share one module (``_TS_HOOK_MODULE_TEMPLATE``, a
+    ``pi.on("tool_result", ...)`` handler returning a content patch);
+    opencode uses a structurally different one
+    (``_OPENCODE_HOOK_MODULE_TEMPLATE``, a ``tool.execute.after`` plugin
+    that mutates its output argument in place instead).
     """
 
     client: ClientName
@@ -275,14 +279,14 @@ def build_hook_install_plan(
             action=action,
             hook_entry=_render_hook_entry(),
         )
-    if client in {"omp", "pi"}:
+    if client in {"omp", "pi", "opencode"}:
         selected_scope = _resolve_hook_scope(source, scope)
         return TsHookInstallPlan(
             client=client,
             scope=selected_scope,
             target_path=_ts_hook_module_path(client, repo_root, selected_scope),
             action=action,
-            module_content=_render_ts_hook_module(),
+            module_content=_render_ts_hook_module(client),
         )
     if client == "codex":
         selected_scope = _resolve_hook_scope(source, scope)
@@ -295,7 +299,7 @@ def build_hook_install_plan(
         )
     raise ValueError(
         "--hooks/--remove-hooks is only supported for claude-code (M19), omp, pi (M20), "
-        f"codex (M21); got {client!r}"
+        f"codex (M21), opencode (M22); got {client!r}"
     )
 
 
@@ -373,7 +377,10 @@ def _render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
         f"Client: {plan.client}",
         f"Scope: {plan.scope}",
         f"Target: {target}",
-        f"Action: {action_label} archex tool_result hook module (grep/glob-equivalent tools only)",
+        (
+            f"Action: {action_label} archex {_ts_hook_event_label(plan.client)} "
+            "(grep/glob-equivalent tools only)"
+        ),
     ]
     if plan.action == "install":
         lines.append(
@@ -451,11 +458,28 @@ def _ts_hook_module_path(client: ClientName, repo_root: Path, scope: ClientScope
             if scope == "project"
             else Path.home() / ".pi" / "agent" / "extensions" / _TS_HOOK_MODULE_FILENAME
         )
+    if client == "opencode":
+        return (
+            repo_root / ".opencode" / "plugins" / _TS_HOOK_MODULE_FILENAME
+            if scope == "project"
+            else Path.home() / ".config" / "opencode" / "plugins" / _TS_HOOK_MODULE_FILENAME
+        )
     raise ValueError(f"unsupported TS hook client: {client}")
 
 
-def _render_ts_hook_module() -> str:
-    return _TS_HOOK_MODULE_TEMPLATE.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(sys.executable))
+def _ts_hook_event_label(client: ClientName) -> str:
+    """Preview wording for the two structurally different TS hook shapes.
+
+    omp/pi install a `tool_result` handler returning a content patch;
+    opencode installs a `tool.execute.after` plugin that mutates its output
+    argument in place (see `_OPENCODE_HOOK_MODULE_TEMPLATE`).
+    """
+    return "tool.execute.after plugin" if client == "opencode" else "tool_result hook module"
+
+
+def _render_ts_hook_module(client: ClientName) -> str:
+    template = _OPENCODE_HOOK_MODULE_TEMPLATE if client == "opencode" else _TS_HOOK_MODULE_TEMPLATE
+    return template.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(sys.executable))
 
 
 _TS_HOOK_MODULE_TEMPLATE = r"""/**
@@ -691,6 +715,228 @@ export default function archexHook(pi: HookHost): void {
     }
   });
 }
+"""
+
+
+_OPENCODE_HOOK_MODULE_TEMPLATE = r"""/**
+ * archex OpenCode `tool.execute.after` plugin (M22 — OpenCode hook integration).
+ *
+ * Installed by `archex install-client opencode --hooks` (opt-in; never
+ * installed by default) as a standalone plugin file OpenCode auto-loads from
+ * its native plugin directory -- `.opencode/plugins/archex-hook.ts`
+ * (project-local) or `~/.config/opencode/plugins/archex-hook.ts` (global).
+ * No `opencode.json` entry is required: per OpenCode's own docs, files in
+ * these directories "are automatically loaded at startup."
+ *
+ * Mirrors the oh-my-pi/Pi `tool_result` hook (M20, `_TS_HOOK_MODULE_TEMPLATE`)
+ * which this module shells out to unmodified -- no lookup/ranking/freshness
+ * logic lives here, only the `python -m archex.integrations.hook` subprocess
+ * contract from M19.
+ *
+ * Contract:
+ * - Only OpenCode's native `grep` and `glob` tools are inspected
+ *   (`ARCHEX_AUGMENTED_TOOLS`, this module's only tool-name dispatch).
+ *   `read` is never touched, and an MCP-routed tool call can never match
+ *   this table: OpenCode registers every MCP tool under a mandatory
+ *   `{server}_{tool}` id (confirmed against the installed `opencode-ai`
+ *   1.14.33's own MCP tool-registration code), so an exact `"grep"`/`"glob"`
+ *   collision with an MCP tool id is structurally impossible, not merely
+ *   unlikely.
+ * - `tool.execute.after`'s contract differs structurally from oh-my-pi/Pi's
+ *   `tool_result`: its handler signature is `(input, output) => Promise<void>`
+ *   -- it mutates the `output.output` string IN PLACE rather than returning
+ *   a patch object. A degraded path (spawn failure, timeout, malformed
+ *   subprocess response, or any thrown error) simply returns without
+ *   touching `output`, leaving the native tool's own result untouched.
+ * - Every path resolves without throwing past this handler. A missing/stale
+ *   index, a spawn failure, a timeout, or a malformed subprocess response
+ *   all degrade to leaving `output` untouched; failures are appended to the
+ *   same diagnostics log the Python subprocess and the M20 TS module use
+ *   (`ARCHEX_HOOK_DIAGNOSTICS_LOG` or `~/.archex/hook-diagnostics.log`),
+ *   never surfaced to the agent flow.
+ * - The lookup runs under the same ~500ms wall-clock budget as the Python
+ *   hook's own internal timeout; this module additionally guards the
+ *   subprocess call itself so a hung `python` process can never block the
+ *   host agent past the budget.
+ *
+ * Two OpenCode-side reliability gaps this milestone's own tests assert
+ * against rather than assume away (`.docs/DEVELOPMENT_PLAN.md` §2), both
+ * confirmed by reading `opencode-ai` 1.14.33's own tool-resolution source
+ * (the version installed during development), not secondary documentation:
+ * - MCP tool calls DO trigger `tool.execute.after`, but the hook receives
+ *   the tool's raw MCP `CallToolResult` as `output` (a `{content, metadata}`
+ *   shape), not the `{title, output, metadata}` shape this type declares --
+ *   the text actually sent to the model is rebuilt from `result.content`
+ *   AFTER the hook runs, discarding any `output.output` mutation. Moot for
+ *   this plugin: its dispatch table never contains an MCP-shaped tool id.
+ * - A Task-tool-spawned subagent's own turn is processed by the exact same
+ *   tool-resolution code path as a top-level turn (the subagent's prompt
+ *   loop is a recursive call into the identical function that built the
+ *   top-level session's own tool table), so a subagent-issued `grep`/`glob`
+ *   call triggers `tool.execute.after` identically to a top-level one in
+ *   the version this was verified against. This module itself makes no
+ *   session/agent distinction either way -- see the installer test suite
+ *   for the specific structural check and its citation.
+ */
+
+import type { Plugin } from "@opencode-ai/plugin";
+import type { ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+// --- Baked in at install time (`archex install-client opencode --hooks`) ---
+
+/** Python interpreter active when `--hooks` ran -- mirrors the Claude Code
+ * JSON hook's `command`, so this always runs in the same environment archex
+ * was installed into. */
+const ARCHEX_PYTHON_COMMAND = __ARCHEX_PYTHON_COMMAND__;
+const ARCHEX_PYTHON_ARGS = ["-m", "archex.integrations.hook"];
+
+/** Matches `DEFAULT_HOOK_TIMEOUT_SECONDS` in `archex.integrations.hook`. */
+const ARCHEX_HOOK_TIMEOUT_MS = 500;
+
+const ARCHEX_DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG";
+
+// --- OpenCode native tool id -> archex subprocess Claude-shape tool_name ---
+//
+// OpenCode's `grep` and `glob` tools both carry their query pattern in an
+// `args.pattern` field (confirmed against the bundled tool definitions) --
+// both translate directly onto the subprocess's existing
+// `{"tool_name": "Grep"|"Glob", "tool_input": {"pattern": ...}}` contract.
+// This table is this module's *only* tool-name dispatch: `read`, every
+// other native tool, and every MCP-routed tool id fall through unmatched.
+const ARCHEX_AUGMENTED_TOOLS: Readonly<Record<string, "Grep" | "Glob">> = {
+  grep: "Grep",
+  glob: "Glob",
+};
+
+// --- Diagnostics (parity with hook.py's `log_diagnostic`) ---
+
+function logDiagnostic(kind: string, detail: string, cwd?: string): void {
+  try {
+    const override = process.env[ARCHEX_DIAGNOSTICS_LOG_ENV_VAR];
+    const path = override && override.trim().length > 0
+      ? override
+      : join(homedir(), ".archex", "hook-diagnostics.log");
+    mkdirSync(dirname(path), { recursive: true });
+    const entry: Record<string, string> = {
+      timestamp: new Date().toISOString(),
+      kind,
+      detail,
+    };
+    if (cwd) entry.cwd = cwd;
+    appendFileSync(path, `${JSON.stringify(entry)}\n`, "utf-8");
+  } catch {
+    // Diagnostics logging must never raise into the hook's return path.
+  }
+}
+
+// --- Subprocess call: `python -m archex.integrations.hook` ---
+
+function runArchexHookSubprocess(
+  payload: Record<string, unknown>,
+  cwd: string,
+): Promise<string | null> {
+  const { promise, resolve } = Promise.withResolvers<string | null>();
+  let settled = false;
+  const finish = (value: string | null): void => {
+    if (settled) return;
+    settled = true;
+    resolve(value);
+  };
+
+  let child: ChildProcess;
+  try {
+    child = spawn(ARCHEX_PYTHON_COMMAND, ARCHEX_PYTHON_ARGS, {
+      cwd,
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+  } catch (err) {
+    logDiagnostic("ts_spawn_error", String(err), cwd);
+    finish(null);
+    return promise;
+  }
+
+  const timer = setTimeout(() => {
+    logDiagnostic("ts_timeout", `lookup exceeded ${ARCHEX_HOOK_TIMEOUT_MS}ms`, cwd);
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Already exited.
+    }
+    finish(null);
+  }, ARCHEX_HOOK_TIMEOUT_MS);
+
+  let stdout = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString("utf-8");
+  });
+  child.on("error", (err) => {
+    clearTimeout(timer);
+    logDiagnostic("ts_spawn_error", String(err), cwd);
+    finish(null);
+  });
+  child.on("close", () => {
+    clearTimeout(timer);
+    finish(stdout.length > 0 ? stdout : null);
+  });
+
+  try {
+    child.stdin?.write(JSON.stringify(payload));
+    child.stdin?.end();
+  } catch (err) {
+    clearTimeout(timer);
+    logDiagnostic("ts_stdin_error", String(err), cwd);
+    finish(null);
+  }
+
+  return promise;
+}
+
+function extractAdditionalContext(rawStdout: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(rawStdout);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const hookSpecificOutput = (parsed as Record<string, unknown>).hookSpecificOutput;
+    if (typeof hookSpecificOutput !== "object" || hookSpecificOutput === null) return null;
+    const context = (hookSpecificOutput as Record<string, unknown>).additionalContext;
+    return typeof context === "string" && context.length > 0 ? context : null;
+  } catch {
+    return null;
+  }
+}
+
+// --- Plugin entry point ---
+
+export const ArchexHookPlugin: Plugin = async ({ directory }) => {
+  return {
+    "tool.execute.after": async (input, output) => {
+      try {
+        const claudeToolName = ARCHEX_AUGMENTED_TOOLS[input.tool];
+        if (!claudeToolName) return; // never "read", never an MCP-routed tool
+
+        const args = (input.args ?? {}) as Record<string, unknown>;
+        const pattern = args.pattern;
+        if (typeof pattern !== "string" || pattern.trim().length === 0) return;
+
+        const rawStdout = await runArchexHookSubprocess(
+          { tool_name: claudeToolName, tool_input: { pattern }, cwd: directory },
+          directory,
+        );
+        if (rawStdout === null) return;
+
+        const context = extractAdditionalContext(rawStdout);
+        if (context === null) return;
+
+        output.output = `${output.output}\n\n${context}`;
+      } catch (err) {
+        logDiagnostic("ts_internal_error", String(err));
+      }
+    },
+  };
+};
 """
 
 
