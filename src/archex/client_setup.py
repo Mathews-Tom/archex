@@ -488,7 +488,7 @@ interface HookHost {
   on(event: "tool_result", handler: ToolResultHandler): unknown;
 }
 
-// --- Diagnostics (parity with hook.py's `_log_diagnostic`) ---
+// --- Diagnostics (parity with hook.py's `log_diagnostic`) ---
 
 function diagnosticsLogPath(): string {
   const override = process.env[ARCHEX_DIAGNOSTICS_LOG_ENV_VAR];

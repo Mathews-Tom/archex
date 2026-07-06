@@ -62,7 +62,7 @@ _DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG"
 
 MAX_RESULTS = 5
 
-_IDENTIFIER_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+IDENTIFIER_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
 
 
 def main() -> None:
@@ -76,7 +76,7 @@ def main() -> None:
     try:
         _main_impl()
     except BaseException as exc:  # noqa: BLE001 - the non-blocking contract requires this
-        _log_diagnostic("unhandled_exception", detail=repr(exc))
+        log_diagnostic("unhandled_exception", detail=repr(exc))
     os._exit(0)
 
 
@@ -98,10 +98,10 @@ def _parse_payload(raw: str) -> dict[str, Any] | None:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        _log_diagnostic("malformed_payload", detail=f"invalid JSON: {exc}")
+        log_diagnostic("malformed_payload", detail=f"invalid JSON: {exc}")
         return None
     if not isinstance(payload, dict):
-        _log_diagnostic("malformed_payload", detail="payload is not a JSON object")
+        log_diagnostic("malformed_payload", detail="payload is not a JSON object")
         return None
     return cast("dict[str, Any]", payload)
 
@@ -119,19 +119,19 @@ def handle_pre_tool_use(payload: dict[str, Any]) -> dict[str, Any] | None:
             return None
         tool_input = payload.get("tool_input")
         if not isinstance(tool_input, dict):
-            _log_diagnostic("malformed_payload", detail="tool_input is not a JSON object")
+            log_diagnostic("malformed_payload", detail="tool_input is not a JSON object")
             return None
         query = _extract_query(tool_name, cast("dict[str, Any]", tool_input))
         if not query:
             return None
         cwd_raw = payload.get("cwd")
         cwd = cwd_raw if isinstance(cwd_raw, str) and cwd_raw else os.getcwd()
-        context = _lookup_with_timeout(cwd, query)
+        context = lookup_with_timeout(cwd, query)
         if context is None:
             return None
         return _build_output(context)
     except Exception as exc:  # noqa: BLE001 - degrade to no-op, never raise
-        _log_diagnostic("internal_error", detail=repr(exc))
+        log_diagnostic("internal_error", detail=repr(exc))
         return None
 
 
@@ -143,20 +143,20 @@ def _extract_query(tool_name: str, tool_input: dict[str, Any]) -> str:
         return pattern.strip()
     # Glob patterns are filesystem globs, not search terms — pull identifier-like
     # tokens out of them so "**/*_service.py" becomes a useful symbol query.
-    return " ".join(_IDENTIFIER_TOKEN_RE.findall(pattern))
+    return " ".join(IDENTIFIER_TOKEN_RE.findall(pattern))
 
 
-def _lookup_with_timeout(cwd: str, query: str) -> str | None:
+def lookup_with_timeout(cwd: str, query: str) -> str | None:
     timeout = _hook_timeout_seconds()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="archex-hook")
     future = executor.submit(_lookup, cwd, query)
     try:
         return future.result(timeout=timeout)
     except TimeoutError:
-        _log_diagnostic("timeout", detail=f"lookup exceeded {timeout}s", cwd=cwd)
+        log_diagnostic("timeout", detail=f"lookup exceeded {timeout}s", cwd=cwd)
         return None
     except Exception as exc:  # noqa: BLE001 - degrade to no-op, never raise
-        _log_diagnostic("lookup_error", detail=repr(exc), cwd=cwd)
+        log_diagnostic("lookup_error", detail=repr(exc), cwd=cwd)
         return None
     finally:
         # Don't wait for a timed-out lookup thread — main()'s os._exit reclaims it.
@@ -167,10 +167,10 @@ def _lookup(cwd: str, query: str) -> str | None:
     try:
         status = inspect_project_status(cwd)
     except ValueError as exc:
-        _log_diagnostic("status_error", detail=str(exc), cwd=cwd)
+        log_diagnostic("status_error", detail=str(exc), cwd=cwd)
         return None
     if status.state != "fresh":
-        _log_diagnostic("index_not_fresh", detail=f"state={status.state}", cwd=cwd)
+        log_diagnostic("index_not_fresh", detail=f"state={status.state}", cwd=cwd)
         return None
 
     store = IndexStore(status.index_path)
@@ -225,7 +225,7 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _log_diagnostic(kind: str, *, detail: str, cwd: str | None = None) -> None:
+def log_diagnostic(kind: str, *, detail: str, cwd: str | None = None) -> None:
     try:
         path = _diagnostics_log_path()
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -260,7 +260,7 @@ def test_non_augmented_tools_short_circuit_before_lookup(tool_name: str) -> None
         "cwd": "/tmp",
     }
 
-    with patch("archex.integrations.hook._lookup_with_timeout", lookup_mock):
+    with patch("archex.integrations.hook.lookup_with_timeout", lookup_mock):
         result = handle_pre_tool_use(payload)
 
     assert result is None
