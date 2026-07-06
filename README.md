@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/archex)](https://pypi.org/project/archex/)
 [![Downloads](https://img.shields.io/pypi/dm/archex)](https://pypi.org/project/archex/)
 [![Python](https://img.shields.io/pypi/pyversions/archex)](https://pypi.org/project/archex/)
-[![Tests](https://img.shields.io/badge/tests-3603_passing-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-3619_passing-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-91.1%25-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![Languages](https://img.shields.io/badge/languages-26-orange)](#language-support)
 [![MCP tools](https://img.shields.io/badge/MCP_tools-17-purple)](#mcp-and-claude-code)
@@ -20,7 +20,7 @@
 
 AI coding agents usually start by opening a file, following an import, checking a type definition, and backtracking through the repo until the context window is partly spent before the real task starts. archex does that retrieval and structural expansion up front and returns a ranked, token-budgeted context bundle plus a receipt that records what was included, what was skipped, and whether the bundle is complete enough to act on.
 
-It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.16 line adds five full-tier language promotions (PHP, Ruby, Scala, C, C++), a new `structured` tier for markup/config languages (HTML, XML, YAML, Markdown, CSS) with a Maven POM dependency-graph plugin, portable index artifacts for team-shared bootstrap, and diff-scoped blast-radius analysis with per-symbol risk classification. The v0.17 line adds opt-in, non-blocking tool-call hooks across six clients (Claude Code, oh-my-pi, Pi, OpenCode, Codex CLI, Cursor) that augment `grep`/`glob`-shaped calls with archex results — or, where a client has no matching hook to augment, log a diagnostics-only trace instead of claiming a capability that isn't there.
+It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. The v0.16 line adds five full-tier language promotions (PHP, Ruby, Scala, C, C++), a new `structured` tier for markup/config languages (HTML, XML, YAML, Markdown, CSS) with a Maven POM dependency-graph plugin, portable index artifacts for team-shared bootstrap, and diff-scoped blast-radius analysis with per-symbol risk classification. The v0.17 line adds opt-in, non-blocking tool-call hooks across six clients (Claude Code, oh-my-pi, Pi, OpenCode, Codex CLI, Cursor) that augment `grep`/`glob`-shaped calls with archex results — or, where a client has no matching hook to augment, log a diagnostics-only trace instead of claiming a capability that isn't there. The v0.18 line slims the default `--format json` chunk output (unset/empty fields dropped, `--full` to restore) and adds an opt-in `--format toon` encoding for further token savings on top of that.
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Local metrics](docs/LOCAL_METRICS.md) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
@@ -102,7 +102,7 @@ class User: ...
 </context>
 ```
 
-The bundle carries ranked chunks, import context, referenced type definitions, dependency edges, token counts, and provenance. Use `--format json` or `--format markdown` when XML is not the right downstream envelope.
+The bundle carries ranked chunks, import context, referenced type definitions, dependency edges, token counts, and provenance. Use `--format json` or `--format markdown` when XML is not the right downstream envelope, or `--format toon` (optional `archex[toon]` extra) for a smaller-still encoding built on the same field selection. `json` and `toon` output omit unset/empty chunk fields by default — pass `--full` to restore every field.
 
 Small receipt example:
 
@@ -155,6 +155,7 @@ archex is a selection and assembly layer. Compression tools can shrink the final
 ```bash
 archex query "Where is cache invalidation handled?" --format xml
 archex scout "How does authentication flow through this repo?" --budget 1000 --format json
+archex query "How does authentication work?" --format toon   # requires: uv add "archex[toon]"
 archex index --quantize-vectors --quantize-bits 4 --allow-remote-code
 archex graph export --output .archex/archgraph.json
 archex graph neighbors src/auth/middleware.py --graph .archex/archgraph.json --format markdown
@@ -312,6 +313,7 @@ TurboQuant evidence is measured separately with `archex_query_hybrid_quantized_4
 - **Coverage stays close to raw search without paying raw-search token cost.** `raw-ripgrep/read` reaches `1.00` required-file recall, but it does so at `0.00` token efficiency. archex lands at `0.95` required-file recall with `0.76` token efficiency, so the returned bundle stays close to exhaustive file coverage without filling the prompt with every textual match.
 - **Missed-task failures drop sharply versus `ccc`.** archex's missed task rate is `0.16`; `ccc` lands at `0.79`. In the published C1 run, that is the difference between usually returning the files an agent needs and often requiring a second pass before the task can finish.
 - **Vector storage got much smaller without a measured retrieval-quality change.** The published 4-bit TurboQuant run reports `7.07×` mean vector `.npz` compression (`6.98×` minimum) with recall Δ `+0.000`, MRR Δ `+0.000`, and F1 Δ `+0.000`, so local vector indexes take far less disk without a measured quality regression in that benchmark.
+- **`--format toon` trims the bundle further, on request.** `--format json`/`--format scout json` already drop unset/empty chunk fields by default (`--full` restores them); `--format toon` (optional `archex[toon]` extra) measures ~17% smaller than that default JSON output on the representative bundle in `tests/serve/test_renderers.py::test_toon_smaller_than_json_for_realistic_bundle`. Both are opt-in — the CLI's default format stays `xml`, which was already minimal before either change.
 
 ## Advanced workflows
 
@@ -357,13 +359,14 @@ uv tool install "archex[mcp]"             # MCP server
 uv add "archex[langchain]"                # LangChain retriever
 uv add "archex[llamaindex]"               # LlamaIndex retriever
 uv add "archex[lsap]"                     # LSP type enrichment
+uv add "archex[toon]"                     # TOON output format (token-lean encoding)
 
 # Local retrieval extras
 uv add "archex[vector-fast]"              # FastEmbed (ONNX-backed, ~50MB)
 uv add "archex[vector-torch]"             # sentence-transformers / torch
 uv add "archex[splade]"                   # SPLADE sparse retrieval
 uv add "archex[graph]"                    # Leiden graph clustering
-# Core extras bundle: graph, MCP, LangChain, LlamaIndex
+# Bundles every extra: vector-fast, graph, vector-torch, splade, mcp, langchain, llamaindex, lsap, toon
 uv add "archex[all]"
 ```
 
