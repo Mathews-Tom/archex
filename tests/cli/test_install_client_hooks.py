@@ -1117,3 +1117,114 @@ def test_cli_remove_hooks_codex_removes_and_exits_zero(
     assert result.exit_code == 0, result.output
     assert "Removed" in result.output
     assert target.read_text(encoding="utf-8") == ""
+
+
+# --- OpenCode CLI wiring: install-client opencode --hooks (M22 PR-2) ---
+
+
+def test_cli_hooks_installs_opencode_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "opencode", "--hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Installed" in result.output
+    target = tmp_path / ".config" / "opencode" / "plugins" / "archex-hook.ts"
+    assert target.exists()
+    assert "ArchexHookPlugin" in target.read_text(encoding="utf-8")
+
+
+def test_cli_hooks_opencode_dry_run_previews_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "opencode", "--hooks", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Dry run." in result.output
+    assert not (tmp_path / ".config" / "opencode" / "plugins" / "archex-hook.ts").exists()
+
+
+def test_cli_remove_hooks_opencode_removes_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    CliRunner().invoke(cli, ["install-client", "opencode", "--hooks"])
+    target = tmp_path / ".config" / "opencode" / "plugins" / "archex-hook.ts"
+    assert target.exists()
+
+    result = CliRunner().invoke(cli, ["install-client", "opencode", "--remove-hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Removed" in result.output
+    assert not target.exists()
+
+
+def test_cli_hooks_opencode_installed_file_never_targets_read_or_mcp_tool_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M22 acceptance criterion (config assertion): proven against the file
+    the CLI actually writes to disk, not just the in-memory plan object PR-1
+    exercised (`test_opencode_ts_hook_module_native_vs_mcp_tool_routing`) --
+    closing the gap between "the render function is correct" and "the
+    installer wrote what the render function produced."
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    CliRunner().invoke(cli, ["install-client", "opencode", "--hooks"])
+    target = tmp_path / ".config" / "opencode" / "plugins" / "archex-hook.ts"
+
+    keys = _augmented_tools_keys(target.read_text(encoding="utf-8"))
+
+    assert keys == {"grep", "glob"}
+    assert "read" not in keys
+    mcp_shaped_ids = {"archex_query_repo", "archex_scout_repo", "github_create_issue"}
+    assert keys.isdisjoint(mcp_shaped_ids)
+
+
+def test_opencode_ts_hook_module_subagent_dispatch_reachability(tmp_path: Path) -> None:
+    """M22 subagent-dispatch finding (`.docs/DEVELOPMENT_PLAN.md` §4 M22
+    acceptance criterion): confirmed **reachable**, via two independent
+    checks performed during development (recorded in
+    `docs/CLIENT_COMPATIBILITY_MATRIX.md`), not assumed either way:
+
+    1. Source-level: `opencode-ai@1.14.33`'s
+       `packages/opencode/src/session/prompt.ts` binds the `TaskPromptOps`
+       handed to every tool's context to the exact same `prompt()` closure
+       that processes a top-level turn (`ops().prompt = (input) =>
+       prompt(input)`). `TaskTool.execute` calls
+       `ops.prompt({sessionID: nextSession.id, ...})` for a subagent's own
+       turn, which recurses into the identical `resolveTools()`-wrapped
+       `tool.execute.after` trigger used for the top-level session -- no
+       subagent-specific branch skips it.
+    2. Live: a real `opencode run` session instructing a
+       `subagent_type: general` Task to call `grep` itself showed the
+       archex receipt block appended directly in the *subagent's own child
+       session's* exported tool-part output (`opencode export
+       <child-session-id>`), not merely relayed/paraphrased by the parent.
+
+    This plugin's own code makes no session/agent-type distinction to rely
+    on either way -- asserted here structurally, the same way M20's omp/pi
+    module's unconditional-registration was asserted: the handler body
+    never references `sessionID`/`callID`, so it cannot special-case a
+    subagent's session even if OpenCode's behavior changes in a future
+    version.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+    content = plan.module_content
+
+    handler_match = re.search(
+        r'"tool\.execute\.after": async \(input, output\) => \{(.*?)\n    \},',
+        content,
+        re.DOTALL,
+    )
+    assert handler_match is not None, "tool.execute.after handler body not found"
+    handler_body = handler_match.group(1)
+
+    assert "sessionID" not in handler_body
+    assert "callID" not in handler_body

@@ -20,6 +20,7 @@ This matrix separates config-shape verification from actual client smoke tests. 
 | oh-my-pi (omp) MCP stdio | Config shape verified; client smoke unverified | `archex install-client omp` writes `~/.omp/agent/mcp.json` (user scope only) with `mcpServers.archex.command = "archex"`, `args = ["mcp"]`, plus the oh-my-pi `$schema` (`--dry-run` previews). | Client-dependent; server supports `--watch`. | Same server-side freshness semantics as other stdio clients. | No oh-my-pi client smoke in this stack. Discovery-gated harness — tools must be activated before use (see below). | 2026-06-20 |
 | oh-my-pi (omp) `tool_result` hook (opt-in) | Config-shape tested end-to-end (install, remove, idempotent reinstall, dispatch-table excludes `read`); no live oh-my-pi UI smoke | `archex install-client omp --hooks` writes a TypeScript extension module to `.omp/extensions/archex-hook.ts` (project scope) or `~/.omp/agent/extensions/archex-hook.ts` (user scope, default) — a different file/mechanism from the MCP config above. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#oh-my-pi-omp--pi-tool_result-hook-opt-in) for the full contract. | N/A — one subprocess per matched tool call, not a warm process | Same receipt/timeout/diagnostics semantics as the Claude Code hook below — this module shells out to the identical `python -m archex.integrations.hook` subprocess unmodified. | Opt-in, never installed by default; augments `grep`/`glob` `tool_result` content only, never `read`. Supports both project and user scope (unlike the MCP config row above, which is user-scope only). | 2026-07-06 |
 | OpenCode | Config shape verified; client smoke unverified | `archex install-client opencode` writes `~/.config/opencode/opencode.json` (global); `archex install-client opencode . --scope project` writes `opencode.json`, setting `mcp.archex = { type = "local", command = ["archex", "mcp"], enabled = true }`. `--dry-run` previews. | Client-dependent; server supports `--watch`. | Same server-side freshness semantics as other stdio clients. | No OpenCode client smoke in this stack. | 2026-06-16 |
+| OpenCode `tool.execute.after` plugin (opt-in) | Config-shape tested end-to-end (install, remove, idempotent reinstall, native-vs-MCP dispatch-table assertion, subagent-dispatch reachability confirmed both structurally and via a live session); confirmed against a real installed `opencode-ai` 1.14.33 client | `archex install-client opencode --hooks` writes a standalone plugin file to `.opencode/plugins/archex-hook.ts` (project scope) or `~/.config/opencode/plugins/archex-hook.ts` (user scope, default) — OpenCode auto-loads local plugin files from these directories, so no `opencode.json` entry is written or needed. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#opencode-toolexecuteafter-plugin-opt-in) for the full contract, the confirmation-spike findings, and the live verification. | N/A — one subprocess per matched tool call, not a warm process | Same receipt/timeout/diagnostics semantics as the Claude Code hook above — this module shells out to the identical `python -m archex.integrations.hook` subprocess, unmodified. | Opt-in, never installed by default; augments only native `grep`/`glob` tool calls, never `read` or any MCP-routed tool. | 2026-07-06 |
 | Cursor | Config shape verified; client smoke unverified | `archex install-client cursor` writes `~/.cursor/mcp.json` (global); `archex install-client cursor . --scope project` writes `.cursor/mcp.json` with `mcpServers.archex.command = "archex"`, `args = ["mcp"]`. `--dry-run` previews. | Yes — with a warm `archex mcp --watch --watch-path .` process. | Inline query refresh by default; watch keeps a warm process subscribed to file events. | No Cursor UI smoke in this stack. | 2026-06-16 |
 | Dockerized MCP server | Server path tested; client smoke unverified | Run `docker run -d --name archex-mcp -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim sleep infinity` then point the client to `docker exec -i archex-mcp archex mcp`. | Yes — run the MCP process with `--watch`. | Same server-side freshness semantics as stdio. | Client-specific Docker registration varies; use the same client config shapes above, but replace the command with `docker` / `exec`. | 2026-06-16 |
 
@@ -141,7 +142,7 @@ echo '{"tool_name":"Grep","tool_input":{"pattern":"compute_delta"}}' \
 
 A repo with a fresh index returns JSON on stdout shaped `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "..."}}`. A repo with no index, a stale index, or a `cwd` outside a Git working tree exits 0 with empty stdout and a diagnostics log line instead.
 
-Section G of the development plan (M20–M23) extends this same `python -m archex.integrations.hook` subprocess contract to other clients with per-client installer shims. M20 (oh-my-pi and Pi) and M21 (Codex CLI, diagnostics-only) are implemented; OpenCode is not yet implemented; Cursor's weaker prompt-level mechanism is a planned exception.
+Section G of the development plan (M20–M23) extends this same `python -m archex.integrations.hook` subprocess contract to other clients with per-client installer shims. M20 (oh-my-pi and Pi), M21 (Codex CLI, diagnostics-only), and M22 (OpenCode) are implemented; Cursor's weaker prompt-level mechanism is a planned exception.
 
 ## oh-my-pi (omp) / Pi `tool_result` hook (opt-in)
 
@@ -231,3 +232,54 @@ echo '{"tool_name":"Bash","tool_input":{"command":"grep -rn compute_delta ."},"c
 ```
 
 Always exits 0 with `{}` on stdout. A repo with a fresh index and a search-shaped command appends a `codex_augmentation_withheld` diagnostic line to the log describing the match, instead of injecting it; a repo with no index, a stale index, or a non-search command produces no diagnostic (or the same `index_not_fresh`/`status_error` diagnostic the Claude Code hook logs) and no injected context either way.
+
+## OpenCode `tool.execute.after` plugin (opt-in)
+
+`archex install-client opencode --hooks` installs a standalone TypeScript plugin file that registers a `tool.execute.after` handler scoped to OpenCode's native `grep`/`glob` tool calls, augmenting their output by shelling out to the identical `python -m archex.integrations.hook` subprocess documented above — no lookup, ranking, timeout, or diagnostics logic is reimplemented. It is opt-in — plain `archex install-client opencode` never installs it:
+
+```bash
+archex install-client opencode --hooks                      # user (default): ~/.config/opencode/plugins/archex-hook.ts
+archex install-client opencode . --hooks --scope project    # project-local: .opencode/plugins/archex-hook.ts
+archex install-client opencode --hooks --dry-run            # preview only, writes nothing
+archex install-client opencode --remove-hooks                # clean uninstall
+```
+
+Unlike the MCP config row above (an `opencode.json` entry), this installs a standalone `.ts` file — OpenCode's own docs state that files in `.opencode/plugins/` (project) and `~/.config/opencode/plugins/` (global) "are automatically loaded at startup," so no `opencode.json` change is required or written.
+
+### Why this isn't the oh-my-pi/Pi module verbatim
+
+OpenCode's `tool.execute.after` hook contract is structurally different from oh-my-pi/Pi's `tool_result`: its handler signature is `(input, output) => Promise<void>` — it mutates the `output.output` string **in place** rather than returning a content patch. `input` carries `{tool, sessionID, callID, args}`. Both of OpenCode's native `grep` and `glob` tools already carry their query pattern in a field named `pattern` (confirmed against the installed `opencode-ai` 1.14.33's own tool definitions), so — unlike oh-my-pi's `glob`, which needs a `path`→`pattern` remap — the plugin's translation onto the subprocess's existing Grep/Glob contract is an identity mapping. Its dispatch table (`ARCHEX_AUGMENTED_TOOLS`) is keyed directly on OpenCode's own tool ids: `{"grep": "Grep", "glob": "Glob"}`.
+
+### Confirmation spike: OpenCode-side reliability gaps (M22 §2 GAP)
+
+DEVELOPMENT_PLAN.md flagged two OpenCode-side reliability gaps this milestone's own tests had to check rather than assume. Both were resolved by reading `opencode-ai` 1.14.33's own tool-resolution source directly (`packages/opencode/src/session/prompt.ts`, the version installed during development), not secondary documentation:
+
+1. **`tool.execute.after`-on-MCP-tools output inconsistency — confirmed real, and moot for this plugin.** The MCP tool-execution branch does trigger `tool.execute.after`, but passes the tool's raw MCP `CallToolResult` (`{content, metadata}`) as `output`, not the `{title, output, metadata}` shape the type declares. The text actually sent to the model is rebuilt from `result.content` *after* the hook call, discarding any `output.output` mutation — so augmenting an MCP tool through this hook would silently do nothing even if a plugin tried. This is moot here: `ARCHEX_AUGMENTED_TOOLS` never contains an MCP-shaped id, and OpenCode registers every MCP tool under a mandatory `{server}_{tool}` prefix (confirmed in the same source), so an exact `"grep"`/`"glob"` collision with an MCP tool id is structurally impossible, not merely unlikely.
+2. **`tool.execute.before`'s documented subagent-bypass bug does not extend to the `.after` hook this plugin uses.** `TaskTool.execute`'s `ops.prompt({sessionID: nextSession.id, ...})` is bound to the exact same `prompt()` closure that processes a top-level turn's own tool resolution, which wraps every native tool's `execute` with the identical `tool.execute.before`/`.after` triggers regardless of which session is being processed. Confirmed both from source and live (see below) — a subagent-issued `grep`/`glob` call is augmented identically to a top-level one in the version this was verified against.
+
+### Manual verification (live, real `opencode-ai` 1.14.33, free model — not part of the pytest suite; no Node/Bun in CI)
+
+Installed the plugin on a fixture repo and ran real `opencode run` sessions:
+
+- A native `grep` call for a real symbol: the exported session's tool part (`opencode export <sessionID>`) shows the archex receipt block appended directly to `state.output`, after the grep results.
+- A native `glob` call: same — archex context appended in place.
+- A `read` call: the exported `state.output` is the exact raw file content, byte-for-byte — no archex text anywhere.
+- **Subagent dispatch:** instructed the top-level agent to launch a `subagent_type: general` Task and have *that subagent* call `grep` itself. Exporting the **subagent's own child session** directly (not the parent's relayed summary) showed the archex receipt block appended to the subagent's own `grep` tool part output — direct, first-party confirmation that `tool.execute.after` reaches subagent-issued native tool calls.
+- A missing/stale index (a fresh, never-`archex init`'d repo): the plugin invocation degrades to unmodified output plus an `index_not_fresh` diagnostics log line.
+- A hung subprocess (replaced with a 30s sleep for the test): the ~500ms timeout guard fired, `SIGKILL`ed the process, left output unmodified, and logged a `ts_timeout` diagnostic — measured at ~526ms end-to-end.
+- Malformed subprocess stdout (non-JSON): output stays unmodified, no throw.
+
+Manual verification (bypassing OpenCode entirely — same fixture payload the sections above use, since the subprocess contract is unmodified):
+
+```bash
+echo '{"tool_name":"Grep","tool_input":{"pattern":"compute_delta"}}' \
+  | python -m archex.integrations.hook
+```
+
+### Contract, mirroring the oh-my-pi/Pi hook
+
+- **Never intercepts `read`.** The plugin's only tool-name dispatch is `ARCHEX_AUGMENTED_TOOLS`, keyed exactly on `{"grep", "glob"}` — `read` is absent by construction, and an MCP-routed tool id can never collide with it (see above). `tests/cli/test_install_client_hooks.py`'s `test_opencode_ts_hook_module_native_vs_mcp_tool_routing` and `test_cli_hooks_opencode_installed_file_never_targets_read_or_mcp_tool_ids` assert this structurally, against both the in-memory plan and the file the CLI actually writes.
+- **Exits without throwing on every path.** A missing/stale index, a subprocess spawn failure, a timeout, or a malformed subprocess response all degrade to leaving `output` untouched. Failures append a JSON line to the same diagnostics log the Python subprocess and the oh-my-pi/Pi module use (`~/.archex/hook-diagnostics.log` by default, override with `ARCHEX_HOOK_DIAGNOSTICS_LOG`) — never surfaced to the agent.
+- **Hard ~500ms lookup timeout**, matching `DEFAULT_HOOK_TIMEOUT_SECONDS`: the plugin's own `setTimeout` guard `SIGKILL`s a subprocess still running past the budget, independent of whatever timeout the subprocess enforces on itself.
+- **No field-name translation needed.** Both `grep` and `glob` already carry their query in a field named `pattern`, so the plugin's mapping onto the subprocess's `{"tool_name": "Grep"|"Glob", "tool_input": {"pattern": ...}}` contract is an identity mapping on the field, keyed only on the tool id.
+- **Subagent-reachable.** The handler registers unconditionally with no `sessionID`/`callID`-based gating, and both source inspection and a live nested-subagent run confirm `tool.execute.after` fires for subagent-issued calls in the verified version — see the confirmation spike above.
