@@ -1,6 +1,9 @@
-"""Tests for markdown and XML renderers covering type definitions, dependencies, and edge cases."""
+"""Tests for markdown, XML, JSON, and TOON renderers covering type definitions,
+dependencies, and edge cases."""
 
 from __future__ import annotations
+
+import toons
 
 from archex.models import (
     CodeChunk,
@@ -29,6 +32,7 @@ from archex.models import (
 from archex.scout import chunk_handle
 from archex.serve.renderers.json import render_json
 from archex.serve.renderers.markdown import render_markdown
+from archex.serve.renderers.toon import render_toon
 from archex.serve.renderers.xml import render_xml
 
 # ---------------------------------------------------------------------------
@@ -482,3 +486,145 @@ def test_json_zero_score_ranked_chunk_present_in_default_and_full() -> None:
 def test_json_minimal_output_smaller_than_full_for_none_heavy_chunk() -> None:
     bundle = _base_bundle(chunks=[_ranked(_none_heavy_chunk())])
     assert len(render_json(bundle)) < len(render_json(bundle, full=True))
+
+
+# ---------------------------------------------------------------------------
+# TOON renderer: size comparison and round-trip coverage (M2)
+# ---------------------------------------------------------------------------
+
+
+def _toon_realistic_chunk(i: int, *, populated: bool) -> CodeChunk:
+    """Build one chunk of a multi-chunk fixture: alternates between a
+    populated symbol match (all fields set) and a markdown-paragraph-style
+    match (mostly None/empty fields), mirroring the mixed shape a real
+    archex query bundle returns.
+    """
+    if populated:
+        return CodeChunk(
+            id=f"src/service_{i}.py:handler_{i}:10",
+            content=(
+                f"def handler_{i}(request: Request) -> Response:\n"
+                f'    """Handle inbound request {i}."""\n'
+                "    return process(request)"
+            ),
+            file_path=f"src/service_{i}.py",
+            start_line=10,
+            end_line=13,
+            symbol_name=f"handler_{i}",
+            symbol_kind=SymbolKind.FUNCTION,
+            language="python",
+            imports_context="import os\nfrom archex.models import Request, Response",
+            token_count=42,
+            symbol_id=f"src/service_{i}.py::handler_{i}#function",
+            qualified_name=f"service_{i}.handler_{i}",
+            visibility="public",
+            signature=f"def handler_{i}(request: Request) -> Response",
+            docstring=f"Handle inbound request {i}.",
+            breadcrumbs=f"service_{i} > handler_{i}",
+            summary=f"Request handler {i}.",
+        )
+    return CodeChunk(
+        id=f"README.md:_module:{i}",
+        content=f"Paragraph {i} describing the architecture in prose with no code symbols.",
+        file_path="README.md",
+        start_line=i,
+        end_line=i + 2,
+        language="markdown",
+        imports_context="",
+        token_count=18,
+    )
+
+
+def _toon_realistic_bundle(n: int = 15) -> ContextBundle:
+    """A 15-chunk fixture mirroring the mixed populated/null shape measured
+    against this repo's own bundles in `.docs/2026-07-06-axi-surface-analysis.md`.
+    """
+    chunks = [
+        RankedChunk(
+            chunk=_toon_realistic_chunk(i, populated=(i % 2 == 0)),
+            relevance_score=round(0.9 - i * 0.03, 2),
+            structural_score=round(0.4 - i * 0.01, 2) if i % 2 == 0 else 0.0,
+            type_coverage_score=0.0,
+            cohesion_score=0.2 if i % 3 == 0 else 0.0,
+            final_score=round(0.85 - i * 0.03, 2),
+        )
+        for i in range(n)
+    ]
+    return ContextBundle(
+        query="how does the request handler pipeline work?",
+        chunks=chunks,
+        structural_context=StructuralContext(
+            file_tree="src/\n  service_0.py\n  service_1.py\nREADME.md"
+        ),
+        type_definitions=[
+            TypeDefinition(
+                symbol="Request",
+                file_path="src/models.py",
+                start_line=1,
+                end_line=5,
+                content="class Request: ...",
+            ),
+            TypeDefinition(
+                symbol="Response",
+                file_path="src/models.py",
+                start_line=7,
+                end_line=11,
+                content="class Response: ...",
+            ),
+        ],
+        dependency_summary=DependencySummary(internal=["src/models.py"], external=["httpx"]),
+        token_count=sum(c.chunk.token_count for c in chunks),
+        token_budget=4000,
+    )
+
+
+def test_toon_smaller_than_json_for_realistic_bundle() -> None:
+    """Measured, non-fixed-threshold reduction (M2 acceptance #3): direction
+    and existence of a byte reduction is the gate, not a specific percentage.
+    On this 15-chunk fixture TOON measures ~17% smaller than JSON.
+    """
+    bundle = _toon_realistic_bundle()
+    json_bytes = render_json(bundle).encode()
+    toon_bytes = render_toon(bundle).encode()
+    assert len(toon_bytes) < len(json_bytes)
+
+
+def test_toon_round_trip_preserves_query_and_chunk_count() -> None:
+    """TOON has no `json.loads`-equivalent schema validation, so decode the
+    output back and check the content that matters survives the round trip.
+    """
+    bundle = _toon_realistic_bundle()
+    decoded = toons.loads(render_toon(bundle))
+    assert decoded["query"] == bundle.query
+    assert len(decoded["chunks"]) == len(bundle.chunks)
+    assert decoded["chunks"][0]["chunk"]["symbol_name"] == "handler_0"
+    assert decoded["token_count"] == bundle.token_count
+    assert decoded["token_budget"] == bundle.token_budget
+
+
+def test_toon_default_omits_none_and_empty_chunk_fields() -> None:
+    bundle = _base_bundle(chunks=[_ranked(_none_heavy_chunk())])
+    decoded = toons.loads(render_toon(bundle))
+    chunk = decoded["chunks"][0]["chunk"]
+    for key in (*_NONE_VALUED_CHUNK_KEYS, *_EMPTY_STRING_CHUNK_KEYS):
+        assert key not in chunk, f"{key} should be omitted from minimal TOON output"
+
+
+def test_toon_full_restores_all_chunk_fields() -> None:
+    bundle = _base_bundle(chunks=[_ranked(_none_heavy_chunk())])
+    decoded = toons.loads(render_toon(bundle, full=True))
+    chunk = decoded["chunks"][0]["chunk"]
+    for key in _NONE_VALUED_CHUNK_KEYS:
+        assert key in chunk
+        assert chunk[key] is None
+    for key in _EMPTY_STRING_CHUNK_KEYS:
+        assert chunk[key] == ""
+
+
+def test_render_toon_exported_from_renderers_package() -> None:
+    """`render_toon` is reachable via the renderers package's lazy
+    `__getattr__`, not just the `archex.serve.renderers.toon` submodule.
+    """
+    from archex.serve.renderers import render_toon as package_render_toon
+
+    assert package_render_toon is render_toon
