@@ -11,11 +11,13 @@ from click.testing import CliRunner
 
 from archex.cli.main import cli
 from archex.client_setup import (
+    CodexHookInstallPlan,
     TsHookInstallPlan,
     build_hook_install_plan,
     render_hook_install_preview,
     write_hook_install_plan,
 )
+from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.hook import HOOK_MATCHER
 
 if TYPE_CHECKING:
@@ -277,14 +279,15 @@ def test_render_hook_install_preview_remove_does_not_write(tmp_path: Path) -> No
     assert target.read_text(encoding="utf-8") == before
 
 
-@pytest.mark.parametrize("client", ["codex", "cursor", "opencode"])
-def test_build_hook_install_plan_rejects_non_claude_code_clients(client: ClientName) -> None:
+@pytest.mark.parametrize("client", ["cursor", "opencode"])
+def test_build_hook_install_plan_rejects_unsupported_clients(client: ClientName) -> None:
     with pytest.raises(ValueError) as exc_info:
         build_hook_install_plan(client, action="install")
 
     message = str(exc_info.value)
     assert "claude-code" in message
     assert "M19" in message
+    assert "M21" in message
 
 
 # --- omp TS hook module (M20) ---
@@ -556,6 +559,185 @@ def test_render_hook_install_preview_pi_install_does_not_write(tmp_path: Path) -
     assert not plan.target_path.exists()
 
 
+# --- Codex CLI diagnostics-only hook (M21) ---
+#
+# Unlike claude-code (a JSON entry merged into settings.json) or omp/pi (a
+# standalone .ts module), Codex's hook lives in the same config.toml the MCP
+# server registration writes to, as a marker-delimited `[[hooks.PreToolUse]]`
+# TOML block. See `archex.integrations.codex_hook` for why this hook is
+# diagnostics-only (Codex has no Grep/Glob-equivalent tool-call event) rather
+# than augmenting like the claude-code/omp/pi hooks above.
+
+
+def test_build_hook_install_plan_codex_project_scope_produces_config_toml_path(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+
+    assert isinstance(plan, CodexHookInstallPlan)
+    assert plan.target_path == repo / ".codex" / "config.toml"
+    assert CODEX_HOOK_MATCHER in plan.block_content
+    assert "archex.integrations.codex_hook" in plan.block_content
+
+
+def test_build_hook_install_plan_codex_user_scope_produces_config_toml_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    plan = build_hook_install_plan("codex", action="install")
+
+    assert isinstance(plan, CodexHookInstallPlan)
+    assert plan.target_path == tmp_path / ".codex" / "config.toml"
+
+
+def test_write_hook_install_plan_codex_writes_toml_block(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+
+    assert isinstance(plan, CodexHookInstallPlan)
+    target = write_hook_install_plan(plan)
+
+    assert target == plan.target_path
+    content = target.read_text(encoding="utf-8")
+    assert content == plan.block_content
+    assert "[[hooks.PreToolUse]]" in content
+    assert f'matcher = "{CODEX_HOOK_MATCHER}"' in content
+
+
+def test_write_hook_install_plan_codex_idempotent_on_reinstall(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+    target = write_hook_install_plan(plan)
+    after_first = target.read_text(encoding="utf-8")
+    mtime_first = target.stat().st_mtime_ns
+
+    plan2 = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+    write_hook_install_plan(plan2)
+
+    assert target.read_text(encoding="utf-8") == after_first
+    assert target.stat().st_mtime_ns == mtime_first
+
+
+def test_write_hook_install_plan_codex_preserves_unrelated_config_toml_content(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target_path = repo / ".codex" / "config.toml"
+    target_path.parent.mkdir(parents=True)
+    seed = '[mcp_servers.archex]\ncommand = "archex"\nargs = ["mcp"]\n'
+    target_path.write_text(seed, encoding="utf-8")
+
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+    write_hook_install_plan(plan)
+
+    content = target_path.read_text(encoding="utf-8")
+    assert "[mcp_servers.archex]" in content
+    assert "[[hooks.PreToolUse]]" in content
+
+
+def test_write_hook_install_plan_codex_remove_restores_original_content(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target_path = repo / ".codex" / "config.toml"
+    target_path.parent.mkdir(parents=True)
+    seed = '[mcp_servers.archex]\ncommand = "archex"\nargs = ["mcp"]\n'
+    target_path.write_text(seed, encoding="utf-8")
+    install_plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+    write_hook_install_plan(install_plan)
+
+    remove_plan = build_hook_install_plan("codex", str(repo), scope="project", action="remove")
+    write_hook_install_plan(remove_plan)
+
+    assert target_path.read_text(encoding="utf-8") == seed
+
+
+def test_write_hook_install_plan_codex_remove_missing_file_is_noop(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="remove")
+
+    result_target = write_hook_install_plan(plan)
+
+    assert not result_target.exists()
+
+
+def test_write_hook_install_plan_codex_remove_without_archex_block_is_noop(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target_path = repo / ".codex" / "config.toml"
+    target_path.parent.mkdir(parents=True)
+    before = '[mcp_servers.archex]\ncommand = "archex"\nargs = ["mcp"]\n'
+    target_path.write_text(before, encoding="utf-8")
+
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="remove")
+    write_hook_install_plan(plan)
+
+    assert target_path.read_text(encoding="utf-8") == before
+
+
+def test_render_hook_install_preview_codex_install_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+
+    preview = render_hook_install_preview(plan)
+
+    assert "Install" in preview
+    assert "diagnostics-only" in preview
+    assert not plan.target_path.exists()
+
+
+def test_render_hook_install_preview_codex_remove_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target_path = repo / ".codex" / "config.toml"
+    target_path.parent.mkdir(parents=True)
+    before = '[mcp_servers.archex]\ncommand = "archex"\nargs = ["mcp"]\n'
+    target_path.write_text(before, encoding="utf-8")
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="remove")
+
+    preview = render_hook_install_preview(plan)
+
+    assert "Remove" in preview
+    assert target_path.read_text(encoding="utf-8") == before
+
+
+def test_codex_hook_toml_block_matcher_never_reaches_read(tmp_path: Path) -> None:
+    """M21 acceptance criterion: the installed hook config matches the
+    Grep/Glob-equivalent tool only, never Read. Codex has no Grep/Glob or
+    Read hook at all -- the only tool name this installer ever writes is the
+    literal `^Bash$` matcher, asserted structurally here rather than by
+    inspection.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+
+    assert isinstance(plan, CodexHookInstallPlan)
+    matches = re.findall(r'matcher = "([^"]+)"', plan.block_content)
+    assert matches == ["^Bash$"]
+    for matcher in matches:
+        assert not re.fullmatch(matcher, "Read")
+
+
+def test_codex_hook_toml_block_bakes_in_active_python_interpreter(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+
+    assert isinstance(plan, CodexHookInstallPlan)
+    assert sys.executable in plan.block_content
+    assert "-m archex.integrations.codex_hook" in plan.block_content
+
+
 # --- CLI wiring: install-client --hooks / --remove-hooks ---
 
 
@@ -610,18 +792,18 @@ def test_cli_hooks_and_remove_hooks_are_mutually_exclusive(
     assert not (tmp_path / ".claude" / "settings.json").exists()
 
 
-def test_cli_hooks_rejects_non_claude_code_client_and_writes_nothing(
+def test_cli_hooks_rejects_unsupported_client_and_writes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
 
-    result = CliRunner().invoke(cli, ["install-client", "codex", "--hooks"])
+    result = CliRunner().invoke(cli, ["install-client", "cursor", "--hooks"])
 
     assert result.exit_code != 0
     assert "claude-code" in result.output
     assert "M19" in result.output
     assert not (tmp_path / ".claude").exists()
-    assert not (tmp_path / ".codex").exists()
+    assert not (tmp_path / ".cursor").exists()
 
 
 def test_cli_plain_install_client_still_writes_mcp_config_not_hook_settings(
@@ -716,3 +898,44 @@ def test_cli_remove_hooks_pi_removes_and_exits_zero(
     assert result.exit_code == 0, result.output
     assert "Removed" in result.output
     assert not target.exists()
+
+
+def test_cli_hooks_installs_codex_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "codex", "--hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Installed" in result.output
+    target = tmp_path / ".codex" / "config.toml"
+    assert target.exists()
+    assert "archex.integrations.codex_hook" in target.read_text(encoding="utf-8")
+
+
+def test_cli_hooks_codex_dry_run_previews_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "codex", "--hooks", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Dry run." in result.output
+    assert not (tmp_path / ".codex" / "config.toml").exists()
+
+
+def test_cli_remove_hooks_codex_removes_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    CliRunner().invoke(cli, ["install-client", "codex", "--hooks"])
+    target = tmp_path / ".codex" / "config.toml"
+    assert "archex.integrations.codex_hook" in target.read_text(encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["install-client", "codex", "--remove-hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Removed" in result.output
+    assert target.read_text(encoding="utf-8") == ""
