@@ -589,3 +589,80 @@ def test_scout_explicit_file_limit_overrides_intent_classification(tmp_path: Pat
     assert len(result.ranked_files) == 3
     assert result.budget.truncated is False
     assert result.budget.omitted_files == 3
+
+
+# ---------------------------------------------------------------------------
+# render_scout JSON: minimal-by-default field selection (M1)
+# ---------------------------------------------------------------------------
+
+
+def _scout_result_with_none_symbol_fields() -> ScoutResult:
+    from archex.scout import ScoutBudget, ScoutSymbol
+
+    return ScoutResult(
+        query="q",
+        symbols=[
+            ScoutSymbol(
+                name="run",
+                kind=SymbolKind.FUNCTION,
+                file_path="src/app.py",
+                start_line=1,
+                end_line=2,
+                chunk_id="c1",
+                file_handle=file_handle("src/app.py"),
+                chunk_handle=chunk_handle("c1"),
+            )
+        ],
+        budget=ScoutBudget(token_budget=500),
+    )
+
+
+def test_render_scout_json_default_omits_none_symbol_fields() -> None:
+    import json
+
+    result = _scout_result_with_none_symbol_fields()
+    data = json.loads(render_scout(result, output_format="json"))
+    symbol = data["symbols"][0]
+    for key in ("signature", "visibility", "symbol_id"):
+        assert key not in symbol, f"{key} should be omitted from minimal scout output"
+    # `symbol_handle` isn't in M1's targeted field set; it stays present.
+    assert symbol["symbol_handle"] is None
+    assert symbol["score"] == 0.0
+
+
+def test_render_scout_json_full_restores_none_symbol_fields() -> None:
+    import json
+
+    result = _scout_result_with_none_symbol_fields()
+    data = json.loads(render_scout(result, output_format="json", full=True))
+    symbol = data["symbols"][0]
+    assert symbol["signature"] is None
+    assert symbol["visibility"] is None
+    assert symbol["symbol_id"] is None
+    assert symbol["symbol_handle"] is None
+
+
+def test_render_scout_json_minimal_smaller_than_full() -> None:
+    result = _scout_result_with_none_symbol_fields()
+    minimal = render_scout(result, output_format="json")
+    full = render_scout(result, output_format="json", full=True)
+    assert len(minimal) < len(full)
+
+
+def test_scout_json_budget_fitting_accounts_for_full_render(tmp_path: Path) -> None:
+    """Budget-fitting must size against the worst-case (full) render, since a
+    caller can request `--full` after the trim loop already picked an item
+    count; otherwise `full=True` output could silently exceed the budget."""
+    with _populate_store(tmp_path / "index.db") as store:
+        result = assemble_scout_from_store(
+            store,
+            "how does app loading work",
+            token_budget=300,
+            output_format="json",
+        )
+
+    minimal = render_scout(result, output_format="json")
+    full = render_scout(result, output_format="json", full=True)
+
+    assert count_tokens(minimal) <= 300
+    assert count_tokens(full) <= 300

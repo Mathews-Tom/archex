@@ -391,6 +391,40 @@ class TestHandleScoutRepo:
         assert "receipt" not in parsed["content"]
         assert parsed["receipt"]["index_revision"] == "rev"
 
+    def test_scout_json_always_uses_full_dump_regardless_of_m1_default(self) -> None:
+        """M1 narrowed render_scout's default JSON dump; the MCP scout_repo tool
+        must keep its pre-M1 contract (every field present, `None` included)."""
+        from archex.models import SymbolKind
+        from archex.scout import ScoutBudget, ScoutResult, ScoutSymbol, chunk_handle, file_handle
+
+        result_model = ScoutResult(
+            query="delta indexing",
+            symbols=[
+                ScoutSymbol(
+                    name="run",
+                    kind=SymbolKind.FUNCTION,
+                    file_path="src/app.py",
+                    start_line=1,
+                    end_line=2,
+                    chunk_id="c1",
+                    file_handle=file_handle("src/app.py"),
+                    chunk_handle=chunk_handle("c1"),
+                )
+            ],
+            budget=ScoutBudget(token_budget=120),
+        )
+        with (
+            patch("archex.integrations.mcp.scout", return_value=result_model),
+            patch("archex.integrations.mcp.get_repo_total_tokens", return_value=1000),
+        ):
+            output = handle_scout_repo("/fake/repo", "delta indexing", output_format="json")
+
+        parsed = json.loads(output)
+        symbol = parsed["content"]["symbols"][0]
+        assert symbol["signature"] is None
+        assert symbol["visibility"] is None
+        assert symbol["symbol_id"] is None
+
 
 class TestHandleCompareRepos:
     def test_returns_json_with_meta(self) -> None:

@@ -12,6 +12,7 @@ from archex.graph_query import GraphQuery, GraphQueryError
 from archex.models import CodeChunk, ContextReceipt, Module, RankedChunk, SymbolKind
 from archex.reporting import count_tokens
 from archex.serve.intent import QueryIntent, classify_intent
+from archex.serve.renderers.json import minimal_dump
 
 if TYPE_CHECKING:
     from archex.index.store import IndexStore
@@ -345,14 +346,16 @@ def render_scout(
     *,
     output_format: ScoutFormat = "markdown",
     include_receipt: bool = True,
+    full: bool = False,
 ) -> str:
     if output_format == "json":
         exclude = None if include_receipt else {"receipt"}
-        rendered = json.dumps(
-            result.model_dump(mode="json", exclude=exclude),
-            indent=2,
-            sort_keys=True,
+        data = (
+            result.model_dump(mode="json", exclude=exclude)
+            if full
+            else minimal_dump(result, exclude=exclude)
         )
+        rendered = json.dumps(data, indent=2, sort_keys=True)
         return f"{rendered}\n"
     if output_format == "markdown":
         return _render_markdown(result, include_receipt=include_receipt)
@@ -411,12 +414,18 @@ def _scout_shape(
 
 
 def _stable_rendered_token_count(result: ScoutResult, *, output_format: ScoutFormat) -> int:
+    # Always measure the unfiltered (full=True) render, never the minimal
+    # default: `_strip_noise` only ever removes keys, so a minimal render is
+    # provably <= the full render in token count for the same ScoutResult.
+    # Sizing against the worst case guarantees the trimmed result fits the
+    # requested budget regardless of which mode `render_scout` is finally
+    # called with (default minimal, or `--full`).
     for _ in range(4):
-        token_count = count_tokens(render_scout(result, output_format=output_format))
+        token_count = count_tokens(render_scout(result, output_format=output_format, full=True))
         if token_count == result.budget.token_count:
             return token_count
         result.budget.token_count = token_count
-    return count_tokens(render_scout(result, output_format=output_format))
+    return count_tokens(render_scout(result, output_format=output_format, full=True))
 
 
 def _rank_files(
