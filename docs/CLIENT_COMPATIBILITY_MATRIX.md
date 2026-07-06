@@ -14,6 +14,7 @@ This matrix separates config-shape verification from actual client smoke tests. 
 | CLI-only query/scout | Tested | No client config required. Run `archex doctor`, `archex scout`, `archex query`. | N/A | Query checks freshness inline unless `--no-refresh`; scout inherits query freshness in its receipt. | Not an MCP client. | 2026-06-16 |
 | Generic MCP stdio client | Unverified | Use a JSON config shaped like `{ "mcpServers": { "archex": { "command": "archex", "args": ["mcp"] }}}`. `archex install-client claude-code --dry-run` prints a compatible snippet. | Client-dependent | Same server-side freshness semantics as Claude Code / Cursor. | No live generic-client smoke in this stack. | 2026-06-16 |
 | Codex headless | Unverified | `archex install-client codex` writes `~/.codex/config.toml` (global); `archex install-client codex . --scope project` writes `.codex/config.toml`, appending `[mcp_servers.archex]`, `command = "archex"`, `args = ["mcp"]` without overwriting existing sections. `--dry-run` previews. | Yes — via `archex mcp --watch --watch-path .` after Codex launches the server. | Inline query refresh by default; warm watch is server-side, not Codex-specific. | Config shape verified against OpenAI Codex MCP docs; no Codex client smoke in this stack. | 2026-06-16 |
+| Codex CLI PreToolUse hook (opt-in, diagnostics-only) | Config-shape tested end-to-end (install, remove, idempotent reinstall, preserves unrelated `config.toml` content, matcher-only-`Bash` assertion); no live Codex CLI smoke | `archex install-client codex --hooks` appends a marker-delimited `[[hooks.PreToolUse]]` block to the same `config.toml` the MCP registration above writes to (`~/.codex/config.toml` global, `.codex/config.toml` project). `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#codex-cli-pretooluse-hook-opt-in-diagnostics-only) for the full contract and the confirmation-spike findings. | N/A — one subprocess per matched tool call, not a warm process | Diagnostics-only — no injected context, ever (see limitations); a missing/stale index degrades to a diagnostics log line via the same `archex.integrations.hook` engine the Claude Code hook uses. | Codex's schema supports `additionalContext` augmentation, but Codex has no Grep/Glob-equivalent tool-call event — only a generic `Bash` tool covers every shell command. This hook detects search-shaped `Bash` invocations and logs what archex would have surfaced, but never injects it (would otherwise require intercepting every shell command, not just searches). Requires a one-time hash-based hook-trust review (`/hooks` in Codex) after install. | 2026-07-06 |
 | Pi MCP stdio | Config shape verified; client smoke unverified | `archex install-client pi` writes `~/.pi/agent/mcp.json` with a stdio `mcpServers.archex` entry (`--dry-run` previews). User scope only. | Client-dependent; server supports `--watch`. | Same server-side freshness semantics as other stdio clients. | No Pi client smoke in this stack. | 2026-06-16 |
 | Pi `tool_result` hook (opt-in) | Config-shape tested end-to-end (install, remove, byte-identical module content vs. the oh-my-pi row below); no live Pi UI smoke | `archex install-client pi --hooks` writes the identical TypeScript extension module to `.pi/extensions/archex-hook.ts` (project scope) or `~/.pi/agent/extensions/archex-hook.ts` (user scope, default) — confirmed against the installed `@mariozechner/pi-coding-agent` 0.68.1. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#oh-my-pi-omp--pi-tool_result-hook-opt-in) for the full contract. | N/A — one subprocess per matched tool call, not a warm process | Same receipt/timeout/diagnostics semantics as the oh-my-pi hook — Pi's `tool_result` event contract is identical, so this is the same generated module, not a Pi-specific variant. | Opt-in, never installed by default; Pi has no `glob` tool — its glob-equivalent is `find`, already covered by the shared module's dispatch table. | 2026-07-06 |
 | oh-my-pi (omp) MCP stdio | Config shape verified; client smoke unverified | `archex install-client omp` writes `~/.omp/agent/mcp.json` (user scope only) with `mcpServers.archex.command = "archex"`, `args = ["mcp"]`, plus the oh-my-pi `$schema` (`--dry-run` previews). | Client-dependent; server supports `--watch`. | Same server-side freshness semantics as other stdio clients. | No oh-my-pi client smoke in this stack. Discovery-gated harness — tools must be activated before use (see below). | 2026-06-20 |
@@ -140,7 +141,7 @@ echo '{"tool_name":"Grep","tool_input":{"pattern":"compute_delta"}}' \
 
 A repo with a fresh index returns JSON on stdout shaped `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "..."}}`. A repo with no index, a stale index, or a `cwd` outside a Git working tree exits 0 with empty stdout and a diagnostics log line instead.
 
-Section G of the development plan (M20–M23) extends this same `python -m archex.integrations.hook` subprocess contract to other clients with per-client installer shims. M20 (oh-my-pi and Pi, below) is implemented; Codex CLI, OpenCode are not yet implemented; Cursor's weaker prompt-level mechanism is a planned exception.
+Section G of the development plan (M20–M23) extends this same `python -m archex.integrations.hook` subprocess contract to other clients with per-client installer shims. M20 (oh-my-pi and Pi) and M21 (Codex CLI, diagnostics-only) are implemented; OpenCode is not yet implemented; Cursor's weaker prompt-level mechanism is a planned exception.
 
 ## oh-my-pi (omp) / Pi `tool_result` hook (opt-in)
 
@@ -175,3 +176,58 @@ echo '{"tool_name":"Grep","tool_input":{"pattern":"compute_delta"}}' \
 ```
 
 Confirmed manually against the installed Pi CLI (0.68.1) with both `node`/`tsx` (matching Pi's `jiti`-based TypeScript loading) and `bun`: a `grep` and a `find` `tool_result` event both received appended archex context, and a `read` event was left untouched, using the exact file written by `archex install-client pi --hooks`.
+
+## Codex CLI PreToolUse hook (opt-in, diagnostics-only)
+
+`archex install-client codex --hooks` installs `src/archex/integrations/codex_hook.py` (invoked as `python -m archex.integrations.codex_hook`) as a Codex `PreToolUse` hook. Unlike the Claude Code and oh-my-pi/Pi hooks above, this one never injects context — it is diagnostics-only. It is opt-in — plain `archex install-client codex` never installs it — and it writes to the *same* `config.toml` the MCP registration above writes to, as a separate marker-delimited block:
+
+```bash
+archex install-client codex --hooks                     # global: ~/.codex/config.toml
+archex install-client codex . --hooks --scope project   # repo-local: .codex/config.toml
+archex install-client codex --hooks --dry-run           # preview only, writes nothing
+archex install-client codex --remove-hooks              # clean uninstall
+```
+
+### Confirmation-spike findings (M21 §2 GAP)
+
+DEVELOPMENT_PLAN.md's §2 GAP asked whether Codex's hook schema supports content/context augmentation the way Claude Code's `additionalContext` does. Read directly against `openai/codex`'s Rust source (`codex-rs/hooks/`, `codex-rs/core/src/tools/`), not secondary docs:
+
+- **Augmentation IS supported.** `PreToolUseHookSpecificOutputWire` (`codex-rs/hooks/src/schema.rs`) has an `additional_context: Option<String>` field that serializes to the wire as `additionalContext` — the same field name Claude Code uses.
+- **But there is no Grep/Glob-equivalent tool-call event to scope it to.** Codex's only `PreToolUse` tool names are `Bash` (every shell invocation — `HookToolName::bash()` in `codex-rs/core/src/tools/hook_names.rs`), `apply_patch` (file edits, aliased to `Write`/`Edit`), `spawn_agent`, and MCP tools under their own names. File search and reads both happen through the generic `Bash` tool by shelling out to `grep`/`rg`/`find`/`cat`. There is no tool name that means "this is a search."
+
+Hooking `Bash` unconditionally to inject `additionalContext` would intercept *every* shell command Codex runs, including destructive ones — a materially broader and riskier surface than the Grep/Glob-only pattern the other hooks use, and it would fail "matches the Grep/Glob-equivalent tool only" on its face since no such tool exists. This hook therefore ships the diagnostics-only fallback: it detects `Bash` invocations shaped like a search command and logs what archex would have surfaced, but never mutates or blocks the tool call.
+
+### Installed config shape
+
+The block is appended to `config.toml` between marker comments so a re-run or `--remove-hooks` can find and replace exactly this block without disturbing any other section (including the `[mcp_servers.archex]` registration above):
+
+```toml
+# archex:codex-hook start
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/path/to/venv/bin/python -m archex.integrations.codex_hook"
+timeout = 1
+# archex:codex-hook end
+```
+
+Contract:
+
+- **Never returns augmented output.** No code path ever sets `additionalContext`, `permissionDecision`, `updatedInput`, or any other `hookSpecificOutput` field — every invocation writes `{}` to stdout (Codex defaults every schema field, so an empty object means "no decision").
+- **Matches `Bash` only — there is no `Read` or Grep/Glob-equivalent hook in Codex to accidentally match instead.** `tests/cli/test_install_client_hooks.py`'s `test_codex_hook_toml_block_matcher_never_reaches_read` asserts the installed matcher is exactly `^Bash$` and never matches `Read`.
+- **Exits 0 on every path.** A missing/stale index, a malformed payload, a non-search `Bash` command, a timeout, or any internal error all degrade to no diagnostic (or a diagnostic-only log line) — never a blocked or errored tool call.
+- **Reuses `archex.integrations.hook`'s engine in-process.** `lookup_with_timeout`/`log_diagnostic` are called directly (no second subprocess spawned), so freshness/timeout/diagnostics semantics exactly match the Claude Code hook, appending to the same `~/.archex/hook-diagnostics.log` (override with `ARCHEX_HOOK_DIAGNOSTICS_LOG`).
+- **Codex's own hook-level `timeout` field is whole seconds only** (`HookHandlerConfig::Command.timeout_sec: Option<u64>`, confirmed via `codex-rs/config/src/hook_config.rs`) — the installer sets it to `1` as an outer backstop; the real ~500ms budget is enforced internally by the reused `archex.integrations.hook` engine.
+- **Non-destructive install/uninstall.** Any other `config.toml` content — including the `[mcp_servers.archex]` MCP registration — is left untouched by both `--hooks` and `--remove-hooks`. Re-running `--hooks` is an idempotent no-op once installed, even across a venv move (the block converges on the active `sys.executable` each time).
+- **One-time hash-based trust review.** Codex requires reviewing and trusting a hook by its content hash before it runs (`/hooks` in the Codex TUI); a hook that changes after trust (e.g. a subsequent archex upgrade rewriting the `command` path) needs re-trusting.
+
+Manual verification (bypassing Codex entirely — this is exactly what the hook receives on stdin for a `Bash` tool call):
+
+```bash
+echo '{"tool_name":"Bash","tool_input":{"command":"grep -rn compute_delta ."},"cwd":"'"$PWD"'"}' \
+  | python -m archex.integrations.codex_hook
+```
+
+Always exits 0 with `{}` on stdout. A repo with a fresh index and a search-shaped command appends a `codex_augmentation_withheld` diagnostic line to the log describing the match, instead of injecting it; a repo with no index, a stale index, or a non-search command produces no diagnostic (or the same `index_not_fresh`/`status_error` diagnostic the Claude Code hook logs) and no injected context either way.
