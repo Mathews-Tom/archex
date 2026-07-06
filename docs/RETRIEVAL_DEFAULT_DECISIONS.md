@@ -125,6 +125,16 @@ Disposition: the improved archex candidate lanes remain **benchmark-only candida
 
 No new competitive numbers are claimed here beyond the checked-in public artifact set. Every value in a published competitive report must come from checked-in artifacts under `benchmarks/headtohead/results/`; the current checked-in public set includes `archex`, the benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`), `ccc`, raw-ripgrep/read, and both Graphify lanes. Headroom-layer cells appear only when an operator supplies the corresponding artifacts.
 
+## Identifier-aware BM25 tokenization
+
+`IndexConfig.identifier_fragment_tokenization` optionally splits identifiers on camelCase/PascalCase boundaries and underscore runs for the `symbol_name` and `breadcrumbs` FTS columns (`src/archex/index/bm25.py`), additive alongside the original searchable token, so a query like "parse import" can match `parseImport`/`parse_import`. Unlike the retrieval-lane candidates above, this is an index-time BM25 tokenization change, not a competing query strategy — it changes what the shared `archex_query` default retrieves once enabled, rather than adding a new benchmark-only lane.
+
+Decision rule: the flag ships enabled only if a dedicated identifier-fragment benchmark corpus shows improved recall/MRR on fragment-matching queries **and** the full self-repo dogfood gate passes with no ranking regression. Recall/MRR improvement on the targeted corpus alone is not sufficient if it regresses the general corpus.
+
+Disposition: **ships disabled by default.** A nine-task self-repo identifier-fragment benchmark corpus (`benchmarks/results/m17_identifier_bm25/`) measured mean recall dropping from `0.556` to `0.333` and mean MRR from `0.444` to `0.278` with the flag enabled — none of the four targeted zero-recall tasks improved, and two previously-passing control tasks regressed to zero recall, root-caused to fragment collisions among related PascalCase symbols that previously tokenized as distinct opaque tokens and now expose the same fragment set. The tokenization implementation and its schema-versioning machinery are merged and tested as reusable infrastructure — a stale-schema mismatch (a pre-flag store, a schema bump, or a flipped flag) transparently triggers an FTS rebuild — but general-purpose fragment expansion is not turned on. `archex dogfood --all` confirmed zero new regressions at the shipped (off) default.
+
+No recall/MRR improvement is claimed for the general corpus. Any future promotion to enabled-by-default must come from a checked-in benchmark artifact showing the fragment-collision root cause is resolved (e.g. a more targeted expansion that excludes colliding PascalCase siblings) without regressing the general corpus.
+
 ## Decision rationale
 
 ### Why this gate exists
