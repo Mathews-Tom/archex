@@ -33,6 +33,11 @@ from archex.integrations.codex_hook import (
 from archex.integrations.codex_hook import (
     HOOK_MATCHER as CODEX_HOOK_MATCHER,
 )
+from archex.integrations.cursor_hook import (
+    _ALWAYS_CONTINUE,  # pyright: ignore[reportPrivateUsage]
+    _parse_cursor_payload,  # pyright: ignore[reportPrivateUsage]
+    handle_before_submit_prompt,
+)
 from archex.integrations.hook import (
     AUGMENTED_TOOLS,
     DEFAULT_HOOK_TIMEOUT_SECONDS,
@@ -839,3 +844,158 @@ def test_codex_search_command_regex_matches_known_search_tools(command: str) -> 
 )
 def test_codex_search_command_regex_does_not_match_non_search_commands(command: str) -> None:
     assert not _SEARCH_COMMAND_RE.search(command)
+
+
+# ---------------------------------------------------------------------------
+# Cursor `beforeSubmitPrompt` diagnostics-only hook (M23)
+#
+# Confirmation spike (read against Cursor's own official docs directly --
+# `https://cursor.com/docs/hooks` and `https://cursor.com/docs/reference/
+# third-party-hooks`, not secondary sources): `beforeSubmitPrompt`'s output
+# schema is `{"continue": bool, "user_message": str | None}` ONLY -- unlike
+# `sessionStart`/`postToolUse`, it has no `additional_context`/
+# `additionalContext` output field, nested or flat, and Cursor's documented
+# Claude Code `UserPromptSubmit` -> `beforeSubmitPrompt` compatibility
+# mapping does not add one either. Cursor also has no Grep/Glob-equivalent
+# tool-call hook at all. `archex.integrations.cursor_hook` therefore ships
+# the plan's own diagnostics-only fallback: it always returns
+# `{"continue": true}` and logs what an archex lookup for the submitted
+# prompt would have surfaced, instead of injecting it.
+# ---------------------------------------------------------------------------
+
+
+def _run_cursor_hook_subprocess(
+    raw_stdin: str, *, cwd: Path, diagnostics_log: Path
+) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["ARCHEX_HOOK_DIAGNOSTICS_LOG"] = str(diagnostics_log)
+    return subprocess.run(
+        [sys.executable, "-m", "archex.integrations.cursor_hook"],
+        input=raw_stdin,
+        capture_output=True,
+        text=True,
+        cwd=str(cwd),
+        env=env,
+        timeout=30,
+    )
+
+
+def test_cursor_prompt_with_matches_logs_withheld_diagnostic_not_injection(
+    indexed_repo: Path, diagnostics_log: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(indexed_repo)
+    payload: dict[str, Any] = {
+        "prompt": "How does AuthService handle login?",
+        "attachments": [],
+    }
+
+    result = handle_before_submit_prompt(payload)
+
+    assert result is None  # never returns context injection, ever
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries, "expected a diagnostic line for a prompt with archex matches"
+    entry = entries[-1]
+    assert entry["kind"] == "cursor_context_injection_unsupported"
+    assert "AuthService" in entry["detail"]
+    assert "no context-injection output field" in entry["detail"]
+
+
+def test_cursor_prompt_without_identifier_tokens_is_noop(
+    indexed_repo: Path, diagnostics_log: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(indexed_repo)
+    payload: dict[str, Any] = {"prompt": "?? .. --", "attachments": []}
+
+    assert handle_before_submit_prompt(payload) is None
+    assert _read_diagnostics(diagnostics_log) == []
+
+
+@pytest.mark.parametrize("payload", [{}, {"prompt": None}, {"prompt": 42}, {"prompt": "   "}])
+def test_cursor_missing_or_non_string_prompt_short_circuits_before_lookup(
+    payload: dict[str, Any], diagnostics_log: Path
+) -> None:
+    lookup_mock = MagicMock(side_effect=AssertionError("must not be called"))
+
+    with patch("archex.integrations.cursor_hook.lookup_with_timeout", lookup_mock):
+        assert handle_before_submit_prompt(payload) is None
+
+    lookup_mock.assert_not_called()
+    assert _read_diagnostics(diagnostics_log) == []
+
+
+def test_cursor_missing_index_degrades_silently_and_logs_diagnostic(
+    python_simple_repo: Path, diagnostics_log: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`python_simple_repo` is git-init'd but never `archex init`'d/indexed."""
+    monkeypatch.chdir(python_simple_repo)
+    payload: dict[str, Any] = {"prompt": "Where is compute_delta defined?"}
+
+    assert handle_before_submit_prompt(payload) is None
+
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries
+    assert entries[-1]["kind"] in {"status_error", "index_not_fresh"}
+
+
+@pytest.mark.parametrize("raw", ["not json", "[]", "42", '"a string"'])
+def test_cursor_parse_payload_rejects_non_object_input_and_logs_diagnostic(
+    raw: str, diagnostics_log: Path
+) -> None:
+    assert _parse_cursor_payload(raw) is None
+
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries[-1]["kind"] == "cursor_malformed_payload"
+
+
+def test_cursor_internal_error_degrades_silently_and_logs_diagnostic(
+    indexed_repo: Path, diagnostics_log: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(indexed_repo)
+    payload: dict[str, Any] = {"prompt": "How does AuthService handle login?"}
+
+    with patch(
+        "archex.integrations.cursor_hook.lookup_with_timeout",
+        side_effect=RuntimeError("boom"),
+    ):
+        assert handle_before_submit_prompt(payload) is None
+
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries[-1]["kind"] == "cursor_internal_error"
+
+
+def test_cursor_subprocess_prompt_with_matches_exits_zero_with_continue_true(
+    indexed_repo: Path, tmp_path: Path
+) -> None:
+    diagnostics_log = tmp_path / "cursor-subprocess-diag.log"
+    stdin_payload = json.dumps({"prompt": "How does AuthService handle login?"})
+
+    result = _run_cursor_hook_subprocess(
+        stdin_payload, cwd=indexed_repo, diagnostics_log=diagnostics_log
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"continue": True}
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries[-1]["kind"] == "cursor_context_injection_unsupported"
+
+
+def test_cursor_subprocess_garbage_stdin_exits_zero_with_continue_true(tmp_path: Path) -> None:
+    diagnostics_log = tmp_path / "cursor-subprocess-diag.log"
+
+    result = _run_cursor_hook_subprocess("not json", cwd=tmp_path, diagnostics_log=diagnostics_log)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"continue": True}
+
+
+def test_cursor_subprocess_empty_stdin_exits_zero_with_continue_true(tmp_path: Path) -> None:
+    diagnostics_log = tmp_path / "cursor-subprocess-diag.log"
+
+    result = _run_cursor_hook_subprocess("", cwd=tmp_path, diagnostics_log=diagnostics_log)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"continue": True}
+
+
+def test_cursor_always_continue_constant_never_carries_context_or_blocks() -> None:
+    assert _ALWAYS_CONTINUE == {"continue": True}
