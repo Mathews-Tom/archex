@@ -279,7 +279,7 @@ def test_render_hook_install_preview_remove_does_not_write(tmp_path: Path) -> No
     assert target.read_text(encoding="utf-8") == before
 
 
-@pytest.mark.parametrize("client", ["cursor", "opencode"])
+@pytest.mark.parametrize("client", ["cursor"])
 def test_build_hook_install_plan_rejects_unsupported_clients(client: ClientName) -> None:
     with pytest.raises(ValueError) as exc_info:
         build_hook_install_plan(client, action="install")
@@ -288,6 +288,7 @@ def test_build_hook_install_plan_rejects_unsupported_clients(client: ClientName)
     assert "claude-code" in message
     assert "M19" in message
     assert "M21" in message
+    assert "M22" in message
 
 
 # --- omp TS hook module (M20) ---
@@ -557,6 +558,183 @@ def test_render_hook_install_preview_pi_install_does_not_write(tmp_path: Path) -
 
     assert "Install" in preview
     assert not plan.target_path.exists()
+
+
+# --- OpenCode `tool.execute.after` plugin (M22) ---
+#
+# Structurally different from the omp/pi `tool_result` module: OpenCode's
+# hook contract is `(input, output) => Promise<void>` -- it mutates
+# `output.output` in place rather than returning a patch object, and its
+# dispatch table (`ARCHEX_AUGMENTED_TOOLS`) is keyed directly on OpenCode's
+# own native tool ids (`grep`, `glob`), not a `{claudeToolName, field}`
+# translation record, since both tools already carry their query in a field
+# named `pattern`. See `_OPENCODE_HOOK_MODULE_TEMPLATE` in `client_setup.py`.
+
+
+def test_build_hook_install_plan_opencode_project_scope_produces_ts_module_path(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+    assert plan.scope == "project"
+    assert plan.target_path == repo / ".opencode" / "plugins" / "archex-hook.ts"
+    assert plan.module_content  # non-empty
+
+
+def test_build_hook_install_plan_opencode_user_scope_produces_ts_module_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    plan = build_hook_install_plan("opencode", action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+    assert plan.scope == "user"
+    assert plan.target_path == tmp_path / ".config" / "opencode" / "plugins" / "archex-hook.ts"
+
+
+def test_write_hook_install_plan_opencode_writes_ts_module_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+
+    target = write_hook_install_plan(plan)
+
+    assert isinstance(plan, TsHookInstallPlan)
+    assert target == plan.target_path
+    assert target.read_text(encoding="utf-8") == plan.module_content
+
+
+def test_write_hook_install_plan_opencode_idempotent_on_reinstall(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = write_hook_install_plan(
+        build_hook_install_plan("opencode", str(repo), action="install")
+    )
+    mtime_first = target.stat().st_mtime_ns
+
+    write_hook_install_plan(build_hook_install_plan("opencode", str(repo), action="install"))
+
+    assert target.stat().st_mtime_ns == mtime_first
+
+
+def test_write_hook_install_plan_opencode_remove_deletes_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = write_hook_install_plan(
+        build_hook_install_plan("opencode", str(repo), action="install")
+    )
+    assert target.exists()
+
+    write_hook_install_plan(build_hook_install_plan("opencode", str(repo), action="remove"))
+
+    assert not target.exists()
+
+
+def test_write_hook_install_plan_opencode_remove_missing_file_is_noop(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("opencode", str(repo), action="remove")
+
+    result_target = write_hook_install_plan(plan)
+
+    assert not result_target.exists()
+
+
+def test_render_hook_install_preview_opencode_install_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+
+    preview = render_hook_install_preview(plan)
+
+    assert "Install" in preview
+    assert "tool.execute.after" in preview
+    assert not plan.target_path.exists()
+
+
+def test_render_hook_install_preview_opencode_remove_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    write_hook_install_plan(build_hook_install_plan("opencode", str(repo), action="install"))
+    before = (repo / ".opencode" / "plugins" / "archex-hook.ts").read_text(encoding="utf-8")
+
+    plan = build_hook_install_plan("opencode", str(repo), action="remove")
+    render_hook_install_preview(plan)
+
+    assert (repo / ".opencode" / "plugins" / "archex-hook.ts").read_text(encoding="utf-8") == before
+
+
+def _augmented_tools_keys(module_content: str) -> set[str]:
+    """Extract the ``ARCHEX_AUGMENTED_TOOLS`` table's keys from generated
+    OpenCode plugin source.
+
+    Same rationale as ``_query_field_keys`` above: this table is the
+    plugin's *only* tool-name dispatch (no if/else chain on ``input.tool``),
+    so its key set precisely determines which tools are ever touched --
+    stronger than a substring search, which would false-positive on the
+    module's own prose comments quoting the exact tool names/ids that must
+    never match.
+    """
+    match = re.search(
+        r'ARCHEX_AUGMENTED_TOOLS: Readonly<Record<string, "Grep" \| "Glob">> = \{(.*?)\n\};',
+        module_content,
+        re.DOTALL,
+    )
+    assert match is not None, "ARCHEX_AUGMENTED_TOOLS table not found in generated module"
+    return set(re.findall(r"^\s*(\w+):", match.group(1), re.MULTILINE))
+
+
+def test_opencode_ts_hook_module_native_vs_mcp_tool_routing(tmp_path: Path) -> None:
+    """M22 acceptance criterion (native-vs-MCP routing): the plugin's only
+    tool-name dispatch is ``ARCHEX_AUGMENTED_TOOLS``, keyed exactly on
+    OpenCode's two native search tool ids. OpenCode registers every MCP tool
+    under a mandatory ``{server}_{tool}`` id (confirmed against the
+    installed `opencode-ai` 1.14.33's own MCP tool-registration code), so no
+    realistic MCP-routed id -- including one from archex's own MCP server --
+    can ever collide with this table.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+
+    keys = _augmented_tools_keys(plan.module_content)
+
+    assert keys == {"grep", "glob"}
+    assert "read" not in keys
+    mcp_shaped_ids = {"archex_query_repo", "archex_scout_repo", "github_create_issue"}
+    assert keys.isdisjoint(mcp_shaped_ids)
+
+
+def test_opencode_ts_hook_module_bakes_in_active_python_interpreter(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+
+    assert json.dumps(sys.executable) in plan.module_content
+    assert '["-m", "archex.integrations.hook"]' in plan.module_content
+
+
+def test_opencode_ts_hook_module_registers_exactly_one_tool_execute_after_and_never_before(
+    tmp_path: Path,
+) -> None:
+    """The plugin only ever registers a `tool.execute.after` handler -- it
+    never wires `tool.execute.before` (the hook OpenCode's own documented
+    subagent-bypass bug affects), and registers no session/agent-type
+    conditional gating that handler, matching the M20 omp/pi module's
+    unconditional-registration precedent.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+    content = plan.module_content
+
+    assert content.count('"tool.execute.after"') == 1
+    assert '"tool.execute.before"' not in content
 
 
 # --- Codex CLI diagnostics-only hook (M21) ---
