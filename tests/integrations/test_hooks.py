@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -25,6 +26,7 @@ from click.testing import CliRunner
 from archex.cli.main import cli
 from archex.integrations.hook import (
     AUGMENTED_TOOLS,
+    DEFAULT_HOOK_TIMEOUT_SECONDS,
     HOOK_MATCHER,
     _extract_query,  # pyright: ignore[reportPrivateUsage]
     _parse_payload,  # pyright: ignore[reportPrivateUsage]
@@ -397,3 +399,58 @@ def test_extract_query_missing_or_non_string_pattern_returns_empty_string(
     tool_input: dict[str, Any],
 ) -> None:
     assert _extract_query("Grep", tool_input) == ""
+
+
+# ---------------------------------------------------------------------------
+# Measured latency: the default timeout budget holds with real margin
+# ---------------------------------------------------------------------------
+
+
+def test_default_timeout_budget_holds_on_realistic_fixture(
+    monorepo_simple_repo: Path,
+) -> None:
+    """Real-world latency evidence that the *default* 0.5s budget is generous.
+
+    `test_lookup_timeout_degrades_silently_and_logs_diagnostic` above proves
+    the timeout fires under an artificially tiny budget; this test proves the
+    complementary fact — under realistic conditions the timeout does *not*
+    fire, with a wide real margin. Uses `monorepo_simple_repo` (a multi-package
+    fixture, larger than the single-package `python_simple_repo`/`indexed_repo`
+    used elsewhere in this file) indexed for real via the same
+    `init_project` + `cli index` pipeline, then calls `handle_pre_tool_use`
+    in-process with `ARCHEX_HOOK_TIMEOUT_SECONDS` deliberately left unset so
+    the real default budget (`DEFAULT_HOOK_TIMEOUT_SECONDS`) is exercised.
+
+    Measured locally (8 back-to-back runs, this fixture): ~44-55ms per call —
+    roughly a tenth of the 500ms budget. The `* 0.5` threshold below keeps a
+    wide margin above that measured ceiling (well over 4x) so a loaded CI
+    runner has ample headroom before this test could ever flake, while still
+    failing loudly if a regression pushed the real lookup path anywhere close
+    to the actual timeout.
+    """
+    init_project(monorepo_simple_repo)
+    runner = CliRunner()
+    result = runner.invoke(cli, ["index", str(monorepo_simple_repo)])
+    assert result.exit_code == 0, result.output
+
+    payload: dict[str, Any] = {
+        "tool_name": "Grep",
+        "tool_input": {"pattern": "initialize"},
+        "cwd": str(monorepo_simple_repo),
+    }
+
+    start = time.perf_counter()
+    output = handle_pre_tool_use(payload)
+    elapsed = time.perf_counter() - start
+
+    # Must not have degraded to a timeout no-op — a `None` here would mean the
+    # timing assertion below is measuring nothing.
+    assert output is not None, "lookup timed out against a small, freshly-indexed fixture"
+    context = output["hookSpecificOutput"]["additionalContext"]
+    assert "initialize" in context
+
+    budget = DEFAULT_HOOK_TIMEOUT_SECONDS
+    assert elapsed < budget * 0.5, (
+        f"lookup took {elapsed * 1000:.1f}ms, more than half of the {budget * 1000:.0f}ms "
+        "default timeout budget on a small fixture"
+    )
