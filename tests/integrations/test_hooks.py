@@ -24,6 +24,15 @@ import pytest
 from click.testing import CliRunner
 
 from archex.cli.main import cli
+from archex.integrations.codex_hook import (
+    _SEARCH_COMMAND_RE,  # pyright: ignore[reportPrivateUsage]
+    DIAGNOSED_TOOL_NAME,
+    _parse_codex_payload,  # pyright: ignore[reportPrivateUsage]
+    handle_codex_pre_tool_use,
+)
+from archex.integrations.codex_hook import (
+    HOOK_MATCHER as CODEX_HOOK_MATCHER,
+)
 from archex.integrations.hook import (
     AUGMENTED_TOOLS,
     DEFAULT_HOOK_TIMEOUT_SECONDS,
@@ -260,7 +269,7 @@ def test_non_augmented_tools_short_circuit_before_lookup(tool_name: str) -> None
         "cwd": "/tmp",
     }
 
-    with patch("archex.integrations.hook._lookup_with_timeout", lookup_mock):
+    with patch("archex.integrations.hook.lookup_with_timeout", lookup_mock):
         result = handle_pre_tool_use(payload)
 
     assert result is None
@@ -542,3 +551,227 @@ def test_default_timeout_budget_holds_on_realistic_fixture(
         f"lookup took {elapsed * 1000:.1f}ms, more than half of the {budget * 1000:.0f}ms "
         "default timeout budget on a small fixture"
     )
+
+
+# ---------------------------------------------------------------------------
+# Codex CLI diagnostics-only fallback (M21)
+#
+# Confirmation spike (read against `openai/codex`'s Rust source, not
+# secondary docs): `PreToolUseHookSpecificOutputWire.additionalContext` DOES
+# exist on Codex's wire schema (`codex-rs/hooks/src/schema.rs`) -- Codex
+# hooks support content/context augmentation. But Codex has no
+# Grep/Glob-equivalent `PreToolUse` tool name: its only hookable tool names
+# are `Bash` (every shell invocation, `HookToolName::bash()` in
+# `codex-rs/core/src/tools/hook_names.rs`), `apply_patch`, `spawn_agent`, and
+# MCP tools under their own names. There is no way to scope augmentation to
+# "search calls only" the way Claude Code's Grep/Glob or oh-my-pi/Pi's
+# grep/glob/find do -- hooking `Bash` unconditionally would intercept every
+# shell command, including destructive ones. `archex.integrations.codex_hook`
+# therefore ships the plan's own diagnostics-only fallback: it detects
+# search-shaped `Bash` commands and logs what archex could have surfaced,
+# but never returns or applies any `hookSpecificOutput`.
+# ---------------------------------------------------------------------------
+
+
+def _run_codex_hook_subprocess(
+    raw_stdin: str, *, cwd: Path, diagnostics_log: Path
+) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["ARCHEX_HOOK_DIAGNOSTICS_LOG"] = str(diagnostics_log)
+    return subprocess.run(
+        [sys.executable, "-m", "archex.integrations.codex_hook"],
+        input=raw_stdin,
+        capture_output=True,
+        text=True,
+        cwd=str(cwd),
+        env=env,
+        timeout=30,
+    )
+
+
+def test_codex_search_shaped_bash_command_logs_withheld_diagnostic_not_augmentation(
+    indexed_repo: Path, diagnostics_log: Path
+) -> None:
+    payload: dict[str, Any] = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "grep -rn AuthService ."},
+        "cwd": str(indexed_repo),
+    }
+
+    result = handle_codex_pre_tool_use(payload)
+
+    assert result is None  # never returns augmented output, ever
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries, "expected a diagnostic line for a search-shaped Bash command"
+    entry = entries[-1]
+    assert entry["kind"] == "codex_augmentation_withheld"
+    assert "AuthService" in entry["detail"]
+    assert "Grep/Glob-equivalent" in entry["detail"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["ls -la", "npm test", "git status", "echo grepping along nicely"],
+)
+def test_codex_non_search_bash_commands_never_log_a_diagnostic(
+    indexed_repo: Path, diagnostics_log: Path, command: str
+) -> None:
+    payload: dict[str, Any] = {
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "cwd": str(indexed_repo),
+    }
+
+    assert handle_codex_pre_tool_use(payload) is None
+    assert _read_diagnostics(diagnostics_log) == []
+
+
+@pytest.mark.parametrize("tool_name", ["Read", "apply_patch", "spawn_agent", "Grep", "Glob"])
+def test_codex_non_bash_tool_names_short_circuit_before_lookup(
+    tool_name: str, diagnostics_log: Path
+) -> None:
+    """Codex exposes no `Read` hook at all, but this asserts defense in depth:
+    the dispatch table only ever matches `Bash`, never `Read` or anything else,
+    regardless of what a payload claims.
+    """
+    lookup_mock = MagicMock(side_effect=AssertionError("must not be called"))
+    payload: dict[str, Any] = {
+        "tool_name": tool_name,
+        "tool_input": {"command": "grep -rn foo ."},
+        "cwd": "/tmp",
+    }
+
+    with patch("archex.integrations.codex_hook.lookup_with_timeout", lookup_mock):
+        assert handle_codex_pre_tool_use(payload) is None
+
+    lookup_mock.assert_not_called()
+    assert _read_diagnostics(diagnostics_log) == []
+
+
+def test_codex_missing_index_degrades_silently_and_logs_diagnostic(
+    python_simple_repo: Path, diagnostics_log: Path
+) -> None:
+    """`python_simple_repo` is git-init'd but never `archex init`'d/indexed."""
+    payload: dict[str, Any] = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "grep -rn foo ."},
+        "cwd": str(python_simple_repo),
+    }
+
+    assert handle_codex_pre_tool_use(payload) is None
+
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries
+    assert entries[-1]["kind"] in {"status_error", "index_not_fresh"}
+
+
+@pytest.mark.parametrize("raw", ["not json", "[]", "42", '"a string"'])
+def test_codex_parse_payload_rejects_non_object_input_and_logs_diagnostic(
+    raw: str, diagnostics_log: Path
+) -> None:
+    assert _parse_codex_payload(raw) is None
+
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries[-1]["kind"] == "codex_malformed_payload"
+
+
+def test_codex_handle_pre_tool_use_rejects_non_object_tool_input(diagnostics_log: Path) -> None:
+    payload: dict[str, Any] = {"tool_name": "Bash", "tool_input": "grep foo", "cwd": "/tmp"}
+
+    assert handle_codex_pre_tool_use(payload) is None
+    assert _read_diagnostics(diagnostics_log) == []
+
+
+def test_codex_internal_error_degrades_silently_and_logs_diagnostic(
+    indexed_repo: Path, diagnostics_log: Path
+) -> None:
+    payload: dict[str, Any] = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "grep -rn foo ."},
+        "cwd": str(indexed_repo),
+    }
+
+    with patch(
+        "archex.integrations.codex_hook.lookup_with_timeout",
+        side_effect=RuntimeError("boom"),
+    ):
+        assert handle_codex_pre_tool_use(payload) is None
+
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries[-1]["kind"] == "codex_internal_error"
+
+
+def test_codex_subprocess_search_command_exits_zero_with_empty_object_stdout(
+    indexed_repo: Path, tmp_path: Path
+) -> None:
+    diagnostics_log = tmp_path / "codex-subprocess-diag.log"
+    stdin_payload = json.dumps(
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "grep -rn AuthService ."},
+            "cwd": str(indexed_repo),
+        }
+    )
+
+    result = _run_codex_hook_subprocess(
+        stdin_payload, cwd=indexed_repo, diagnostics_log=diagnostics_log
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+    entries = _read_diagnostics(diagnostics_log)
+    assert entries[-1]["kind"] == "codex_augmentation_withheld"
+
+
+def test_codex_subprocess_garbage_stdin_exits_zero_with_empty_object_stdout(tmp_path: Path) -> None:
+    diagnostics_log = tmp_path / "codex-subprocess-diag.log"
+
+    result = _run_codex_hook_subprocess("not json", cwd=tmp_path, diagnostics_log=diagnostics_log)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+
+
+def test_codex_subprocess_empty_stdin_exits_zero_with_empty_object_stdout(tmp_path: Path) -> None:
+    diagnostics_log = tmp_path / "codex-subprocess-diag.log"
+
+    result = _run_codex_hook_subprocess("", cwd=tmp_path, diagnostics_log=diagnostics_log)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {}
+
+
+def test_codex_hook_matcher_targets_bash_only() -> None:
+    assert CODEX_HOOK_MATCHER == "^Bash$"
+    assert DIAGNOSED_TOOL_NAME == "Bash"
+    matcher_re = re.compile(CODEX_HOOK_MATCHER)
+    assert matcher_re.fullmatch("Bash")
+    for other in ["Read", "Grep", "Glob", "apply_patch", "spawn_agent", "bash", "Bashing"]:
+        assert not matcher_re.fullmatch(other)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -rn AuthService .",
+        "rg AuthService",
+        "ag AuthService",
+        "git grep AuthService",
+        "find . -name '*.py'",
+        "fd '.py$'",
+        "sudo grep -rn AuthService .",
+        "cat file.txt | grep foo",
+        "cd src && grep -rn foo .",
+        "ls; grep -rn foo .",
+    ],
+)
+def test_codex_search_command_regex_matches_known_search_tools(command: str) -> None:
+    assert _SEARCH_COMMAND_RE.search(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["ls -la", "npm test", "git status", "echo grepping along nicely", "python -c 'print(1)'"],
+)
+def test_codex_search_command_regex_does_not_match_non_search_commands(command: str) -> None:
+    assert not _SEARCH_COMMAND_RE.search(command)
