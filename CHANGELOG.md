@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0] - 2026-07-06
+
+### Added
+
+- **Minimal-by-default JSON chunk output, `--full` escape hatch.** `archex query --format json` and `archex scout --format json` now omit `CodeChunk`/`RankedChunk` fields that are unset (`None`) or empty (`""`) — `symbol_name`, `symbol_kind`, `symbol_id`, `qualified_name`, `visibility`, `signature`, `docstring`, `summary`, `imports_context`, `breadcrumbs` — while always keeping `structural_score`/`type_coverage_score`/`cohesion_score`/`relevance_score`/`final_score` regardless of value, since a real `0.0` score is signal, not absence. A new `--full` flag on both commands restores the previous unconditional dump. `render_xml` and `render_markdown` are unchanged — XML was already minimal by hand-curation before this change. This only affects callers who pass `--format json`; the CLI's default format remains `xml`.
+- **Optional TOON output format (`archex query --format toon`).** A new token-oriented encoding, gated behind the optional `archex[toon]` extra (`toons>=0.7.0`) so the core install and `smoke-min-install` CI job are unaffected. Reuses the JSON renderer's minimal-by-default field selection, so TOON inherits the same slim/`--full` behavior. Running the command without the extra installed fails with an actionable `uv add 'archex[toon]'` message instead of a raw traceback. Measured on the representative fixture bundle in `tests/serve/test_renderers.py::test_toon_smaller_than_json_for_realistic_bundle`: TOON output is ~17% smaller than the already-slimmed default JSON output for the same bundle — a per-bundle, opt-in reduction that requires explicitly choosing `--format toon`, not a change to any default output path.
+
 ## [0.17.0] - 2026-07-06
 
 ### Added
