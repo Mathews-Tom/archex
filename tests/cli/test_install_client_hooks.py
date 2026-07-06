@@ -277,7 +277,7 @@ def test_render_hook_install_preview_remove_does_not_write(tmp_path: Path) -> No
     assert target.read_text(encoding="utf-8") == before
 
 
-@pytest.mark.parametrize("client", ["codex", "cursor", "opencode", "pi"])
+@pytest.mark.parametrize("client", ["codex", "cursor", "opencode"])
 def test_build_hook_install_plan_rejects_non_claude_code_clients(client: ClientName) -> None:
     with pytest.raises(ValueError) as exc_info:
         build_hook_install_plan(client, action="install")
@@ -465,6 +465,97 @@ def test_omp_ts_hook_module_registers_exactly_one_unconditional_tool_result_hand
     assert factory_body.count("pi.on(") == 1
 
 
+# --- pi TS hook module (M20) ---
+#
+# Pi's extension directories (confirmed against the installed
+# @mariozechner/pi-coding-agent 0.68.1) and its `pi.on("tool_result", ...)`
+# partial-patch contract (`{ content, details, isError }`) are identical to
+# oh-my-pi's -- this reuses the exact same generated module and dispatch
+# logic verified above for omp; only the installer's target path differs.
+
+
+def test_build_hook_install_plan_pi_project_scope_produces_ts_module_path(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    plan = build_hook_install_plan("pi", str(repo), action="install")
+
+    assert isinstance(plan, TsHookInstallPlan)
+    assert plan.scope == "project"
+    assert plan.target_path == repo / ".pi" / "extensions" / "archex-hook.ts"
+    assert plan.module_content  # non-empty
+
+
+def test_build_hook_install_plan_pi_user_scope_produces_ts_module_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    plan = build_hook_install_plan("pi", action="install")
+
+    assert isinstance(plan, TsHookInstallPlan)
+    assert plan.scope == "user"
+    assert plan.target_path == tmp_path / ".pi" / "agent" / "extensions" / "archex-hook.ts"
+
+
+def test_write_hook_install_plan_pi_writes_ts_module_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("pi", str(repo), action="install")
+
+    target = write_hook_install_plan(plan)
+
+    assert isinstance(plan, TsHookInstallPlan)
+    assert target == plan.target_path
+    assert target.read_text(encoding="utf-8") == plan.module_content
+
+
+def test_write_hook_install_plan_pi_and_omp_share_identical_module_content(
+    tmp_path: Path,
+) -> None:
+    """PR-2 finding: Pi's `tool_result` contract matches oh-my-pi's exactly
+    (same event shape, same partial-patch return contract). The generated
+    module already lists both hosts' tool names (`glob` for oh-my-pi, `find`
+    for Pi) in one dispatch table, so the *identical* file is reused for Pi
+    -- no Pi-specific module variant exists.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    omp_plan = build_hook_install_plan("omp", str(repo), action="install")
+    pi_plan = build_hook_install_plan("pi", str(repo), action="install")
+
+    assert isinstance(omp_plan, TsHookInstallPlan)
+    assert isinstance(pi_plan, TsHookInstallPlan)
+    assert omp_plan.module_content == pi_plan.module_content
+    assert omp_plan.target_path != pi_plan.target_path
+
+
+def test_write_hook_install_plan_pi_remove_deletes_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = write_hook_install_plan(build_hook_install_plan("pi", str(repo), action="install"))
+    assert target.exists()
+
+    write_hook_install_plan(build_hook_install_plan("pi", str(repo), action="remove"))
+
+    assert not target.exists()
+
+
+def test_render_hook_install_preview_pi_install_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("pi", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+
+    preview = render_hook_install_preview(plan)
+
+    assert "Install" in preview
+    assert not plan.target_path.exists()
+
+
 # --- CLI wiring: install-client --hooks / --remove-hooks ---
 
 
@@ -580,6 +671,47 @@ def test_cli_remove_hooks_omp_removes_and_exits_zero(
     assert target.exists()
 
     result = CliRunner().invoke(cli, ["install-client", "omp", "--remove-hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Removed" in result.output
+    assert not target.exists()
+
+
+def test_cli_hooks_installs_pi_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "pi", "--hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Installed" in result.output
+    target = tmp_path / ".pi" / "agent" / "extensions" / "archex-hook.ts"
+    assert target.exists()
+    assert "archexHook" in target.read_text(encoding="utf-8")
+
+
+def test_cli_hooks_pi_dry_run_previews_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "pi", "--hooks", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Dry run." in result.output
+    assert not (tmp_path / ".pi" / "agent" / "extensions" / "archex-hook.ts").exists()
+
+
+def test_cli_remove_hooks_pi_removes_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    CliRunner().invoke(cli, ["install-client", "pi", "--hooks"])
+    target = tmp_path / ".pi" / "agent" / "extensions" / "archex-hook.ts"
+    assert target.exists()
+
+    result = CliRunner().invoke(cli, ["install-client", "pi", "--remove-hooks"])
 
     assert result.exit_code == 0, result.output
     assert "Removed" in result.output

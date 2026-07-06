@@ -53,7 +53,7 @@ from archex.client_setup import (
     help=(
         "Install the archex tool_result/PreToolUse hook that augments Grep/Glob calls "
         "with archex context (opt-in, never installed without this flag; "
-        "claude-code, omp)."
+        "claude-code, omp, pi)."
     ),
 )
 @click.option(
