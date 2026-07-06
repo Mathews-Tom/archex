@@ -240,6 +240,70 @@ def test_hook_py_stays_client_agnostic_after_m20(indexed_repo: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# M22 client-shim payload translation (OpenCode)
+#
+# Unlike omp's `glob` (field `path`) or Pi's `find` (a different tool name),
+# OpenCode's native `grep` and `glob` tools both already carry their query in
+# a field named `pattern` -- confirmed against the installed `opencode-ai`
+# 1.14.33's own tool definitions. The OpenCode plugin's translation is
+# therefore an identity mapping onto this subprocess's own Grep/Glob
+# contract, exercised here with the exact payload shape the plugin sends.
+# ---------------------------------------------------------------------------
+
+
+def test_opencode_grep_shim_payload_returns_receipt_stamped_context(indexed_repo: Path) -> None:
+    payload: dict[str, Any] = {
+        "tool_name": "Grep",
+        "tool_input": {"pattern": "AuthService"},
+        "cwd": str(indexed_repo),
+    }
+
+    result = handle_pre_tool_use(payload)
+
+    assert result is not None
+    assert "AuthService" in result["hookSpecificOutput"]["additionalContext"]
+
+
+def test_opencode_glob_shim_payload_returns_receipt_stamped_context(indexed_repo: Path) -> None:
+    """OpenCode's `glob` tool carries its query in a field already named
+    `pattern`, so the plugin's translation onto the subprocess's Glob
+    contract is an identity mapping -- exercised here with a glob-shaped
+    pattern, mirroring the same lenient assertion M20's equivalent omp test
+    uses, since whether a specific glob-derived identifier token happens to
+    match any indexed symbol is a BM25/corpus concern, not a translation one.
+    """
+    payload: dict[str, Any] = {
+        "tool_name": "Glob",
+        "tool_input": {"pattern": "**/*_service.py"},
+        "cwd": str(indexed_repo),
+    }
+
+    result = handle_pre_tool_use(payload)
+
+    assert result is None or (
+        isinstance(result["hookSpecificOutput"]["additionalContext"], str)
+        and result["hookSpecificOutput"]["additionalContext"]
+    )
+
+
+def test_hook_py_stays_client_agnostic_after_m22(indexed_repo: Path) -> None:
+    """M22 reuses this subprocess contract unmodified, same as M20/M21: it
+    still recognizes only the capitalized Claude Code tool names, never
+    OpenCode's native lowercase `grep`/`glob` (already proven by M20's
+    `test_hook_py_stays_client_agnostic_after_m20`) nor an MCP-routed,
+    `{server}_{tool}`-prefixed id such as an archex MCP tool call would use.
+    """
+    assert {"Grep", "Glob"} == AUGMENTED_TOOLS
+    for native_tool_name in ("grep", "glob", "archex_query_repo", "archex_scout_repo"):
+        payload: dict[str, Any] = {
+            "tool_name": native_tool_name,
+            "tool_input": {"pattern": "AuthService"},
+            "cwd": str(indexed_repo),
+        }
+        assert handle_pre_tool_use(payload) is None
+
+
+# ---------------------------------------------------------------------------
 # Read (and other non-augmented tools) are never intercepted
 # ---------------------------------------------------------------------------
 
