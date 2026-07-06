@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -10,6 +11,7 @@ from click.testing import CliRunner
 
 from archex.cli.main import cli
 from archex.client_setup import (
+    TsHookInstallPlan,
     build_hook_install_plan,
     render_hook_install_preview,
     write_hook_install_plan,
@@ -275,7 +277,7 @@ def test_render_hook_install_preview_remove_does_not_write(tmp_path: Path) -> No
     assert target.read_text(encoding="utf-8") == before
 
 
-@pytest.mark.parametrize("client", ["codex", "cursor", "opencode", "pi", "omp"])
+@pytest.mark.parametrize("client", ["codex", "cursor", "opencode", "pi"])
 def test_build_hook_install_plan_rejects_non_claude_code_clients(client: ClientName) -> None:
     with pytest.raises(ValueError) as exc_info:
         build_hook_install_plan(client, action="install")
@@ -283,6 +285,184 @@ def test_build_hook_install_plan_rejects_non_claude_code_clients(client: ClientN
     message = str(exc_info.value)
     assert "claude-code" in message
     assert "M19" in message
+
+
+# --- omp TS hook module (M20) ---
+
+
+def test_build_hook_install_plan_omp_project_scope_produces_ts_module_path(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    plan = build_hook_install_plan("omp", str(repo), action="install")
+
+    assert isinstance(plan, TsHookInstallPlan)
+    assert plan.scope == "project"
+    assert plan.target_path == repo / ".omp" / "extensions" / "archex-hook.ts"
+    assert plan.module_content  # non-empty
+
+
+def test_build_hook_install_plan_omp_user_scope_produces_ts_module_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    plan = build_hook_install_plan("omp", action="install")
+
+    assert isinstance(plan, TsHookInstallPlan)
+    assert plan.scope == "user"
+    assert plan.target_path == tmp_path / ".omp" / "agent" / "extensions" / "archex-hook.ts"
+
+
+def test_write_hook_install_plan_omp_writes_ts_module_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("omp", str(repo), action="install")
+
+    target = write_hook_install_plan(plan)
+
+    assert isinstance(plan, TsHookInstallPlan)
+    assert target == plan.target_path
+    assert target.read_text(encoding="utf-8") == plan.module_content
+
+
+def test_write_hook_install_plan_omp_idempotent_on_reinstall(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = write_hook_install_plan(build_hook_install_plan("omp", str(repo), action="install"))
+    after_first = target.read_text(encoding="utf-8")
+    mtime_first = target.stat().st_mtime_ns
+
+    write_hook_install_plan(build_hook_install_plan("omp", str(repo), action="install"))
+
+    assert target.read_text(encoding="utf-8") == after_first
+    # An identical reinstall is a true no-op: it never rewrites the file.
+    assert target.stat().st_mtime_ns == mtime_first
+
+
+def test_write_hook_install_plan_omp_remove_deletes_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = write_hook_install_plan(build_hook_install_plan("omp", str(repo), action="install"))
+    assert target.exists()
+
+    write_hook_install_plan(build_hook_install_plan("omp", str(repo), action="remove"))
+
+    assert not target.exists()
+
+
+def test_write_hook_install_plan_omp_remove_missing_file_is_noop(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    result_target = write_hook_install_plan(
+        build_hook_install_plan("omp", str(repo), action="remove")
+    )
+
+    assert not result_target.exists()
+
+
+def test_render_hook_install_preview_omp_install_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("omp", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+
+    preview = render_hook_install_preview(plan)
+
+    assert "Install" in preview
+    assert plan.module_content in preview
+    assert not plan.target_path.exists()
+
+
+def test_render_hook_install_preview_omp_remove_does_not_write(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = write_hook_install_plan(build_hook_install_plan("omp", str(repo), action="install"))
+    before = target.read_text(encoding="utf-8")
+
+    preview = render_hook_install_preview(
+        build_hook_install_plan("omp", str(repo), action="remove")
+    )
+
+    assert "Remove" in preview
+    assert target.read_text(encoding="utf-8") == before
+
+
+def _query_field_keys(module_content: str) -> set[str]:
+    """Extract the ``ARCHEX_QUERY_FIELDS`` table's keys from generated TS source.
+
+    This table is the module's *only* tool-name dispatch mechanism (there is no
+    if/else chain on ``toolName``): a tool whose name is absent from this table
+    is never touched. Asserting its key set is therefore a precise, structural
+    way to prove ``read`` is never handled -- stronger than a raw substring
+    search, which would false-positive on the module's own prose comments
+    describing (in backtick-quoted code snippets) the exact branch that must
+    never exist.
+    """
+    match = re.search(
+        r"ARCHEX_QUERY_FIELDS: Readonly<Record<string, ToolQueryMapping>> = \{(.*?)\n\};",
+        module_content,
+        re.DOTALL,
+    )
+    assert match is not None, "ARCHEX_QUERY_FIELDS table not found in generated module"
+    return set(re.findall(r"^\s*(\w+):\s*\{", match.group(1), re.MULTILINE))
+
+
+def test_omp_ts_hook_module_query_field_table_excludes_read(tmp_path: Path) -> None:
+    """M20 acceptance criterion: the installed hook never registers a handler
+    branch for ``read`` -- proven structurally via the dispatch table's keys,
+    not by inspection.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("omp", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+
+    keys = _query_field_keys(plan.module_content)
+
+    assert "read" not in keys
+    assert keys == {"grep", "glob", "find"}
+
+
+def test_omp_ts_hook_module_bakes_in_active_python_interpreter(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("omp", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+
+    assert json.dumps(sys.executable) in plan.module_content
+    assert '["-m", "archex.integrations.hook"]' in plan.module_content
+
+
+def test_omp_ts_hook_module_registers_exactly_one_unconditional_tool_result_handler(
+    tmp_path: Path,
+) -> None:
+    """Subagent-dispatch coverage (M20 risk note): oh-my-pi's ``tool_result``
+    event carries no subagent/session discriminator field, and this module
+    registers exactly one unconditional handler with no such check -- so a
+    subagent-issued grep/glob call is handled identically to a top-level one,
+    the same way every other ``tool_result`` event is. Verified structurally
+    (no conditional gating the registration or the dispatch) rather than via a
+    live nested-subagent session, which is out of reach for this test suite.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("omp", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+    content = plan.module_content
+
+    assert "subagent" not in content.lower()
+    factory_match = re.search(
+        r"export default function archexHook\(pi: HookHost\): void \{(.*)\}\s*$",
+        content,
+        re.DOTALL,
+    )
+    assert factory_match is not None
+    factory_body = factory_match.group(1)
+    assert factory_body.count("pi.on(") == 1
 
 
 # --- CLI wiring: install-client --hooks / --remove-hooks ---
@@ -363,3 +543,44 @@ def test_cli_plain_install_client_still_writes_mcp_config_not_hook_settings(
     assert result.exit_code == 0, result.output
     assert (tmp_path / ".claude.json").exists()
     assert not (tmp_path / ".claude" / "settings.json").exists()
+
+
+def test_cli_hooks_installs_omp_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "omp", "--hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Installed" in result.output
+    target = tmp_path / ".omp" / "agent" / "extensions" / "archex-hook.ts"
+    assert target.exists()
+    assert "archexHook" in target.read_text(encoding="utf-8")
+
+
+def test_cli_hooks_omp_dry_run_previews_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = CliRunner().invoke(cli, ["install-client", "omp", "--hooks", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Dry run." in result.output
+    assert not (tmp_path / ".omp" / "agent" / "extensions" / "archex-hook.ts").exists()
+
+
+def test_cli_remove_hooks_omp_removes_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    CliRunner().invoke(cli, ["install-client", "omp", "--hooks"])
+    target = tmp_path / ".omp" / "agent" / "extensions" / "archex-hook.ts"
+    assert target.exists()
+
+    result = CliRunner().invoke(cli, ["install-client", "omp", "--remove-hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Removed" in result.output
+    assert not target.exists()
