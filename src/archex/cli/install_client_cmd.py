@@ -51,9 +51,10 @@ from archex.client_setup import (
     is_flag=True,
     default=False,
     help=(
-        "Install the archex tool_result/PreToolUse hook that augments Grep/Glob calls "
-        "with archex context (opt-in, never installed without this flag; "
-        "claude-code, omp, pi)."
+        "Install the archex PreToolUse hook (opt-in, never installed without this "
+        "flag). Augments Grep/Glob calls with archex context on claude-code, omp, pi; "
+        "on codex ships a diagnostics-only fallback (no Grep/Glob-equivalent tool-call "
+        "event exists there, so nothing is injected, only logged)."
     ),
 )
 @click.option(

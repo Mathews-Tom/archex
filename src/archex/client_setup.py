@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.hook import HOOK_MATCHER
 
 ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
@@ -229,10 +230,32 @@ class TsHookInstallPlan:
     module_content: str
 
 
+@dataclass(frozen=True)
+class CodexHookInstallPlan:
+    """Install or remove the Codex CLI diagnostics-only PreToolUse hook (M21).
+
+    Unlike the Claude Code hook (a JSON command entry merged into
+    ``settings.json``) or the omp/pi hook (a standalone ``.ts`` module), this
+    appends a marker-delimited TOML block to the *same* ``config.toml`` the
+    MCP server registration already writes to (``_target_path`` for
+    ``client == "codex"``), mirroring that file's non-destructive append
+    behavior for a ``[[hooks.PreToolUse]]`` table instead of
+    ``[mcp_servers.archex]``. See ``archex.integrations.codex_hook`` for why
+    this ships a diagnostics-only hook rather than Grep/Glob-scoped
+    augmentation (Codex has no such tool-call event).
+    """
+
+    client: ClientName
+    scope: ClientScope
+    target_path: Path
+    action: HookAction
+    block_content: str
+
+
 #: Either hook install plan shape. ``install_client_cmd.py`` treats both
 #: uniformly; ``write_hook_install_plan``/``render_hook_install_preview``
 #: dispatch on the concrete type.
-HookInstallPlan = ClaudeCodeHookInstallPlan | TsHookInstallPlan
+HookInstallPlan = ClaudeCodeHookInstallPlan | TsHookInstallPlan | CodexHookInstallPlan
 
 
 def build_hook_install_plan(
@@ -261,15 +284,26 @@ def build_hook_install_plan(
             action=action,
             module_content=_render_ts_hook_module(),
         )
+    if client == "codex":
+        selected_scope = _resolve_hook_scope(source, scope)
+        return CodexHookInstallPlan(
+            client=client,
+            scope=selected_scope,
+            target_path=_target_path(client, repo_root, selected_scope),
+            action=action,
+            block_content=_render_codex_hook_block(),
+        )
     raise ValueError(
-        "--hooks/--remove-hooks is only supported for claude-code (M19), omp, pi (M20); "
-        f"got {client!r}"
+        "--hooks/--remove-hooks is only supported for claude-code (M19), omp, pi (M20), "
+        f"codex (M21); got {client!r}"
     )
 
 
 def write_hook_install_plan(plan: HookInstallPlan) -> Path:
     if isinstance(plan, TsHookInstallPlan):
         return _write_ts_hook_plan(plan)
+    if isinstance(plan, CodexHookInstallPlan):
+        return _write_codex_hook_plan(plan)
     target = plan.target_path
     existing = _read_json_object(target) if target.exists() else {}
     updated, changed = _apply_hook_action(existing, plan)
@@ -293,9 +327,22 @@ def _write_ts_hook_plan(plan: TsHookInstallPlan) -> Path:
     return target
 
 
+def _write_codex_hook_plan(plan: CodexHookInstallPlan) -> Path:
+    target = plan.target_path
+    existing = target.read_text(encoding="utf-8") if target.exists() else ""
+    updated = _apply_codex_hook_block(existing, plan)
+    if updated == existing:
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(updated, encoding="utf-8")
+    return target
+
+
 def render_hook_install_preview(plan: HookInstallPlan) -> str:
     if isinstance(plan, TsHookInstallPlan):
         return _render_ts_hook_preview(plan)
+    if isinstance(plan, CodexHookInstallPlan):
+        return _render_codex_hook_preview(plan)
     existing = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
     updated, changed = _apply_hook_action(existing, plan)
     action_label = "Install" if plan.action == "install" else "Remove"
@@ -342,6 +389,33 @@ def _render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
             if existing is None
             else "Dry run. Re-run without --dry-run to remove this file."
         )
+    return "\n".join(lines) + "\n"
+
+
+def _render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
+    target = plan.target_path
+    existing = target.read_text(encoding="utf-8") if target.exists() else ""
+    updated = _apply_codex_hook_block(existing, plan)
+    action_label = "Install" if plan.action == "install" else "Remove"
+    lines = [
+        f"Client: {plan.client}",
+        f"Scope: {plan.scope}",
+        f"Target: {target}",
+        (
+            f"Action: {action_label} PreToolUse hook "
+            f"(matcher: {CODEX_HOOK_MATCHER!r}, diagnostics-only)"
+        ),
+    ]
+    if updated == existing:
+        lines.append(
+            "No change: hook already in the requested state (idempotent no-op)."
+            if plan.action == "install"
+            else "No change: no archex hook is installed."
+        )
+    else:
+        lines.append("Dry run. Re-run without --dry-run to write this config.")
+    lines.append("")
+    lines.append(updated)
     return "\n".join(lines) + "\n"
 
 
@@ -618,6 +692,63 @@ export default function archexHook(pi: HookHost): void {
   });
 }
 """
+
+
+#: Marker comments delimiting the archex-owned block appended to Codex's
+#: ``config.toml`` -- lets install/remove find and replace exactly the block
+#: this installer wrote (and nothing else a user configured in the same
+#: file) without parsing/re-serializing TOML.
+_CODEX_HOOK_BLOCK_START = "# archex:codex-hook start"
+_CODEX_HOOK_BLOCK_END = "# archex:codex-hook end"
+
+
+def _render_codex_hook_block() -> str:
+    command = f"{sys.executable} -m archex.integrations.codex_hook"
+    return (
+        "\n".join(
+            [
+                _CODEX_HOOK_BLOCK_START,
+                "[[hooks.PreToolUse]]",
+                f'matcher = "{CODEX_HOOK_MATCHER}"',
+                "",
+                "[[hooks.PreToolUse.hooks]]",
+                'type = "command"',
+                f'command = "{command}"',
+                "timeout = 1",
+                _CODEX_HOOK_BLOCK_END,
+            ]
+        )
+        + "\n"
+    )
+
+
+def _strip_codex_hook_block(existing: str) -> str:
+    start = existing.find(_CODEX_HOOK_BLOCK_START)
+    if start == -1:
+        return existing
+    end = existing.find(_CODEX_HOOK_BLOCK_END, start)
+    if end == -1:
+        return existing  # malformed marker pair -- leave untouched rather than guess
+    end += len(_CODEX_HOOK_BLOCK_END)
+    if end < len(existing) and existing[end] == "\n":
+        end += 1
+    before, after = existing[:start], existing[end:]
+    # `_render_codex_hook_block`/`_apply_codex_hook_block` always separate a
+    # freshly appended block from prior content with exactly one blank line
+    # -- strip that same separator back out so a strip+re-add round-trips
+    # byte-for-byte (idempotent reinstall, and a clean `remove`).
+    if before.endswith("\n\n"):
+        before = before[:-1]
+    return before + after
+
+
+def _apply_codex_hook_block(existing: str, plan: CodexHookInstallPlan) -> str:
+    without_block = _strip_codex_hook_block(existing)
+    if plan.action == "remove":
+        return without_block
+    if not without_block.strip():
+        return plan.block_content
+    return without_block.rstrip("\n") + "\n\n" + plan.block_content
 
 
 def _is_archex_hook_entry(entry: object) -> bool:
