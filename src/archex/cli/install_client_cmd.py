@@ -51,8 +51,9 @@ from archex.client_setup import (
     is_flag=True,
     default=False,
     help=(
-        "Install the Claude Code PreToolUse hook that augments Grep/Glob calls with "
-        "archex context (opt-in, never installed without this flag; claude-code only)."
+        "Install the archex tool_result/PreToolUse hook that augments Grep/Glob calls "
+        "with archex context (opt-in, never installed without this flag; "
+        "claude-code, omp)."
     ),
 )
 @click.option(
@@ -122,6 +123,6 @@ def _run_hook_action(
     except (ValueError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     if action == "install":
-        click.echo(f"Installed Claude Code PreToolUse hook: {target}")
+        click.echo(f"Installed archex hook for {client}: {target}")
     else:
-        click.echo(f"Removed archex PreToolUse hook (if present): {target}")
+        click.echo(f"Removed archex hook for {client} (if present): {target}")

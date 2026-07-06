@@ -202,7 +202,7 @@ def render_agent_guidance_preview(agent_file: Path) -> str:
 
 
 @dataclass(frozen=True)
-class HookInstallPlan:
+class ClaudeCodeHookInstallPlan:
     """Install or remove the Claude Code PreToolUse hook (M19; claude-code only)."""
 
     client: ClientName
@@ -212,6 +212,29 @@ class HookInstallPlan:
     hook_entry: dict[str, object]
 
 
+@dataclass(frozen=True)
+class TsHookInstallPlan:
+    """Install or remove the shared TS ``tool_result`` hook module (M20; omp/pi).
+
+    Unlike the Claude Code hook (a JSON command entry merged into an existing
+    settings file), this installs a standalone TypeScript extension module —
+    see ``_render_ts_hook_module`` for the implementation both clients load
+    unmodified.
+    """
+
+    client: ClientName
+    scope: ClientScope
+    target_path: Path
+    action: HookAction
+    module_content: str
+
+
+#: Either hook install plan shape. ``install_client_cmd.py`` treats both
+#: uniformly; ``write_hook_install_plan``/``render_hook_install_preview``
+#: dispatch on the concrete type.
+HookInstallPlan = ClaudeCodeHookInstallPlan | TsHookInstallPlan
+
+
 def build_hook_install_plan(
     client: ClientName,
     source: str | Path | None = None,
@@ -219,22 +242,33 @@ def build_hook_install_plan(
     scope: ClientScope | None = None,
     action: HookAction,
 ) -> HookInstallPlan:
-    if client != "claude-code":
-        raise ValueError(
-            f"--hooks/--remove-hooks is only supported for claude-code (M19 scope); got {client!r}"
-        )
-    selected_scope = _resolve_scope(client, source, scope)
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
-    return HookInstallPlan(
-        client=client,
-        scope=selected_scope,
-        target_path=_hook_settings_path(repo_root, selected_scope),
-        action=action,
-        hook_entry=_render_hook_entry(),
+    if client == "claude-code":
+        selected_scope = _resolve_hook_scope(source, scope)
+        return ClaudeCodeHookInstallPlan(
+            client=client,
+            scope=selected_scope,
+            target_path=_hook_settings_path(repo_root, selected_scope),
+            action=action,
+            hook_entry=_render_hook_entry(),
+        )
+    if client == "omp":
+        selected_scope = _resolve_hook_scope(source, scope)
+        return TsHookInstallPlan(
+            client=client,
+            scope=selected_scope,
+            target_path=_ts_hook_module_path(client, repo_root, selected_scope),
+            action=action,
+            module_content=_render_ts_hook_module(),
+        )
+    raise ValueError(
+        f"--hooks/--remove-hooks is only supported for claude-code (M19), omp (M20); got {client!r}"
     )
 
 
 def write_hook_install_plan(plan: HookInstallPlan) -> Path:
+    if isinstance(plan, TsHookInstallPlan):
+        return _write_ts_hook_plan(plan)
     target = plan.target_path
     existing = _read_json_object(target) if target.exists() else {}
     updated, changed = _apply_hook_action(existing, plan)
@@ -245,7 +279,22 @@ def write_hook_install_plan(plan: HookInstallPlan) -> Path:
     return target
 
 
+def _write_ts_hook_plan(plan: TsHookInstallPlan) -> Path:
+    target = plan.target_path
+    if plan.action == "remove":
+        if target.exists():
+            target.unlink()
+        return target
+    existing = target.read_text(encoding="utf-8") if target.exists() else None
+    if existing != plan.module_content:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(plan.module_content, encoding="utf-8")
+    return target
+
+
 def render_hook_install_preview(plan: HookInstallPlan) -> str:
+    if isinstance(plan, TsHookInstallPlan):
+        return _render_ts_hook_preview(plan)
     existing = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
     updated, changed = _apply_hook_action(existing, plan)
     action_label = "Install" if plan.action == "install" else "Remove"
@@ -268,6 +317,33 @@ def render_hook_install_preview(plan: HookInstallPlan) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
+    target = plan.target_path
+    existing = target.read_text(encoding="utf-8") if target.exists() else None
+    action_label = "Install" if plan.action == "install" else "Remove"
+    lines = [
+        f"Client: {plan.client}",
+        f"Scope: {plan.scope}",
+        f"Target: {target}",
+        f"Action: {action_label} archex tool_result hook module (grep/glob-equivalent tools only)",
+    ]
+    if plan.action == "install":
+        lines.append(
+            "No change: hook module already installed and up to date (idempotent no-op)."
+            if existing == plan.module_content
+            else "Dry run. Re-run without --dry-run to write this file."
+        )
+        lines.append("")
+        lines.append(plan.module_content)
+    else:
+        lines.append(
+            "No change: no archex hook module is installed."
+            if existing is None
+            else "Dry run. Re-run without --dry-run to remove this file."
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _hook_settings_path(repo_root: Path, scope: ClientScope) -> Path:
     return (
         repo_root / ".claude" / "settings.json"
@@ -282,6 +358,259 @@ def _render_hook_entry() -> dict[str, object]:
         "command": sys.executable,
         "args": ["-m", _HOOK_ARGS_MARKER],
     }
+
+
+_TS_HOOK_MODULE_FILENAME = "archex-hook.ts"
+
+
+def _ts_hook_module_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:
+    if client == "omp":
+        return (
+            repo_root / ".omp" / "extensions" / _TS_HOOK_MODULE_FILENAME
+            if scope == "project"
+            else Path.home() / ".omp" / "agent" / "extensions" / _TS_HOOK_MODULE_FILENAME
+        )
+    raise ValueError(f"unsupported TS hook client: {client}")
+
+
+def _render_ts_hook_module() -> str:
+    return _TS_HOOK_MODULE_TEMPLATE.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(sys.executable))
+
+
+_TS_HOOK_MODULE_TEMPLATE = r"""/**
+ * archex shared `tool_result` hook module (M20 — oh-my-pi / Pi).
+ *
+ * Installed by `archex install-client omp --hooks` / `archex install-client
+ * pi --hooks` (opt-in; never installed by default). Mirrors the Claude Code
+ * PreToolUse hook (M19, `src/archex/integrations/hook.py`) which this module
+ * shells out to unmodified — no lookup/ranking/freshness logic lives here.
+ *
+ * Contract:
+ * - Only grep/glob-equivalent tool calls are inspected via
+ *   `ARCHEX_QUERY_FIELDS` below. `read` is never touched, and no branch here
+ *   ever matches `toolName === "read"` — this must never interfere with
+ *   read-before-edit semantics.
+ * - Every path resolves without throwing. A missing/stale index, a spawn
+ *   failure, a timeout, or a malformed subprocess response all degrade to
+ *   returning `undefined` (no content override); failures are appended to
+ *   the same diagnostics log the Python subprocess uses
+ *   (`ARCHEX_HOOK_DIAGNOSTICS_LOG` or `~/.archex/hook-diagnostics.log`),
+ *   never surfaced to the agent flow.
+ * - The lookup runs under the same ~500ms wall-clock budget as the Python
+ *   hook's own internal timeout; this module additionally guards the
+ *   subprocess call itself so a hung `python` process can never block the
+ *   host agent past the budget.
+ *
+ * Shared across oh-my-pi and Pi: both expose an identical
+ * `pi.on("tool_result", handler)` extension event with the same
+ * `{ content, details, isError }` partial-patch return contract. The one
+ * difference between hosts is which native tool name plays the "glob" role
+ * (oh-my-pi: `glob`, pattern in `input.path`; Pi: `find`, pattern already in
+ * `input.pattern`) — both entries are listed below so this exact file works
+ * unmodified on either host: only the tool names that actually exist on the
+ * running host will ever fire.
+ */
+
+import { spawn } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+// --- Baked in at install time (`archex install-client <client> --hooks`) ---
+
+/** Python interpreter active when `--hooks` ran — mirrors the Claude Code
+ * JSON hook's `command`, so this always runs in the same environment archex
+ * was installed into. */
+const ARCHEX_PYTHON_COMMAND = __ARCHEX_PYTHON_COMMAND__;
+const ARCHEX_PYTHON_ARGS = ["-m", "archex.integrations.hook"];
+
+/** Matches `DEFAULT_HOOK_TIMEOUT_SECONDS` in `archex.integrations.hook`. */
+const ARCHEX_HOOK_TIMEOUT_MS = 500;
+
+const ARCHEX_DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG";
+
+// --- Native tool name -> archex query-field mapping ---
+//
+// Claude Code's Grep/Glob tools both carry their query in an input field
+// named `pattern` (the subprocess's own contract). Each client's native tool
+// names and field names are translated to that shape here, at the edge, so
+// `archex.integrations.hook` never needs to know about any client but
+// Claude Code.
+
+interface ToolQueryMapping {
+  /** `tool_name` value the Python subprocess expects (`Grep` or `Glob`). */
+  claudeToolName: "Grep" | "Glob";
+  /** Field on the native tool's `input` object holding the query string. */
+  field: string;
+}
+
+const ARCHEX_QUERY_FIELDS: Readonly<Record<string, ToolQueryMapping>> = {
+  grep: { claudeToolName: "Grep", field: "pattern" },
+  // oh-my-pi's glob tool carries its glob pattern in `path`.
+  glob: { claudeToolName: "Glob", field: "path" },
+  // Pi has no `glob` tool; its glob-equivalent is `find`, whose pattern is
+  // already in a field named `pattern`.
+  find: { claudeToolName: "Glob", field: "pattern" },
+};
+
+// --- Minimal structural types for the `tool_result` contract ---
+//
+// Declared locally (never imported from either host package) so this module
+// has zero import-resolution dependency on which host loaded it.
+
+interface ToolResultEventLike {
+  toolName: string;
+  input?: Record<string, unknown>;
+  content?: unknown[];
+  details?: unknown;
+  isError?: boolean;
+}
+
+interface ToolResultPatch {
+  content?: unknown[];
+  details?: unknown;
+  isError?: boolean;
+}
+
+type ToolResultHandler = (
+  event: ToolResultEventLike,
+  ctx: unknown,
+) => Promise<ToolResultPatch | undefined>;
+
+interface HookHost {
+  on(event: "tool_result", handler: ToolResultHandler): unknown;
+}
+
+// --- Diagnostics (parity with hook.py's `_log_diagnostic`) ---
+
+function diagnosticsLogPath(): string {
+  const override = process.env[ARCHEX_DIAGNOSTICS_LOG_ENV_VAR];
+  if (override && override.trim().length > 0) return override;
+  return join(homedir(), ".archex", "hook-diagnostics.log");
+}
+
+function logDiagnostic(kind: string, detail: string, cwd?: string): void {
+  try {
+    const path = diagnosticsLogPath();
+    mkdirSync(dirname(path), { recursive: true });
+    const entry: Record<string, string> = {
+      timestamp: new Date().toISOString(),
+      kind,
+      detail,
+    };
+    if (cwd) entry.cwd = cwd;
+    appendFileSync(path, `${JSON.stringify(entry)}\n`, "utf-8");
+  } catch {
+    // Diagnostics logging must never raise into the hook's return path.
+  }
+}
+
+// --- Subprocess call: `python -m archex.integrations.hook` ---
+
+function runArchexHookSubprocess(
+  payload: Record<string, unknown>,
+  cwd: string,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(ARCHEX_PYTHON_COMMAND, ARCHEX_PYTHON_ARGS, {
+        cwd,
+        stdio: ["pipe", "pipe", "ignore"],
+      });
+    } catch (err) {
+      logDiagnostic("ts_spawn_error", String(err), cwd);
+      finish(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      logDiagnostic("ts_timeout", `lookup exceeded ${ARCHEX_HOOK_TIMEOUT_MS}ms`, cwd);
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Already exited.
+      }
+      finish(null);
+    }, ARCHEX_HOOK_TIMEOUT_MS);
+
+    let stdout = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf-8");
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      logDiagnostic("ts_spawn_error", String(err), cwd);
+      finish(null);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      finish(stdout.length > 0 ? stdout : null);
+    });
+
+    try {
+      child.stdin?.write(JSON.stringify(payload));
+      child.stdin?.end();
+    } catch (err) {
+      clearTimeout(timer);
+      logDiagnostic("ts_stdin_error", String(err), cwd);
+      finish(null);
+    }
+  });
+}
+
+function extractAdditionalContext(rawStdout: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(rawStdout);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const hookSpecificOutput = (parsed as Record<string, unknown>).hookSpecificOutput;
+    if (typeof hookSpecificOutput !== "object" || hookSpecificOutput === null) return null;
+    const context = (hookSpecificOutput as Record<string, unknown>).additionalContext;
+    return typeof context === "string" && context.length > 0 ? context : null;
+  } catch {
+    return null;
+  }
+}
+
+// --- Extension entry point ---
+
+export default function archexHook(pi: HookHost): void {
+  pi.on("tool_result", async (event) => {
+    try {
+      const mapping = ARCHEX_QUERY_FIELDS[event.toolName];
+      if (!mapping) return undefined; // never touches "read" or any other tool
+
+      const pattern = event.input?.[mapping.field];
+      if (typeof pattern !== "string" || pattern.trim().length === 0) return undefined;
+
+      const cwd = process.cwd();
+      const rawStdout = await runArchexHookSubprocess(
+        { tool_name: mapping.claudeToolName, tool_input: { pattern }, cwd },
+        cwd,
+      );
+      if (rawStdout === null) return undefined;
+
+      const context = extractAdditionalContext(rawStdout);
+      if (context === null) return undefined;
+
+      const existingContent = Array.isArray(event.content) ? event.content : [];
+      return {
+        content: [...existingContent, { type: "text", text: `\n\n${context}` }],
+      };
+    } catch (err) {
+      logDiagnostic("ts_internal_error", String(err));
+      return undefined;
+    }
+  });
+}
+"""
 
 
 def _is_archex_hook_entry(entry: object) -> bool:
@@ -302,7 +631,7 @@ def _read_json_object(path: Path) -> dict[str, object]:
 
 
 def _apply_hook_action(
-    payload: dict[str, object], plan: HookInstallPlan
+    payload: dict[str, object], plan: ClaudeCodeHookInstallPlan
 ) -> tuple[dict[str, object], bool]:
     """Return ``(updated_payload, changed)`` without mutating ``payload``.
 
@@ -387,6 +716,19 @@ def _resolve_scope(
         return scope
     if client in _USER_ONLY_CLIENTS:
         return "user"
+    return "project" if source is not None else "user"
+
+
+def _resolve_hook_scope(source: str | Path | None, scope: ClientScope | None) -> ClientScope:
+    """Scope resolution for hook installs (claude-code, omp, pi).
+
+    Unlike ``_resolve_scope`` (MCP server config, where omp/pi are user-scope
+    only per the ``CLIENT_COMPATIBILITY_MATRIX.md`` convention), the hook
+    installer supports both scopes for every client it handles: project scope
+    when a repo ``source`` is given, user scope otherwise.
+    """
+    if scope is not None:
+        return scope
     return "project" if source is not None else "user"
 
 
