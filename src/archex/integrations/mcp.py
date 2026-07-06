@@ -201,7 +201,10 @@ def handle_scout_repo(
         output_format=output_format,
         timing=pt,
     )
-    rendered = render_scout(result, output_format=output_format, include_receipt=False)
+    # M1 narrowed render_scout's default to a minimal JSON dump; the MCP
+    # surface is explicitly out of scope for that change, so pin full=True
+    # to keep this tool's response shape unchanged.
+    rendered = render_scout(result, output_format=output_format, include_receipt=False, full=True)
     content = json.loads(rendered) if output_format == "json" else rendered
     raw = get_repo_total_tokens(source)
     meta = compute_meta(
