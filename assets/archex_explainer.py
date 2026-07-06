@@ -4,7 +4,8 @@ Render:
     python3 render_video.py archex_explainer.py ArchexExplainer --quality high \
         --format mp4 --output assets/archex-explainer.mp4
 
-Beats: title -> the problem (grep) -> archex pipeline -> measured bars -> stat tiles -> close.
+Beats: title -> the problem (grep) -> archex pipeline -> client integrations
+       -> measured bars -> stat tiles -> close.
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ class ArchexExplainer(Scene):
         self._beat_title()
         self._beat_problem()
         self._beat_pipeline()
+        self._beat_integrations()
         self._beat_bars()
         self._beat_stats()
         self._beat_close()
@@ -184,7 +186,7 @@ class ArchexExplainer(Scene):
         self.play(FadeIn(heading), run_time=0.5)
 
         data = [
-            ("01", "Parse", "tree-sitter\n25 languages", TEAL),
+            ("01", "Parse", "tree-sitter\n26 languages", TEAL),
             ("02", "Index", "BM25F + vectors\n+ SPLADE", SKY),
             ("03", "Retrieve", "fusion + rerank\n+ graph", SKY),
             ("04", "Assemble", "token-budgeted\nbundle", TEAL),
@@ -241,14 +243,56 @@ class ArchexExplainer(Scene):
         self.play(LaggedStart(*[GrowArrow(a) for a in arrows], lag_ratio=0.3), run_time=1.0)
         self.play(FadeIn(repo_in), FadeIn(bundle_out), run_time=0.6)
 
-        tagline = Text("It returns context, not an answer.", font_size=34, color=TEXT, weight=BOLD)
+        tagline = Text(
+            "Context, plus a receipt — not an answer.", font_size=34, color=TEXT, weight=BOLD
+        )
         tagline.move_to([0, -2.6, 0])
         self.play(Write(tagline), run_time=1.0)
         self.wait(2.4)
 
         self._clear(heading, boxes, arrows, repo_in, bundle_out, tagline)
 
-    # ---------- beat 4: measured bars ----------
+    # ---------- beat 4: client integrations ----------
+    def _beat_integrations(self):
+        heading = self._heading("MEETS AGENTS WHERE THEY WORK")
+        self.play(FadeIn(heading), run_time=0.5)
+
+        clients = ["Claude Code", "Codex", "Cursor", "OpenCode", "Pi", "oh-my-pi"]
+        chips = VGroup()
+        for name in clients:
+            chip = RoundedRectangle(
+                corner_radius=0.16,
+                width=3.0,
+                height=0.85,
+                stroke_color=SKY,
+                stroke_width=2.2,
+                fill_color=PANEL,
+                fill_opacity=1,
+            )
+            label = Text(name, font_size=24, color=TEXT, weight=BOLD)
+            chips.add(VGroup(chip, label))
+        row1 = VGroup(*chips[:3]).arrange(RIGHT, buff=0.4)
+        row2 = VGroup(*chips[3:]).arrange(RIGHT, buff=0.4)
+        grid = VGroup(row1, row2).arrange(DOWN, buff=0.4).move_to([0, 0.75, 0])
+
+        self.play(
+            LaggedStart(*[FadeIn(c, scale=0.9) for c in chips], lag_ratio=0.15),
+            run_time=1.6,
+        )
+
+        surfaces = Text("17 MCP tools · CLI · Python API", font_size=28, color=MUTED).move_to(
+            [0, -1.3, 0]
+        )
+        hooks = Text(
+            "opt-in hooks augment grep/glob — never blocking", font_size=24, color=TEAL
+        ).move_to([0, -2.1, 0])
+        self.play(FadeIn(surfaces), run_time=0.6)
+        self.play(FadeIn(hooks), run_time=0.6)
+        self.wait(2.2)
+
+        self._clear(heading, grid, surfaces, hooks)
+
+    # ---------- beat 5: measured bars ----------
     def _beat_bars(self):
         heading = self._heading("MEASURED · 19-TASK HEAD-TO-HEAD")
         self.play(FadeIn(heading), run_time=0.5)
@@ -306,7 +350,7 @@ class ArchexExplainer(Scene):
 
         self._clear(heading, legend, *all_objs)
 
-    # ---------- beat 5: stat tiles ----------
+    # ---------- beat 6: stat tiles ----------
     def _beat_stats(self):
         heading = self._heading("THE PAYOFF")
         self.play(FadeIn(heading), run_time=0.5)
@@ -340,7 +384,7 @@ class ArchexExplainer(Scene):
 
         self._clear(heading, t1, t2)
 
-    # ---------- beat 6: close ----------
+    # ---------- beat 7: close ----------
     def _beat_close(self):
         traits = Text(
             "local-first · deterministic · no API key · Apache-2.0", font_size=32, color=MUTED
