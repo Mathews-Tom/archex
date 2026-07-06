@@ -35,14 +35,14 @@ logger = logging.getLogger(__name__)
     "--format",
     "output_format",
     default="xml",
-    type=click.Choice(["xml", "json", "markdown"]),
+    type=click.Choice(["xml", "json", "markdown", "toon"]),
     help="Output format.",
 )
 @click.option(
     "--full",
     is_flag=True,
     default=False,
-    help="Restore the unfiltered --format json dump (all chunk fields, including None/empty).",
+    help="Restore the unfiltered --format json/toon dump (all chunk fields, including None/empty).",
 )
 @click.option("-l", "--language", multiple=True, help="Filter to specific languages.")
 @click.option(
@@ -130,7 +130,16 @@ def query_cmd(
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    click.echo(bundle.to_prompt(format=output_format, full=full))
+    if output_format == "toon":
+        try:
+            from archex.serve.renderers.toon import render_toon
+        except ImportError as exc:
+            raise click.ClickException(
+                "TOON output requires the 'toons' package. Install it with: uv add 'archex[toon]'"
+            ) from exc
+        click.echo(render_toon(bundle, full=full))
+    else:
+        click.echo(bundle.to_prompt(format=output_format, full=full))
 
     unique_files = list({c.chunk.file_path for c in bundle.chunks})
     raw_tokens: int | None = None

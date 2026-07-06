@@ -839,8 +839,10 @@ class ContextBundle(BaseModel):
     def to_prompt(self, format: str = "xml", *, full: bool = False) -> str:
         """Render the context bundle as an LLM prompt string.
 
-        `full` only affects `format="json"`: by default the JSON renderer
-        drops unset/empty chunk fields; `full=True` restores every field.
+        `full` affects `format="json"` and `format="toon"`: by default
+        these renderers drop unset/empty chunk fields; `full=True`
+        restores every field. `format="toon"` requires the optional
+        `toons` package (`uv add 'archex[toon]'`).
         """
         from archex.serve.renderers.json import render_json
         from archex.serve.renderers.markdown import render_markdown
@@ -852,6 +854,10 @@ class ContextBundle(BaseModel):
             return render_markdown(self)
         if format == "json":
             return render_json(self, full=full)
+        if format == "toon":
+            from archex.serve.renderers.toon import render_toon
+
+            return render_toon(self, full=full)
         raise ValueError(f"Unknown format: {format}")
 
     def to_dict(self) -> dict[str, Any]:
