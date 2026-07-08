@@ -106,6 +106,59 @@ def export_cmd(output: Path, since: str, include_local_paths: bool) -> None:
     click.echo(f"Exported metrics to {output}")
 
 
+def _is_tty() -> bool:
+    import sys
+
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+@metrics_cmd.command("setup")
+@click.option("--yes", is_flag=True, help="Apply default settings without prompting.")
+def setup_cmd(yes: bool) -> None:
+    """Configure local metrics and traces interactively."""
+
+    is_tty = _is_tty()
+    if not is_tty and not yes:
+        raise click.UsageError(
+            "metrics setup is interactive by default, but stdin/stdout are not TTY.\n"
+            "Pass --yes to apply default settings."
+        )
+
+    if not yes:
+        click.echo("Configure local token-savings metrics?")
+        click.echo()
+        click.echo("Local metrics:")
+        click.echo("- stored only at ~/.archex/usage.sqlite")
+        click.echo("- no hosted upload")
+        click.echo("- no LLM calls")
+        click.echo(
+            "- counters do not store query text, file paths, snippets, prompts, Git remotes, "
+            "org names, or repo names"
+        )
+        click.echo()
+        counters_yes = click.confirm("Enable local counters?", default=True)
+
+        click.echo()
+        click.echo("Detailed traces:")
+        click.echo("- local only")
+        click.echo("- retained for 14 days")
+        click.echo("- can include query text and returned file paths")
+        click.echo("- useful for debugging MCP/CLI usage")
+        click.echo("- not needed for normal savings totals")
+        click.echo()
+        trace_yes = click.confirm("Enable detailed traces?", default=False)
+    else:
+        counters_yes = True
+        trace_yes = False
+
+    set_metrics_enabled(counters_yes)
+    set_trace_enabled(trace_yes)
+
+    click.echo()
+    click.echo(f"Metrics counters: {'enabled' if counters_yes else 'disabled'}")
+    click.echo(f"Metrics trace: {'enabled' if trace_yes else 'disabled'}")
+
+
 @metrics_cmd.command("enable")
 def enable_cmd() -> None:
     """Enable anonymous local metrics counters."""

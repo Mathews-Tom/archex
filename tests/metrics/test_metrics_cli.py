@@ -164,6 +164,58 @@ def test_metrics_export_redacts_paths_by_default(
     assert pathful_payload["repos"][0]["repo_root"] == str(repo_root.resolve())
 
 
+def test_metrics_setup_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("archex.cli.metrics_cmd._is_tty", lambda: True)
+
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["metrics", "setup"], input="y\ny\n")
+    assert result.exit_code == 0
+    assert "Configure local token-savings metrics?" in result.output
+    assert "Metrics counters: enabled" in result.output
+    assert "Metrics trace: enabled" in result.output
+
+    # Check that settings are persisted
+    from archex.metrics.policy import resolve_metrics_policy
+
+    assert resolve_metrics_policy().metrics_enabled is True
+    assert resolve_metrics_policy().trace_enabled is True
+
+
+def test_metrics_setup_noninteractive_requires_yes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+
+    monkeypatch.setattr("archex.cli.metrics_cmd._is_tty", lambda: False)
+
+    result = runner.invoke(cli, ["metrics", "setup"])
+    assert result.exit_code != 0
+    assert "metrics setup is interactive by default, but stdin/stdout are not TTY" in result.output
+
+
+def test_metrics_setup_yes_applies_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+
+    monkeypatch.setattr("archex.cli.metrics_cmd._is_tty", lambda: False)
+
+    result = runner.invoke(cli, ["metrics", "setup", "--yes"])
+    assert result.exit_code == 0
+    assert "Metrics counters: enabled" in result.output
+    assert "Metrics trace: disabled" in result.output
+
+    # Check that defaults are persisted
+    from archex.metrics.policy import resolve_metrics_policy
+
+    assert resolve_metrics_policy().metrics_enabled is True
+    assert resolve_metrics_policy().trace_enabled is False
+
+
 def test_metrics_controls_enable_disable_trace_and_delete(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
