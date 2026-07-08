@@ -4,7 +4,7 @@ This document explains what archex records in the local metrics ledger, how toke
 
 ## The boundary
 
-archex ships with no telemetry by default.
+No telemetry is sent by core CLI, Python API, MCP, or Docker slim workflows. archex ships with no telemetry by default.
 
 Local metrics are optional and default-off.
 

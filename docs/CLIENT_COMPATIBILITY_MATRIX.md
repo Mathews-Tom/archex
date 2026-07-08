@@ -27,7 +27,13 @@ This matrix separates config-shape verification from actual client smoke tests. 
 
 ## First-party bootstrap command
 
-Installs write by default; add `--dry-run` to preview the exact target and config first. The default scope is global (user); pass a SOURCE path or `--scope project` for a repo-local install.
+Run bare `install-client` to automatically discover config paths for all supported clients and interactively select which to install:
+
+```bash
+archex install-client
+```
+
+Or configure a specific client directly (installs write by default; add `--dry-run` to preview the exact target and config first). The default scope is global (user); pass a SOURCE path or `--scope project` for a repo-local install:
 
 ```bash
 archex install-client claude-code
@@ -37,7 +43,6 @@ archex install-client codex
 archex install-client pi
 archex install-client omp
 ```
-
 Preview any of them without writing:
 
 ```bash
@@ -58,6 +63,9 @@ archex install-client claude-code . --scope project
 - Codex appends one `[mcp_servers.archex]` section to `config.toml`.
 - Re-running an install with an identical `archex` entry already present is an idempotent no-op; a different existing `archex` entry is left untouched and the command fails instead of overwriting it.
 - Pi and oh-my-pi (omp) MCP server config only supports `--scope user`; their `--hooks`/`--remove-hooks` installers support both `--scope user` and `--scope project`.
+## Registration vs runtime startability
+
+A valid MCP client registration config is separate from whether `archex mcp` can actually start. `install-client` checks the MCP runtime health before writing any client config. If the runtime is damaged or missing, `install-client` fails fast with an error message detailing how to remediate the installation. You can bypass this check with `--allow-missing-mcp` if you are packaging or know what you are doing, but writing known-broken client config is blocked by default.
 
 ## Registration is not surfacing is not invocation
 
