@@ -52,15 +52,18 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 
 ```bash
 uv tool install archex
-archex doctor
+archex setup
 archex query "How does authentication work?" --format xml
 ```
 
-`archex doctor` reports whether the local index, grammar support, model cache, MCP registration, and `.archex/` state are healthy. Repo-local commands default to the current working directory. If the repo has not been initialized yet:
+`archex setup` is the primary guided onboarding command. It initializes repo-local state, builds the first index, checks MCP runtime health, and offers to configure detected clients and agent guidance.
+
+`archex doctor` reports whether the local index, grammar support, model cache, MCP registration, and `.archex/` state are healthy. Repo-local commands default to the current working directory.
+
+For explicit repo initialization without the full guided setup:
 
 ```bash
 archex init
-archex index
 archex query "How does authentication work?" --format xml
 ```
 
