@@ -478,6 +478,13 @@ def _grammar_check() -> DoctorCheck:
     )
 
 
+def mcp_runtime_available(repo_root: Path) -> bool:
+    """Return whether the local archex MCP runtime can be started."""
+    return any(
+        check.name == "mcp_runtime" and check.status == "ok" for check in _mcp_checks(repo_root)
+    )
+
+
 def _mcp_checks(repo_root: Path) -> list[DoctorCheck]:
     package_available = importlib.util.find_spec("mcp") is not None
     checked_paths = _mcp_config_candidates(repo_root)
