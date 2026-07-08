@@ -35,6 +35,7 @@ dependencies = [
     "click>=8.1",
     "pyyaml>=6.0",
     "rich==14.3.3",
+    "mcp>=1.0",
     "watchdog>=6.0.0",
 ]
 
@@ -54,7 +55,7 @@ splade = [
     "transformers>=4.41,<5",
     "torch>=2.0",
 ]
-mcp = ["mcp>=1.0"]
+mcp = [] # Preserved for backwards compatibility with archex[mcp]
 langchain = ["langchain-core>=0.2"]
 llamaindex = ["llama-index-core>=0.10"]
 lsap = ["lsp-client>=0.3; python_version >= '3.12'"]
