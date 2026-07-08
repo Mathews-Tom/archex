@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -35,8 +35,7 @@ def test_help_contains_subcommands() -> None:
 
 def test_init_command_creates_project_state(python_simple_repo: Path) -> None:
     runner = CliRunner()
-
-    result = runner.invoke(cli, ["init", str(python_simple_repo)])
+    result = runner.invoke(cli, ["init", str(python_simple_repo), "--no-index"])
 
     assert result.exit_code == 0, result.output
     assert "Initialized archex project" in result.output
@@ -45,10 +44,44 @@ def test_init_command_creates_project_state(python_simple_repo: Path) -> None:
     assert ".archex/" in (python_simple_repo / ".gitignore").read_text(encoding="utf-8")
 
 
+@patch("archex.cli.init_cmd.run_indexing_and_get_summary")
+def test_init_command_indexes_by_default(mock_run: Mock, python_simple_repo: Path) -> None:
+    runner = CliRunner()
+    mock_run.return_value = {
+        "repo_root": str(python_simple_repo),
+        "strategy": "full",
+        "files_indexed": 3,
+        "chunks_indexed": 6,
+        "languages": {"python": 3},
+    }
+
+    result = runner.invoke(cli, ["init", str(python_simple_repo)])
+
+    assert result.exit_code == 0, result.output
+    assert "Initialized archex project" in result.output
+    assert "Indexed repository" in result.output
+    assert "Files indexed:      3" in result.output
+    assert "Chunks indexed:     6" in result.output
+    assert "Languages:          python=3" in result.output
+    mock_run.assert_called_once_with(source=str(python_simple_repo))
+
+
+@patch("archex.cli.init_cmd.run_indexing_and_get_summary")
+def test_init_command_no_index_skips_indexing(mock_run: Mock, python_simple_repo: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["init", str(python_simple_repo), "--no-index"])
+
+    assert result.exit_code == 0, result.output
+    assert "Initialized archex project" in result.output
+    assert "Indexed repository" not in result.output
+    mock_run.assert_not_called()
+
+
 def test_init_command_is_idempotent(python_simple_repo: Path) -> None:
     runner = CliRunner()
-    first = runner.invoke(cli, ["init", str(python_simple_repo)])
-    second = runner.invoke(cli, ["init", str(python_simple_repo)])
+    first = runner.invoke(cli, ["init", str(python_simple_repo), "--no-index"])
+    second = runner.invoke(cli, ["init", str(python_simple_repo), "--no-index"])
 
     assert first.exit_code == 0, first.output
     assert second.exit_code == 0, second.output
