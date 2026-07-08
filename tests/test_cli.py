@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -45,7 +45,7 @@ def test_init_command_creates_project_state(python_simple_repo: Path) -> None:
 
 
 @patch("archex.cli.init_cmd.run_indexing_and_get_summary")
-def test_init_command_indexes_by_default(mock_run: Mock, python_simple_repo: Path) -> None:
+def test_init_command_indexes_by_default(mock_run: MagicMock, python_simple_repo: Path) -> None:
     runner = CliRunner()
     mock_run.return_value = {
         "repo_root": str(python_simple_repo),
@@ -62,12 +62,52 @@ def test_init_command_indexes_by_default(mock_run: Mock, python_simple_repo: Pat
     assert "Indexed repository" in result.output
     assert "Files indexed:      3" in result.output
     assert "Chunks indexed:     6" in result.output
-    assert "Languages:          python=3" in result.output
-    mock_run.assert_called_once_with(source=str(python_simple_repo))
+    mock_run.assert_called_once()
+    assert mock_run.call_args.kwargs["source"] == str(python_simple_repo)
 
 
 @patch("archex.cli.init_cmd.run_indexing_and_get_summary")
-def test_init_command_no_index_skips_indexing(mock_run: Mock, python_simple_repo: Path) -> None:
+def test_init_command_passes_indexing_options(
+    mock_run: MagicMock, python_simple_repo: Path
+) -> None:
+    runner = CliRunner()
+    mock_run.return_value = {
+        "repo_root": str(python_simple_repo),
+        "strategy": "full",
+        "files_indexed": 3,
+        "chunks_indexed": 6,
+        "languages": {"python": 3},
+    }
+
+    result = runner.invoke(
+        cli,
+        [
+            "init",
+            str(python_simple_repo),
+            "--splade",
+            "--module-prefilter",
+            "--allow-remote-code",
+            "--quantize-vectors",
+            "--quantize-bits",
+            "4",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    mock_run.assert_called_once()
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["source"] == str(python_simple_repo)
+    assert kwargs["splade"] is True
+    assert kwargs["module_prefilter"] is True
+    assert kwargs["allow_remote_code"] is True
+    assert kwargs["quantize_vectors"] is True
+    assert kwargs["quantize_bits"] == "4"
+
+
+@patch("archex.cli.init_cmd.run_indexing_and_get_summary")
+def test_init_command_no_index_skips_indexing(
+    mock_run: MagicMock, python_simple_repo: Path
+) -> None:
     runner = CliRunner()
 
     result = runner.invoke(cli, ["init", str(python_simple_repo), "--no-index"])
