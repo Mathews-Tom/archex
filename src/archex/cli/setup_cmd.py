@@ -8,9 +8,11 @@ from typing import Any, Literal
 
 import click
 
+from archex.cli.indexing import run_indexing_and_get_summary
 from archex.client_setup import discover_agent_files, discover_clients
 from archex.doctor import mcp_runtime_available
 from archex.metrics.policy import resolve_metrics_policy
+from archex.project import init_project
 from archex.status import inspect_project_status
 
 
@@ -62,6 +64,37 @@ def run_preflight(source: Path) -> PreflightState:
     )
 
 
+def apply_init_index(
+    source: Path, preflight: PreflightState, dry_run: bool
+) -> dict[str, list[dict[str, str]]]:
+    """Apply project init and conditional indexing."""
+    actions: list[dict[str, str]] = []
+
+    if not preflight.has_dot_archex:
+        actions.append({"type": "init", "status": "planned" if dry_run else "executed"})
+        if not dry_run:
+            init_project(str(source))
+    else:
+        actions.append({"type": "init", "status": "skipped_exists"})
+
+    if not preflight.has_index or not preflight.is_index_fresh:
+        actions.append({"type": "index", "status": "planned" if dry_run else "executed"})
+        if not dry_run:
+            run_indexing_and_get_summary(
+                source=str(source),
+                splade=False,
+                module_prefilter=False,
+                allow_remote_code=False,
+                quantize_vectors=None,
+                quantize_bits=None,
+                export_artifact_path=None,
+            )
+    else:
+        actions.append({"type": "index", "status": "skipped_fresh"})
+
+    return {"init_index": actions}
+
+
 @click.command("setup")
 @click.argument(
     "source",
@@ -92,10 +125,31 @@ def setup_cmd(
     """Guided onboarding wizard."""
     preflight = run_preflight(source)
 
+    if (
+        not sys.stdin.isatty()
+        and not sys.stdout.isatty()
+        and not yes
+        and not dry_run
+        and format_ != "json"
+    ):
+        click.echo("setup is interactive by default, but stdin/stdout are not TTY.", err=True)
+        click.echo("Use --dry-run to print a plan, or pass --yes with explicit options.", err=True)
+        sys.exit(1)
+
     if format_ == "json":
+        actions: list[dict[str, Any]] = []
+        if not preflight.has_dot_archex:
+            actions.append({"type": "init", "status": "planned"})
+        else:
+            actions.append({"type": "init", "status": "skipped_exists"})
+        if not preflight.has_index or not preflight.is_index_fresh:
+            actions.append({"type": "index", "status": "planned"})
+        else:
+            actions.append({"type": "index", "status": "skipped_fresh"})
+
         plan: dict[str, Any] = {
             "preflight": asdict(preflight),
-            "planned_actions": [],
+            "planned_actions": actions,
         }
         click.echo(json.dumps(plan, indent=2))
         return
@@ -104,14 +158,25 @@ def setup_cmd(
         click.echo("--- Setup Preflight ---")
         for k, v in asdict(preflight).items():
             click.echo(f"{k}: {v}")
+        click.echo("--- Planned Actions ---")
+        if not preflight.has_dot_archex:
+            click.echo("- Initialize repository")
+        else:
+            click.echo("- Repository initialized (skipped)")
+
+        if not preflight.has_index:
+            click.echo("- Build fresh index")
+        elif not preflight.is_index_fresh:
+            click.echo("- Refresh stale index")
+        else:
+            click.echo("- Index is fresh (skipped)")
+        return
+    if yes:
+        click.echo("--- Executing Setup ---")
+        results = apply_init_index(source, preflight, dry_run=False)
+        for action in results["init_index"]:
+            click.echo(f"- {action['type']}: {action['status']}")
         return
 
-    # Non-interactive without --yes
-    if not sys.stdin.isatty() and not sys.stdout.isatty() and not yes:
-        click.echo("setup is interactive by default, but stdin/stdout are not TTY.", err=True)
-        click.echo("Use --dry-run to print a plan, or pass --yes with explicit options.", err=True)
-        sys.exit(1)
-
-    click.echo("Setup is interactive by default, but not yet fully implemented.")
-    click.echo("Use --dry-run or --format json for now.")
+    click.echo("Interactive mode not fully implemented. Use --dry-run or --yes.")
     sys.exit(1)
