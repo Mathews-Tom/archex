@@ -4,20 +4,23 @@ import json
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import click
 
 from archex.cli.indexing import run_indexing_and_get_summary
 from archex.client_setup import (
+    ClientName,
     append_agent_guidance,
     build_discovered_install_plans,
+    build_hook_install_plan,
     discover_agent_files,
     discover_clients,
     write_client_install_plan,
+    write_hook_install_plan,
 )
 from archex.doctor import mcp_runtime_available
-from archex.metrics.policy import resolve_metrics_policy
+from archex.metrics.policy import resolve_metrics_policy, set_metrics_enabled, set_trace_enabled
 from archex.project import init_project
 from archex.status import inspect_project_status
 
@@ -147,6 +150,55 @@ def apply_clients_guidance(
     return {"clients_guidance": actions}
 
 
+def apply_metrics_hooks(
+    source: Path,
+    preflight: PreflightState,
+    dry_run: bool,
+    metrics_flag: bool | None,
+    hooks_flag: bool,
+) -> dict[str, list[dict[str, str | bool]]]:
+    actions: list[dict[str, str | bool]] = []
+
+    if metrics_flag is not None:
+        actions.append(
+            {
+                "type": "metrics_config",
+                "enabled": metrics_flag,
+                "status": "planned" if dry_run else "executed",
+            }
+        )
+        if not dry_run:
+            set_metrics_enabled(metrics_flag)
+            set_trace_enabled(False)
+    else:
+        actions.append({"type": "metrics_config", "status": "skipped_by_flag"})
+
+    if not hooks_flag:
+        actions.append({"type": "hooks_install", "status": "skipped_by_flag"})
+    elif not preflight.discovered_clients:
+        actions.append({"type": "hooks_install", "status": "skipped_no_clients"})
+    else:
+        for client_name in preflight.discovered_clients:
+            action: dict[str, str | bool] = {
+                "type": "hook_install",
+                "client": client_name,
+                "status": "planned" if dry_run else "executed",
+            }
+            actions.append(action)
+            if not dry_run:
+                try:
+                    plan = build_hook_install_plan(
+                        cast("ClientName", client_name), source, action="install"
+                    )
+                except ValueError as exc:
+                    action["status"] = "skipped_unsupported"
+                    action["error"] = str(exc)
+                else:
+                    write_hook_install_plan(plan)
+
+    return {"metrics_hooks": actions}
+
+
 @click.command("setup")
 @click.argument(
     "source",
@@ -205,6 +257,9 @@ def setup_cmd(
             "clients_guidance": apply_clients_guidance(
                 source, preflight, dry_run=True, clients_flag=clients
             )["clients_guidance"],
+            "metrics_hooks": apply_metrics_hooks(
+                source, preflight, dry_run=True, metrics_flag=metrics, hooks_flag=hooks
+            )["metrics_hooks"],
         }
         click.echo(json.dumps(plan, indent=2))
         return
@@ -233,13 +288,25 @@ def setup_cmd(
         for action in cg_actions:
             name = action.get("client") or action.get("file") or action["type"]
             click.echo(f"- {name}: {action['status']}")
+
+        click.echo("--- Metrics & Hooks ---")
+        mh_actions = apply_metrics_hooks(
+            source, preflight, dry_run=True, metrics_flag=metrics, hooks_flag=hooks
+        )["metrics_hooks"]
+        for action in mh_actions:
+            name = action.get("client") or action["type"]
+            click.echo(f"- {name}: {action['status']}")
         return
     if yes:
         click.echo("--- Executing Setup ---")
         results = apply_init_index(source, preflight, dry_run=False)
         cg_results = apply_clients_guidance(source, preflight, dry_run=False, clients_flag=clients)
-        results.update(cg_results)
-        for action in results["init_index"] + results["clients_guidance"]:
+        mh_results = apply_metrics_hooks(
+            source, preflight, dry_run=False, metrics_flag=metrics, hooks_flag=hooks
+        )
+        for action in (
+            results["init_index"] + cg_results["clients_guidance"] + mh_results["metrics_hooks"]
+        ):
             name = action.get("client") or action.get("file") or action["type"]
             click.echo(f"- {name}: {action['status']}")
         return
