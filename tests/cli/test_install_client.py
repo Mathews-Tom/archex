@@ -377,3 +377,42 @@ def test_install_client_agent_file_directory_errors_cleanly(tmp_path: Path) -> N
     assert result.exit_code != 0
     assert "Error" in result.output
     assert "Traceback" not in result.output
+
+
+def test_install_client_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from archex.client_setup import discover_clients
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    # None of them exist initially
+    discovered = discover_clients(source=repo)
+    assert len(discovered) == 10
+
+    assert all(not d.is_installed for d in discovered)
+    assert discovered[0].client == "omp"
+    assert discovered[0].scope == "user"
+    assert "not found" in discovered[0].evidence
+
+    # Create some configs
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text("", encoding="utf-8")
+    (repo / ".mcp.json").write_text("", encoding="utf-8")
+
+    discovered_with_some = discover_clients(source=repo)
+
+    codex_user = next(d for d in discovered_with_some if d.client == "codex" and d.scope == "user")
+    assert codex_user.is_installed
+    assert "exists" in codex_user.evidence
+
+    claude_project = next(
+        d for d in discovered_with_some if d.client == "claude-code" and d.scope == "project"
+    )
+    assert claude_project.is_installed
+    assert "exists" in claude_project.evidence
+
+    claude_user = next(
+        d for d in discovered_with_some if d.client == "claude-code" and d.scope == "user"
+    )
+    assert not claude_user.is_installed
