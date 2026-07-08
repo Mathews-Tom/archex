@@ -129,6 +129,16 @@ def render_doctor_text(report: DoctorReport) -> str:
                         f"cache_present={entry.get('cache_present')}"
                     )
             lines.append(f"  network: {check.details.get('network_implications', '')}")
+        if check.name == "mcp_runtime" and check.status == "error":
+            lines.append("  missing package: mcp")
+            regs = check.details.get("registrations")
+            if isinstance(regs, list) and regs:
+                registered_clients = [str(reg) for reg in cast("list[object]", regs)]
+                lines.append(f"  registered clients: {', '.join(registered_clients)}")
+            if "fix_uv_tool" in check.details:
+                lines.append(f"  fix for uv tool users: {check.details['fix_uv_tool']}")
+            if "fix_project" in check.details:
+                lines.append(f"  fix for project users: {check.details['fix_project']}")
         if check.name == "grammars":
             full_value = check.details.get("full", {})
             structured_value = check.details.get("structured", {})

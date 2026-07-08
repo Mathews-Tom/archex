@@ -35,7 +35,13 @@ def mcp_cmd(watch: bool, watch_path: str, watch_debounce_ms: int) -> None:
         from archex.integrations.mcp import run_stdio_server
     except ImportError as exc:
         raise click.ClickException(
-            "MCP integration requires the 'mcp' package. Install it with: uv add mcp"
+            "MCP integration requires the `mcp` Python package.\n\n"
+            "If archex was installed as a uv tool:\n"
+            "  uv tool install --force 'archex[mcp]'\n\n"
+            "If archex is a project dependency:\n"
+            "  uv add 'archex[mcp]'\n\n"
+            "If running from a development checkout:\n"
+            "  uv sync --extra mcp"
         ) from exc
 
     asyncio.run(
