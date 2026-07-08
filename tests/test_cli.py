@@ -99,7 +99,7 @@ def test_index_command_uses_project_config(python_simple_repo: Path) -> None:
     store = FakeIndexStore()
     runner = CliRunner()
 
-    with patch("archex.cli.index_cmd.index_repository", return_value=store) as index_mock:
+    with patch("archex.cli.indexing.index_repository", return_value=store) as index_mock:
         result = runner.invoke(cli, ["index", str(python_simple_repo)])
 
     assert result.exit_code == 0, result.output
@@ -121,7 +121,7 @@ def test_index_command_splade_flag_enables_splade(python_simple_repo: Path) -> N
     store = FakeIndexStore()
     runner = CliRunner()
 
-    with patch("archex.cli.index_cmd.index_repository", return_value=store) as index_mock:
+    with patch("archex.cli.indexing.index_repository", return_value=store) as index_mock:
         result = runner.invoke(cli, ["index", str(python_simple_repo), "--splade"])
 
     assert result.exit_code == 0, result.output
@@ -135,7 +135,7 @@ def test_index_command_module_prefilter_flag_enables_prefilter(
     store = FakeIndexStore()
     runner = CliRunner()
 
-    with patch("archex.cli.index_cmd.index_repository", return_value=store) as index_mock:
+    with patch("archex.cli.indexing.index_repository", return_value=store) as index_mock:
         result = runner.invoke(cli, ["index", str(python_simple_repo), "--module-prefilter"])
 
     assert result.exit_code == 0, result.output
@@ -149,7 +149,7 @@ def test_index_command_allow_remote_code_flag_enables_policy(
     store = FakeIndexStore()
     runner = CliRunner()
 
-    with patch("archex.cli.index_cmd.index_repository", return_value=store) as index_mock:
+    with patch("archex.cli.indexing.index_repository", return_value=store) as index_mock:
         result = runner.invoke(cli, ["index", str(python_simple_repo), "--allow-remote-code"])
 
     assert result.exit_code == 0, result.output
@@ -161,7 +161,7 @@ def test_index_command_json_output(python_simple_repo: Path) -> None:
     store = FakeIndexStore()
     runner = CliRunner()
 
-    with patch("archex.cli.index_cmd.index_repository", return_value=store):
+    with patch("archex.cli.indexing.index_repository", return_value=store):
         result = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
 
     assert result.exit_code == 0, result.output

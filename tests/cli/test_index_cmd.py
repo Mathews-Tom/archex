@@ -36,7 +36,7 @@ def test_index_quantize_flags_persist_project_settings(python_simple_repo: Path)
     init_project(python_simple_repo)
     runner = CliRunner()
 
-    with patch("archex.cli.index_cmd.index_repository", return_value=FakeStore()):
+    with patch("archex.cli.indexing.index_repository", return_value=FakeStore()):
         result = runner.invoke(
             cli,
             [
@@ -65,7 +65,7 @@ def test_index_no_quantize_vectors_persists_false(python_simple_repo: Path) -> N
     init_project(python_simple_repo)
     runner = CliRunner()
 
-    with patch("archex.cli.index_cmd.index_repository", return_value=FakeStore()):
+    with patch("archex.cli.indexing.index_repository", return_value=FakeStore()):
         result = runner.invoke(
             cli,
             [
