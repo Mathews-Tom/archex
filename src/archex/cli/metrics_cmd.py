@@ -163,7 +163,13 @@ def setup_cmd(yes: bool) -> None:
 def enable_cmd() -> None:
     """Enable anonymous local metrics counters."""
     set_metrics_enabled(True)
-    click.echo("Metrics recording enabled")
+    click.echo("Metrics recording enabled.")
+    click.echo("Local ledger: ~/.archex/usage.sqlite")
+    click.echo(
+        "No telemetry is uploaded. Default counters do not store query text, file paths, snippets, "
+        "prompts, Git remotes, org names, or repo names."
+    )
+    click.echo("Detailed traces remain off. Enable with: archex metrics trace enable")
 
 
 @metrics_cmd.command("disable")
@@ -216,7 +222,12 @@ def trace_cmd() -> None:
 def trace_enable_cmd() -> None:
     """Enable detailed local traces."""
     set_trace_enabled(True)
-    click.echo("Metrics trace enabled")
+    click.echo("Metrics trace enabled.")
+    click.echo(
+        "Trace data is local, retained for 14 days, and can include query text and returned file "
+        "paths."
+    )
+    click.echo("Disable with: archex metrics trace disable")
 
 
 @trace_cmd.command("disable")
