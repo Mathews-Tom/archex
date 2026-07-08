@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import sqlite3
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
@@ -85,7 +86,7 @@ def inspect_doctor(source: str | Path, *, security_only: bool = False) -> Doctor
         checks.append(_index_staleness_check(status))
         checks.append(_model_cache_check(project.repo_root))
         checks.append(_grammar_check())
-        checks.append(_mcp_registration_check(project.repo_root))
+        checks.extend(_mcp_checks(project.repo_root))
         checks.append(_disk_usage_check(project.project_dir))
         checks.append(_metrics_health_check())
     checks.append(_model_security_check(project.repo_root))
@@ -467,7 +468,7 @@ def _grammar_check() -> DoctorCheck:
     )
 
 
-def _mcp_registration_check(repo_root: Path) -> DoctorCheck:
+def _mcp_checks(repo_root: Path) -> list[DoctorCheck]:
     package_available = importlib.util.find_spec("mcp") is not None
     checked_paths = _mcp_config_candidates(repo_root)
     registrations: list[str] = []
@@ -476,8 +477,9 @@ def _mcp_registration_check(repo_root: Path) -> DoctorCheck:
         if not path.exists():
             continue
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            content = path.read_text(encoding="utf-8")
+            data = tomllib.loads(content) if path.suffix == ".toml" else json.loads(content)
+        except (OSError, json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
             invalid_configs[str(path)] = str(exc)
             continue
         if _contains_archex_mcp_registration(data):
@@ -491,36 +493,71 @@ def _mcp_registration_check(repo_root: Path) -> DoctorCheck:
         "invalid_configs": invalid_configs,
         "expected": {"command": "archex", "args": ["mcp"]},
     }
+
+    checks: list[DoctorCheck] = []
+
     if invalid_configs:
-        return DoctorCheck(
-            name="mcp_registration",
-            status="warning",
-            message="one or more MCP config files could not be read",
-            details=details,
+        checks.append(
+            DoctorCheck(
+                name="mcp_registration",
+                status="warning",
+                message="one or more MCP config files could not be read",
+                details=details,
+            )
         )
-    if registrations:
-        return DoctorCheck(
-            name="mcp_registration",
-            status="ok",
-            message="archex MCP registration found",
-            details=details,
+    elif registrations:
+        checks.append(
+            DoctorCheck(
+                name="mcp_registration",
+                status="ok",
+                message="archex MCP registration found",
+                details=details,
+            )
         )
+    else:
+        checks.append(
+            DoctorCheck(
+                name="mcp_registration",
+                status="ok",
+                message="no archex client registration found in known config files",
+                details=details,
+            )
+        )
+
     if package_available:
-        return DoctorCheck(
-            name="mcp_registration",
-            status="ok",
-            message=(
-                "MCP package is installed; no archex client registration found "
-                "in known config files"
-            ),
-            details=details,
+        checks.append(
+            DoctorCheck(
+                name="mcp_runtime",
+                status="ok",
+                message="MCP package is installed and archex mcp is startable",
+                details=details,
+            )
         )
-    return DoctorCheck(
-        name="mcp_registration",
-        status="warning",
-        message="MCP package is not installed; install archex[mcp] before registering the server",
-        details=details,
-    )
+    elif registrations:
+        err_details = dict(details)
+        err_details["fix_uv_tool"] = "uv tool install --force 'archex[mcp]'"
+        err_details["fix_project"] = "uv add 'archex[mcp]'"
+        checks.append(
+            DoctorCheck(
+                name="mcp_runtime",
+                status="error",
+                message="registered MCP client points at an unstartable archex mcp server",
+                details=err_details,
+            )
+        )
+    else:
+        checks.append(
+            DoctorCheck(
+                name="mcp_runtime",
+                status="warning",
+                message=(
+                    "MCP package is not installed; CLI usage works, MCP clients require archex[mcp]"
+                ),
+                details=details,
+            )
+        )
+
+    return checks
 
 
 def _disk_usage_check(project_dir: Path) -> DoctorCheck:
@@ -694,7 +731,9 @@ def _mcp_config_candidates(repo_root: Path) -> list[Path]:
     return [
         repo_root / ".mcp.json",
         repo_root / ".claude" / "settings.json",
+        repo_root / ".codex" / "config.toml",
         home / ".claude.json",
+        home / ".codex" / "config.toml",
         home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
         home / ".config" / "claude" / "claude_desktop_config.json",
     ]
@@ -705,6 +744,8 @@ def _contains_archex_mcp_registration(value: object) -> bool:
         return False
     mapping = cast("dict[str, object]", value)
     servers = mapping.get("mcpServers")
+    if not isinstance(servers, dict):
+        servers = mapping.get("mcp_servers")
     if isinstance(servers, dict):
         server_mapping = cast("dict[str, object]", servers)
         entry = server_mapping.get("archex")
