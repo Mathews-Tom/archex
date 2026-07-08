@@ -1,5 +1,24 @@
 # Changelog
 
+
+## [0.19.0] - 2026-07-08
+
+### Added
+
+- **Guided first-run onboarding with `archex setup`.** Added a primary setup command that performs preflight checks, initializes repo-local state, builds or refreshes the first index, checks MCP runtime readiness, offers detected client and agent-guidance registration, configures privacy-aware metrics, optionally installs supported hooks, and prints exact next commands.
+- **Repo-ready `archex init` by default.** `archex init` now builds the repository index as part of initialization so a new repo is immediately ready for `archex query`; `--no-index` preserves the state-only escape hatch, and advanced index options can still be routed through explicit indexing flows.
+- **Interactive client discovery.** Bare `archex install-client` now discovers supported client config paths, guides TTY users through selected registrations, supports explicit noninteractive all-detected automation, and preserves direct `install-client <client>` compatibility.
+- **Privacy-aware metrics setup.** Added `archex metrics setup` and clearer direct metrics command output describing local-only counters, opt-in trace capture, and retention/sensitivity boundaries before enabling metrics.
+
+### Changed
+
+- **MCP is a default runtime dependency.** The `mcp>=1.0` dependency now ships in the core install so `uv tool install archex && archex setup` can complete MCP/client onboarding without requiring a mid-flow optional-extra reinstall.
+- **Public onboarding docs now match the product path.** README, the installation trust contract, the client compatibility matrix, and local metrics documentation now describe guided setup, CLI-only initialization, bare client discovery, metrics privacy, and MCP registration versus runtime startability.
+
+### Fixed
+
+- **MCP registration is no longer treated as MCP health.** `doctor` and client setup now distinguish a written MCP client registration from a startable local `archex mcp` runtime, preventing the issue #457 failure mode where `doctor` reported MCP OK while the MCP server could not start. `archex mcp` also prints uv-tool-appropriate remediation guidance when runtime dependencies are missing.
+
 ## [0.18.0] - 2026-07-06
 
 ### Added
