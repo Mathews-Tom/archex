@@ -17,17 +17,29 @@ Expected-compatible but not claimed as fully verified here:
 - MCP clients that support stdio servers with JSON config shaped like `mcpServers.<name>.command` plus `args`
 - Headless MCP runners. Treat these as unverified until `archex doctor`, `archex mcp`, and one `archex scout` call pass in that runner.
 
-## CLI-only setup
+## Guided setup
 
-Install the CLI globally with uv:
+Install the CLI globally with uv and run the primary onboarding command:
 
 ```bash
 uv tool install archex
-archex doctor .
+archex setup
+archex query "Where is cache invalidation handled?" --format xml
+```
+
+`archex setup` is the primary interactive onboarding flow. It initializes the repository, builds the first index, checks the MCP runtime (which is a standard dependency), and offers to install MCP client registrations.
+
+## CLI-only init path
+
+For explicit repo initialization without the full guided setup, such as in scripts:
+
+```bash
+uv tool install archex
 archex init .
-archex index .
 archex query . "Where is cache invalidation handled?" --format xml
 ```
+
+`archex init` configures repo-local state and builds the first index by default. `archex index` remains available for explicit refresh and advanced indexing options.
 
 Project dependency setup:
 
@@ -49,10 +61,15 @@ The client-by-client tested/unverified matrix and bootstrap paths live in [CLIEN
 
 ## MCP setup
 
-Install the MCP extra:
+The MCP runtime is a standard dependency of archex.
+
+If your installation is damaged or missing the `mcp` package, `archex doctor` and `archex mcp` will explicitly report the missing runtime. Remediation:
 
 ```bash
-uv tool install "archex[mcp]"
+# For uv tool installations:
+uv tool install --force archex
+# For project dependencies:
+uv add archex
 ```
 
 Register the stdio server exactly as:
