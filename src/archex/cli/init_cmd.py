@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from archex.cli.indexing import run_indexing_and_get_summary
 from archex.config import load_config, load_index_config
 from archex.exceptions import ArchexError
 from archex.index.artifact import import_artifact, sync_imported_artifact
@@ -28,7 +29,15 @@ from archex.project import init_project
     default=None,
     help="Bootstrap the local index from a portable index artifact instead of cold-start reindex.",
 )
-def init_cmd(source: str, force: bool, reset: bool, from_artifact_path: Path | None) -> None:
+@click.option(
+    "--index/--no-index",
+    is_flag=True,
+    default=True,
+    help="Build or refresh the repository index after initialization (default: true).",
+)
+def init_cmd(
+    source: str, force: bool, reset: bool, from_artifact_path: Path | None, index: bool
+) -> None:
     """Initialize repo-local archex project state."""
     try:
         result = init_project(source, force=force, reset=reset)
@@ -71,3 +80,20 @@ def init_cmd(source: str, force: bool, reset: bool, from_artifact_path: Path | N
         if sync_result.strategy != "clean":
             click.echo(f"Files changed since export: {sync_result.files_changed}")
         click.echo(f"Sync time:               {sync_result.sync_time_ms} ms")
+    elif index:
+        try:
+            summary = run_indexing_and_get_summary(source=source)
+        except ArchexError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        click.echo(f"Indexed repository: {summary['repo_root']}")
+        click.echo(f"Strategy:           {summary['strategy']}")
+        click.echo(f"Files indexed:      {summary['files_indexed']}")
+        click.echo(f"Chunks indexed:     {summary['chunks_indexed']}")
+        if summary["languages"]:
+            language_summary = ", ".join(
+                f"{language}={count}" for language, count in summary["languages"].items()
+            )
+        else:
+            language_summary = "none"
+        click.echo(f"Languages:          {language_summary}")
