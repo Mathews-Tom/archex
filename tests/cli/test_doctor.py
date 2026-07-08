@@ -77,6 +77,7 @@ def test_doctor_text_includes_required_sections(python_simple_repo: Path) -> Non
     assert "index_staleness" in result.output
     assert "model_cache" in result.output
     assert "grammars" in result.output
+    assert "mcp_runtime" in result.output
     assert "mcp_registration" in result.output
     assert "disk_usage" in result.output
     assert "model_security" in result.output
