@@ -109,6 +109,18 @@ def get_client_config_candidates(
         return []
 
 
+def discover_agent_files(repo_root: Path) -> list[Path]:
+    home = Path.home()
+    candidates = [
+        home / ".omp" / "agent" / "AGENTS.md",
+        home / ".pi" / "agent" / "AGENTS.md",
+        repo_root / "AGENTS.md",
+        repo_root / "CLAUDE.md",
+        repo_root / ".cursorrules",
+    ]
+    return [p for p in candidates if p.exists() and p.is_file()]
+
+
 def discover_clients(source: str | Path | None = None) -> list[DiscoveredClient]:
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
     discovered: list[DiscoveredClient] = []

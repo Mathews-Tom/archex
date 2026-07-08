@@ -193,6 +193,7 @@ def install_client_cmd(
             for d in discovered:
                 checkbox = "[x]" if d.is_installed else "[ ]"
                 click.echo(f"{checkbox} {d.client.ljust(12)} {d.evidence}")
+
             if not any(d.is_installed for d in discovered):
                 click.echo("\nNo configured clients found.")
                 return
@@ -226,6 +227,29 @@ def install_client_cmd(
                     click.echo(f"Appended archex MCP guidance: {resolved}")
                 else:
                     click.echo(f"archex MCP guidance already present: {resolved}")
+            else:
+                from archex.client_setup import discover_agent_files
+
+                agent_files = discover_agent_files(
+                    Path(source if source is not None else ".").expanduser().resolve()
+                )
+                if agent_files:
+                    click.echo(
+                        "\nAppend archex MCP guidance to detected agent instruction files? [Y/n] ",
+                        nl=False,
+                    )
+                    if not yes:
+                        resp = input().strip().lower()
+                        if resp in ("n", "no"):
+                            return
+                    click.echo("Detected:")
+                    for af in agent_files:
+                        click.echo(f"- {af}")
+                    for af in agent_files:
+                        if append_agent_guidance(af):
+                            click.echo(f"Appended archex MCP guidance: {af}")
+                        else:
+                            click.echo(f"archex MCP guidance already present: {af}")
             return
 
         plan = build_client_install_plan(
