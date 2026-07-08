@@ -65,6 +65,12 @@ from archex.client_setup import (
     default=False,
     help="Remove the archex PreToolUse hook previously installed by --hooks.",
 )
+@click.option(
+    "--allow-missing-mcp",
+    is_flag=True,
+    default=False,
+    help="Install client config even if the archex mcp runtime is missing.",
+)
 def install_client_cmd(
     client: str,
     source: str | None,
@@ -73,6 +79,7 @@ def install_client_cmd(
     agent_file: Path | None,
     hooks: bool,
     remove_hooks: bool,
+    allow_missing_mcp: bool,
 ) -> None:
     """Install MCP client configuration for archex (preview with --dry-run)."""
     if hooks and remove_hooks:
@@ -86,6 +93,16 @@ def install_client_cmd(
             action="install" if hooks else "remove",
         )
         return
+    import importlib.util
+
+    if not allow_missing_mcp and importlib.util.find_spec("mcp") is None:
+        raise click.ClickException(
+            f"Cannot register archex MCP for {client} because this archex installation "
+            "cannot start `archex mcp`.\n\n"
+            "Fix for uv tool users:\n  uv tool install --force 'archex[mcp]'\n\n"
+            "Fix for project users:\n  uv add 'archex[mcp]'\n\n"
+            "Or use --allow-missing-mcp to bypass this check."
+        )
     try:
         plan = build_client_install_plan(
             cast("ClientName", client),
