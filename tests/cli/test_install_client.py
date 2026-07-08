@@ -416,3 +416,77 @@ def test_install_client_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         d for d in discovered_with_some if d.client == "claude-code" and d.scope == "user"
     )
     assert not claude_user.is_installed
+
+
+def test_install_client_all_detected_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text("", encoding="utf-8")
+    (repo / ".mcp.json").write_text('{"mcpServers": {}}', encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["install-client", "--all-detected", "--dry-run", str(repo)])
+
+    assert result.exit_code == 0
+    assert "Will write:" in result.output
+    assert ".codex/config.toml: add [mcp_servers.archex]" in result.output
+    assert ".mcp.json: add mcpServers.archex" in result.output
+
+    # Ensure nothing was written
+    assert (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8") == ""
+
+
+def test_install_client_all_detected_yes_writes_detected_configs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    codex_config = tmp_path / ".codex" / "config.toml"
+    codex_config.parent.mkdir()
+    codex_config.write_text('model = "gpt-5"\n', encoding="utf-8")
+    claude_config = repo / ".mcp.json"
+    claude_config.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["install-client", "--all-detected", "--yes", str(repo)])
+
+    assert result.exit_code == 0, result.output
+    assert "Wrote codex config" in result.output
+    assert "Wrote claude-code config" in result.output
+    assert "[mcp_servers.archex]" in codex_config.read_text(encoding="utf-8")
+    payload = json.loads(claude_config.read_text(encoding="utf-8"))
+    assert payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
+
+
+def test_install_client_non_tty_behavior(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # Not a TTY, no --yes, no --all-detected
+    result = CliRunner().invoke(cli, ["install-client"])
+    assert result.exit_code != 0
+    assert "install-client is interactive by default, but stdin/stdout are not TTY" in result.output
+
+
+def test_install_client_interactive_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text("", encoding="utf-8")
+
+    # Simulate TTY and 'yes' response to both prompts
+    from unittest.mock import patch
+
+    runner = CliRunner()
+    with patch("archex.cli.install_client_cmd._is_interactive", return_value=True):
+        result = runner.invoke(cli, ["install-client"], input="y\ny\n")
+
+    assert result.exit_code == 0
+    assert "Detected possible clients:" in result.output
+    assert "codex" in result.output
+    assert "Install archex MCP registration for" in result.output
+    assert "Wrote codex config" in result.output
+
+    # Confirm it actually wrote
+    content = (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
+    assert "[mcp_servers.archex]" in content

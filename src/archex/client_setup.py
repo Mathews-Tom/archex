@@ -152,6 +152,35 @@ def discover_clients(source: str | Path | None = None) -> list[DiscoveredClient]
     return discovered
 
 
+def build_discovered_install_plans(
+    discovered: list[DiscoveredClient],
+    source: str | Path | None = None,
+) -> list[ClientInstallPlan]:
+    plans: list[ClientInstallPlan] = []
+    for d in discovered:
+        if d.is_installed:
+            s = source if d.scope == "project" else None
+            plans.append(build_client_install_plan(d.client, s, scope=d.scope))
+    return plans
+
+
+def render_multiple_install_preview(plans: list[ClientInstallPlan]) -> str:
+    if not plans:
+        return "No client configurations detected to update.\n"
+
+    lines = ["Will write:"]
+    for plan in plans:
+        if _is_toml_plan(plan):
+            lines.append(f"- {plan.target_path}: add [mcp_servers.archex]")
+        elif plan.client == "opencode":
+            lines.append(f"- {plan.target_path}: add mcp.archex")
+        else:
+            lines.append(f"- {plan.target_path}: add mcpServers.archex")
+
+    lines.append("\nNo existing non-archex entries will be removed.")
+    return "\n".join(lines) + "\n"
+
+
 def build_client_install_plan(
     client: ClientName,
     source: str | Path | None = None,
