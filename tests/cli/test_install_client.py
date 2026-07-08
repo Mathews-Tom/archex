@@ -490,3 +490,75 @@ def test_install_client_interactive_flow(tmp_path: Path, monkeypatch: pytest.Mon
     # Confirm it actually wrote
     content = (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
     assert "[mcp_servers.archex]" in content
+
+
+def test_install_client_blocks_missing_mcp_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib.util
+    from importlib.machinery import ModuleSpec
+
+    def missing_spec(name: str, package: str | None = None) -> ModuleSpec | None:
+        return None
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text("", encoding="utf-8")
+    monkeypatch.setattr(importlib.util, "find_spec", missing_spec)
+
+    result = CliRunner().invoke(cli, ["install-client", "codex", str(repo)])
+
+    assert result.exit_code != 0
+    assert "Cannot register archex MCP" in result.output
+    assert "uv tool install --force 'archex[mcp]'" in result.output
+    assert "--allow-missing-mcp" in result.output
+    assert (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8") == ""
+
+
+def test_install_client_allow_missing_mcp_runtime_writes_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib.util
+    from importlib.machinery import ModuleSpec
+
+    def missing_spec(name: str, package: str | None = None) -> ModuleSpec | None:
+        return None
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    codex_config = tmp_path / ".codex" / "config.toml"
+    codex_config.parent.mkdir()
+    codex_config.write_text("", encoding="utf-8")
+    monkeypatch.setattr(importlib.util, "find_spec", missing_spec)
+
+    result = CliRunner().invoke(cli, ["install-client", "codex", "--allow-missing-mcp"])
+
+    assert result.exit_code == 0, result.output
+    assert "[mcp_servers.archex]" in codex_config.read_text(encoding="utf-8")
+
+
+def test_install_client_discovers_agent_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text("", encoding="utf-8")
+    agent_file = repo / "CLAUDE.md"
+    agent_file.write_text("Hello\n", encoding="utf-8")
+
+    runner = CliRunner()
+    from unittest.mock import patch
+
+    with patch("archex.cli.install_client_cmd._is_interactive", return_value=True):
+        # Answer 'y' to install clients, 'y' to append guidance
+        result = runner.invoke(cli, ["install-client", str(repo)], input="y\ny\ny\n")
+
+    assert result.exit_code == 0
+    assert "Append archex MCP guidance to detected agent instruction files?" in result.output
+    assert str(agent_file) in result.output
+
+    content = agent_file.read_text(encoding="utf-8")
+    assert "<!-- archex:mcp-guidance start -->" in content
