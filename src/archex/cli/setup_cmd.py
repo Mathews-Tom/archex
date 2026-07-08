@@ -9,7 +9,13 @@ from typing import Any, Literal
 import click
 
 from archex.cli.indexing import run_indexing_and_get_summary
-from archex.client_setup import discover_agent_files, discover_clients
+from archex.client_setup import (
+    append_agent_guidance,
+    build_discovered_install_plans,
+    discover_agent_files,
+    discover_clients,
+    write_client_install_plan,
+)
 from archex.doctor import mcp_runtime_available
 from archex.metrics.policy import resolve_metrics_policy
 from archex.project import init_project
@@ -95,6 +101,52 @@ def apply_init_index(
     return {"init_index": actions}
 
 
+def apply_clients_guidance(
+    source: Path, preflight: PreflightState, dry_run: bool, clients_flag: bool | None
+) -> dict[str, list[dict[str, str]]]:
+    """Apply MCP client registration and agent guidance."""
+    actions: list[dict[str, str]] = []
+
+    if not preflight.mcp_runtime_available:
+        actions.append({"type": "client_install", "status": "skipped_mcp_unstartable"})
+    elif clients_flag is False:
+        actions.append({"type": "client_install", "status": "skipped_by_flag"})
+    else:
+        clients = discover_clients(source)
+        plans = build_discovered_install_plans(clients, source)
+        if not plans:
+            actions.append({"type": "client_install", "status": "skipped_no_clients"})
+        else:
+            for plan in plans:
+                action = {
+                    "type": "client_install",
+                    "client": plan.client,
+                    "status": "planned" if dry_run else "executed",
+                }
+                actions.append(action)
+                if not dry_run:
+                    try:
+                        write_client_install_plan(plan)
+                    except ValueError:
+                        action["status"] = "skipped_already_configured"
+
+    agent_files = discover_agent_files(source)
+    if not agent_files:
+        actions.append({"type": "agent_guidance", "status": "skipped_no_files"})
+    else:
+        for agent_file in agent_files:
+            action = {
+                "type": "agent_guidance",
+                "file": str(agent_file),
+                "status": "planned" if dry_run else "executed",
+            }
+            actions.append(action)
+            if not dry_run and not append_agent_guidance(agent_file):
+                action["status"] = "skipped_already_present"
+
+    return {"clients_guidance": actions}
+
+
 @click.command("setup")
 @click.argument(
     "source",
@@ -150,6 +202,9 @@ def setup_cmd(
         plan: dict[str, Any] = {
             "preflight": asdict(preflight),
             "planned_actions": actions,
+            "clients_guidance": apply_clients_guidance(
+                source, preflight, dry_run=True, clients_flag=clients
+            )["clients_guidance"],
         }
         click.echo(json.dumps(plan, indent=2))
         return
@@ -170,12 +225,23 @@ def setup_cmd(
             click.echo("- Refresh stale index")
         else:
             click.echo("- Index is fresh (skipped)")
+
+        click.echo("--- Clients & Agent Guidance ---")
+        cg_actions = apply_clients_guidance(source, preflight, dry_run=True, clients_flag=clients)[
+            "clients_guidance"
+        ]
+        for action in cg_actions:
+            name = action.get("client") or action.get("file") or action["type"]
+            click.echo(f"- {name}: {action['status']}")
         return
     if yes:
         click.echo("--- Executing Setup ---")
         results = apply_init_index(source, preflight, dry_run=False)
-        for action in results["init_index"]:
-            click.echo(f"- {action['type']}: {action['status']}")
+        cg_results = apply_clients_guidance(source, preflight, dry_run=False, clients_flag=clients)
+        results.update(cg_results)
+        for action in results["init_index"] + results["clients_guidance"]:
+            name = action.get("client") or action.get("file") or action["type"]
+            click.echo(f"- {name}: {action['status']}")
         return
 
     click.echo("Interactive mode not fully implemented. Use --dry-run or --yes.")
