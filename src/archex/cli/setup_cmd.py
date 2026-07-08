@@ -75,9 +75,9 @@ def run_preflight(source: Path) -> PreflightState:
 
 def apply_init_index(
     source: Path, preflight: PreflightState, dry_run: bool
-) -> dict[str, list[dict[str, str]]]:
+) -> dict[str, list[dict[str, str | bool]]]:
     """Apply project init and conditional indexing."""
-    actions: list[dict[str, str]] = []
+    actions: list[dict[str, str | bool]] = []
 
     if not preflight.has_dot_archex:
         actions.append({"type": "init", "status": "planned" if dry_run else "executed"})
@@ -106,22 +106,31 @@ def apply_init_index(
 
 def apply_clients_guidance(
     source: Path, preflight: PreflightState, dry_run: bool, clients_flag: bool | None
-) -> dict[str, list[dict[str, str]]]:
-    """Apply MCP client registration and agent guidance."""
-    actions: list[dict[str, str]] = []
+) -> dict[str, list[dict[str, str | bool]]]:
+    """Apply MCP client registration and agent guidance.
+
+    Both registration and guidance are opt-in: an unset ``clients_flag``
+    (``None``, e.g. ``setup --yes`` without ``--clients``) skips both, the
+    same way ``apply_metrics_hooks`` treats an unset ``--metrics``/``--hooks``
+    flag as skip rather than a silent default-on write.
+    """
+    actions: list[dict[str, str | bool]] = []
 
     if not preflight.mcp_runtime_available:
+        should_configure_clients = False
         actions.append({"type": "client_install", "status": "skipped_mcp_unstartable"})
-    elif clients_flag is False:
+    elif not clients_flag:
+        should_configure_clients = False
         actions.append({"type": "client_install", "status": "skipped_by_flag"})
     else:
+        should_configure_clients = True
         clients = discover_clients(source)
         plans = build_discovered_install_plans(clients, source)
         if not plans:
             actions.append({"type": "client_install", "status": "skipped_no_clients"})
         else:
             for plan in plans:
-                action = {
+                action: dict[str, str | bool] = {
                     "type": "client_install",
                     "client": plan.client,
                     "status": "planned" if dry_run else "executed",
@@ -133,19 +142,29 @@ def apply_clients_guidance(
                     except ValueError:
                         action["status"] = "skipped_already_configured"
 
-    agent_files = discover_agent_files(source)
-    if not agent_files:
-        actions.append({"type": "agent_guidance", "status": "skipped_no_files"})
-    else:
-        for agent_file in agent_files:
-            action = {
+    if not should_configure_clients:
+        actions.append(
+            {
                 "type": "agent_guidance",
-                "file": str(agent_file),
-                "status": "planned" if dry_run else "executed",
+                "status": "skipped_mcp_unstartable"
+                if not preflight.mcp_runtime_available
+                else "skipped_by_flag",
             }
-            actions.append(action)
-            if not dry_run and not append_agent_guidance(agent_file):
-                action["status"] = "skipped_already_present"
+        )
+    else:
+        agent_files = discover_agent_files(source)
+        if not agent_files:
+            actions.append({"type": "agent_guidance", "status": "skipped_no_files"})
+        else:
+            for agent_file in agent_files:
+                action: dict[str, str | bool] = {
+                    "type": "agent_guidance",
+                    "file": str(agent_file),
+                    "status": "planned" if dry_run else "executed",
+                }
+                actions.append(action)
+                if not dry_run and not append_agent_guidance(agent_file):
+                    action["status"] = "skipped_already_present"
 
     return {"clients_guidance": actions}
 
@@ -197,6 +216,18 @@ def apply_metrics_hooks(
                     write_hook_install_plan(plan)
 
     return {"metrics_hooks": actions}
+
+
+def print_final_summary(
+    results: dict[str, list[dict[str, str | bool]]], preflight: PreflightState
+) -> None:
+    click.echo("\n--- Setup Complete ---")
+    click.echo("Your archex project is ready to use.")
+    click.echo("\nNext commands:")
+    click.echo('  archex query "How does this work?"')
+    if not preflight.mcp_runtime_available:
+        click.echo("\nNote: MCP clients cannot be used until the 'mcp' extra is installed.")
+        click.echo("Fix for uv tool users:\n  uv tool install --force 'archex[mcp]'")
 
 
 @click.command("setup")
@@ -309,7 +340,73 @@ def setup_cmd(
         ):
             name = action.get("client") or action.get("file") or action["type"]
             click.echo(f"- {name}: {action['status']}")
+        print_final_summary(results, preflight)
         return
 
-    click.echo("Interactive mode not fully implemented. Use --dry-run or --yes.")
-    sys.exit(1)
+    click.echo("\n--- archex Setup ---")
+    results: dict[str, list[dict[str, str | bool]]] = {
+        "init_index": [],
+        "clients_guidance": [],
+        "metrics_hooks": [],
+    }
+
+    if not preflight.has_dot_archex:
+        if click.confirm("Initialize archex repository?", default=True):
+            init_project(str(source))
+            results["init_index"].append({"type": "init", "status": "executed"})
+        else:
+            results["init_index"].append({"type": "init", "status": "skipped_interactive"})
+    else:
+        click.echo("Repository already initialized.")
+        results["init_index"].append({"type": "init", "status": "skipped_exists"})
+
+    if not preflight.has_index or not preflight.is_index_fresh:
+        if click.confirm("Build or refresh index?", default=True):
+            run_indexing_and_get_summary(
+                source=str(source),
+                splade=False,
+                module_prefilter=False,
+                allow_remote_code=False,
+                quantize_vectors=None,
+                quantize_bits=None,
+                export_artifact_path=None,
+            )
+            results["init_index"].append({"type": "index", "status": "executed"})
+        else:
+            results["init_index"].append({"type": "index", "status": "skipped_interactive"})
+    else:
+        click.echo("Index is fresh.")
+        results["init_index"].append({"type": "index", "status": "skipped_fresh"})
+
+    if not preflight.mcp_runtime_available:
+        click.echo("\nWarning: archex mcp runtime is not available.")
+        click.echo("MCP clients cannot be used until the 'mcp' extra is installed.")
+
+    # Clients
+    do_clients = clients
+    if do_clients is None and preflight.discovered_clients and preflight.mcp_runtime_available:
+        do_clients = click.confirm(
+            f"Configure {len(preflight.discovered_clients)} discovered MCP clients?",
+            default=True,
+        )
+
+    cg_results = apply_clients_guidance(source, preflight, dry_run=False, clients_flag=do_clients)
+    results["clients_guidance"].extend(cg_results["clients_guidance"])
+
+    # Metrics
+    do_metrics = metrics
+    if do_metrics is None:
+        click.echo("\nUsage metrics are anonymous and local-only.")
+        do_metrics = click.confirm("Enable local usage metrics?", default=False)
+
+    # Hooks
+    do_hooks = hooks
+    if not do_hooks and preflight.discovered_clients:
+        do_hooks = click.confirm("Install optional shell/editor hooks?", default=False)
+
+    mh_results = apply_metrics_hooks(
+        source, preflight, dry_run=False, metrics_flag=do_metrics, hooks_flag=do_hooks
+    )
+    results["metrics_hooks"].extend(mh_results["metrics_hooks"])
+
+    print_final_summary(results, preflight)
