@@ -2,8 +2,10 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
+from archex.cli import setup_cmd
 from archex.cli.main import cli
 
 
@@ -62,3 +64,94 @@ def test_setup_yes_executes(tmp_path: Path) -> None:
     assert "Executing Setup" in result.output
     assert "init: executed" in result.output
     assert "index: executed" in result.output
+
+
+def _mcp_runtime_available_stub(repo_root: Path) -> bool:
+    """Deterministic stand-in for archex.doctor.mcp_runtime_available in tests."""
+    return True
+
+
+def test_setup_yes_without_clients_skips_client_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init", str(repo)])
+    (repo / "hello.py").write_text("print('hello')")
+    codex_config = repo / ".codex" / "config.toml"
+    codex_config.parent.mkdir()
+    codex_config.write_text('existing = "value"\n', encoding="utf-8")
+    original_codex_config = codex_config.read_text(encoding="utf-8")
+    monkeypatch.setattr(setup_cmd, "mcp_runtime_available", _mcp_runtime_available_stub)
+
+    result = CliRunner().invoke(cli, ["setup", str(repo), "--yes"])
+
+    assert result.exit_code == 0
+    assert "init: executed" in result.output
+    assert "index: executed" in result.output
+    assert "client_install: skipped_by_flag" in result.output
+    assert codex_config.read_text(encoding="utf-8") == original_codex_config
+
+
+def test_setup_yes_with_clients_writes_codex_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init", str(repo)])
+    (repo / "hello.py").write_text("print('hello')")
+    codex_config = repo / ".codex" / "config.toml"
+    codex_config.parent.mkdir()
+    codex_config.write_text('existing = "value"\n', encoding="utf-8")
+    monkeypatch.setattr(setup_cmd, "mcp_runtime_available", _mcp_runtime_available_stub)
+
+    result = CliRunner().invoke(cli, ["setup", str(repo), "--yes", "--clients"])
+
+    assert result.exit_code == 0
+    assert "codex: executed" in result.output
+    written = codex_config.read_text(encoding="utf-8")
+    assert 'existing = "value"' in written
+    assert "[mcp_servers.archex]" in written
+
+
+def test_setup_yes_without_clients_does_not_append_agent_guidance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init", str(repo)])
+    (repo / "hello.py").write_text("print('hello')")
+    agents_file = repo / "AGENTS.md"
+    agents_file.write_text("# Existing project notes\n", encoding="utf-8")
+    original_agents_file = agents_file.read_text(encoding="utf-8")
+    monkeypatch.setattr(setup_cmd, "mcp_runtime_available", _mcp_runtime_available_stub)
+
+    result = CliRunner().invoke(cli, ["setup", str(repo), "--yes"])
+
+    assert result.exit_code == 0
+    assert agents_file.read_text(encoding="utf-8") == original_agents_file
+
+
+def test_setup_yes_with_clients_appends_agent_guidance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init", str(repo)])
+    (repo / "hello.py").write_text("print('hello')")
+    agents_file = repo / "AGENTS.md"
+    original_content = "# Existing project notes\n"
+    agents_file.write_text(original_content, encoding="utf-8")
+    monkeypatch.setattr(setup_cmd, "mcp_runtime_available", _mcp_runtime_available_stub)
+
+    result = CliRunner().invoke(cli, ["setup", str(repo), "--yes", "--clients"])
+
+    assert result.exit_code == 0
+    updated = agents_file.read_text(encoding="utf-8")
+    assert updated.startswith(original_content)
+    assert "<!-- archex:mcp-guidance start -->" in updated
+    assert updated != original_content
