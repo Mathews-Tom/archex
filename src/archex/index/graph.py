@@ -135,7 +135,9 @@ class DependencyGraph:
                             kind=EdgeKind.IMPORTS,
                             location=f"{file_path}:{imp.line}",
                             confidence=EdgeConfidence.AMBIGUOUS,
-                            evidence=[f"unresolved import {imp.module!r} at {file_path}:{imp.line}"],
+                            evidence=[
+                                f"unresolved import {imp.module!r} at {file_path}:{imp.line}"
+                            ],
                         ),
                     )
 

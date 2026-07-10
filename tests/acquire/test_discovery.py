@@ -95,7 +95,7 @@ def test_discover_custom_ignores(tmp_path: Path) -> None:
 
 def test_discover_nonexistent_path() -> None:
     with pytest.raises(AcquireError, match="does not exist"):
-        discover_files(Path("/nonexistent/repo/path")).files
+        discover_files(Path("/nonexistent/repo/path"))
 
 
 def test_detect_language_python() -> None:
@@ -207,7 +207,7 @@ def test_git_ls_files_called_process_error(tmp_path: Path) -> None:
         patch("subprocess.run", side_effect=exc),
         pytest.raises(AcquireError, match="git ls-files failed"),
     ):
-        discover_files(repo).files
+        discover_files(repo)
 
 
 def test_git_ls_files_timeout_expired(tmp_path: Path) -> None:
@@ -221,7 +221,7 @@ def test_git_ls_files_timeout_expired(tmp_path: Path) -> None:
         patch("subprocess.run", side_effect=exc),
         pytest.raises(AcquireError, match="timed out"),
     ):
-        discover_files(repo).files
+        discover_files(repo)
 
 
 def test_git_ls_files_ghost_path_skipped(tmp_path: Path) -> None:

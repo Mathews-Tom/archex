@@ -178,7 +178,11 @@ def _full_index(
         timing.acquire_ms = _elapsed_ms(t_acq)
     try:
         t_parse = time.perf_counter()
-        discovery = discover_files(repo_path, languages=config.languages, max_file_size=config.max_file_size)
+        discovery = discover_files(
+            repo_path,
+            languages=config.languages,
+            max_file_size=config.max_file_size,
+        )
         files = discovery.files
         exclusions = discovery.exclusions
         engine = TreeSitterEngine()
@@ -294,6 +298,7 @@ def _full_index(
 
             if config.cache:
                 from archex.models import IndexGenerationManifest
+
                 commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
                 identity = source.url or source.local_path or ""
                 store.set_metadata("commit_hash", commit)
@@ -301,7 +306,7 @@ def _full_index(
                 store.set_metadata("indexed_at", str(time.time()))
                 _set_working_tree_signature(store, repo_path, config)
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
-                
+
                 manifest = IndexGenerationManifest(
                     version="1.0.0",
                     created_at=str(time.time()),
@@ -496,9 +501,11 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                 raise
 
         total_files = len(
-            discover_files(repo_path,
-            languages=config.languages,
-            max_file_size=config.max_file_size,).files
+            discover_files(
+                repo_path,
+                languages=config.languages,
+                max_file_size=config.max_file_size,
+            ).files
         )
         change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
         if change_ratio >= config.delta_threshold:
@@ -1349,7 +1356,11 @@ def analyze(
         timing.acquire_ms = acquire_ms
     try:
         t1 = time.perf_counter()
-        files = discover_files(repo_path, languages=config.languages, max_file_size=config.max_file_size).files
+        files = discover_files(
+            repo_path,
+            languages=config.languages,
+            max_file_size=config.max_file_size,
+        ).files
         logger.info("Discovered %d files in %.0fms", len(files), _elapsed_ms(t1))
 
         engine = TreeSitterEngine()
@@ -2043,7 +2054,11 @@ def query(
         )
     try:
         t2 = time.perf_counter()
-        files = discover_files(repo_path, languages=config.languages, max_file_size=config.max_file_size).files
+        files = discover_files(
+            repo_path,
+            languages=config.languages,
+            max_file_size=config.max_file_size,
+        ).files
         logger.info("Discovered %d files in %.0fms", len(files), _elapsed_ms(t2))
 
         engine = TreeSitterEngine()

@@ -43,6 +43,7 @@ class EdgeKind(StrEnum):
     EXPORTS = "exports"
     CO_DIRECTORY = "co_directory"
 
+
 class EdgeConfidence(StrEnum):
     EXTRACTED = "extracted"
     HEURISTIC = "heuristic"
@@ -311,6 +312,7 @@ class DiscoveryResult(BaseModel):
     files: list[DiscoveredFile]
     exclusions: list[dict[str, Any]]
 
+
 class Parameter(BaseModel):
     name: str
     type_annotation: str | None = None
@@ -370,6 +372,7 @@ class ParsedFile(BaseModel):
     producer_name: str | None = None
     producer_version: str | None = None
     evidence: list[str] = []
+
 
 class FileChange(BaseModel):
     """A single file change between two commits."""
@@ -431,6 +434,7 @@ class DeltaMeta(BaseModel):
 # ---------------------------------------------------------------------------
 # Index models
 # ---------------------------------------------------------------------------
+
 
 class IndexGenerationManifest(BaseModel):
     version: str

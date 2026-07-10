@@ -190,12 +190,14 @@ class CacheManager:
             tmp_dest = dest.with_name(f".{dest.name}.{time.time_ns()}.tmp")
             try:
                 shutil.copy2(str(source_db), str(tmp_dest))
-                
+
                 # Move sidecars
                 if sidecars:
                     for source_sidecar, dest_sidecar in sidecars.items():
                         if source_sidecar.resolve() != dest_sidecar.resolve():
-                            tmp_sidecar = dest_sidecar.with_name(f".{dest_sidecar.name}.{time.time_ns()}.tmp")
+                            tmp_sidecar = dest_sidecar.with_name(
+                                f".{dest_sidecar.name}.{time.time_ns()}.tmp"
+                            )
                             shutil.copy2(str(source_sidecar), str(tmp_sidecar))
                             tmp_sidecar.replace(dest_sidecar)
 
@@ -203,7 +205,7 @@ class CacheManager:
             finally:
                 if tmp_dest.exists():
                     tmp_dest.unlink()
-        
+
         meta = self.meta_path(key)
         meta_data: dict[str, Any] = {
             "cache_key": key,

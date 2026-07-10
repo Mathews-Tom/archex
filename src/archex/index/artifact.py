@@ -503,7 +503,11 @@ def sync_imported_artifact(
             )
 
         total_files = len(
-            discover_files(repo_root, languages=config.languages, max_file_size=config.max_file_size).files
+            discover_files(
+                repo_root,
+                languages=config.languages,
+                max_file_size=config.max_file_size,
+            ).files
         )
         change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
 
