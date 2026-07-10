@@ -112,6 +112,26 @@ def test_init_project_force_reset_removes_existing_state(tmp_path: Path) -> None
     assert result.settings_written is True
     assert not generated.exists()
     assert (repo / ".archex" / "settings.toml").exists()
+def test_reset_project_clears_active_wal_and_shm(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    init_project(repo)
+    project_dir = repo / ".archex"
+    index = project_dir / "index.db"
+    wal = project_dir / "index.db-wal"
+    shm = project_dir / "index.db-shm"
+    index.write_text("db", encoding="utf-8")
+    wal.write_text("wal", encoding="utf-8")
+    shm.write_text("shm", encoding="utf-8")
+    
+    result = reset_project(repo, force=True)
+    
+    assert result.removed_all is False
+    assert not index.exists()
+    assert not wal.exists()
+    assert not shm.exists()
+    assert wal in result.removed_paths
+    assert shm in result.removed_paths
+
 
 
 def test_reset_project_requires_force(tmp_path: Path) -> None:
