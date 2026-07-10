@@ -320,3 +320,28 @@ class TestRunDeltaBenchmark:
         after = {p.name for p in Path(tempfile.gettempdir()).glob("archex-delta-cache-*")}
 
         assert after == before, f"leaked scratch dirs after exception: {after - before}"
+
+    def test_cleans_up_scratch_cache_dir_on_exception_after_full_store_opens(
+        self, tmp_path: Path
+    ) -> None:
+        """A failure after full_store opens (but before its own close()) must not leak either."""
+        repo, base_commit, delta_commit = _make_delta_repo(tmp_path)
+        task = DeltaBenchmarkTask(
+            task_id="cleanup_exception_full_store_test",
+            repo=".",
+            base_commit=base_commit,
+            delta_commit=delta_commit,
+        )
+
+        before = {p.name for p in Path(tempfile.gettempdir()).glob("archex-delta-cache-*")}
+        with (
+            patch(
+                "archex.index.store.IndexStore.get_file_metadata",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            run_delta_benchmark(task, repo)
+        after = {p.name for p in Path(tempfile.gettempdir()).glob("archex-delta-cache-*")}
+
+        assert after == before, f"leaked scratch dirs after exception: {after - before}"
