@@ -1214,7 +1214,6 @@ def _bm25_search_with_boosts(
     return results, path_boost, symbol_boost, module_boost, expanded_question, provenance
 
 
-
 def _cached_vectors_by_content_hash(
     npz_path: Path,
     chunks: list[CodeChunk],
@@ -2336,7 +2335,9 @@ def query(
                         modules_miss,
                         index_config,
                     )
-                    search_results = bm25_miss_raw + path_boost_miss + symbol_seeds_miss + module_boost_miss
+                    search_results = (
+                        bm25_miss_raw + path_boost_miss + symbol_seeds_miss + module_boost_miss
+                    )
                 else:
                     search_results = []
                     path_boost = []
