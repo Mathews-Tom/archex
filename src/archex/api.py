@@ -947,30 +947,32 @@ _INDEX_QUERY_EXPANSIONS = (
 )
 
 
-def _expand_retrieval_question(question: str) -> str:
+def _expand_retrieval_question(question: str) -> tuple[str, dict[str, str]]:
     """Add code-level terms for retrieval architecture queries.
 
-    Natural-language architecture questions often use product terms such as
-    "query pipeline" while the implementation files use algorithm and assembly
-    names. Expand only from known retrieval terms so ordinary symbol lookups do
-    not inherit broad search vocabulary.
+    Returns a tuple of (expanded_question, provenance_dict).
     """
     import re
 
     raw_terms = {w.lower() for w in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", question)}
     expansions: list[str] = []
+    provenance: dict[str, str] = {}
+
     for term, candidates in _RETRIEVAL_QUERY_EXPANSIONS.items():
         if term not in raw_terms:
             continue
         expansions.extend(candidates)
+        provenance[term] = ",".join(candidates)
 
     if {"query", "pipeline"} <= raw_terms:
         expansions.extend(_QUERY_PIPELINE_EXPANSIONS)
+        provenance["query pipeline"] = ",".join(_QUERY_PIPELINE_EXPANSIONS)
     if "index" in raw_terms:
         expansions.extend(_INDEX_QUERY_EXPANSIONS)
+        provenance["index"] = ",".join(_INDEX_QUERY_EXPANSIONS)
 
     if not expansions:
-        return question
+        return question, {}
 
     existing = {w.lower() for w in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", question)}
     ordered_unique: list[str] = []
@@ -982,8 +984,8 @@ def _expand_retrieval_question(question: str) -> str:
         ordered_unique.append(term)
 
     if not ordered_unique:
-        return question
-    return f"{question} {' '.join(ordered_unique)}"
+        return question, {}
+    return f"{question} {' '.join(ordered_unique)}", provenance
 
 
 def _file_path_boost(
@@ -1172,36 +1174,45 @@ def _bm25_search_with_boosts(
     list[tuple[CodeChunk, float]],
     list[tuple[CodeChunk, float]],
     list[tuple[CodeChunk, float]],
+    str,
+    dict[str, str],
 ]:
     """Run BM25 search plus candidate-pool boosts.
 
     Returns retrieval legs as separate lists so
     callers can record individual counts for observability, then combine them.
+    Also returns the expanded question and its provenance.
     """
-    expanded_question = _expand_retrieval_question(question)
+    expanded_question, provenance = _expand_retrieval_question(question)
     results = bm25.search(expanded_question, top_k=top_k)
     bm25_ids = {c.id for c, _ in results}
     max_bm25 = max((s for _, s in results), default=1.0)
     path_boost = _file_path_boost(
         store,
-        expanded_question,
         bm25_ids,
-        max_bm25_score=max_bm25,
-    )
-    all_existing = bm25_ids | {c.id for c, _ in path_boost}
-    symbol_seeds = [
-        (c, s)
-        for c, s in _symbol_search_seeds(store, expanded_question, max_bm25_score=max_bm25)
-        if c.id not in all_existing
-    ]
-    module_boost = _module_prefilter_boosts(
-        modules if index_config.module_prefilter else [],
+        max_bm25,
+        question,
         all_chunks,
-        expanded_question,
-        all_existing | {c.id for c, _ in symbol_seeds},
-        max_bm25_score=max_bm25,
+        index_config.path_boost_multiplier,
     )
-    return results, path_boost, symbol_seeds, module_boost
+    symbol_boost = _symbol_search_seeds(
+        store,
+        bm25_ids,
+        max_bm25,
+        question,
+        all_chunks,
+        index_config.symbol_boost_multiplier,
+    )
+    module_boost = _module_prefilter_boosts(
+        store,
+        modules,
+        bm25_ids,
+        max_bm25,
+        question,
+        index_config.module_boost_multiplier,
+    )
+    return results, path_boost, symbol_boost, module_boost, expanded_question, provenance
+
 
 
 def _cached_vectors_by_content_hash(
@@ -1931,6 +1942,8 @@ def query(
                             path_boost,
                             symbol_seeds,
                             module_boost,
+                            expanded_query,
+                            expansion_prov,
                         ) = _bm25_search_with_boosts(
                             bm25,
                             store,
@@ -2026,6 +2039,8 @@ def query(
                     rerank_candidate_limit=index_config.rerank_candidate_limit,
                     apply_intent_budget=False,
                 )
+                bundle.retrieval_metadata.expanded_query = expanded_query
+                bundle.retrieval_metadata.expansion_provenance = expansion_prov
                 return _finalize_context_bundle(
                     bundle,
                     label="cached",
@@ -2306,10 +2321,12 @@ def query(
                 )
                 if index_config.bm25:
                     (
-                        _bm25_raw,
-                        path_boost,
+                        bm25_miss_raw,
+                        path_boost_miss,
                         symbol_seeds_miss,
                         module_boost_miss,
+                        expanded_query_miss,
+                        expansion_prov_miss,
                     ) = _bm25_search_with_boosts(
                         bm25,
                         store,
@@ -2319,7 +2336,7 @@ def query(
                         modules_miss,
                         index_config,
                     )
-                    search_results = _bm25_raw + path_boost + symbol_seeds_miss + module_boost_miss
+                    search_results = bm25_miss_raw + path_boost_miss + symbol_seeds_miss + module_boost_miss
                 else:
                     search_results = []
                     path_boost = []
@@ -2407,8 +2424,9 @@ def query(
         finally:
             store.close()
 
+        bundle.retrieval_metadata.expanded_query = expanded_query_miss
+        bundle.retrieval_metadata.expansion_provenance = expansion_prov_miss
         return _finalize_context_bundle(
-            bundle,
             label="",
             started_at=t0,
             timing=timing,

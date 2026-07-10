@@ -99,6 +99,8 @@ def build_context_receipt(
     )[:_MAX_RECEIPT_INCLUDED_EDGES]
     return ContextReceipt(
         query=bundle.query,
+        expanded_query=bundle.retrieval_metadata.expanded_query,
+        expansion_provenance=bundle.retrieval_metadata.expansion_provenance,
         token_budget=ContextReceiptTokenBudget(
             requested=bundle.token_budget,
             consumed=bundle.token_count,

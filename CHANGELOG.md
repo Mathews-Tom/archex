@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **M1: Benchmark and runtime measurements distinguished timing and retained provenance.** Benchmark metric models (`QueryTiming`, `PipelineTiming`) explicitly separate cold from warm timing phases, preserving `n/a` for unmeasured operations rather than inventing fallback values. Output artifacts and reporters record complete provenance (`BenchmarkProvenance`) including engine version, system profile, hardware, and runtime configuration. Production expansion logic (`_expand_retrieval_question`) propagates generalization provenance without hardcoding benchmark-specific vocabulary.
+
+
 ## [0.19.2] - 2026-07-11
 
 ### Fixed
