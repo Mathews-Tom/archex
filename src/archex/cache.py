@@ -64,10 +64,10 @@ class CacheManager:
         repo maps to the same cache key, regardless of temp clone directory.
         """
         source_stable_identity = source.stable_identity
-        local_identity = str(Path(source.local_path).resolve().absolute()) if source.local_path else ""
-        identity = (
-            stable_identity or source_stable_identity or source.url or local_identity
+        local_identity = (
+            str(Path(source.local_path).resolve().absolute()) if source.local_path else ""
         )
+        identity = stable_identity or source_stable_identity or source.url or local_identity
         if source_stable_identity and stable_identity is None:
             return hashlib.sha256(identity.encode()).hexdigest()
         commit = (

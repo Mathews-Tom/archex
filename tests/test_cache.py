@@ -17,21 +17,23 @@ from archex.models import RepoSource
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
 def test_cache_key_local_path_equivalence(cache: CacheManager, tmp_path: Path) -> None:
     """Paths pointing to the same resolved location yield the same cache key."""
     import os
-    
+
     # Setup: tmp_path / "actual_dir"
     actual_dir = tmp_path / "actual_dir"
     actual_dir.mkdir()
-    
+
     # Create a symlink to actual_dir
     symlink_dir = tmp_path / "symlink_dir"
     os.symlink(actual_dir, symlink_dir)
-    
+
     s1 = RepoSource(local_path=str(actual_dir))
     s2 = RepoSource(local_path=str(symlink_dir))
-    
+
     assert cache.cache_key(s1) == cache.cache_key(s2)
 
 
@@ -645,6 +647,7 @@ class TestStableIdentity:
         with patch.object(CacheManager, "git_head", return_value=None):
             key = cm.cache_key(source)
         import pathlib
+
         local_identity = str(pathlib.Path("/home/user/myproject").resolve().absolute())
         expected = hashlib.sha256(local_identity.encode()).hexdigest()
         assert key == expected
