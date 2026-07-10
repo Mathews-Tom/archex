@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import logging
+import platform
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from archex import __version__
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import (
+    BenchmarkProvenance,
     BenchmarkReport,
     BenchmarkResult,
     BenchmarkRetrievalOptions,
@@ -26,6 +30,7 @@ from archex.benchmark.strategies import (
     reset_benchmark_retrieval_options,
     set_benchmark_retrieval_options,
 )
+from archex.cache import CacheManager
 from archex.exceptions import ArchexIndexError, BenchmarkCloneError
 
 if TYPE_CHECKING:
@@ -307,6 +312,38 @@ def run_benchmark(
                         result.task_completion_result == baseline_completion
                     )
 
+        provenance_config: dict[str, str | bool | int | float | list[str]] = {
+            "splade": retrieval_options.splade,
+            "module_prefilter": retrieval_options.module_prefilter,
+            "embedder": retrieval_options.embedder,
+            "allow_remote_code": retrieval_options.allow_remote_code,
+            "freshness": retrieval_options.freshness,
+            "chunker": retrieval_options.chunker,
+            "symbolic_rerank_mode": retrieval_options.symbolic_rerank_mode,
+            "symbolic_rerank_alpha": retrieval_options.symbolic_rerank_alpha,
+            "summary_sidecar_enabled": retrieval_options.summary_sidecar_path is not None,
+            "token_budget": task.token_budget,
+            "languages": task.languages or "all",
+            "include_paths": sorted(task.include_paths),
+            "strategies": [strategy.value for strategy in strategies],
+        }
+        if retrieval_options.bm25_chunker is not None:
+            provenance_config["bm25_chunker"] = retrieval_options.bm25_chunker
+        if retrieval_options.vector_chunker is not None:
+            provenance_config["vector_chunker"] = retrieval_options.vector_chunker
+        if retrieval_options.rerank_model is not None:
+            provenance_config["rerank_model"] = retrieval_options.rerank_model
+        if retrieval_options.rerank_candidate_limit is not None:
+            provenance_config["rerank_candidate_limit"] = retrieval_options.rerank_candidate_limit
+
+        provenance = BenchmarkProvenance(
+            archex_version=__version__,
+            commit=CacheManager.git_head(str(repo_path)) or task.commit,
+            generation_time=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            config=provenance_config,
+            hardware=platform.platform(),
+        )
+
         return BenchmarkReport(
             task_id=task.task_id,
             repo=task.repo,
@@ -321,6 +358,7 @@ def run_benchmark(
                 [result.wall_time_ms for result in results if result.wall_time_ms is not None],
                 0.95,
             ),
+            provenance=provenance,
         )
     finally:
         reset_benchmark_retrieval_options(token)

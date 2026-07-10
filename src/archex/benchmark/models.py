@@ -590,6 +590,17 @@ class BenchmarkResult(BaseModel):
     diversity_deselected_regions: int | None = None
 
 
+class BenchmarkProvenance(BaseModel):
+    """Reproducible run provenance for benchmark reports."""
+
+    archex_version: str
+    commit: str | None = None
+    generation_time: str
+    config: dict[str, str | bool | int | float | list[str]] = {}
+    hardware: str | None = None
+    sample_count: int = 1
+
+
 class BenchmarkReport(BaseModel):
     task_id: str
     repo: str
@@ -598,6 +609,7 @@ class BenchmarkReport(BaseModel):
     baseline_tokens: int
     median_latency_ms: float = 0.0
     p95_latency_ms: float = 0.0
+    provenance: BenchmarkProvenance | None = None
 
 
 class CompressionLayerResult(BaseModel):
