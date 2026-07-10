@@ -27,7 +27,8 @@ class ProjectStatus:
     chunks_indexed: int
     languages: dict[str, int]
     vector_index_available: bool
-    dogfood_latest_path: Path | None
+    chunks_fts: int = 0
+    dogfood_latest_path: Path | None = None
     error: str = ""
     metrics_savings: dict[str, int | float] | None = None
 
@@ -50,6 +51,7 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
             working_tree="unknown",
             files_indexed=0,
             chunks_indexed=0,
+            chunks_fts=0,
             languages={},
             vector_index_available=False,
             dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
@@ -66,6 +68,7 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
             working_tree="unknown",
             files_indexed=0,
             chunks_indexed=0,
+            chunks_fts=0,
             languages={},
             vector_index_available=False,
             dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
@@ -87,6 +90,7 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
             working_tree="unknown",
             files_indexed=0,
             chunks_indexed=0,
+            chunks_fts=0,
             languages={},
             vector_index_available=False,
             dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
@@ -99,6 +103,7 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
         files_indexed = store.get_file_count()
         chunks_indexed = store.get_chunk_count()
         languages = _language_counts(store.get_file_metadata())
+        chunks_fts = store.get_fts_chunk_count()
         needs_reindex = store.needs_reindex()
     except Exception as exc:
         return ProjectStatus(
@@ -111,6 +116,7 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
             working_tree="unknown",
             files_indexed=0,
             chunks_indexed=0,
+            chunks_fts=0,
             languages={},
             vector_index_available=False,
             dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
@@ -138,6 +144,7 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
         working_tree="clean" if current_signature == "clean" else "dirty",
         files_indexed=files_indexed,
         chunks_indexed=chunks_indexed,
+        chunks_fts=chunks_fts,
         languages=languages,
         vector_index_available=_vector_index_available(project),
         dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,

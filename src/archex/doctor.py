@@ -169,6 +169,13 @@ def _index_health_check(status: ProjectStatus) -> DoctorCheck:
     details = _status_details(status)
     if status.state == "fresh" or status.state in {"dirty", "stale", "needs_reindex"}:
         if status.files_indexed > 0 and status.chunks_indexed > 0:
+            if getattr(status, "chunks_fts", 0) != status.chunks_indexed:
+                return DoctorCheck(
+                    name="index_health",
+                    status="error",
+                    message="index is missing chunks_fts rows (BM25 broken). SQLite FTS5 is required for local offline capability.",
+                    details=details,
+                )
             return DoctorCheck(
                 name="index_health",
                 status="ok",
