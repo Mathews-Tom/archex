@@ -173,7 +173,10 @@ def _index_health_check(status: ProjectStatus) -> DoctorCheck:
                 return DoctorCheck(
                     name="index_health",
                     status="error",
-                    message="index is missing chunks_fts rows (BM25 broken). SQLite FTS5 is required for local offline capability.",
+                    message=(
+                        "index is missing chunks_fts rows (BM25 broken). "
+                        "SQLite FTS5 is required for local offline capability."
+                    ),
                     details=details,
                 )
             return DoctorCheck(
