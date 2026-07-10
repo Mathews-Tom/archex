@@ -43,6 +43,20 @@ _SCP_LIKE_RE = re.compile(r"^(?:[^/@\s]+@)?[^/\s:]+:")
 _BRANCH_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/-]*$")
 
 
+def is_remote_url(url: str) -> bool:
+    """True if url is an http(s) URL that clone_repo() should fetch remotely.
+
+    Case-insensitive scheme match — matches validate_url()'s own handling.
+    Every caller that decides "clone this vs. treat it as a local path"
+    (_acquire(), resolve_source()) must agree with validate_url() on this
+    exact question, or validate_url()'s hardening never reaches the real
+    call path: a string that fails a separately re-implemented, stricter
+    gate upstream never reaches validate_url() at all.
+    """
+    scheme_match = _URL_SCHEME_RE.match(url)
+    return scheme_match is not None and scheme_match.group(1).lower() in _ALLOWED_SCHEMES
+
+
 def validate_url(url: str) -> None:
     """Raise AcquireError unless url is http(s) or a genuine local filesystem path.
 
@@ -54,16 +68,11 @@ def validate_url(url: str) -> None:
     one pass, so a crafted RepoSource cannot reach a transport this function
     hasn't seen before.
     """
-    scheme_match = _URL_SCHEME_RE.match(url)
-    if scheme_match is not None:
-        if scheme_match.group(1).lower() in _ALLOWED_SCHEMES:
-            return
-        raise AcquireError(
-            f"Disallowed URL scheme in {url!r}: only http://, https://, and local paths are allowed"
-        )
+    if is_remote_url(url):
+        return
     if _WINDOWS_DRIVE_RE.match(url):
         return
-    if _TRANSPORT_HELPER_RE.match(url) or _SCP_LIKE_RE.match(url):
+    if _URL_SCHEME_RE.match(url) or _TRANSPORT_HELPER_RE.match(url) or _SCP_LIKE_RE.match(url):
         raise AcquireError(
             f"Disallowed URL scheme in {url!r}: only http://, https://, and local paths are allowed"
         )

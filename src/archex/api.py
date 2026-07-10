@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archex import precision as precision_api
-from archex.acquire import clone_repo, discover_files, open_local
+from archex.acquire import clone_repo, discover_files, is_remote_url, open_local
 from archex.analyze.decisions import infer_decisions
 from archex.analyze.interfaces import extract_interfaces
 from archex.analyze.modules import detect_modules
@@ -627,7 +627,7 @@ def _acquire(
     The cleanup_fn removes any temporary directory created for URL clones.
     For local paths, cleanup_fn is a no-op.
     """
-    if source.url and (source.url.startswith("http://") or source.url.startswith("https://")):
+    if source.url and is_remote_url(source.url):
         target_dir = tempfile.mkdtemp()
 
         def _url_cleanup() -> None:
