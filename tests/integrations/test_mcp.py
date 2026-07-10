@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -995,6 +997,65 @@ class TestGraphQueryHandlers:
             "pkg/models.py",
             "pkg/db.py",
         ]
+
+    def test_reexported_artifact_busts_stale_cache(self, tmp_path: Path) -> None:
+        """A long-running MCP daemon must not keep serving a pre-re-export snapshot.
+
+        `archex graph export` writes to a fixed, repeatedly-overwritten path; the
+        cached GraphQuery handle must be keyed on more than the path string or a
+        daemon that already answered a query for this path never sees the update.
+        """
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        first = json.loads(handle_graph_stats(str(artifact)))
+        assert first["content"]["nodes"] == 4
+
+        solo = file_node_id("solo.py")
+        smaller = ArchGraph(
+            project=GraphProject(name="mcp-graph", languages={"python": 1}, total_files=1),
+            metadata=GraphExportMetadata(archex_version="0.8.0"),
+            nodes=[
+                GraphNode(id=solo, type=GraphNodeType.FILE, label="solo.py", path="solo.py"),
+            ],
+            edges=[],
+        )
+        artifact.write_text(smaller.to_json(), encoding="utf-8")
+        # Force the mtime strictly forward so the write is observable even on
+        # filesystems/CI runners with coarse mtime resolution.
+        newer = time.time() + 5
+        os.utime(artifact, (newer, newer))
+
+        second = json.loads(handle_graph_stats(str(artifact)))
+        assert second["content"]["nodes"] == 1
+
+    def test_reexport_replaces_stale_entry_without_accumulating(self, tmp_path: Path) -> None:
+        """Repeated re-exports of one path must replace, not accumulate, cache slots.
+
+        A composite (path, hub_degree, token) cache key would let every re-export
+        of the same logical artifact occupy a fresh, never-superseded slot instead
+        of replacing the stale one for that (path, hub_degree) pair.
+        """
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        handle_graph_stats(str(artifact))
+        assert len(mcp_integration._graph_query_cache) == 1  # pyright: ignore[reportPrivateUsage]
+
+        for i in range(4):
+            solo = file_node_id(f"solo{i}.py")
+            graph = ArchGraph(
+                project=GraphProject(name="mcp-graph", languages={"python": 1}, total_files=1),
+                metadata=GraphExportMetadata(archex_version="0.8.0"),
+                nodes=[
+                    GraphNode(
+                        id=solo, type=GraphNodeType.FILE, label=f"solo{i}.py", path=f"solo{i}.py"
+                    ),
+                ],
+                edges=[],
+            )
+            artifact.write_text(graph.to_json(), encoding="utf-8")
+            newer = time.time() + 5 + i
+            os.utime(artifact, (newer, newer))
+            handle_graph_stats(str(artifact))
+
+        assert len(mcp_integration._graph_query_cache) == 1  # pyright: ignore[reportPrivateUsage]
 
 
 # ---------------------------------------------------------------------------

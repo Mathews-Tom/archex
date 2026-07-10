@@ -7,7 +7,7 @@ import json
 import logging
 import threading
 import time
-from functools import lru_cache
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -874,14 +874,73 @@ def handle_graph_hubs(
     )
 
 
-@lru_cache(maxsize=16)
+_GRAPH_QUERY_CACHE_MAXSIZE = 16
+_graph_query_cache: OrderedDict[tuple[str, int], tuple[tuple[int, int], GraphQuery]] = OrderedDict()
+_graph_query_cache_lock = threading.Lock()
+
+
+def _graph_artifact_cache_token(graph_path: str) -> tuple[int, int]:
+    """Cache-busting token for `_cached_graph_query`: (mtime_ns, size_bytes).
+
+    `graph_path` normally names a fixed, repeatedly re-exported project path
+    (`archex graph export` writes there). A long-running `archex mcp` process
+    would otherwise keep serving the first snapshot it loaded for that path
+    forever, even after the user re-exports fresh data. Keying the cache on
+    the artifact's mtime and size makes a re-export a cache miss. Pairing
+    size with mtime — both free from the same stat() call — narrows the
+    (unavoidable, filesystem-timestamp-resolution-dependent) collision
+    window: two re-exports landing within one mtime tick on a coarse
+    filesystem still typically differ in byte size. Falls back to (0, 0)
+    for a missing/unreadable path so the eventual `GraphArtifactError` from
+    `GraphQuery.from_artifact` still surfaces normally instead of raising
+    here.
+    """
+    try:
+        st = Path(graph_path).expanduser().resolve().stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (0, 0)
+
+
 def _cached_graph_query(graph_path: str, hub_degree: int) -> GraphQuery:
-    return GraphQuery.from_artifact(Path(graph_path).expanduser().resolve(), hub_degree=hub_degree)
+    """Return a cached GraphQuery for (graph_path, hub_degree), rebuilding on re-export.
+
+    Deliberately not a plain `functools.lru_cache`: keying on the artifact
+    token as part of the cache key (rather than checking it explicitly)
+    would let every re-export of the same path accumulate a new,
+    never-superseded lru_cache slot instead of replacing the stale one —
+    trading the staleness bug for a bounded-but-real memory-footprint
+    regression for exactly the frequent-re-export workflow this exists to
+    serve well. This cache holds at most one live GraphQuery per distinct
+    (graph_path, hub_degree) pair, evicting the least-recently-used pair
+    once more than `_GRAPH_QUERY_CACHE_MAXSIZE` distinct pairs are resident.
+    """
+    key = (graph_path, hub_degree)
+    token = _graph_artifact_cache_token(graph_path)
+    with _graph_query_cache_lock:
+        cached = _graph_query_cache.get(key)
+        if cached is not None and cached[0] == token:
+            _graph_query_cache.move_to_end(key)
+            return cached[1]
+
+    # Built outside the lock: from_artifact() parses a JSON artifact and
+    # builds adjacency indices, which must not serialize every concurrent
+    # graph-tool call across every repo behind one lock while it runs.
+    # A concurrent re-check for the same key is a redundant rebuild, not a
+    # correctness issue — whichever result is stored last simply wins.
+    query = GraphQuery.from_artifact(Path(graph_path).expanduser().resolve(), hub_degree=hub_degree)
+    with _graph_query_cache_lock:
+        _graph_query_cache[key] = (token, query)
+        _graph_query_cache.move_to_end(key)
+        while len(_graph_query_cache) > _GRAPH_QUERY_CACHE_MAXSIZE:
+            _graph_query_cache.popitem(last=False)
+    return query
 
 
 def clear_graph_query_cache() -> None:
     """Clear cached graph artifact handles used by MCP graph tools."""
-    _cached_graph_query.cache_clear()
+    with _graph_query_cache_lock:
+        _graph_query_cache.clear()
 
 
 def _graph_tool_response(
