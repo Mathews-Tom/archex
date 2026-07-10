@@ -112,6 +112,32 @@ def test_acquire_url_cleanup_safe_on_missing_dir() -> None:
     cleanup()
 
 
+def test_acquire_recognizes_uppercase_https_scheme() -> None:
+    """_acquire must route a case-insensitive http(s) scheme to clone_repo(),
+    not silently misroute it to the local-path branch.
+    """
+
+    def fake_clone(url: str, target: str) -> Path:
+        return Path(target)
+
+    source = RepoSource(url="HTTPS://example.com/repo.git")
+    with patch("archex.api.clone_repo", side_effect=fake_clone) as mock_clone:
+        _acquire(source)[3]()  # run cleanup to avoid leaking the mkdtemp() dir
+
+    mock_clone.assert_called_once()
+
+
+def test_acquire_rejects_non_http_scheme_without_reaching_clone_repo() -> None:
+    """A crafted non-http(s) URL (e.g. git's ext:: remote helper) must never
+    reach clone_repo(), regardless of which exception type surfaces.
+    """
+    source = RepoSource(url="ext::sh -c touch /tmp/pwned")
+    with patch("archex.api.clone_repo") as mock_clone, pytest.raises(ValueError):
+        _acquire(source)
+
+    mock_clone.assert_not_called()
+
+
 def _tmp_dirs() -> set[str]:
     return {p.name for p in Path(tempfile.gettempdir()).iterdir() if p.is_dir()}
 
