@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -230,27 +232,36 @@ class TestDeltaReporter:
 # ---------------------------------------------------------------------------
 
 
+def _make_delta_repo(tmp_path: Path) -> tuple[Path, str, str]:
+    """Create a 2-commit repo fixture for delta-benchmark tests.
+
+    Returns (repo_path, base_commit, delta_commit).
+    """
+    src = FIXTURES_DIR / "python_simple"
+    repo = tmp_path / "bench_repo"
+    shutil.copytree(src, repo)
+
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@archex.test")
+    _git(repo, "config", "user.name", "archex-test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    base_commit = _git_head(repo)
+
+    # Make a change: modify utils.py and add a new file
+    (repo / "utils.py").write_text("def updated_util(): return 42\n")
+    (repo / "extra.py").write_text("def extra_func(): pass\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "delta changes")
+    delta_commit = _git_head(repo)
+    return repo, base_commit, delta_commit
+
+
 @pytest.mark.slow
 class TestRunDeltaBenchmark:
     def test_delta_vs_full_correctness(self, tmp_path: Path) -> None:
         """Create a 2-commit repo, run delta benchmark, verify correctness."""
-        src = FIXTURES_DIR / "python_simple"
-        repo = tmp_path / "bench_repo"
-        shutil.copytree(src, repo)
-
-        _git(repo, "init")
-        _git(repo, "config", "user.email", "test@archex.test")
-        _git(repo, "config", "user.name", "archex-test")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "initial")
-        base_commit = _git_head(repo)
-
-        # Make a change: modify utils.py and add a new file
-        (repo / "utils.py").write_text("def updated_util(): return 42\n")
-        (repo / "extra.py").write_text("def extra_func(): pass\n")
-        _git(repo, "add", ".")
-        _git(repo, "commit", "-m", "delta changes")
-        delta_commit = _git_head(repo)
+        repo, base_commit, delta_commit = _make_delta_repo(tmp_path)
 
         task = DeltaBenchmarkTask(
             task_id="integration_test",
@@ -268,3 +279,44 @@ class TestRunDeltaBenchmark:
         assert result.delta_time_ms > 0
         assert result.full_reindex_time_ms > 0
         assert result.delta_meta is not None
+
+    def test_cleans_up_scratch_cache_dir_on_success(self, tmp_path: Path) -> None:
+        """run_delta_benchmark must not leak its archex-delta-cache- scratch dir."""
+
+        repo, base_commit, delta_commit = _make_delta_repo(tmp_path)
+        task = DeltaBenchmarkTask(
+            task_id="cleanup_test",
+            repo=".",
+            base_commit=base_commit,
+            delta_commit=delta_commit,
+        )
+
+        before = {p.name for p in Path(tempfile.gettempdir()).glob("archex-delta-cache-*")}
+        run_delta_benchmark(task, repo)
+        after = {p.name for p in Path(tempfile.gettempdir()).glob("archex-delta-cache-*")}
+
+        assert after == before, f"leaked scratch dirs: {after - before}"
+
+    def test_cleans_up_scratch_cache_dir_on_exception(self, tmp_path: Path) -> None:
+        """A mid-run failure must still remove the scratch cache dir and open stores."""
+
+        repo, base_commit, delta_commit = _make_delta_repo(tmp_path)
+        task = DeltaBenchmarkTask(
+            task_id="cleanup_exception_test",
+            repo=".",
+            base_commit=base_commit,
+            delta_commit=delta_commit,
+        )
+
+        before = {p.name for p in Path(tempfile.gettempdir()).glob("archex-delta-cache-*")}
+        with (
+            patch(
+                "archex.index.delta.compute_delta",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            run_delta_benchmark(task, repo)
+        after = {p.name for p in Path(tempfile.gettempdir()).glob("archex-delta-cache-*")}
+
+        assert after == before, f"leaked scratch dirs after exception: {after - before}"
