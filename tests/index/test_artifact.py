@@ -628,6 +628,7 @@ class TestSyncImportedArtifact:
     ) -> None:
         """A failure during the stale-artifact full-reindex fallback must not
         leak the fresh ephemeral store's scratch directory."""
+        import shutil
         import tempfile
 
         store = _build_store(python_simple_repo, tmp_path / "cache")
@@ -646,14 +647,35 @@ class TestSyncImportedArtifact:
         import_artifact(artifact_path, dest_db_path)
         config = Config(languages=["python"], cache=True, delta_threshold=0.5)
 
+        # _full_index()'s own cache.put() (forced on internally by
+        # _full_reindex_in_place's fallback_config) calls shutil.copy2 once
+        # before fresh_store is even bound; only the SECOND call is
+        # _full_reindex_in_place's own `shutil.copy2(fresh_db_path,
+        # dest_db_path)`, the one that actually exercises the guard under
+        # test. Failing indiscriminately on every call would trip the first
+        # one and never reach fresh_store's own try/finally at all.
+        real_copy2 = shutil.copy2
+        call_count = 0
+
+        def copy2_fail_on_second_call(*args: object, **kwargs: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise RuntimeError("boom")
+            return real_copy2(*args, **kwargs)  # type: ignore[arg-type]
+
         before = {p.name for p in Path(tempfile.gettempdir()).iterdir() if p.is_dir()}
         with (
-            patch("shutil.copy2", side_effect=RuntimeError("boom")),
+            patch("shutil.copy2", side_effect=copy2_fail_on_second_call),
             pytest.raises(RuntimeError, match="boom"),
         ):
             sync_imported_artifact(python_simple_repo, dest_db_path, config)
         after = {p.name for p in Path(tempfile.gettempdir()).iterdir() if p.is_dir()}
 
+        assert call_count >= 2, (
+            "expected the fault to fire on _full_reindex_in_place's own copy2 call, "
+            "not just the earlier cache.put() one"
+        )
         assert after == before, f"leaked scratch dirs: {after - before}"
 
 
