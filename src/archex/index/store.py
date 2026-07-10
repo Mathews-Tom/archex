@@ -759,6 +759,14 @@ class IndexStore:
         row = self._conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
         return int(row[0])
 
+    def get_fts_chunk_count(self) -> int:
+        """Return total number of chunks in the FTS store."""
+        try:
+            row = self._conn.execute("SELECT COUNT(*) FROM chunks_fts").fetchone()
+            return int(row[0])
+        except sqlite3.OperationalError:
+            return 0
+
     def get_file_count(self) -> int:
         """Return number of distinct files in the store."""
         row = self._conn.execute("SELECT COUNT(DISTINCT file_path) FROM chunks").fetchone()

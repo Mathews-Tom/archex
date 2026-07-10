@@ -219,7 +219,7 @@ def test_git_ls_files_timeout_expired(tmp_path: Path) -> None:
     exc = subprocess.TimeoutExpired("git", 30)
     with (
         patch("subprocess.run", side_effect=exc),
-        pytest.raises(AcquireError, match="timed out"),
+        pytest.raises(AcquireError, match="git ls-files timed out"),
     ):
         discover_files(repo)
 

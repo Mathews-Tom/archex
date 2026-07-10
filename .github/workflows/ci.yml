@@ -82,4 +82,8 @@ jobs:
       - name: Exercise core query path on a clean install
         run: |
           .smoke-venv/bin/archex index .
-          .smoke-venv/bin/archex query "how does archex score and rank retrieval candidates"
+          OUTPUT=$(.smoke-venv/bin/archex query "how does archex score and rank retrieval candidates")
+          if ! echo "$OUTPUT" | grep -qi "score"; then
+            echo "BM25 smoke integrity failed: no hit for scoring"
+            exit 1
+          fi

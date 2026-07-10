@@ -217,7 +217,12 @@ def _full_index(
         db_path = Path(tempfile.mkdtemp()) / "index.db"
         store = IndexStore(db_path, delete_dir_on_close=True)
         try:
+            bm25 = BM25Index(
+                store,
+                identifier_fragment_tokenization=effective_index_config.identifier_fragment_tokenization,
+            )
             store.insert_chunks(all_chunks)
+            bm25.build(all_chunks)
             chunk_surrogates = (
                 build_chunk_surrogates(
                     all_chunks,
