@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [0.19.1] - 2026-07-10
+
+### Fixed
+
+- **Ephemeral index-store scratch directories leaked on every warm-cache query.** `_ensure_index()`'s cache-hit path, both delta-index attempt stores, `_full_reindex_in_place()`'s fallback rebuild, and `sync_imported_artifact()` each opened an `IndexStore` backed by a `tempfile.mkdtemp()` scratch directory that was never reliably closed — the cache-hit path in particular runs on nearly every warm-cache `archex query`/`archex scout` call, so the leak accumulated on ordinary use, not just error paths. All five sites now close their store (and the scratch directory that closing triggers) on every exit path, including mid-pipeline exceptions and `KeyboardInterrupt`. `archex index`'s summary output also no longer reports an index location that the same cleanup path has already deleted.
+- **Delta-benchmark scratch cache directory never cleaned up.** `run_delta_benchmark()`'s `archex-delta-cache-` working directory, created via `tempfile.mkdtemp()` for isolated benchmark corpus copies, was never removed on any exit path. Now wrapped in try/finally alongside the existing cache-directory lifecycle.
+- **MCP graph-query results could go stale after a re-export.** The `archex mcp` daemon's cached graph-query handles (keyed by artifact path and mtime) were not invalidated when `archex graph export` rewrote an artifact at the same path within the same mtime coarseness window, letting a long-running daemon serve outdated graph data. Cache entries are now invalidated on artifact re-export and no longer accumulate unboundedly.
+
+### Security
+
+- **Git URL scheme allowlist hardened against scp-like and case-variant bypasses.** `archex`'s remote-acquisition path could reach `git clone` with a bare `user@host:path` scp-like address (bypassing the intended http(s)-only allowlist and reaching a real outbound SSH connection to an attacker-chosen host) or with leading/trailing whitespace around an otherwise-disallowed scheme. The real acquisition path (`_acquire()`/`resolve_source()`) now routes through the same hardened, case-insensitive scheme check that already existed but was previously bypassed by a duplicate, laxer gate ahead of it.
+- **Artifact decompression is now bounded against decompression bombs.** `lzma.decompress(memlimit=...)` only bounds decoder dictionary memory, not decompressed output size — a crafted low-preset artifact could expand a small compressed payload to hundreds of megabytes before the length check ever ran. Artifact import now enforces a maximum decompressed-size ceiling and rejects an oversized declared header length before attempting to read it.
+
+
 ## [0.19.0] - 2026-07-08
 
 ### Added
