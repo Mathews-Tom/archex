@@ -232,11 +232,9 @@ def compute_working_tree_delta(
             indexed_at = 0.0
         return compute_mtime_delta(repo_path, store, indexed_at)
 
-    current_files = discover_files(
-        repo_path,
-        languages=config.languages,
-        max_file_size=config.max_file_size,
-    )
+    current_files = discover_files(repo_path,
+    languages=config.languages,
+    max_file_size=config.max_file_size,).files
     current_states = compute_file_states(repo_path, current_files, previous=previous_states)
     previous_paths = set(previous_states)
     current_paths = set(current_states)
@@ -407,11 +405,9 @@ def apply_delta(
     new_surrogates = []
 
     if reprocess:
-        all_files = discover_files(
-            repo_path,
-            languages=config.languages,
-            max_file_size=config.max_file_size,
-        )
+        all_files = discover_files(repo_path,
+        languages=config.languages,
+        max_file_size=config.max_file_size,).files
         changed_files = [f for f in all_files if f.path in reprocess_set]
 
         if changed_files:
@@ -522,7 +518,7 @@ def compute_mtime_delta(
     file_meta = store.get_file_metadata()
     indexed_paths = {str(m["file_path"]) for m in file_meta}
 
-    current_files = discover_files(repo_path)
+    current_files = discover_files(repo_path).files
     current_paths = {f.path for f in current_files}
 
     changes: list[FileChange] = []

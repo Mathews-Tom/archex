@@ -5,10 +5,12 @@ from __future__ import annotations
 import codecs
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from archex.exceptions import AcquireError
+
+from archex.models import DiscoveredFile, DiscoveryResult
 from archex.languages import EXTENSION_LANGUAGE_MAP, UNKNOWN_LANGUAGE_ID
-from archex.models import DiscoveredFile
 
 EXTENSION_MAP: dict[str, str] = dict(EXTENSION_LANGUAGE_MAP)
 
@@ -71,7 +73,7 @@ def discover_files(
     languages: list[str] | None = None,
     ignores: list[str] | None = None,
     max_file_size: int = 10_000_000,
-) -> list[DiscoveredFile]:
+ ) -> DiscoveryResult:
     """Enumerate source files in repo_path.
 
     Uses `git ls-files` when a .git directory is present, otherwise falls back
@@ -105,23 +107,29 @@ def discover_files(
         raw_paths = [str(p.relative_to(repo_path)) for p in repo_path.rglob("*") if p.is_file()]
 
     discovered: list[DiscoveredFile] = []
+    exclusions: list[dict[str, Any]] = []
     for rel in raw_paths:
         if _matches_ignore(rel, effective_ignores):
+            exclusions.append({"path": rel, "reason": "ignored"})
             continue
 
         file_path = repo_path / rel
         if not file_path.is_file():
+            exclusions.append({"path": rel, "reason": "not_a_file"})
             continue
 
         lang = _detect_language(file_path)
         if lang is None:
             if languages is not None and UNKNOWN_LANGUAGE_ID not in languages:
+                exclusions.append({"path": rel, "reason": "language_filtered", "language": "unknown"})
                 continue
             if not _is_text_file(file_path):
+                exclusions.append({"path": rel, "reason": "binary"})
                 continue
             lang = UNKNOWN_LANGUAGE_ID
 
         if languages is not None and lang not in languages:
+            exclusions.append({"path": rel, "reason": "language_filtered", "language": lang})
             continue
 
         try:
@@ -130,6 +138,7 @@ def discover_files(
             size = 0
 
         if size > max_file_size:
+            exclusions.append({"path": rel, "reason": "too_large", "size": size})
             continue
 
         discovered.append(
@@ -141,4 +150,4 @@ def discover_files(
             )
         )
 
-    return discovered
+    return DiscoveryResult(files=discovered, exclusions=exclusions)

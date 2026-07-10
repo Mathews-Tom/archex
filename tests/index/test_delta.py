@@ -200,7 +200,7 @@ class TestApplyDelta:
         from archex.parse.adapters import default_adapter_registry
         from archex.pipeline.chunker import ASTChunker
 
-        files = discover_files(repo_path)
+        files = discover_files(repo_path).files
         engine = TreeSitterEngine()
         adapters = default_adapter_registry.build_all()
         parsed = extract_symbols(files, engine, adapters)

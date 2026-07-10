@@ -178,9 +178,9 @@ def _full_index(
         timing.acquire_ms = _elapsed_ms(t_acq)
     try:
         t_parse = time.perf_counter()
-        files = discover_files(
-            repo_path, languages=config.languages, max_file_size=config.max_file_size
-        )
+        discovery = discover_files(repo_path, languages=config.languages, max_file_size=config.max_file_size)
+        files = discovery.files
+        exclusions = discovery.exclusions
         engine = TreeSitterEngine()
         adapters = _build_adapters()
         extraction = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel)
@@ -227,6 +227,7 @@ def _full_index(
             store.insert_edges(edges)
             _build_splade_index(store, all_chunks, effective_index_config)
             _build_module_summaries(store, graph, parsed_files, effective_index_config)
+            sidecars: dict[Path, Path] = {}
             if effective_index_config.vector:
                 embedder = _get_embedder(effective_index_config)
                 if embedder is not None:
@@ -263,13 +264,24 @@ def _full_index(
                         )
                     )
                     if vector_chunks:
-                        vec_idx.save(
-                            npz_path,
-                            embedder_name=effective_index_config.embedder or "",
-                            vector_dim=embedder.dimension,
-                            vector_mode=effective_index_config.vector_mode,
-                            surrogate_version=effective_index_config.surrogate_version,
-                        )
+                        if config.cache:
+                            temp_npz = db_path.with_suffix(f".vectors.{time.time_ns()}.npz")
+                            vec_idx.save(
+                                temp_npz,
+                                embedder_name=effective_index_config.embedder or "",
+                                vector_dim=embedder.dimension,
+                                vector_mode=effective_index_config.vector_mode,
+                                surrogate_version=effective_index_config.surrogate_version,
+                            )
+                            sidecars[temp_npz] = npz_path
+                        else:
+                            vec_idx.save(
+                                npz_path,
+                                embedder_name=effective_index_config.embedder or "",
+                                vector_dim=embedder.dimension,
+                                vector_mode=effective_index_config.vector_mode,
+                                surrogate_version=effective_index_config.surrogate_version,
+                            )
                     elif npz_path.exists():
                         npz_path.unlink()
 
@@ -281,6 +293,7 @@ def _full_index(
             store.set_metadata("file_count", str(file_count))
 
             if config.cache:
+                from archex.models import IndexGenerationManifest
                 commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
                 identity = source.url or source.local_path or ""
                 store.set_metadata("commit_hash", commit)
@@ -288,11 +301,30 @@ def _full_index(
                 store.set_metadata("indexed_at", str(time.time()))
                 _set_working_tree_signature(store, repo_path, config)
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+                
+                manifest = IndexGenerationManifest(
+                    version="1.0.0",
+                    created_at=str(time.time()),
+                    cache_key=cache_key,
+                    index_config=effective_index_config,
+                    stores={
+                        "chunks": True,
+                        "graph": True,
+                        "vector": bool(effective_index_config.vector),
+                    },
+                    chunks_count=len(all_chunks),
+                    files_count=file_count,
+                    edges_count=len(edges),
+                    excluded_files=exclusions,
+                )
+
                 cache.put(
                     cache_key,
                     db_path,
                     resolved_commit=commit,
                     source_identity=identity,
+                    sidecars=sidecars,
+                    manifest=manifest.model_dump_json(),
                 )
             if timing is not None:
                 timing.index_ms = _elapsed_ms(t_idx)
@@ -464,11 +496,9 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                 raise
 
         total_files = len(
-            discover_files(
-                repo_path,
-                languages=config.languages,
-                max_file_size=config.max_file_size,
-            )
+            discover_files(repo_path,
+            languages=config.languages,
+            max_file_size=config.max_file_size,).files
         )
         change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
         if change_ratio >= config.delta_threshold:
@@ -1319,9 +1349,7 @@ def analyze(
         timing.acquire_ms = acquire_ms
     try:
         t1 = time.perf_counter()
-        files = discover_files(
-            repo_path, languages=config.languages, max_file_size=config.max_file_size
-        )
+        files = discover_files(repo_path, languages=config.languages, max_file_size=config.max_file_size).files
         logger.info("Discovered %d files in %.0fms", len(files), _elapsed_ms(t1))
 
         engine = TreeSitterEngine()
@@ -2015,9 +2043,7 @@ def query(
         )
     try:
         t2 = time.perf_counter()
-        files = discover_files(
-            repo_path, languages=config.languages, max_file_size=config.max_file_size
-        )
+        files = discover_files(repo_path, languages=config.languages, max_file_size=config.max_file_size).files
         logger.info("Discovered %d files in %.0fms", len(files), _elapsed_ms(t2))
 
         engine = TreeSitterEngine()

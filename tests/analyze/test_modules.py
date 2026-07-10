@@ -31,7 +31,7 @@ def _build_graph_and_parsed(repo_path: Path) -> tuple[DependencyGraph, list[Pars
     """Full pipeline: discover + parse + build dependency graph for a local repo."""
     from archex.acquire import discover_files
 
-    files = discover_files(repo_path, languages=["python"])
+    files = discover_files(repo_path, languages=["python"]).files
     engine = TreeSitterEngine()
     adapters = {"python": PythonAdapter()}
 

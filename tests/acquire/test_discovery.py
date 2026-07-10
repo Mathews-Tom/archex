@@ -23,28 +23,28 @@ from archex.exceptions import AcquireError
 
 
 def test_discover_file_count(python_simple_repo: Path) -> None:
-    files = discover_files(python_simple_repo)
+    files = discover_files(python_simple_repo).files
     # python_simple has 5 Python files plus pyproject.toml.
     assert len(files) == 6
 
 
 def test_discover_python_fixture_languages(python_simple_repo: Path) -> None:
-    files = discover_files(python_simple_repo)
+    files = discover_files(python_simple_repo).files
     languages = {f.path: f.language for f in files}
     assert languages["pyproject.toml"] == "toml"
     assert all(language == "python" for path, language in languages.items() if path.endswith(".py"))
 
 
 def test_discover_language_filter(python_simple_repo: Path) -> None:
-    files = discover_files(python_simple_repo, languages=["python"])
+    files = discover_files(python_simple_repo, languages=["python"]).files
     assert len(files) == 5
 
-    files_ts = discover_files(python_simple_repo, languages=["typescript"])
+    files_ts = discover_files(python_simple_repo, languages=["typescript"]).files
     assert len(files_ts) == 0
 
 
 def test_discover_relative_paths(python_simple_repo: Path) -> None:
-    files = discover_files(python_simple_repo)
+    files = discover_files(python_simple_repo).files
     paths = {f.path for f in files}
     assert "main.py" in paths
     assert "models.py" in paths
@@ -52,14 +52,14 @@ def test_discover_relative_paths(python_simple_repo: Path) -> None:
 
 
 def test_discover_absolute_paths(python_simple_repo: Path) -> None:
-    files = discover_files(python_simple_repo)
+    files = discover_files(python_simple_repo).files
     for f in files:
         assert Path(f.absolute_path).is_absolute()
         assert Path(f.absolute_path).exists()
 
 
 def test_discover_size_bytes(python_simple_repo: Path) -> None:
-    files = discover_files(python_simple_repo)
+    files = discover_files(python_simple_repo).files
     for f in files:
         assert f.size_bytes >= 0
 
@@ -73,7 +73,7 @@ def test_discover_ignore_rules(tmp_path: Path) -> None:
     node_mod.mkdir()
     (node_mod / "something.py").write_text("y = 2")
 
-    files = discover_files(repo)
+    files = discover_files(repo).files
     paths = [f.path for f in files]
     assert "index.py" in paths
     assert not any("node_modules" in p for p in paths)
@@ -87,7 +87,7 @@ def test_discover_custom_ignores(tmp_path: Path) -> None:
     skip_dir.mkdir()
     (skip_dir / "ignored.py").write_text("y = 2")
 
-    files = discover_files(repo, ignores=["skip_me/"])
+    files = discover_files(repo, ignores=["skip_me/"]).files
     paths = [f.path for f in files]
     assert "keep.py" in paths
     assert not any("skip_me" in p for p in paths)
@@ -95,7 +95,7 @@ def test_discover_custom_ignores(tmp_path: Path) -> None:
 
 def test_discover_nonexistent_path() -> None:
     with pytest.raises(AcquireError, match="does not exist"):
-        discover_files(Path("/nonexistent/repo/path"))
+        discover_files(Path("/nonexistent/repo/path")).files
 
 
 def test_detect_language_python() -> None:
@@ -171,7 +171,7 @@ def test_discover_files_skips_oversized_files(tmp_path: Path) -> None:
     # max_file_size set between small and big
     limit = (small_size + big_size) // 2
 
-    files = discover_files(repo, max_file_size=limit)
+    files = discover_files(repo, max_file_size=limit).files
     paths = [f.path for f in files]
     assert "small.py" in paths
     assert "big.py" not in paths
@@ -185,14 +185,14 @@ def test_discover_files_includes_file_at_size_limit(tmp_path: Path) -> None:
     exact = repo / "exact.py"
     exact.write_bytes(content)
 
-    files = discover_files(repo, max_file_size=len(content))
+    files = discover_files(repo, max_file_size=len(content)).files
     paths = [f.path for f in files]
     assert "exact.py" in paths
 
 
 def test_discover_files_default_max_size_allows_normal_files(python_simple_repo: Path) -> None:
     """Default max_file_size (10MB) allows all fixture files through."""
-    files = discover_files(python_simple_repo)
+    files = discover_files(python_simple_repo).files
     assert len(files) == 6
 
 
@@ -207,7 +207,7 @@ def test_git_ls_files_called_process_error(tmp_path: Path) -> None:
         patch("subprocess.run", side_effect=exc),
         pytest.raises(AcquireError, match="git ls-files failed"),
     ):
-        discover_files(repo)
+        discover_files(repo).files
 
 
 def test_git_ls_files_timeout_expired(tmp_path: Path) -> None:
@@ -221,7 +221,7 @@ def test_git_ls_files_timeout_expired(tmp_path: Path) -> None:
         patch("subprocess.run", side_effect=exc),
         pytest.raises(AcquireError, match="timed out"),
     ):
-        discover_files(repo)
+        discover_files(repo).files
 
 
 def test_git_ls_files_ghost_path_skipped(tmp_path: Path) -> None:
@@ -234,7 +234,7 @@ def test_git_ls_files_ghost_path_skipped(tmp_path: Path) -> None:
     mock_result = MagicMock()
     mock_result.stdout = "ghost.py\nreal.py\n"
     with patch("subprocess.run", return_value=mock_result):
-        files = discover_files(repo)
+        files = discover_files(repo).files
 
     paths = [f.path for f in files]
     assert "real.py" in paths
@@ -273,7 +273,7 @@ def test_stat_oserror_defaults_size_to_zero(tmp_path: Path) -> None:
         patch.object(Path, "is_file", is_file_side_effect),
         patch.object(Path, "stat", stat_side_effect),
     ):
-        files = discover_files(repo)
+        files = discover_files(repo).files
 
     assert len(files) == 1
     assert files[0].path == "module.py"

@@ -53,11 +53,9 @@ def parse_repository(
     adapters: dict[str, LanguageAdapter],
 ) -> ParseArtifacts:
     """Run discover + parse + import resolution for a repo path."""
-    files = discover_files(
-        repo_path,
-        languages=config.languages,
-        max_file_size=config.max_file_size,
-    )
+    files = discover_files(repo_path,
+    languages=config.languages,
+    max_file_size=config.max_file_size,).files
     engine = TreeSitterEngine()
     extraction = extract_symbols_and_imports(
         files, engine, adapters, parallel=config.parallel, strict=config.strict
