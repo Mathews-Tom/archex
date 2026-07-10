@@ -80,7 +80,7 @@ def index_cmd(
         return
 
     click.echo(f"Indexed repository: {summary['repo_root']}")
-    click.echo(f"Index path:         {summary['index_path']}")
+    click.echo(f"Index path:         {summary['index_path'] or '(ephemeral, not cached to disk)'}")
     click.echo(f"Commit:             {summary['commit_hash'] or 'none'}")
     click.echo(f"Strategy:           {summary['strategy']}")
     click.echo(f"Files indexed:      {summary['files_indexed']}")

@@ -83,10 +83,16 @@ def run_indexing_and_get_summary(
         languages = _language_counts(file_metadata)
         cached_path = cache.get(cache_key) if cache is not None and cache_key is not None else None
         duration_ms = int((time.perf_counter() - started) * 1000)
+        # `store.db_path` lives under a scratch directory that `store.close()` removes
+        # when the store has no durable cache entry (`ephemeral` is True) — reporting
+        # that path here would hand back a location that no longer exists the moment
+        # this function returns.
+        ephemeral_untracked = cached_path is None and store.ephemeral
+        index_path = None if ephemeral_untracked else (cached_path or store.db_path)
 
         summary = {
             "repo_root": str(repo_root),
-            "index_path": str(cached_path or store.db_path),
+            "index_path": str(index_path) if index_path is not None else None,
             "commit_hash": store.get_metadata("commit_hash") or "",
             "strategy": timing.strategy or "full",
             "files_indexed": store.get_file_count(),
