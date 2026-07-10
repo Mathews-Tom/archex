@@ -307,6 +307,8 @@ def test_strict_parallel_raises_on_bad_file(
     )
     with pytest.raises(ParseError, match="Parallel parsing failed"):
         extract_symbols(files, engine, adapters, parallel=True, strict=True)
+
+
 def test_parallel_total_worker_failure_raises(
     tmp_path: Path, engine: TreeSitterEngine, adapters: dict[str, LanguageAdapter]
 ) -> None:
@@ -317,32 +319,34 @@ def test_parallel_total_worker_failure_raises(
         files.append(
             DiscoveredFile(
                 path=f.name,
-                absolute_path=str(f), # file doesn't exist, will raise OSError
+                absolute_path=str(f),  # file doesn't exist, will raise OSError
                 language="python",
             )
         )
     from archex.exceptions import ParseError
+
     with pytest.raises(ParseError, match="Total worker failure: all 12 files failed to parse"):
         extract_symbols(files, engine, adapters, parallel=True, strict=False)
+
 
 def test_sequential_total_worker_failure_raises(
     tmp_path: Path, engine: TreeSitterEngine, adapters: dict[str, LanguageAdapter]
 ) -> None:
-    """When all files fail to parse, extract_symbols_and_imports raises ParseError even without strict."""
+    """All parse failures raise ParseError without strict mode."""
     files: list[DiscoveredFile] = []
-    for i in range(2): # less than 10 falls back to sequential
+    for i in range(2):  # less than 10 falls back to sequential
         f = tmp_path / f"mod_{i}.py"
         files.append(
             DiscoveredFile(
                 path=f.name,
-                absolute_path=str(f), # file doesn't exist, will raise OSError/ParseError
+                absolute_path=str(f),  # file doesn't exist, will raise OSError/ParseError
                 language="python",
             )
         )
     from archex.exceptions import ParseError
+
     with pytest.raises(ParseError, match="Total parser failure: all 2 files failed to parse"):
         extract_symbols_and_imports(files, engine, adapters, parallel=False, strict=False)
-
 
 
 def test_sequential_fault_isolation_skips_oversized_file(

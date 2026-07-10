@@ -187,7 +187,9 @@ def _full_index(
         exclusions = discovery.exclusions
         engine = TreeSitterEngine()
         adapters = _build_adapters()
-        extraction = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel, strict=config.strict)
+        extraction = extract_symbols_and_imports(
+            files, engine, adapters, parallel=config.parallel, strict=config.strict
+        )
         parsed_files = extraction.parsed_files
         file_map = build_file_map(files)
         file_languages = {f.path: f.language for f in files}
@@ -1367,7 +1369,9 @@ def analyze(
         adapters = _build_adapters()
 
         t2 = time.perf_counter()
-        extraction = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel, strict=config.strict)
+        extraction = extract_symbols_and_imports(
+            files, engine, adapters, parallel=config.parallel, strict=config.strict
+        )
         parsed_files = extraction.parsed_files
         file_map = build_file_map(files)
         file_languages = {f.path: f.language for f in files}
@@ -2065,7 +2069,9 @@ def query(
         adapters = _build_adapters()
 
         t3 = time.perf_counter()
-        extraction = extract_symbols_and_imports(files, engine, adapters, parallel=config.parallel, strict=config.strict)
+        extraction = extract_symbols_and_imports(
+            files, engine, adapters, parallel=config.parallel, strict=config.strict
+        )
         parsed_files = extraction.parsed_files
         file_map = build_file_map(files)
         file_languages = {f.path: f.language for f in files}
