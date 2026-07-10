@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.2] - 2026-07-11
+
+### Fixed
+
+- **M0: verified index publication and lifecycle integrity.** Index generation now publishes verified retrieval state atomically with a generation manifest and provenance for parsed symbols, edges, unresolved imports, and exclusions. Total parser-worker failure fails closed; strict parsing reaches the orchestrator; repository identity is canonical across equivalent local paths; reset removes SQLite WAL/SHM sidecars; `doctor` validates enabled retrieval stores; and CI exercises a clean-install BM25 index/query smoke path.
+
 
 ## [0.19.1] - 2026-07-10
 
