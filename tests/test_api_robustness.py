@@ -8,8 +8,17 @@ from unittest.mock import patch
 
 import pytest
 
-from archex.api import _acquire, _full_index, query  # pyright: ignore[reportPrivateUsage]
+from archex.api import (
+    _acquire,  # pyright: ignore[reportPrivateUsage]
+    _DeltaIndexAttempt,  # pyright: ignore[reportPrivateUsage]
+    _ensure_index,  # pyright: ignore[reportPrivateUsage]
+    _full_index,  # pyright: ignore[reportPrivateUsage]
+    _try_delta_index,  # pyright: ignore[reportPrivateUsage]
+    index_repository,
+    query,
+)
 from archex.cache import CacheManager
+from archex.index.store import IndexStore
 from archex.models import Config, RepoSource
 
 
@@ -147,3 +156,124 @@ def test_query_closes_ephemeral_store_on_mid_pipeline_exception(python_simple_re
     after = _tmp_dirs()
 
     assert after == before, f"leaked scratch dirs: {after - before}"
+
+
+def _close_tracker() -> tuple[list[IndexStore], object]:
+    """Wrap IndexStore.close to record every call while still closing for real."""
+    close_calls: list[IndexStore] = []
+    real_close = IndexStore.close
+
+    def tracking_close(self: IndexStore) -> None:
+        close_calls.append(self)
+        real_close(self)
+
+    return close_calls, tracking_close
+
+
+def _set_metadata_raise_if_indexed_at(key: str, value: str) -> None:
+    """set_metadata side effect that only fails for clean_store's own write.
+
+    IndexStore.__init__ -> _migrate_schema() calls set_metadata("schema_version", ...)
+    for every store construction, so a blanket "always raise" patch would
+    fail before the code path under test is ever reached.
+    """
+    del value
+    if key == "indexed_at":
+        raise RuntimeError("boom")
+
+
+def test_ensure_index_cache_hit_closes_store_on_mid_pipeline_exception(
+    python_simple_repo: Path, tmp_path: Path
+) -> None:
+    """A cache-hit pipeline failure must still close the (non-ephemeral) cached store."""
+    source = RepoSource(local_path=str(python_simple_repo))
+    config = Config(cache=True, cache_dir=str(tmp_path / "cache"))
+
+    index_repository(source, config=config).close()
+
+    close_calls, tracking_close = _close_tracker()
+    with (
+        patch.object(IndexStore, "close", tracking_close),
+        patch.object(IndexStore, "needs_reindex", side_effect=RuntimeError("boom")),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        _ensure_index(source, config=config)
+
+    assert close_calls, "store.close() must run even when a cache-hit pipeline step raises"
+
+
+def test_try_delta_index_clean_store_closes_on_mid_pipeline_exception(
+    python_simple_repo: Path, tmp_path: Path
+) -> None:
+    """The delta path's 'no working-tree changes' clean_store must close even
+    when a step after opening it raises."""
+    source = RepoSource(local_path=str(python_simple_repo))
+    config = Config(cache=True, cache_dir=str(tmp_path / "cache"))
+    cache = CacheManager(cache_dir=str(tmp_path / "cache"))
+    cache_key = cache.cache_key(source)
+
+    index_repository(source, config=config).close()
+
+    attempt = _DeltaIndexAttempt(
+        source=source,
+        config=config,
+        cache=cache,
+        cache_key=cache_key,
+        working_tree_signature=None,
+        timing=None,
+        index_config=None,
+        t_start=0.0,
+    )
+
+    close_calls, tracking_close = _close_tracker()
+    with (
+        patch.object(IndexStore, "close", tracking_close),
+        patch.object(
+            IndexStore,
+            "set_metadata",
+            side_effect=_set_metadata_raise_if_indexed_at,
+        ),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        _try_delta_index(attempt)
+
+    assert close_calls, "clean_store.close() must run even when a delta-clean step raises"
+
+
+def test_try_delta_index_main_store_closes_on_mid_pipeline_exception(
+    python_simple_repo: Path, tmp_path: Path
+) -> None:
+    """The delta path's main apply-delta store must close even when a step
+    after opening it raises."""
+    source = RepoSource(local_path=str(python_simple_repo))
+    config = Config(cache=True, cache_dir=str(tmp_path / "cache"))
+    cache = CacheManager(cache_dir=str(tmp_path / "cache"))
+    cache_key = cache.cache_key(source)
+
+    index_repository(source, config=config).close()
+
+    # A real content change so compute_working_tree_delta reports a non-empty
+    # manifest and _try_delta_index reaches the main apply-delta store instead
+    # of the "no changes" clean_store branch.
+    (python_simple_repo / "utils.py").write_text("def freshly_changed(): return 1\n")
+
+    attempt = _DeltaIndexAttempt(
+        source=source,
+        config=config,
+        cache=cache,
+        cache_key=cache_key,
+        working_tree_signature=None,
+        timing=None,
+        index_config=None,
+        t_start=0.0,
+    )
+
+    close_calls, tracking_close = _close_tracker()
+    with (
+        patch.object(IndexStore, "close", tracking_close),
+        patch("archex.index.delta.apply_delta", side_effect=RuntimeError("boom")),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        _try_delta_index(attempt)
+
+    assert close_calls, "store.close() must run even when apply_delta raises"
