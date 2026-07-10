@@ -21,6 +21,7 @@ from archex.index.artifact import (
     ARTIFACT_FORMAT_VERSION,
     ARTIFACT_MAGIC,
     ArtifactHeader,
+    _decompress_artifact_payload,  # pyright: ignore[reportPrivateUsage]
     ensure_artifact_gitattributes,
     export_artifact,
     import_artifact,
@@ -304,6 +305,18 @@ _INCOMPATIBLE_VERSION_HEADER: dict[str, object] = {
     "created_at": 0.0,
 }
 
+_COMPATIBLE_HEADER: dict[str, object] = {
+    "format_version": ARTIFACT_FORMAT_VERSION,
+    "created_by_version": "0.0.0",
+    "compat_min_version": "0.0.0",
+    "compat_max_version": "99.99.99",
+    "index_revision": "deadbeef",
+    "schema_version": "5",
+    "chunk_count": 1,
+    "file_count": 1,
+    "created_at": 0.0,
+}
+
 
 class TestImportArtifact:
     def test_import_produces_ready_to_use_store(
@@ -422,6 +435,95 @@ class TestImportArtifact:
             import_artifact(artifact_path, dest)
 
         assert dest.read_bytes() == original_bytes
+
+    def test_import_rejects_payload_beyond_decompression_limit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A crafted artifact with a small compressed, huge decompressed payload
+        (a decompression bomb) must fail cleanly instead of exhausting memory,
+        end to end through import_artifact().
+
+        Compresses at preset=0 (the smallest LZMA dictionary) so the bomb
+        payload's compressed size has no bearing on the guard — proving the
+        guard tracks actual decompressed output, not a compression-preset-derived
+        proxy for it (a real memlimit-based bound would not have caught this).
+        """
+        import archex.index.artifact as artifact_module
+
+        monkeypatch.setattr(artifact_module, "_MAX_DECOMPRESSED_ARTIFACT_BYTES", 1024)
+
+        bomb_payload = b"\x00" * (10 * 1024 * 1024)
+        header_bytes = json.dumps(_COMPATIBLE_HEADER, sort_keys=True).encode("utf-8")
+        artifact_path = tmp_path / "bomb.xz"
+        with artifact_path.open("wb") as handle:
+            handle.write(ARTIFACT_MAGIC)
+            handle.write(struct.pack(">I", len(header_bytes)))
+            handle.write(header_bytes)
+            handle.write(lzma.compress(bomb_payload, preset=0))
+        dest = tmp_path / "dest" / "index.db"
+
+        with pytest.raises(ArtifactError, match="decompress"):
+            import_artifact(artifact_path, dest)
+
+        assert not dest.exists()
+
+
+class TestReadHeader:
+    """Direct unit test for _read_header()'s header_len ceiling."""
+
+    def test_rejects_oversized_header_length(self, tmp_path: Path) -> None:
+        """A crafted artifact declaring an absurd header_len must be rejected
+        before any read of that size is attempted — the same length-prefixed-
+        read bomb class the payload decompression guard closes, one field
+        earlier in the same file.
+        """
+        artifact_path = tmp_path / "oversized_header.xz"
+        with artifact_path.open("wb") as handle:
+            handle.write(ARTIFACT_MAGIC)
+            handle.write(struct.pack(">I", 2**32 - 1))  # max u32: ~4.29 GiB declared header
+
+        with pytest.raises(ArtifactError, match="exceeding"):
+            read_artifact_header(artifact_path)
+
+
+class TestDecompressArtifactPayload:
+    """Direct unit tests for the bomb-bounding decompression helper.
+
+    Complements TestImportArtifact's end-to-end coverage by exercising the
+    guard in isolation: a rejection case and an acceptance case under the
+    exact same cap, proving it is proportional to actual decompressed
+    output size rather than a blanket reject.
+    """
+
+    def test_rejects_output_beyond_the_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import archex.index.artifact as artifact_module
+
+        monkeypatch.setattr(artifact_module, "_MAX_DECOMPRESSED_ARTIFACT_BYTES", 1024)
+        bomb = lzma.compress(b"\x00" * (10 * 1024 * 1024), preset=0)
+
+        with pytest.raises(ArtifactError, match="decompresses beyond"):
+            _decompress_artifact_payload(bomb, Path("bomb.xz"))
+
+    def test_accepts_output_within_the_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import archex.index.artifact as artifact_module
+
+        monkeypatch.setattr(artifact_module, "_MAX_DECOMPRESSED_ARTIFACT_BYTES", 1024)
+        payload = b"a small payload well under the cap"
+        compressed = lzma.compress(payload)
+
+        result = _decompress_artifact_payload(compressed, Path("small.xz"))
+
+        assert result == payload
+
+    def test_rejects_truncated_input(self) -> None:
+        compressed = lzma.compress(b"hello world" * 100)
+
+        with pytest.raises(ArtifactError, match="[Tt]runcated|corrupt"):
+            _decompress_artifact_payload(compressed[:20], Path("truncated.xz"))
+
+    def test_rejects_garbage_input(self) -> None:
+        with pytest.raises(ArtifactError, match="corrupt"):
+            _decompress_artifact_payload(b"not lzma data at all", Path("garbage.xz"))
 
 
 class TestFromArtifactCli:

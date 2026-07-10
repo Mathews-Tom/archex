@@ -67,6 +67,31 @@ ARTIFACT_MAX_COMPAT_VERSION = "0.99.99"
 #: SQLite-shaped content (mostly text — source chunks, symbol metadata).
 _LZMA_PRESET = 6
 
+#: Chunk size streamed per LZMADecompressor.decompress() call when bounding
+#: an artifact payload (see _decompress_artifact_payload). Small enough to
+#: check the running total frequently, large enough to keep call overhead
+#: negligible for a legitimate multi-megabyte payload.
+_DECOMPRESS_CHUNK_BYTES = 4 * 1024 * 1024
+
+#: Hard ceiling on a decompressed artifact payload. `lzma.decompress()`'s
+#: `memlimit` bounds only the decoder's internal dictionary/filter-chain
+#: memory — which is dictated by the *compression* preset used to write the
+#: artifact, not by how many bytes of output it produces — so a payload
+#: compressed at a low preset can pass any memlimit while still
+#: decompressing to gigabytes. `_decompress_artifact_payload` streams
+#: through `LZMADecompressor` instead, checking the running output total,
+#: so an oversized payload is rejected before being fully materialized. 1
+#: GiB comfortably exceeds any legitimate index this format is meant to
+#: carry (a compacted, FTS5-stripped SQLite database of source chunks and
+#: symbol metadata).
+_MAX_DECOMPRESSED_ARTIFACT_BYTES = 1024**3
+
+#: Hard ceiling on the artifact header itself. Real headers are a small
+#: flat JSON dict (well under 1 KiB); this only guards against a crafted
+#: artifact declaring an absurd header_len (up to ~4.29 GiB, the u32 max)
+#: that forces a multi-gigabyte read before any validation has run.
+_MAX_HEADER_BYTES = 64 * 1024
+
 _HEADER_LENGTH_STRUCT = struct.Struct(">I")
 
 # Tables dropped before compression and rebuilt locally on import. Both are
@@ -151,6 +176,11 @@ def _read_header(handle: Any, path: Path) -> ArtifactHeader:
     if len(length_bytes) != _HEADER_LENGTH_STRUCT.size:
         raise ArtifactError(f"Truncated artifact header: {path}")
     (header_len,) = _HEADER_LENGTH_STRUCT.unpack(length_bytes)
+    if header_len > _MAX_HEADER_BYTES:
+        raise ArtifactError(
+            f"Artifact header for {path} declares {header_len} bytes, "
+            f"exceeding the {_MAX_HEADER_BYTES} byte limit"
+        )
     header_bytes = handle.read(header_len)
     if len(header_bytes) != header_len:
         raise ArtifactError(f"Truncated artifact header: {path}")
@@ -277,6 +307,40 @@ def _rebuild_symbols_fts(store: IndexStore) -> None:
     conn.commit()
 
 
+def _decompress_artifact_payload(compressed_payload: bytes, path: Path) -> bytes:
+    """Decompress an artifact payload, bounded against a decompression bomb.
+
+    Streams through `LZMADecompressor` in `_DECOMPRESS_CHUNK_BYTES` chunks
+    and checks the running output total after every chunk, aborting before
+    an oversized payload is ever fully materialized. `lzma.decompress()`'s
+    `memlimit` cannot do this: it bounds the decoder's internal dictionary
+    memory, which depends on the *compression* preset used to write the
+    payload, not on how many bytes of output it produces — a payload
+    compressed at a low preset passes any memlimit while still
+    decompressing to gigabytes.
+    """
+    decompressor = lzma.LZMADecompressor()
+    remaining = compressed_payload
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        while not decompressor.eof:
+            out = decompressor.decompress(remaining, max_length=_DECOMPRESS_CHUNK_BYTES)
+            remaining = b""
+            total += len(out)
+            if total > _MAX_DECOMPRESSED_ARTIFACT_BYTES:
+                raise ArtifactError(
+                    f"Artifact payload for {path} decompresses beyond the "
+                    f"{_MAX_DECOMPRESSED_ARTIFACT_BYTES} byte limit"
+                )
+            chunks.append(out)
+            if decompressor.needs_input and not decompressor.eof:
+                raise ArtifactError(f"Truncated or corrupt artifact payload: {path}")
+    except lzma.LZMAError as exc:
+        raise ArtifactError(f"Artifact payload for {path} is corrupt: {exc}") from exc
+    return b"".join(chunks)
+
+
 def import_artifact(path: str | Path, dest_db_path: str | Path) -> ArtifactHeader:
     """Import a portable index artifact, writing a ready-to-use store at `dest_db_path`.
 
@@ -299,7 +363,7 @@ def import_artifact(path: str | Path, dest_db_path: str | Path) -> ArtifactHeade
         validate_artifact_compat(header)
         compressed_payload = handle.read()
 
-    decompressed = lzma.decompress(compressed_payload)
+    decompressed = _decompress_artifact_payload(compressed_payload, path)
 
     dest_db_path.parent.mkdir(parents=True, exist_ok=True)
     for suffix in ("-wal", "-shm"):
