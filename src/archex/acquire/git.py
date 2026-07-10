@@ -68,6 +68,13 @@ def validate_url(url: str) -> None:
     one pass, so a crafted RepoSource cannot reach a transport this function
     hasn't seen before.
     """
+    if url != url.strip():
+        raise AcquireError(
+            f"Disallowed URL scheme in {url!r}: leading/trailing whitespace is never part "
+            "of a legitimate http(s) URL or local path, and real git/ssh tolerate a leading "
+            "space before an scp-like host, which would otherwise let a whitespace-prefixed "
+            'payload slip past every anchored pattern above and fall through as "a local path"'
+        )
     if is_remote_url(url):
         return
     if _WINDOWS_DRIVE_RE.match(url):
