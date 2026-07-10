@@ -265,6 +265,43 @@ def test_context_manager(tmp_path: Path) -> None:
     assert len(result) == 1
 
 
+# ---------------------------------------------------------------------------
+# Ephemeral scratch-directory cleanup
+# ---------------------------------------------------------------------------
+
+
+def test_ephemeral_property_defaults_false(tmp_path: Path) -> None:
+    db = tmp_path / "default.db"
+    with IndexStore(db) as s:
+        assert s.ephemeral is False
+
+
+def test_close_removes_scratch_dir_when_ephemeral(tmp_path: Path) -> None:
+    """close() deletes the store's parent directory when delete_dir_on_close is set."""
+    scratch_dir = tmp_path / "scratch"
+    scratch_dir.mkdir()
+    db = scratch_dir / "index.db"
+    s = IndexStore(db, delete_dir_on_close=True)
+    assert s.ephemeral is True
+    assert scratch_dir.exists()
+
+    s.close()
+
+    assert not scratch_dir.exists()
+
+
+def test_close_preserves_dir_when_not_ephemeral(tmp_path: Path) -> None:
+    """close() leaves the backing directory alone by default (e.g. cached stores)."""
+    scratch_dir = tmp_path / "cached"
+    scratch_dir.mkdir()
+    db = scratch_dir / "index.db"
+    s = IndexStore(db)
+
+    s.close()
+
+    assert scratch_dir.exists()
+
+
 def test_insert_edges(store: IndexStore) -> None:
     store.insert_edges(SAMPLE_EDGES)
     edges = store.get_edges()

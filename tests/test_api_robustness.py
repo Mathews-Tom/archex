@@ -1,14 +1,16 @@
-"""Robustness tests for api._acquire: cleanup on success and exception paths."""
+"""Robustness tests for api._acquire and ephemeral IndexStore cleanup on failure."""
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from archex.api import _acquire  # pyright: ignore[reportPrivateUsage]
-from archex.models import RepoSource
+from archex.api import _acquire, _full_index, query  # pyright: ignore[reportPrivateUsage]
+from archex.cache import CacheManager
+from archex.models import Config, RepoSource
 
 
 def test_acquire_local_path_returns_noop_cleanup(tmp_path: Path) -> None:
@@ -99,3 +101,49 @@ def test_acquire_url_cleanup_safe_on_missing_dir() -> None:
 
     # Dir was never actually created; cleanup with ignore_errors=True should not raise
     cleanup()
+
+
+def _tmp_dirs() -> set[str]:
+    return {p.name for p in Path(tempfile.gettempdir()).iterdir() if p.is_dir()}
+
+
+def test_full_index_closes_ephemeral_store_on_mid_pipeline_exception(
+    python_simple_repo: Path,
+) -> None:
+    """A pipeline failure after the ephemeral store opens must not leak its scratch dir.
+
+    _full_index() builds its IndexStore under a fresh mkdtemp() directory with
+    delete_dir_on_close=True; that cleanup only fires on close(), so a failure
+    anywhere in the pipeline between construction and the normal return must
+    still close (and thus clean up) the store rather than leaving it open.
+    """
+    source = RepoSource(local_path=str(python_simple_repo))
+    config = Config(cache=False)
+    cache = CacheManager(cache_dir=str(python_simple_repo.parent / "cache"))
+    cache_key = cache.cache_key(source)
+
+    before = _tmp_dirs()
+    with (
+        patch("archex.index.store.IndexStore.insert_chunks", side_effect=RuntimeError("boom")),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        _full_index(source, config, cache, cache_key, timing=None)
+    after = _tmp_dirs()
+
+    assert after == before, f"leaked scratch dirs: {after - before}"
+
+
+def test_query_closes_ephemeral_store_on_mid_pipeline_exception(python_simple_repo: Path) -> None:
+    """query()'s ephemeral store must not leak its scratch dir on a mid-pipeline failure."""
+    source = RepoSource(local_path=str(python_simple_repo))
+    config = Config(cache=False)
+
+    before = _tmp_dirs()
+    with (
+        patch("archex.index.store.IndexStore.insert_chunks", side_effect=RuntimeError("boom")),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        query(source, "how does auth work?", config=config)
+    after = _tmp_dirs()
+
+    assert after == before, f"leaked scratch dirs: {after - before}"
