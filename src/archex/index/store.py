@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import shutil
 import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -20,6 +22,8 @@ from archex.models import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import TracebackType
+
+logger = logging.getLogger(__name__)
 
 
 _CREATE_CHUNKS = """
@@ -181,8 +185,18 @@ def _decode_edge_evidence(raw: object) -> list[str]:
 class IndexStore:
     """SQLite-backed persistence for chunks, edges, and metadata."""
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, *, delete_dir_on_close: bool = False) -> None:
+        """Open (creating if absent) the SQLite store at `db_path`.
+
+        `delete_dir_on_close` opts into deleting `db_path`'s *entire parent
+        directory* — not just the files this store wrote — when `close()`
+        runs. Only pass it for a `db_path` under a directory dedicated
+        exclusively to this store (e.g. a fresh `tempfile.mkdtemp()`); a
+        shared or otherwise meaningful directory would have its other
+        contents silently deleted too.
+        """
         self._db_path = str(db_path)
+        self._delete_dir_on_close = delete_dir_on_close
         self._conn = sqlite3.connect(self._db_path)
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
@@ -856,6 +870,11 @@ class IndexStore:
         return Path(self._db_path)
 
     @property
+    def ephemeral(self) -> bool:
+        """True when closing this store deletes its backing scratch directory."""
+        return self._delete_dir_on_close
+
+    @property
     def vector_index_path(self) -> Path:
         """Backward-compatible raw vector index path."""
         return self.vector_index_path_for()
@@ -866,6 +885,14 @@ class IndexStore:
 
     def close(self) -> None:
         self._conn.close()
+        if self._delete_dir_on_close:
+            scratch_dir = self.db_path.parent
+            try:
+                shutil.rmtree(scratch_dir)
+            except OSError:
+                logger.warning(
+                    "failed to remove ephemeral index dir %s", scratch_dir, exc_info=True
+                )
 
     def __enter__(self) -> IndexStore:
         return self

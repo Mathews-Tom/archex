@@ -379,7 +379,6 @@ def _full_reindex_in_place(
         )
         fresh_db_path = fresh_store.db_path
         fresh_store.conn.execute("PRAGMA wal_checkpoint(FULL)")
-        fresh_store.close()
 
         dest_db_path.parent.mkdir(parents=True, exist_ok=True)
         for suffix in ("-wal", "-shm"):
@@ -387,6 +386,7 @@ def _full_reindex_in_place(
             if stale_sidecar.exists():
                 stale_sidecar.unlink()
         shutil.copy2(fresh_db_path, dest_db_path)
+        fresh_store.close()
     finally:
         shutil.rmtree(scratch_dir, ignore_errors=True)
 
