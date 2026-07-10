@@ -193,6 +193,9 @@ def _extract_symbols_and_imports_sequential(
     if errors and strict:
         paths = ", ".join(p for p, _ in errors)
         raise ParseError(f"Sequential parsing failed for {len(errors)} file(s): {paths}")
+    if len(errors) == len(files) and files:
+        paths = ", ".join(p for p, _ in errors[:5])
+        raise ParseError(f"Total parser failure: all {len(errors)} files failed to parse. First 5: {paths}")
     return ParsedExtraction(parsed_files=parsed_files, imports_by_path=imports_by_path)
 
 
@@ -262,6 +265,9 @@ def extract_symbols(
             if errors and strict:
                 paths = ", ".join(p for p, _ in errors)
                 raise ParseError(f"Parallel parsing failed for {len(errors)} file(s): {paths}")
+            if len(errors) == len(eligible) and eligible:
+                paths = ", ".join(p for p, _ in errors[:5])
+                raise ParseError(f"Total worker failure: all {len(errors)} files failed to parse. First 5: {paths}")
             return results
         except ParseError:
             raise
@@ -269,7 +275,6 @@ def extract_symbols(
             if strict:
                 raise ParseError(f"Parallel parsing failed: {e}") from e
             logger.error("Parallel executor failed, falling back to sequential: %s", e)
-
     return _extract_symbols_sequential(eligible, engine, adapters, strict=strict)
 
 
@@ -314,6 +319,9 @@ def extract_symbols_and_imports(
             if errors and strict:
                 paths = ", ".join(p for p, _ in errors)
                 raise ParseError(f"Parallel parsing failed for {len(errors)} file(s): {paths}")
+            if len(errors) == len(eligible) and eligible:
+                paths = ", ".join(p for p, _ in errors[:5])
+                raise ParseError(f"Total worker failure: all {len(errors)} files failed to parse. First 5: {paths}")
             return ParsedExtraction(parsed_files=parsed_files, imports_by_path=imports_by_path)
         except ParseError:
             raise
