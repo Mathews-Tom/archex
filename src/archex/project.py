@@ -192,11 +192,15 @@ def reset_project(
 def _generated_state_paths(state: ProjectState) -> list[Path]:
     paths: list[Path] = [
         state.index_path,
+        state.index_path.with_name(f"{state.index_path.name}-wal"),
+        state.index_path.with_name(f"{state.index_path.name}-shm"),
         state.project_dir / "index.meta",
         state.vector_dir,
     ]
     if state.project_dir.exists():
         paths.extend(state.project_dir.glob("*.db"))
+        paths.extend(state.project_dir.glob("*.db-wal"))
+        paths.extend(state.project_dir.glob("*.db-shm"))
         paths.extend(state.project_dir.glob("*.meta"))
         paths.extend(state.project_dir.glob("*.vectors.npz"))
     seen: set[Path] = set()
