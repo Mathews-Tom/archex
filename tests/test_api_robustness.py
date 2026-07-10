@@ -142,6 +142,32 @@ def test_full_index_closes_ephemeral_store_on_mid_pipeline_exception(
     assert after == before, f"leaked scratch dirs: {after - before}"
 
 
+def test_full_index_closes_ephemeral_store_on_keyboard_interrupt(
+    python_simple_repo: Path,
+) -> None:
+    """A Ctrl-C (KeyboardInterrupt) mid-pipeline must also not leak the scratch dir.
+
+    `except Exception` does not catch KeyboardInterrupt/SystemExit/GeneratorExit
+    (they subclass BaseException, not Exception) — a guard using the narrower
+    clause would skip cleanup for exactly this case. Distinct from the
+    RuntimeError-based test above, which cannot tell the two clauses apart.
+    """
+    source = RepoSource(local_path=str(python_simple_repo))
+    config = Config(cache=False)
+    cache = CacheManager(cache_dir=str(python_simple_repo.parent / "cache"))
+    cache_key = cache.cache_key(source)
+
+    before = _tmp_dirs()
+    with (
+        patch("archex.index.store.IndexStore.insert_chunks", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        _full_index(source, config, cache, cache_key, timing=None)
+    after = _tmp_dirs()
+
+    assert after == before, f"leaked scratch dirs: {after - before}"
+
+
 def test_query_closes_ephemeral_store_on_mid_pipeline_exception(python_simple_repo: Path) -> None:
     """query()'s ephemeral store must not leak its scratch dir on a mid-pipeline failure."""
     source = RepoSource(local_path=str(python_simple_repo))
@@ -168,6 +194,34 @@ def _close_tracker() -> tuple[list[IndexStore], object]:
         real_close(self)
 
     return close_calls, tracking_close
+
+
+def _instance_tracker() -> tuple[list[IndexStore], list[IndexStore], object, object]:
+    """Wrap IndexStore.__init__ and .close to record every instance created and closed.
+
+    _try_delta_index opens several IndexStore instances in sequence before the
+    one under test (candidate_store, a manifest-computation store), each
+    already correctly closed by pre-existing, unrelated guards. A test that
+    only asserts "some store was closed" (via `_close_tracker` above) passes
+    vacuously off those unrelated closes even when the store actually under
+    test is never closed. Asserting `created[-1] in closed` instead pins the
+    check to the store constructed last — the one the test is actually
+    exercising.
+    """
+    created: list[IndexStore] = []
+    closed: list[IndexStore] = []
+    real_init = IndexStore.__init__
+    real_close = IndexStore.close
+
+    def tracking_init(self: IndexStore, *args: object, **kwargs: object) -> None:
+        real_init(self, *args, **kwargs)  # type: ignore[arg-type]
+        created.append(self)
+
+    def tracking_close(self: IndexStore) -> None:
+        closed.append(self)
+        real_close(self)
+
+    return created, closed, tracking_init, tracking_close
 
 
 def _set_metadata_raise_if_indexed_at(key: str, value: str) -> None:
@@ -225,8 +279,9 @@ def test_try_delta_index_clean_store_closes_on_mid_pipeline_exception(
         t_start=0.0,
     )
 
-    close_calls, tracking_close = _close_tracker()
+    created, closed, tracking_init, tracking_close = _instance_tracker()
     with (
+        patch.object(IndexStore, "__init__", tracking_init),
         patch.object(IndexStore, "close", tracking_close),
         patch.object(
             IndexStore,
@@ -237,7 +292,11 @@ def test_try_delta_index_clean_store_closes_on_mid_pipeline_exception(
     ):
         _try_delta_index(attempt)
 
-    assert close_calls, "clean_store.close() must run even when a delta-clean step raises"
+    assert created, "expected _try_delta_index to construct at least one IndexStore"
+    assert created[-1] in closed, (
+        "clean_store (the last-constructed store, not an earlier unrelated one) "
+        "must close even when a delta-clean step raises"
+    )
 
 
 def test_try_delta_index_main_store_closes_on_mid_pipeline_exception(
@@ -268,12 +327,17 @@ def test_try_delta_index_main_store_closes_on_mid_pipeline_exception(
         t_start=0.0,
     )
 
-    close_calls, tracking_close = _close_tracker()
+    created, closed, tracking_init, tracking_close = _instance_tracker()
     with (
+        patch.object(IndexStore, "__init__", tracking_init),
         patch.object(IndexStore, "close", tracking_close),
         patch("archex.index.delta.apply_delta", side_effect=RuntimeError("boom")),
         pytest.raises(RuntimeError, match="boom"),
     ):
         _try_delta_index(attempt)
 
-    assert close_calls, "store.close() must run even when apply_delta raises"
+    assert created, "expected _try_delta_index to construct at least one IndexStore"
+    assert created[-1] in closed, (
+        "the main apply-delta store (the last-constructed store, not an earlier "
+        "unrelated one) must close even when apply_delta raises"
+    )
