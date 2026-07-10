@@ -235,7 +235,7 @@ def _iter_source_files(repo_path: Path) -> list[tuple[str, Path]]:
     """
     files = [
         (Path(discovered.path).as_posix(), Path(discovered.absolute_path))
-        for discovered in discover_files(repo_path)
+        for discovered in discover_files(repo_path).files
         if Path(discovered.path).suffix in _SOURCE_EXTENSIONS
     ]
     return sorted(files)

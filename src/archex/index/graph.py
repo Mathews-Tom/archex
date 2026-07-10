@@ -126,6 +126,20 @@ class DependencyGraph:
                             evidence=_resolved_import_evidence(file_path, imp.module, imp.line),
                         ),
                     )
+                else:
+                    graph._file_graph.add_node(f"unresolved://{imp.module}")  # type: ignore[misc]
+                    graph._file_graph.add_edge(  # type: ignore[misc]
+                        file_path,
+                        f"unresolved://{imp.module}",
+                        **_edge_attrs(
+                            kind=EdgeKind.IMPORTS,
+                            location=f"{file_path}:{imp.line}",
+                            confidence=EdgeConfidence.AMBIGUOUS,
+                            evidence=[
+                                f"unresolved import {imp.module!r} at {file_path}:{imp.line}"
+                            ],
+                        ),
+                    )
 
         return graph
 

@@ -57,7 +57,7 @@ def parse_repository(
         repo_path,
         languages=config.languages,
         max_file_size=config.max_file_size,
-    )
+    ).files
     engine = TreeSitterEngine()
     extraction = extract_symbols_and_imports(
         files, engine, adapters, parallel=config.parallel, strict=config.strict

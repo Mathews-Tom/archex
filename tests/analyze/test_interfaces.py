@@ -30,7 +30,7 @@ SIMPLE_FIXTURE = Path(__file__).parent.parent / "fixtures" / "python_simple"
 def _build_parsed_and_graph(repo_path: Path):
     from archex.acquire import discover_files
 
-    files = discover_files(repo_path, languages=["python"])
+    files = discover_files(repo_path, languages=["python"]).files
     engine = TreeSitterEngine()
     adapters = {"python": PythonAdapter()}
 

@@ -179,8 +179,10 @@ class CacheManager:
         resolved_commit: str | None = None,
         source_identity: str | None = None,
         stable_identity: str | None = None,
+        sidecars: dict[Path, Path] | None = None,
+        manifest: str | None = None,
     ) -> Path:
-        """Copy source_db into the cache and record metadata. Return cache path."""
+        """Copy source_db and sidecars into the cache and record metadata. Return cache path."""
         import json
 
         dest = self.db_path(key)
@@ -188,18 +190,33 @@ class CacheManager:
             tmp_dest = dest.with_name(f".{dest.name}.{time.time_ns()}.tmp")
             try:
                 shutil.copy2(str(source_db), str(tmp_dest))
+
+                # Move sidecars
+                if sidecars:
+                    for source_sidecar, dest_sidecar in sidecars.items():
+                        if source_sidecar.resolve() != dest_sidecar.resolve():
+                            tmp_sidecar = dest_sidecar.with_name(
+                                f".{dest_sidecar.name}.{time.time_ns()}.tmp"
+                            )
+                            shutil.copy2(str(source_sidecar), str(tmp_sidecar))
+                            tmp_sidecar.replace(dest_sidecar)
+
                 tmp_dest.replace(dest)
             finally:
                 if tmp_dest.exists():
                     tmp_dest.unlink()
+
         meta = self.meta_path(key)
-        meta_data = {
+        meta_data: dict[str, Any] = {
             "cache_key": key,
             "created_at": str(time.time()),
             "resolved_commit": resolved_commit or "",
             "source_identity": source_identity or "",
             "stable_identity": stable_identity or "",
         }
+        if manifest is not None:
+            meta_data["manifest"] = manifest
+
         meta.write_text(json.dumps(meta_data))
         self._evict_if_needed()
         return dest

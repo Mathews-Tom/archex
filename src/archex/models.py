@@ -308,6 +308,11 @@ class DiscoveredFile(BaseModel):
     size_bytes: int = 0
 
 
+class DiscoveryResult(BaseModel):
+    files: list[DiscoveredFile]
+    exclusions: list[dict[str, Any]]
+
+
 class Parameter(BaseModel):
     name: str
     type_annotation: str | None = None
@@ -331,6 +336,9 @@ class Symbol(BaseModel):
     start_line: int
     end_line: int
     visibility: Visibility = Visibility.PUBLIC
+    producer_name: str | None = None
+    producer_version: str | None = None
+    evidence: list[str] = []
     signature: str | None = None
     docstring: str | None = None
     decorators: list[str] = []
@@ -360,6 +368,10 @@ class ParsedFile(BaseModel):
     chunk_ranges: list[ChunkRange] = []
     lines: int = 0
     tokens: int = 0
+
+    producer_name: str | None = None
+    producer_version: str | None = None
+    evidence: list[str] = []
 
 
 class FileChange(BaseModel):
@@ -422,6 +434,18 @@ class DeltaMeta(BaseModel):
 # ---------------------------------------------------------------------------
 # Index models
 # ---------------------------------------------------------------------------
+
+
+class IndexGenerationManifest(BaseModel):
+    version: str
+    created_at: str
+    cache_key: str
+    index_config: IndexConfig
+    stores: dict[str, bool]
+    chunks_count: int
+    files_count: int
+    edges_count: int
+    excluded_files: list[dict[str, Any]]
 
 
 class CodeChunk(BaseModel):
