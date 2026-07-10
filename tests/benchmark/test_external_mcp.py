@@ -146,5 +146,6 @@ if __name__ == "__main__":
     assert result.recall == 1.0
     assert result.precision == 0.5
     assert result.tool_calls == 1
+    assert result.warm_latency_ms is not None
     assert result.warm_latency_ms >= 0.0
     assert result.provenance["external_tool_version"] == "1.0.0"

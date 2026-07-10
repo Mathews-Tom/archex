@@ -165,6 +165,23 @@ def test_competitive_report_includes_all_lanes_and_layer_labels() -> None:
     assert "layer=headroom" in output
 
 
+def test_competitive_report_renders_unmeasured_warm_latency_as_na() -> None:
+    reports = _reports_one_repo()
+    archex_result = reports[0].results[0]
+    archex_result.warm_latency_ms = None
+    archex_result.wall_time_ms = 999.0
+
+    output = format_competitive_markdown(_manifest(), reports)
+    archex_row = next(
+        line
+        for line in output.splitlines()
+        if line.startswith("| archex | retrieval |") and line.count("|") > 10
+    )
+    cells = [cell.strip() for cell in archex_row.strip("|").split("|")]
+
+    assert cells[13:15] == ["n/a", "n/a"]
+
+
 def test_competitive_report_includes_graphify_lanes_and_fairness_frame() -> None:
     manifest = HeadToHeadManifest(
         name="competitive",

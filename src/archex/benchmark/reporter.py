@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -62,17 +64,20 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
-def _percentile(values: list[float], quantile: float) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    if len(ordered) == 1:
-        return ordered[0]
-    position = (len(ordered) - 1) * quantile
-    lower = int(position)
-    upper = min(lower + 1, len(ordered) - 1)
-    fraction = position - lower
-    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+def _percentile(values: Sequence[float | None], quantile: float) -> float | None:
+    present = [v for v in values if v is not None]
+    if not present:
+        return None
+
+    sorted_values = sorted(present)
+    k = (len(sorted_values) - 1) * quantile
+    f = int(k)
+    c = int(math.ceil(k))
+    if f == c:
+        return sorted_values[f]
+    d0 = sorted_values[f] * (c - k)
+    d1 = sorted_values[c] * (k - f)
+    return d0 + d1
 
 
 def _receipt_accuracy_label(value: bool | None) -> str:
@@ -90,11 +95,11 @@ def _has_region_metrics(reports: list[BenchmarkReport]) -> bool:
 
 
 def _fmt_opt(value: float | None, *, digits: int = 3) -> str:
-    return "unknown" if value is None else f"{value:.{digits}f}"
+    return "n/a" if value is None else f"{value:.{digits}f}"
 
 
 def _fmt_opt_int(value: int | None) -> str:
-    return "unknown" if value is None else f"{value:,}"
+    return "n/a" if value is None else f"{value:,}"
 
 
 def _mean_optional(values: list[float | None]) -> float | None:
@@ -358,7 +363,7 @@ def _advanced_lanes_appendix(report: BenchmarkReport) -> list[str]:
             f"| {result.token_efficiency_with_completion:.2f} "
             f"| {result.required_file_recall:.2f} "
             f"| {_fmt_opt(result.region_recall)} "
-            f"| {result.wall_time_ms:.0f} "
+            f"| {_fmt_opt(result.wall_time_ms, digits=0)} "
             f"| {_advanced_lane_note(result)} |"
         )
     return lines
@@ -427,7 +432,7 @@ def _packing_lane_comparison(reports: list[BenchmarkReport]) -> list[str]:
         lines.append(
             f"| {_PACKING_LANE_LABELS[name]} | {name} | {efficiency:.3f} "
             f"| {_fmt_opt(region_rel, digits=2)} | {_fmt_opt(ratio)} "
-            f"| {p95:.0f} | {len(results)} |"
+            f"| {_fmt_opt(p95, digits=0)} | {len(results)} |"
         )
     lines.append("")
     return lines
@@ -486,7 +491,7 @@ def format_markdown(report: BenchmarkReport) -> str:
             f"| {r.missed_required_file_rate:.2f} | {r.missed_required_task_rate:.2f} "
             f"| {all_required} | {r.task_completion_result.value} | {receipt_accuracy} "
             f"| {r.recall:.2f} | {r.precision:.2f} "
-            f"| {r.f1_score:.2f} | {r.wall_time_ms:.0f} |"
+            f"| {r.f1_score:.2f} | {_fmt_opt(r.wall_time_ms, digits=0)} |"
         )
     lines.extend(_missing_required_file_appendix(report))
     lines.extend(_bundle_only_eval_appendix(report))
@@ -720,7 +725,7 @@ def format_baseline_comparison(
         return "No baseline comparison available."
 
     baseline_by_task = {report.task_id: report for report in baseline_reports}
-    rows: list[tuple[str, float, float, float, float, float, float]] = []
+    rows: list[tuple[str, float, float, float, float, float | None, float]] = []
     compression_ratios: list[float] = []
     for candidate_report in candidate_reports:
         baseline_report = baseline_by_task.get(candidate_report.task_id)
@@ -740,7 +745,9 @@ def format_baseline_comparison(
                 candidate.mrr - baseline.mrr,
                 candidate.f1_score - baseline.f1_score,
                 candidate.required_file_recall - baseline.required_file_recall,
-                candidate.wall_time_ms - baseline.wall_time_ms,
+                (candidate.wall_time_ms - baseline.wall_time_ms)
+                if candidate.wall_time_ms is not None and baseline.wall_time_ms is not None
+                else None,
                 compression_ratio,
             )
         )
@@ -767,11 +774,14 @@ def format_baseline_comparison(
         compression,
     ) in rows:
         compression_cell = f"{compression:.2f}x" if compression else "n/a"
+        latency_cell = "n/a" if latency_delta is None else f"{latency_delta:+.0f}"
         lines.append(
             f"| {task_id} | {recall_delta:+.3f} | {mrr_delta:+.3f} "
             f"| {f1_delta:+.3f} | {required_delta:+.3f} "
-            f"| {latency_delta:+.0f} | {compression_cell} |"
+            f"| {latency_cell} | {compression_cell} |"
         )
+    aggregate_latency = _mean_optional([row[5] for row in rows])
+    latency_summary = "n/a" if aggregate_latency is None else f"{aggregate_latency:+.0f}"
 
     lines.extend(
         [
@@ -782,7 +792,7 @@ def format_baseline_comparison(
             f"- MRR Δ: {_mean([row[2] for row in rows]):+.3f}",
             f"- F1 Δ: {_mean([row[3] for row in rows]):+.3f}",
             f"- Required recall Δ: {_mean([row[4] for row in rows]):+.3f}",
-            f"- Latency Δ ms: {_mean([row[5] for row in rows]):+.0f}",
+            f"- Latency Δ ms: {latency_summary}",
             f"- Compression: {_mean(compression_ratios):.2f}x"
             if compression_ratios
             else "- Compression: n/a",
@@ -969,7 +979,8 @@ def format_chunker_frontier_table(
             rows[key]["precision"].append(result.precision)
             rows[key]["f1_score"].append(result.f1_score)
             rows[key]["token_efficiency"].append(result.token_efficiency)
-            rows[key]["wall_time_ms"].append(result.wall_time_ms)
+            if result.wall_time_ms is not None:
+                rows[key]["wall_time_ms"].append(result.wall_time_ms)
             rows[key]["index_chunk_count"].append(float(result.index_chunk_count))
             rows[key]["mean_chunk_tokens"].append(result.mean_chunk_tokens)
 
@@ -986,7 +997,7 @@ def format_chunker_frontier_table(
             f"| {strategy} | {chunker} | {_mean(metrics['recall']):.3f} "
             f"| {_mean(metrics['precision']):.3f} | {_mean(metrics['f1_score']):.3f} "
             f"| {_mean(metrics['token_efficiency']):.3f} "
-            f"| {_percentile(metrics['wall_time_ms'], 0.95):.0f} "
+            f"| {_fmt_opt(_percentile(metrics['wall_time_ms'], 0.95), digits=0)} "
             f"| {_mean(metrics['index_chunk_count']):.0f} "
             f"| {_mean(metrics['mean_chunk_tokens']):.1f} |"
         )

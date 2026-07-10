@@ -303,7 +303,7 @@ def check_latency_warnings(
     warnings: list[LatencyWarning] = []
     for report in reports:
         for r in report.results:
-            if r.wall_time_ms > thresholds.warn_latency_ms:
+            if r.wall_time_ms is not None and r.wall_time_ms > thresholds.warn_latency_ms:
                 warnings.append(
                     LatencyWarning(
                         task_id=r.task_id,
@@ -334,7 +334,7 @@ def check_latency_violations(
     violations: list[LatencyViolation] = []
     for report in reports:
         for r in report.results:
-            if r.wall_time_ms > max_latency_ms:
+            if r.wall_time_ms is not None and r.wall_time_ms > max_latency_ms:
                 violations.append(
                     LatencyViolation(
                         task_id=r.task_id,

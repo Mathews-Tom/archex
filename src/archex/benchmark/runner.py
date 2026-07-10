@@ -314,11 +314,11 @@ def run_benchmark(
             results=results,
             baseline_tokens=baseline_tokens,
             median_latency_ms=_percentile(
-                [result.wall_time_ms for result in results],
+                [result.wall_time_ms for result in results if result.wall_time_ms is not None],
                 0.50,
             ),
             p95_latency_ms=_percentile(
-                [result.wall_time_ms for result in results],
+                [result.wall_time_ms for result in results if result.wall_time_ms is not None],
                 0.95,
             ),
         )

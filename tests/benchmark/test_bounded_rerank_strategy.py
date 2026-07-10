@@ -330,6 +330,7 @@ class TestRunBoundedRerankFixture:
 
         assert result.strategy == Strategy.ARCHEX_QUERY_BOUNDED_RERANK
         assert result.tool_calls == 1
+        assert result.wall_time_ms is not None
         assert result.wall_time_ms >= 0.0
         prov = result.provenance
         # No model is loaded in a fresh benchmark process: the lane skips the CE.
