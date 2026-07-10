@@ -1,4 +1,4 @@
-from archex.api import _expand_retrieval_question
+from archex.api import _expand_retrieval_question  # pyright: ignore[reportPrivateUsage]
 
 
 def test_vocabulary_disjoint_ablations() -> None:

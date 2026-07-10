@@ -703,6 +703,7 @@ class RankedChunk(BaseModel):
 class RetrievalMetadata(BaseModel):
     expanded_query: str | None = None
     expansion_provenance: dict[str, str] = {}
+
     candidates_found: int = 0
     candidates_after_expansion: int = 0
     chunks_included: int = 0
@@ -833,6 +834,7 @@ class ContextReceipt(BaseModel):
     query: str
     expanded_query: str | None = None
     expansion_provenance: dict[str, str] = {}
+
     token_budget: ContextReceiptTokenBudget
     index_revision: str
     freshness: ContextFreshness = ContextFreshness.UNKNOWN

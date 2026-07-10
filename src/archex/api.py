@@ -1189,29 +1189,24 @@ def _bm25_search_with_boosts(
     max_bm25 = max((s for _, s in results), default=1.0)
     path_boost = _file_path_boost(
         store,
+        expanded_question,
         bm25_ids,
-        max_bm25,
-        question,
-        all_chunks,
-        index_config.path_boost_multiplier,
+        max_bm25_score=max_bm25,
     )
-    symbol_boost = _symbol_search_seeds(
-        store,
-        bm25_ids,
-        max_bm25,
-        question,
-        all_chunks,
-        index_config.symbol_boost_multiplier,
-    )
+    all_existing = bm25_ids | {c.id for c, _ in path_boost}
+    symbol_seeds = [
+        (c, s)
+        for c, s in _symbol_search_seeds(store, expanded_question, max_bm25_score=max_bm25)
+        if c.id not in all_existing
+    ]
     module_boost = _module_prefilter_boosts(
-        store,
-        modules,
-        bm25_ids,
-        max_bm25,
-        question,
-        index_config.module_boost_multiplier,
+        modules if index_config.module_prefilter else [],
+        all_chunks,
+        expanded_question,
+        all_existing | {c.id for c, _ in symbol_seeds},
+        max_bm25_score=max_bm25,
     )
-    return results, path_boost, symbol_boost, module_boost, expanded_question, provenance
+    return results, path_boost, symbol_seeds, module_boost, expanded_question, provenance
 
 
 def _cached_vectors_by_content_hash(
@@ -1927,6 +1922,8 @@ def query(
                 # SQLite connections are not thread-safe; the vector path uses only
                 # pre-loaded numpy arrays and requires no store access.
                 with ThreadPoolExecutor(max_workers=1) as _pool:
+                    expanded_query = None
+                    expansion_prov = {}
                     _vec_future = _pool.submit(
                         _vector_search_precomputed,
                         cached_npz,
@@ -2318,10 +2315,12 @@ def query(
                     index_config,
                     vector_top_k,
                 )
+                expanded_query_miss = None
+                expansion_prov_miss = {}
                 if index_config.bm25:
                     (
-                        bm25_miss_raw,
-                        path_boost_miss,
+                        _bm25_raw,
+                        path_boost,
                         symbol_seeds_miss,
                         module_boost_miss,
                         expanded_query_miss,
@@ -2335,9 +2334,7 @@ def query(
                         modules_miss,
                         index_config,
                     )
-                    search_results = (
-                        bm25_miss_raw + path_boost_miss + symbol_seeds_miss + module_boost_miss
-                    )
+                    search_results = _bm25_raw + path_boost + symbol_seeds_miss + module_boost_miss
                 else:
                     search_results = []
                     path_boost = []
@@ -2428,6 +2425,7 @@ def query(
         bundle.retrieval_metadata.expanded_query = expanded_query_miss
         bundle.retrieval_metadata.expansion_provenance = expansion_prov_miss
         return _finalize_context_bundle(
+            bundle,
             label="",
             started_at=t0,
             timing=timing,
