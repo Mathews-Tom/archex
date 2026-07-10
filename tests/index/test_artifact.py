@@ -9,6 +9,7 @@ import sqlite3
 import struct
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -587,6 +588,95 @@ class TestSyncImportedArtifact:
             assert synced_store.get_metadata("commit_hash")
         finally:
             synced_store.close()
+
+    def test_sync_closes_store_on_mid_pipeline_exception(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """store must close even when a step after opening it raises."""
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = tmp_path / "artifact.xz"
+            export_artifact(store, artifact_path)
+        finally:
+            store.close()
+
+        dest_db_path = tmp_path / "imported" / "index.db"
+        import_artifact(artifact_path, dest_db_path)
+        config = Config(languages=["python"], cache=False)
+
+        close_calls: list[IndexStore] = []
+        real_close = IndexStore.close
+
+        def tracking_close(self: IndexStore) -> None:
+            close_calls.append(self)
+            real_close(self)
+
+        with (
+            patch.object(IndexStore, "close", tracking_close),
+            patch(
+                "archex.index.delta.compute_working_tree_delta",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            sync_imported_artifact(python_simple_repo, dest_db_path, config)
+
+        assert close_calls, "store.close() must run even when a sync step raises"
+
+    def test_full_reindex_fallback_cleans_up_fresh_store_on_exception(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """A failure during the stale-artifact full-reindex fallback must not
+        leak the fresh ephemeral store's scratch directory."""
+        import shutil
+        import tempfile
+
+        store = _build_store(python_simple_repo, tmp_path / "cache")
+        try:
+            artifact_path = tmp_path / "artifact.xz"
+            export_artifact(store, artifact_path)
+        finally:
+            store.close()
+
+        for py_file in sorted(python_simple_repo.rglob("*.py")):
+            py_file.write_text(f"def rewritten_{py_file.stem}():\n    return 1\n")
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "rewrite everything")
+
+        dest_db_path = tmp_path / "imported" / "index.db"
+        import_artifact(artifact_path, dest_db_path)
+        config = Config(languages=["python"], cache=True, delta_threshold=0.5)
+
+        # _full_index()'s own cache.put() (forced on internally by
+        # _full_reindex_in_place's fallback_config) calls shutil.copy2 once
+        # before fresh_store is even bound; only the SECOND call is
+        # _full_reindex_in_place's own `shutil.copy2(fresh_db_path,
+        # dest_db_path)`, the one that actually exercises the guard under
+        # test. Failing indiscriminately on every call would trip the first
+        # one and never reach fresh_store's own try/finally at all.
+        real_copy2 = shutil.copy2
+        call_count = 0
+
+        def copy2_fail_on_second_call(*args: object, **kwargs: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise RuntimeError("boom")
+            return real_copy2(*args, **kwargs)  # type: ignore[arg-type]
+
+        before = {p.name for p in Path(tempfile.gettempdir()).iterdir() if p.is_dir()}
+        with (
+            patch("shutil.copy2", side_effect=copy2_fail_on_second_call),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            sync_imported_artifact(python_simple_repo, dest_db_path, config)
+        after = {p.name for p in Path(tempfile.gettempdir()).iterdir() if p.is_dir()}
+
+        assert call_count >= 2, (
+            "expected the fault to fire on _full_reindex_in_place's own copy2 call, "
+            "not just the earlier cache.put() one"
+        )
+        assert after == before, f"leaked scratch dirs: {after - before}"
 
 
 class TestFromArtifactCliSync:

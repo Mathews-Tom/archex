@@ -209,95 +209,99 @@ def _full_index(
         from archex.index.delta import compute_file_states
 
         db_path = Path(tempfile.mkdtemp()) / "index.db"
-        store = IndexStore(db_path)
-        store.insert_chunks(all_chunks)
-        chunk_surrogates = (
-            build_chunk_surrogates(
-                all_chunks,
-                version=effective_index_config.surrogate_version,
+        store = IndexStore(db_path, delete_dir_on_close=True)
+        try:
+            store.insert_chunks(all_chunks)
+            chunk_surrogates = (
+                build_chunk_surrogates(
+                    all_chunks,
+                    version=effective_index_config.surrogate_version,
+                )
+                if _surrogates_required(effective_index_config)
+                else []
             )
-            if _surrogates_required(effective_index_config)
-            else []
-        )
-        if chunk_surrogates:
-            store.insert_chunk_surrogates(chunk_surrogates)
-        edges = graph.file_edges()
-        store.replace_file_states(compute_file_states(repo_path, files))
-        store.insert_edges(edges)
-        _build_splade_index(store, all_chunks, effective_index_config)
-        _build_module_summaries(store, graph, parsed_files, effective_index_config)
-        if effective_index_config.vector:
-            embedder = _get_embedder(effective_index_config)
-            if embedder is not None:
-                from archex.index.vector import VectorIndex
+            if chunk_surrogates:
+                store.insert_chunk_surrogates(chunk_surrogates)
+            edges = graph.file_edges()
+            store.replace_file_states(compute_file_states(repo_path, files))
+            store.insert_edges(edges)
+            _build_splade_index(store, all_chunks, effective_index_config)
+            _build_module_summaries(store, graph, parsed_files, effective_index_config)
+            if effective_index_config.vector:
+                embedder = _get_embedder(effective_index_config)
+                if embedder is not None:
+                    from archex.index.vector import VectorIndex
 
-                surrogate_lookup = (
-                    {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
-                    if chunk_surrogates
-                    else None
-                )
-                vector_chunks = embedding_eligible_chunks(all_chunks)
-                vec_idx = VectorIndex(
-                    quantize=effective_index_config.quantize_vectors,
-                    quantize_bits=effective_index_config.quantize_bits,
-                )
-                cache_hits, cache_misses = vec_idx.build(
-                    vector_chunks,
-                    embedder,
-                    surrogates_by_chunk_id=surrogate_lookup,
-                    vector_mode=effective_index_config.vector_mode,
-                )
-                store.set_metadata("embedding_cache_hits", str(cache_hits))
-                store.set_metadata("embedding_cache_misses", str(cache_misses))
-                npz_path = (
-                    cache.vector_path(
-                        cache_key,
-                        vector_mode=effective_index_config.vector_mode,
-                        surrogate_version=effective_index_config.surrogate_version,
+                    surrogate_lookup = (
+                        {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
+                        if chunk_surrogates
+                        else None
                     )
-                    if config.cache
-                    else store.vector_index_path_for(
-                        vector_mode=effective_index_config.vector_mode,
-                        surrogate_version=effective_index_config.surrogate_version,
+                    vector_chunks = embedding_eligible_chunks(all_chunks)
+                    vec_idx = VectorIndex(
+                        quantize=effective_index_config.quantize_vectors,
+                        quantize_bits=effective_index_config.quantize_bits,
                     )
+                    cache_hits, cache_misses = vec_idx.build(
+                        vector_chunks,
+                        embedder,
+                        surrogates_by_chunk_id=surrogate_lookup,
+                        vector_mode=effective_index_config.vector_mode,
+                    )
+                    store.set_metadata("embedding_cache_hits", str(cache_hits))
+                    store.set_metadata("embedding_cache_misses", str(cache_misses))
+                    npz_path = (
+                        cache.vector_path(
+                            cache_key,
+                            vector_mode=effective_index_config.vector_mode,
+                            surrogate_version=effective_index_config.surrogate_version,
+                        )
+                        if config.cache
+                        else store.vector_index_path_for(
+                            vector_mode=effective_index_config.vector_mode,
+                            surrogate_version=effective_index_config.surrogate_version,
+                        )
+                    )
+                    if vector_chunks:
+                        vec_idx.save(
+                            npz_path,
+                            embedder_name=effective_index_config.embedder or "",
+                            vector_dim=embedder.dimension,
+                            vector_mode=effective_index_config.vector_mode,
+                            surrogate_version=effective_index_config.surrogate_version,
+                        )
+                    elif npz_path.exists():
+                        npz_path.unlink()
+
+            total_repo_tokens = sum(chunk.token_count for chunk in all_chunks)
+            _set_index_config_metadata(store, effective_index_config)
+            store.set_metadata("repo_total_tokens", str(total_repo_tokens))
+            store.set_metadata("chunk_count", str(len(all_chunks)))
+            file_count = len({chunk.file_path for chunk in all_chunks})
+            store.set_metadata("file_count", str(file_count))
+
+            if config.cache:
+                commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
+                identity = source.url or source.local_path or ""
+                store.set_metadata("commit_hash", commit)
+                store.set_metadata("source_identity", identity)
+                store.set_metadata("indexed_at", str(time.time()))
+                _set_working_tree_signature(store, repo_path, config)
+                store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+                cache.put(
+                    cache_key,
+                    db_path,
+                    resolved_commit=commit,
+                    source_identity=identity,
                 )
-                if vector_chunks:
-                    vec_idx.save(
-                        npz_path,
-                        embedder_name=effective_index_config.embedder or "",
-                        vector_dim=embedder.dimension,
-                        vector_mode=effective_index_config.vector_mode,
-                        surrogate_version=effective_index_config.surrogate_version,
-                    )
-                elif npz_path.exists():
-                    npz_path.unlink()
+            if timing is not None:
+                timing.index_ms = _elapsed_ms(t_idx)
+                timing.strategy = "full"
 
-        total_repo_tokens = sum(chunk.token_count for chunk in all_chunks)
-        _set_index_config_metadata(store, effective_index_config)
-        store.set_metadata("repo_total_tokens", str(total_repo_tokens))
-        store.set_metadata("chunk_count", str(len(all_chunks)))
-        file_count = len({chunk.file_path for chunk in all_chunks})
-        store.set_metadata("file_count", str(file_count))
-
-        if config.cache:
-            commit = cloned_head or cache.git_head(source.local_path) or source.commit or ""
-            identity = source.url or source.local_path or ""
-            store.set_metadata("commit_hash", commit)
-            store.set_metadata("source_identity", identity)
-            store.set_metadata("indexed_at", str(time.time()))
-            _set_working_tree_signature(store, repo_path, config)
-            store.conn.execute("PRAGMA wal_checkpoint(FULL)")
-            cache.put(
-                cache_key,
-                db_path,
-                resolved_commit=commit,
-                source_identity=identity,
-            )
-        if timing is not None:
-            timing.index_ms = _elapsed_ms(t_idx)
-            timing.strategy = "full"
-
-        return store
+            return store
+        except BaseException:
+            store.close()
+            raise
     finally:
         cleanup()
 
@@ -340,21 +344,25 @@ def _ensure_index(
     cached_db = cache.get(cache_key) if config.cache else None
     if cached_db is not None:
         store = IndexStore(cached_db)
-        store_signature = store.get_metadata("working_tree_signature")
-        signature_matches = (
-            working_tree_signature is None or store_signature == working_tree_signature
-        )
-        needs_reindex = store.needs_reindex()
-        metadata_matches = _index_config_metadata_matches(store, effective_index_config)
-        if not needs_reindex and signature_matches and metadata_matches:
-            if timing is not None:
-                timing.cached = True
-                timing.strategy = "cached"
-                timing.index_ms = _elapsed_ms(t_start)
-            return store
-        store.close()
-        if needs_reindex or not metadata_matches:
-            cache.invalidate(cache_key)
+        try:
+            store_signature = store.get_metadata("working_tree_signature")
+            signature_matches = (
+                working_tree_signature is None or store_signature == working_tree_signature
+            )
+            needs_reindex = store.needs_reindex()
+            metadata_matches = _index_config_metadata_matches(store, effective_index_config)
+            if not needs_reindex and signature_matches and metadata_matches:
+                if timing is not None:
+                    timing.cached = True
+                    timing.strategy = "cached"
+                    timing.index_ms = _elapsed_ms(t_start)
+                return store
+            store.close()
+            if needs_reindex or not metadata_matches:
+                cache.invalidate(cache_key)
+        except BaseException:
+            store.close()
+            raise
 
     # Path 2: Delta path — same repo, different commit (local repos only)
     delta_store = _try_delta_index(
@@ -440,14 +448,20 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
 
         if not manifest.changes and same_commit:
             clean_store = IndexStore(db_path)
-            if attempt.working_tree_signature is not None:
-                clean_store.set_metadata("working_tree_signature", attempt.working_tree_signature)
-            clean_store.set_metadata("indexed_at", str(time.time()))
-            if attempt.timing is not None:
-                attempt.timing.cached = True
-                attempt.timing.strategy = "cached"
-                attempt.timing.index_ms = _elapsed_ms(attempt.t_start)
-            return clean_store
+            try:
+                if attempt.working_tree_signature is not None:
+                    clean_store.set_metadata(
+                        "working_tree_signature", attempt.working_tree_signature
+                    )
+                clean_store.set_metadata("indexed_at", str(time.time()))
+                if attempt.timing is not None:
+                    attempt.timing.cached = True
+                    attempt.timing.strategy = "cached"
+                    attempt.timing.index_ms = _elapsed_ms(attempt.t_start)
+                return clean_store
+            except BaseException:
+                clean_store.close()
+                raise
 
         total_files = len(
             discover_files(
@@ -463,93 +477,97 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
         if attempt.timing is not None:
             attempt.timing.delta_attempted = True
         store = IndexStore(db_path)
-        index_config = attempt.index_config or IndexConfig()
-        old_chunks = store.get_chunks() if index_config.vector else []
-        cache_vector_path = attempt.cache.vector_path(
-            attempt.cache_key,
-            vector_mode=index_config.vector_mode,
-            surrogate_version=index_config.surrogate_version,
-        )
-        old_vector_path = (
-            cache_vector_path
-            if cache_vector_path.exists()
-            else store.vector_index_path_for(
+        try:
+            index_config = attempt.index_config or IndexConfig()
+            old_chunks = store.get_chunks() if index_config.vector else []
+            cache_vector_path = attempt.cache.vector_path(
+                attempt.cache_key,
                 vector_mode=index_config.vector_mode,
                 surrogate_version=index_config.surrogate_version,
             )
-        )
-        graph = DependencyGraph.from_edges(store.get_edges())
-        delta_meta = apply_delta(
-            store,
-            graph,
-            manifest,
-            repo_path,
-            config,
-            index_config=index_config,
-        )
-        if index_config.vector:
-            embedder = _get_embedder(index_config)
-            if embedder is not None:
-                from archex.index.vector import VectorIndex
-
-                new_chunks = store.get_chunks()
-                vector_chunks = embedding_eligible_chunks(new_chunks)
-                new_surrogates = _surrogate_lookup(store, vector_chunks, index_config)
-                cached_vectors = _cached_vectors_by_content_hash(
-                    old_vector_path,
-                    old_chunks,
-                    index_config,
-                    embedder,
-                )
-                vec_idx = VectorIndex(
-                    quantize=index_config.quantize_vectors,
-                    quantize_bits=index_config.quantize_bits,
-                )
-                cache_hits, cache_misses = vec_idx.build(
-                    vector_chunks,
-                    embedder,
-                    surrogates_by_chunk_id=new_surrogates,
-                    vector_mode=index_config.vector_mode,
-                    cached_vectors_by_content_hash=cached_vectors,
-                )
-                vector_path = attempt.cache.vector_path(
-                    attempt.cache_key,
+            old_vector_path = (
+                cache_vector_path
+                if cache_vector_path.exists()
+                else store.vector_index_path_for(
                     vector_mode=index_config.vector_mode,
                     surrogate_version=index_config.surrogate_version,
                 )
-                if vector_chunks:
-                    vec_idx.save(
-                        vector_path,
-                        embedder_name=index_config.embedder or "",
-                        vector_dim=embedder.dimension,
+            )
+            graph = DependencyGraph.from_edges(store.get_edges())
+            delta_meta = apply_delta(
+                store,
+                graph,
+                manifest,
+                repo_path,
+                config,
+                index_config=index_config,
+            )
+            if index_config.vector:
+                embedder = _get_embedder(index_config)
+                if embedder is not None:
+                    from archex.index.vector import VectorIndex
+
+                    new_chunks = store.get_chunks()
+                    vector_chunks = embedding_eligible_chunks(new_chunks)
+                    new_surrogates = _surrogate_lookup(store, vector_chunks, index_config)
+                    cached_vectors = _cached_vectors_by_content_hash(
+                        old_vector_path,
+                        old_chunks,
+                        index_config,
+                        embedder,
+                    )
+                    vec_idx = VectorIndex(
+                        quantize=index_config.quantize_vectors,
+                        quantize_bits=index_config.quantize_bits,
+                    )
+                    cache_hits, cache_misses = vec_idx.build(
+                        vector_chunks,
+                        embedder,
+                        surrogates_by_chunk_id=new_surrogates,
+                        vector_mode=index_config.vector_mode,
+                        cached_vectors_by_content_hash=cached_vectors,
+                    )
+                    vector_path = attempt.cache.vector_path(
+                        attempt.cache_key,
                         vector_mode=index_config.vector_mode,
                         surrogate_version=index_config.surrogate_version,
                     )
-                elif vector_path.exists():
-                    vector_path.unlink()
-                store.set_metadata("embedding_cache_hits", str(cache_hits))
-                store.set_metadata("embedding_cache_misses", str(cache_misses))
-        identity = source.url or source.local_path or ""
-        store.set_metadata("commit_hash", current_commit)
-        store.set_metadata("source_identity", identity)
-        store.set_metadata("indexed_at", str(time.time()))
-        if attempt.working_tree_signature is not None:
-            store.set_metadata("working_tree_signature", attempt.working_tree_signature)
-        store.conn.execute("PRAGMA wal_checkpoint(FULL)")
-        attempt.cache.put(
-            attempt.cache_key,
-            db_path,
-            resolved_commit=current_commit,
-            source_identity=identity,
-        )
-        if attempt.timing is not None:
-            attempt.timing.delta_ms = delta_meta.delta_time_ms
-            attempt.timing.delta_meta = delta_meta
-            attempt.timing.index_ms = _elapsed_ms(attempt.t_start)
-            attempt.timing.delta_succeeded = True
-            attempt.timing.strategy = "delta"
-        logger.info("Delta index applied in %.0fms", delta_meta.delta_time_ms)
-        return store
+                    if vector_chunks:
+                        vec_idx.save(
+                            vector_path,
+                            embedder_name=index_config.embedder or "",
+                            vector_dim=embedder.dimension,
+                            vector_mode=index_config.vector_mode,
+                            surrogate_version=index_config.surrogate_version,
+                        )
+                    elif vector_path.exists():
+                        vector_path.unlink()
+                    store.set_metadata("embedding_cache_hits", str(cache_hits))
+                    store.set_metadata("embedding_cache_misses", str(cache_misses))
+            identity = source.url or source.local_path or ""
+            store.set_metadata("commit_hash", current_commit)
+            store.set_metadata("source_identity", identity)
+            store.set_metadata("indexed_at", str(time.time()))
+            if attempt.working_tree_signature is not None:
+                store.set_metadata("working_tree_signature", attempt.working_tree_signature)
+            store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+            attempt.cache.put(
+                attempt.cache_key,
+                db_path,
+                resolved_commit=current_commit,
+                source_identity=identity,
+            )
+            if attempt.timing is not None:
+                attempt.timing.delta_ms = delta_meta.delta_time_ms
+                attempt.timing.delta_meta = delta_meta
+                attempt.timing.index_ms = _elapsed_ms(attempt.t_start)
+                attempt.timing.delta_succeeded = True
+                attempt.timing.strategy = "delta"
+            logger.info("Delta index applied in %.0fms", delta_meta.delta_time_ms)
+            return store
+        except BaseException:
+            store.close()
+            raise
     except DeltaIndexError:
         if attempt.timing is not None:
             attempt.timing.delta_attempted = True
@@ -2056,22 +2074,22 @@ def query(
         effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget, intent_budget)
 
         db_path = Path(tempfile.mkdtemp()) / "index.db"
-        store = IndexStore(db_path)
-        chunk_surrogates = (
-            build_chunk_surrogates(
-                all_chunks,
-                version=index_config.surrogate_version,
-            )
-            if _surrogates_required(index_config)
-            else []
-        )
-        surrogate_lookup = (
-            {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
-            if chunk_surrogates
-            else None
-        )
-
+        store = IndexStore(db_path, delete_dir_on_close=True)
         try:
+            chunk_surrogates = (
+                build_chunk_surrogates(
+                    all_chunks,
+                    version=index_config.surrogate_version,
+                )
+                if _surrogates_required(index_config)
+                else []
+            )
+            surrogate_lookup = (
+                {surrogate.chunk_id: surrogate for surrogate in chunk_surrogates}
+                if chunk_surrogates
+                else None
+            )
+
             bm25 = BM25Index(
                 store,
                 identifier_fragment_tokenization=index_config.identifier_fragment_tokenization,

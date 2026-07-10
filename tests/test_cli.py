@@ -139,6 +139,7 @@ def test_init_command_reset_requires_force(python_simple_repo: Path) -> None:
 
 class FakeIndexStore:
     db_path = Path("/tmp/archex-index.db")
+    ephemeral = False
 
     def __init__(self) -> None:
         self.closed = False

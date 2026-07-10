@@ -377,16 +377,18 @@ def _full_reindex_in_place(
             timing=None,
             index_config=index_config,
         )
-        fresh_db_path = fresh_store.db_path
-        fresh_store.conn.execute("PRAGMA wal_checkpoint(FULL)")
-        fresh_store.close()
+        try:
+            fresh_db_path = fresh_store.db_path
+            fresh_store.conn.execute("PRAGMA wal_checkpoint(FULL)")
 
-        dest_db_path.parent.mkdir(parents=True, exist_ok=True)
-        for suffix in ("-wal", "-shm"):
-            stale_sidecar = dest_db_path.with_name(dest_db_path.name + suffix)
-            if stale_sidecar.exists():
-                stale_sidecar.unlink()
-        shutil.copy2(fresh_db_path, dest_db_path)
+            dest_db_path.parent.mkdir(parents=True, exist_ok=True)
+            for suffix in ("-wal", "-shm"):
+                stale_sidecar = dest_db_path.with_name(dest_db_path.name + suffix)
+                if stale_sidecar.exists():
+                    stale_sidecar.unlink()
+            shutil.copy2(fresh_db_path, dest_db_path)
+        finally:
+            fresh_store.close()
     finally:
         shutil.rmtree(scratch_dir, ignore_errors=True)
 
@@ -419,47 +421,53 @@ def sync_imported_artifact(
     t_start = time.perf_counter()
 
     store = IndexStore(dest_db_path)
-    manifest = compute_working_tree_delta(repo_root, store, config)
-    manifest.base_commit = store.get_metadata("commit_hash") or manifest.base_commit
-    current_commit = CacheManager.git_head(str(repo_root))
-    if current_commit:
-        manifest.current_commit = current_commit
+    try:
+        manifest = compute_working_tree_delta(repo_root, store, config)
+        manifest.base_commit = store.get_metadata("commit_hash") or manifest.base_commit
+        current_commit = CacheManager.git_head(str(repo_root))
+        if current_commit:
+            manifest.current_commit = current_commit
 
-    if not manifest.changes:
-        store.set_metadata("indexed_at", str(time.time()))
-        store.close()
-        return ArtifactSyncResult(
-            strategy="clean",
-            files_changed=0,
-            delta_meta=None,
-            sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
+        if not manifest.changes:
+            store.set_metadata("indexed_at", str(time.time()))
+            store.close()
+            return ArtifactSyncResult(
+                strategy="clean",
+                files_changed=0,
+                delta_meta=None,
+                sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
+            )
+
+        total_files = len(
+            discover_files(
+                repo_root, languages=config.languages, max_file_size=config.max_file_size
+            )
         )
+        change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
 
-    total_files = len(
-        discover_files(repo_root, languages=config.languages, max_file_size=config.max_file_size)
-    )
-    change_ratio = len(manifest.changes) / total_files if total_files > 0 else 1.0
+        if change_ratio >= config.delta_threshold:
+            store.close()
+            logger.warning(_STALE_FALLBACK_LOG, change_ratio * 100, config.delta_threshold * 100)
+            _full_reindex_in_place(repo_root, dest_db_path, config, effective_index_config)
+            return ArtifactSyncResult(
+                strategy="full_reindex",
+                files_changed=len(manifest.changes),
+                delta_meta=None,
+                sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
+            )
 
-    if change_ratio >= config.delta_threshold:
+        graph = DependencyGraph.from_edges(store.get_edges())
+        delta_meta = apply_delta(store, graph, manifest, repo_root, config, effective_index_config)
         store.close()
-        logger.warning(_STALE_FALLBACK_LOG, change_ratio * 100, config.delta_threshold * 100)
-        _full_reindex_in_place(repo_root, dest_db_path, config, effective_index_config)
         return ArtifactSyncResult(
-            strategy="full_reindex",
+            strategy="delta",
             files_changed=len(manifest.changes),
-            delta_meta=None,
+            delta_meta=delta_meta,
             sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
         )
-
-    graph = DependencyGraph.from_edges(store.get_edges())
-    delta_meta = apply_delta(store, graph, manifest, repo_root, config, effective_index_config)
-    store.close()
-    return ArtifactSyncResult(
-        strategy="delta",
-        files_changed=len(manifest.changes),
-        delta_meta=delta_meta,
-        sync_time_ms=round((time.perf_counter() - t_start) * 1000, 1),
-    )
+    except BaseException:
+        store.close()
+        raise
 
 
 _GITATTRIBUTES_COMMENT = "# archex portable index artifact — never diff/merge-conflict"
