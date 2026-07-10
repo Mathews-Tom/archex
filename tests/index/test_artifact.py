@@ -468,6 +468,24 @@ class TestImportArtifact:
         assert not dest.exists()
 
 
+class TestReadHeader:
+    """Direct unit test for _read_header()'s header_len ceiling."""
+
+    def test_rejects_oversized_header_length(self, tmp_path: Path) -> None:
+        """A crafted artifact declaring an absurd header_len must be rejected
+        before any read of that size is attempted — the same length-prefixed-
+        read bomb class the payload decompression guard closes, one field
+        earlier in the same file.
+        """
+        artifact_path = tmp_path / "oversized_header.xz"
+        with artifact_path.open("wb") as handle:
+            handle.write(ARTIFACT_MAGIC)
+            handle.write(struct.pack(">I", 2**32 - 1))  # max u32: ~4.29 GiB declared header
+
+        with pytest.raises(ArtifactError, match="exceeding"):
+            read_artifact_header(artifact_path)
+
+
 class TestDecompressArtifactPayload:
     """Direct unit tests for the bomb-bounding decompression helper.
 
