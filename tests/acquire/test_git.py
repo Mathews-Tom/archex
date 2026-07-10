@@ -72,8 +72,12 @@ def test_timeout_raises(tmp_path: Path) -> None:
     [
         "https://github.com/user/repo.git",
         "http://example.com/repo.git",
+        "HTTP://example.com/repo.git",
+        "HTTPS://example.com/repo.git",
         "/home/user/local-repo",
         "./relative/path",
+        "C:\\Users\\me\\repo",
+        "C:/Users/me/repo",
     ],
 )
 def testvalidate_url_accepts_safe_urls(url: str) -> None:
@@ -88,6 +92,10 @@ def testvalidate_url_accepts_safe_urls(url: str) -> None:
         "file:///etc/passwd",
         "git://github.com/user/repo.git",
         "ftp://example.com/repo.git",
+        "ext::sh -c touch /tmp/pwned",
+        "fd::5",
+        "example.com:some/repo.git",
+        "httpx://example.com/repo.git",
     ],
 )
 def testvalidate_url_rejects_disallowed_schemes(bad_url: str) -> None:
@@ -103,6 +111,21 @@ def test_clone_repo_rejects_ssh_url(tmp_path: Path) -> None:
 def test_clone_repo_rejects_file_url(tmp_path: Path) -> None:
     with pytest.raises(AcquireError, match="Disallowed URL scheme"):
         clone_repo("file:///etc/passwd", tmp_path / "out")
+
+
+def test_clone_repo_rejects_ext_transport_helper(tmp_path: Path) -> None:
+    """git's ext:: remote helper runs its address as a shell command; must never reach clone.
+
+    subprocess.run is mocked so a guard regression fails as a clean assertion
+    rather than actually invoking `git clone` with this payload — git's
+    ext:: handler runs its address as a real local shell command.
+    """
+    with (
+        patch("archex.acquire.git.subprocess.run") as mock_run,
+        pytest.raises(AcquireError, match="Disallowed URL scheme"),
+    ):
+        clone_repo("ext::sh -c touch /tmp/pwned", tmp_path / "out")
+    mock_run.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
