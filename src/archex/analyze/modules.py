@@ -24,7 +24,10 @@ def _build_nx_graph(graph: DependencyGraph, parsed_files: list[ParsedFile]) -> A
     for pf in parsed_files:
         g.add_node(pf.path)  # type: ignore[misc]
     for edge in graph.file_edges():
-        g.add_edge(edge.source, edge.target)  # type: ignore[misc]
+        if not edge.source.startswith("unresolved://") and not edge.target.startswith(
+            "unresolved://"
+        ):
+            g.add_edge(edge.source, edge.target)  # type: ignore[misc]
     return g
 
 
