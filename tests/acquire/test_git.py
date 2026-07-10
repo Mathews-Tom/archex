@@ -95,6 +95,10 @@ def testvalidate_url_accepts_safe_urls(url: str) -> None:
         "ext::sh -c touch /tmp/pwned",
         "fd::5",
         "example.com:some/repo.git",
+        " example.com:some/repo.git",
+        "\texample.com:some/repo.git",
+        "\nexample.com:some/repo.git",
+        "example.com:some/repo.git ",
         "httpx://example.com/repo.git",
     ],
 )
@@ -125,6 +129,20 @@ def test_clone_repo_rejects_ext_transport_helper(tmp_path: Path) -> None:
         pytest.raises(AcquireError, match="Disallowed URL scheme"),
     ):
         clone_repo("ext::sh -c touch /tmp/pwned", tmp_path / "out")
+    mock_run.assert_not_called()
+
+
+def test_clone_repo_rejects_leading_whitespace_scp_bypass(tmp_path: Path) -> None:
+    """A leading space before an scp-like host is still a real ssh remote to git/ssh,
+    but was previously unanchored-by-whitespace and fell through as "a local path".
+    subprocess.run is mocked so a guard regression fails as a clean assertion rather
+    than a real outbound ssh connection attempt to an attacker-chosen host.
+    """
+    with (
+        patch("archex.acquire.git.subprocess.run") as mock_run,
+        pytest.raises(AcquireError, match="Disallowed URL scheme"),
+    ):
+        clone_repo(" example.com:some/repo.git", tmp_path / "out")
     mock_run.assert_not_called()
 
 
