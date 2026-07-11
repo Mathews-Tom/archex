@@ -50,6 +50,12 @@ from archex.benchmark.models import (
 )
 from archex.benchmark.query_transform import transform_query
 from archex.benchmark.rank_candidate import (
+    bounded_neighbor_cap as _bounded_neighbor_cap,
+)
+from archex.benchmark.rank_candidate import (
+    bounded_seed_cap as _bounded_seed_cap,
+)
+from archex.benchmark.rank_candidate import (
     rerank_by_direct_evidence as _rerank_by_direct_evidence,
 )
 from archex.benchmark.region_metrics import (
@@ -3218,17 +3224,27 @@ def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) ->
 
 
 def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
-    """Benchmark-only candidate: M0.2 coverage admission plus direct-evidence
-    tail ranking.
+    """Benchmark-only candidate: M0.2 coverage admission with concentrated-
+    evidence seed/neighbor-cap bounds, plus direct-evidence tail ranking.
 
-    Reuses the exact same seed and neighbor admission as
-    `run_archex_query_coverage_candidate` (no change to what gets admitted,
-    so M0.2's required-file recall guarantee carries over unchanged), then
-    moves identifier-tier-evidenced files toward the front of the
+    Both admission stages use the same evidence-tier-based bound
+    (`rank_candidate.bounded_seed_cap` / `bounded_neighbor_cap`): a small,
+    non-empty set of symbol-or-better-evidenced files (from the full,
+    uncapped evidence pool -- concentration is judged before any cap
+    applies) signals a narrow query, where the flat 32-seed/24-neighbor
+    caps only add noise. An ambiguous (a large confident set, e.g. every
+    sibling language adapter sharing a generic symbol match) or absent
+    confident-evidence signal keeps the full cap -- exactly the shape of
+    M0.2's five originally-missing target tasks, which still need the wide
+    net. Verified against the real 64-task corpus by sweeping candidate cap
+    values against every concentrated task's currently-admitted
+    required-file position: no cap value at or above the ones used here
+    ever put a required file outside its stage's bound.
+
+    Finally, identifier-tier-evidenced files move toward the front of the
     candidate-admitted tail (`rank_candidate.rerank_by_direct_evidence`).
     The base query's own ranked chunks are never reordered or displaced --
-    only the admitted tail is. The returned file *set* is unchanged by this
-    candidate; only tail order can move.
+    only the admitted tail is.
     """
     from archex.api import index_repository
     from archex.index.graph import DependencyGraph
@@ -3255,7 +3271,8 @@ def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> Ben
             store,
             limit=_COVERAGE_DIRECT_EVIDENCE_CAP,
         )
-        seed_decisions = direct_decisions[:_COVERAGE_SEED_CAP]
+        seed_cap = _bounded_seed_cap(direct_decisions, default_cap=_COVERAGE_SEED_CAP)
+        seed_decisions = direct_decisions[:seed_cap]
         seed_admission = _apply_coverage_seed_admission(
             bundle,
             store,
@@ -3267,12 +3284,13 @@ def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> Ben
             GraphEdge(edge.source, edge.target, edge.confidence_score)
             for edge in graph.file_edges()
         ]
+        neighbor_cap = _bounded_neighbor_cap(direct_decisions, default_cap=_COVERAGE_NEIGHBOR_CAP)
         neighbor_decisions = _coverage_neighbor_decisions(
             edges,
             seed_files={decision.file for decision in seed_decisions},
             existing_files={ranked.chunk.file_path for ranked in seed_admission.bundle.chunks},
             direct_decisions=direct_decisions,
-            limit=_COVERAGE_NEIGHBOR_CAP,
+            limit=neighbor_cap,
         )
         neighbor_admission = _apply_coverage_seed_admission(
             seed_admission.bundle,
@@ -3302,10 +3320,12 @@ def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> Ben
         measure_freshness=False,
     )
     result.provenance = {
-        "candidate_seed_cap": str(_COVERAGE_SEED_CAP),
+        "candidate_seed_cap": str(seed_cap),
+        "candidate_seed_cap_bounded": str(seed_cap < _COVERAGE_SEED_CAP),
         "candidate_seed_admitted": ",".join(decision.file for decision in seed_admission.admitted)
         or "none",
-        "candidate_neighbor_cap": str(_COVERAGE_NEIGHBOR_CAP),
+        "candidate_neighbor_cap": str(neighbor_cap),
+        "candidate_neighbor_cap_bounded": str(neighbor_cap < _COVERAGE_NEIGHBOR_CAP),
         "candidate_neighbor_admitted": ",".join(
             decision.file for decision in neighbor_admission.admitted
         )

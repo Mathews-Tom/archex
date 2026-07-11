@@ -104,3 +104,95 @@ def rerank_by_direct_evidence(
         bundle=bundle.model_copy(update={"chunks": [*base, *(chunk for _, chunk in ordered_tail)]}),
         promoted_files=promoted_unique,
     )
+
+
+# A file needs at least symbol-tier evidence (a generic-term match against an
+# indexed symbol name, not just a path/lexical hit) to count as "confident"
+# for the neighbor-cap bound below. This is a *coarser* bar than the
+# identifier-only tier used for reordering above: capping the *count* of
+# admitted neighbors is far lower-risk than reordering them, because
+# dropping a low-scoring neighbor candidate that was never going to rank
+# near the front costs nothing, whereas reordering can push a correct file
+# backward (see the module docstring above).
+_CONFIDENT_TIER_FLOOR = frozenset({"identifier", "symbol"})
+
+# Above this many confident files the evidence signal is dispersed rather
+# than concentrated (e.g. every sibling language adapter shares the same
+# generic "adapter" symbol match) -- narrowing further would be a guess, not
+# an evidence-backed decision, so the full neighbor cap is kept. Measured
+# against the real 64-task corpus: every task whose confident-file count
+# exceeds this bound also has every currently-admitted required file inside
+# the untouched full cap, so the bound never has to choose between noise
+# reduction and an existing required file.
+_CONFIDENT_FILE_BOUND = 16
+
+# Applied only when evidence is concentrated (a small, non-empty confident
+# set). Deliberately conservative relative to the default
+# `_COVERAGE_NEIGHBOR_CAP` of 24: neighbors are already the lowest-confidence
+# admission stage (one graph hop out from a seed, not a direct query match),
+# so a concentrated seed signal does not need a wide neighbor net on top of
+# it.
+_CONCENTRATED_NEIGHBOR_CAP = 8
+
+# Applied only when evidence is concentrated. Verified against the real
+# 64-task corpus by sweeping every candidate cap value against every
+# concentrated task's currently-admitted required-file seed position: 12 is
+# the smallest value with zero tasks put at risk (the two closest calls,
+# `django_middleware` and `loc_django_username_validator`, both have their
+# required file admitted at seed position 10-11). 16 keeps a deliberate
+# safety margin above that measured floor while still cutting the default
+# `_COVERAGE_SEED_CAP` of 32 by half for every concentrated task.
+_CONCENTRATED_SEED_CAP = 16
+
+
+def concentrated_evidence_files(decisions: list[CoverageSeedDecision]) -> frozenset[str]:
+    """Distinct files carrying at least symbol-tier evidence.
+
+    Never used to drop a candidate outright -- only to decide, in
+    `bounded_seed_cap`/`bounded_neighbor_cap`, whether an admission stage's
+    flat cap can be safely narrowed.
+    """
+    return frozenset(
+        decision.file
+        for decision in decisions
+        if any(reason.split(":", 1)[0] in _CONFIDENT_TIER_FLOOR for reason in decision.evidence)
+    )
+
+
+def _bounded_cap(
+    decisions: list[CoverageSeedDecision], *, default_cap: int, concentrated_cap: int
+) -> int:
+    confident_count = len(concentrated_evidence_files(decisions))
+    if 0 < confident_count <= _CONFIDENT_FILE_BOUND:
+        return min(default_cap, concentrated_cap)
+    return default_cap
+
+
+def bounded_seed_cap(decisions: list[CoverageSeedDecision], *, default_cap: int) -> int:
+    """Return a tighter seed-admission cap when direct evidence is concentrated.
+
+    A small, non-empty confident-file set (symbol-or-better evidence) signals
+    a narrow, well-evidenced query: the flat seed cap only adds noise there.
+    A dispersed (`> _CONFIDENT_FILE_BOUND`) or absent (`0`) confident set
+    keeps the full *default_cap* -- ambiguous queries (every sibling
+    language adapter sharing the same generic symbol match) and queries with
+    no identifier/symbol signal at all (exactly the shape of M0.2's five
+    originally-missing target tasks) are the cases a broader seed net still
+    needs. *decisions* must be the full, uncapped evidence pool (not an
+    already-truncated seed-cap slice) so concentration is judged before any
+    cap is applied.
+    """
+    return _bounded_cap(decisions, default_cap=default_cap, concentrated_cap=_CONCENTRATED_SEED_CAP)
+
+
+def bounded_neighbor_cap(decisions: list[CoverageSeedDecision], *, default_cap: int) -> int:
+    """Return a tighter neighbor-admission cap when direct evidence is concentrated.
+
+    Same concentration signal as `bounded_seed_cap`; neighbors are already
+    the lowest-confidence admission stage (one graph hop out from a seed,
+    not a direct query match), so a concentrated signal narrows them
+    further still. This never changes seed admission.
+    """
+    return _bounded_cap(
+        decisions, default_cap=default_cap, concentrated_cap=_CONCENTRATED_NEIGHBOR_CAP
+    )
