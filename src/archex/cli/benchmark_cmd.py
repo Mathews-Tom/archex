@@ -25,6 +25,14 @@ from archex.benchmark.bundle_eval import BundleOnlyEvaluatorError, run_bundle_on
 from archex.benchmark.competitive import format_competitive_markdown, load_compression_results
 from archex.benchmark.cross_tool import NaiveBaselineModel, run_cross_tool
 from archex.benchmark.delta_runner import run_all_delta
+from archex.benchmark.evidence import (
+    BenchmarkEvidenceError,
+    build_evidence_manifest,
+    prepare_evidence_directory,
+    source_revision,
+    validate_evidence_directory,
+    write_evidence_manifest,
+)
 from archex.benchmark.gate import (
     DeltaQualityThresholds,
     LatencyViolation,
@@ -272,6 +280,13 @@ def run_cmd(
 
     tasks_path = Path(tasks_dir)
     tasks = load_selected_tasks(tasks_path, task_filter=task_id, self_only=self_only)
+    if tasks:
+        output_path = Path(output_dir)
+        try:
+            prepare_evidence_directory(output_path)
+        except BenchmarkEvidenceError as exc:
+            raise click.ClickException(str(exc)) from exc
+
     try:
         with BenchmarkProgress(tasks, force_disable=no_progress) as progress:
             reports = run_all(
@@ -286,6 +301,30 @@ def run_cmd(
             )
     except ArchexError as exc:
         raise click.ClickException(str(exc)) from exc
+
+    if reports:
+        try:
+            source_sha = source_revision(Path.cwd())
+        except BenchmarkEvidenceError as exc:
+            raise click.ClickException(str(exc)) from exc
+        try:
+            manifest = build_evidence_manifest(
+                reports,
+                tasks,
+                strategies,
+                retrieval_options,
+                source_sha=source_sha,
+                tasks_dir=tasks_path,
+            )
+            manifest_path = write_evidence_manifest(Path(output_dir), manifest)
+            validate_evidence_directory(
+                Path(output_dir),
+                tasks_path,
+                expected_source_sha=source_sha,
+            )
+        except BenchmarkEvidenceError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(f"Recorded benchmark evidence manifest at {manifest_path}", err=True)
 
     click.echo(f"\nCompleted {len(reports)} benchmark(s).", err=True)
 
@@ -618,15 +657,45 @@ def readiness_cmd(input_dir: str, tasks_dir: str, strategy_name: str, output_for
     help="Directory containing delta task YAML files.",
 )
 @click.option(
+    "--input",
+    "input_dir",
+    default=None,
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Evidence directory to validate when --kind evidence is selected.",
+)
+@click.option(
     "--kind",
     default="tasks",
-    type=click.Choice(["tasks", "arch", "delta", "all"]),
+    type=click.Choice(["tasks", "arch", "delta", "all", "evidence"]),
     show_default=True,
-    help="Task definition family to validate.",
+    help="Task definition or evidence family to validate.",
 )
-def validate_cmd(tasks_dir: str, arch_tasks_dir: str, delta_tasks_dir: str, kind: str) -> None:
+def validate_cmd(
+    tasks_dir: str,
+    arch_tasks_dir: str,
+    delta_tasks_dir: str,
+    input_dir: str | None,
+    kind: str,
+) -> None:
     """Validate benchmark task definitions."""
     repo_root = Path.cwd()
+    if kind == "evidence":
+        if input_dir is None:
+            raise click.ClickException("--input is required when --kind evidence is selected")
+        try:
+            manifest = validate_evidence_directory(
+                Path(input_dir),
+                Path(tasks_dir),
+                expected_source_sha=source_revision(repo_root),
+            )
+        except BenchmarkEvidenceError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Valid benchmark evidence: {len(manifest.task_ids)} task(s), "
+            f"{len(manifest.strategies)} strategy/strategies."
+        )
+        return
+
     validated_counts: list[tuple[str, int]] = []
 
     if kind in {"tasks", "all"}:
