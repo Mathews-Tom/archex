@@ -97,7 +97,8 @@ pythonVersion = "3.11"
 typeCheckingMode = "strict"
 include = ["src/archex", "tests"]
 # assets/archex_explainer.py depends on optional Manim rendering packages and is validated by render smoke when edited.
-exclude = ["tests/fixtures/", ".venv/", "assets/"]
+# Generated approval-test state is not repository source and is not type-checked.
+exclude = ["tests/fixtures/", ".venv/", "assets/", ".approval_tests_temp/"]
 venvPath = "."
 venv = ".venv"
 
