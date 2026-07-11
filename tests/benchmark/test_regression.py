@@ -56,3 +56,17 @@ def test_django_username_validator_required_file_is_returned() -> None:
     result = report.results[0]
 
     assert "django/contrib/auth/validators.py" in result.result_files
+
+
+@pytest.mark.slow
+def test_django_username_validator_localization_candidate_returns_required_file() -> None:
+    """Candidate uses task-provided localization keywords without an oracle field."""
+    task = load_task(Path.cwd() / "benchmarks/tasks/loc_django_username_validator.yaml")
+    report = run_benchmark(
+        task,
+        strategies=[Strategy.ARCHEX_QUERY_LOCALIZATION_CANDIDATE],
+        repo_path=None,
+    )
+    result = report.results[0]
+
+    assert "django/contrib/auth/validators.py" in result.result_files

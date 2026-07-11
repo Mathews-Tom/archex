@@ -985,13 +985,14 @@ class TestRunCommand:
         monkeypatch.setattr("archex.cli.benchmark_cmd.run_all", fake_run_all)
         result = runner.invoke(
             benchmark_cmd,
-            ["run", "--splade", "--module-prefilter", "--allow-remote-code"],
+            ["run", "--splade", "--module-prefilter", "--allow-remote-code", "--warm-cache"],
         )
         assert result.exit_code == 0
         assert captured["retrieval_options"] == BenchmarkRetrievalOptions(
             splade=True,
             module_prefilter=True,
             allow_remote_code=True,
+            warm_cache=True,
         )
 
     def test_run_reports_remote_code_preflight_error(

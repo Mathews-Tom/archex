@@ -654,6 +654,21 @@ class TestRunBenchmark:
         assert bm25_config.chunker == "default"
         assert cache_enabled is True
 
+    def test_benchmark_warm_cache_option_enables_cache(self) -> None:
+        from archex.benchmark.strategies import (
+            benchmark_cache_enabled,
+            reset_benchmark_retrieval_options,
+            set_benchmark_retrieval_options,
+        )
+
+        token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(warm_cache=True))
+        try:
+            cache_enabled = benchmark_cache_enabled(default=False)
+        finally:
+            reset_benchmark_retrieval_options(token)
+
+        assert cache_enabled is True
+
 
 class TestCloneAtCommit:
     def testclone_at_commit(self, python_simple_repo: Path) -> None:

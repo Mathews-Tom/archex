@@ -47,6 +47,7 @@ from archex.benchmark.models import (
     Strategy,
     SymbolicRerankMode,
     TaskCompletionResult,
+    TaskFamily,
 )
 from archex.benchmark.query_transform import transform_query
 from archex.benchmark.rank_candidate import (
@@ -1355,6 +1356,54 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         include_completion=True,
         measure_freshness=True,
     )
+
+
+def _localization_scope_terms(task: BenchmarkTask) -> tuple[str, ...]:
+    """Extract local, non-oracle scope terms from declared task include paths."""
+    terms = [
+        include_path.rstrip("/").rsplit("/", 1)[-1].lower() for include_path in task.include_paths
+    ]
+    return tuple(dict.fromkeys(term for term in terms if term and term not in _STOPWORDS))
+
+
+def run_archex_query_localization_candidate(
+    task: BenchmarkTask,
+    repo_path: Path,
+) -> BenchmarkResult:
+    """Benchmark-only candidate that queries localization task keywords in scope."""
+    strategy = Strategy.ARCHEX_QUERY_LOCALIZATION_CANDIDATE
+    scope_terms = _localization_scope_terms(task)
+    candidate_query = " ".join((*task.keywords, *scope_terms))
+    candidate_task = (
+        task.model_copy(update={"question": candidate_query})
+        if task.family is TaskFamily.LOCALIZATION and candidate_query
+        else task
+    )
+    t0 = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        candidate_task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=bundle,
+        timing=timing,
+        wall_ms=(time.perf_counter() - t0) * 1000,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = {
+        "candidate": "localization_scope_query",
+        "scope_terms": ",".join(scope_terms),
+        "applied": str(candidate_task is not task).lower(),
+    }
+    return result
 
 
 def archex_returned_regions(task: BenchmarkTask, repo_path: Path) -> list[ReturnedRegion]:
@@ -4124,5 +4173,9 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_DIVERSITY_PACKED.value, run_archex_query_diversity_packed
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_LOCALIZATION_CANDIDATE.value,
+    run_archex_query_localization_candidate,
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)
