@@ -8,6 +8,8 @@ from pathlib import Path
 from archex.benchmark.coverage_candidate import CoverageSeedDecision as _CoverageSeedDecision
 from archex.benchmark.models import BenchmarkTask, Strategy
 from archex.benchmark.strategies import (
+    _COVERAGE_DIRECT_EVIDENCE_CAP,  # pyright: ignore[reportPrivateUsage]
+    _COVERAGE_SEED_CAP,  # pyright: ignore[reportPrivateUsage]
     _apply_coverage_seed_admission,  # pyright: ignore[reportPrivateUsage]
     _coverage_seed_decisions,  # pyright: ignore[reportPrivateUsage]
     default_strategy_registry,
@@ -168,6 +170,10 @@ def test_candidate_is_available_but_not_default() -> None:
     )
     assert Strategy.ARCHEX_QUERY_COVERAGE_CANDIDATE in AVAILABLE_STRATEGIES
     assert Strategy.ARCHEX_QUERY_COVERAGE_CANDIDATE not in DEFAULT_STRATEGIES
+
+
+def test_candidate_seed_frontier_is_bounded_below_evidence_pool() -> None:
+    assert 0 < _COVERAGE_SEED_CAP < _COVERAGE_DIRECT_EVIDENCE_CAP
 
 
 def test_candidate_returned_files_do_not_depend_on_expected_files(

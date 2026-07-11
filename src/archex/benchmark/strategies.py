@@ -27,6 +27,9 @@ from archex.benchmark.coverage_candidate import (
     apply_coverage_seed_admission as _apply_coverage_seed_admission,
 )
 from archex.benchmark.coverage_candidate import (
+    coverage_neighbor_decisions as _coverage_neighbor_decisions,
+)
+from archex.benchmark.coverage_candidate import (
     coverage_seed_decisions as _coverage_seed_decisions,
 )
 from archex.benchmark.graph_multihop import (
@@ -3107,12 +3110,15 @@ def run_archex_query_graph_multihop(task: BenchmarkTask, repo_path: Path) -> Ben
     return result
 
 
-_COVERAGE_SEED_CAP = 3
+_COVERAGE_SEED_CAP = 32
+_COVERAGE_DIRECT_EVIDENCE_CAP = 64
+_COVERAGE_NEIGHBOR_CAP = 24
 
 
 def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Benchmark-only bounded seed-admission candidate; product defaults stay unchanged."""
     from archex.api import index_repository
+    from archex.index.graph import DependencyGraph
     from archex.models import Config
 
     strategy = Strategy.ARCHEX_QUERY_COVERAGE_CANDIDATE
@@ -3131,15 +3137,34 @@ def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) ->
         index_config=effective_config,
     )
     try:
-        decisions = _coverage_seed_decisions(
+        direct_decisions = _coverage_seed_decisions(
             task.question,
             store,
-            limit=_COVERAGE_SEED_CAP,
+            limit=_COVERAGE_DIRECT_EVIDENCE_CAP,
         )
-        admission = _apply_coverage_seed_admission(
+        seed_decisions = direct_decisions[:_COVERAGE_SEED_CAP]
+        seed_admission = _apply_coverage_seed_admission(
             bundle,
             store,
-            decisions,
+            seed_decisions,
+            token_budget=task.token_budget,
+        )
+        graph = DependencyGraph.from_edges(store.get_edges())
+        edges = [
+            GraphEdge(edge.source, edge.target, edge.confidence_score)
+            for edge in graph.file_edges()
+        ]
+        neighbor_decisions = _coverage_neighbor_decisions(
+            edges,
+            seed_files={decision.file for decision in seed_decisions},
+            existing_files={ranked.chunk.file_path for ranked in seed_admission.bundle.chunks},
+            direct_decisions=direct_decisions,
+            limit=_COVERAGE_NEIGHBOR_CAP,
+        )
+        neighbor_admission = _apply_coverage_seed_admission(
+            seed_admission.bundle,
+            store,
+            neighbor_decisions,
             token_budget=task.token_budget,
         )
     finally:
@@ -3151,7 +3176,7 @@ def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) ->
         repo_path,
         strategy=strategy,
         index_config=effective_config,
-        bundle=admission.bundle,
+        bundle=neighbor_admission.bundle,
         timing=timing,
         wall_ms=wall_ms,
         include_completion=True,
@@ -3159,13 +3184,30 @@ def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) ->
     )
     result.provenance = {
         "candidate_seed_cap": str(_COVERAGE_SEED_CAP),
-        "candidate_seed_decisions": str(len(decisions)),
-        "candidate_seed_admitted": ",".join(decision.file for decision in admission.admitted)
+        "candidate_seed_decisions": str(len(seed_decisions)),
+        "candidate_seed_admitted": ",".join(decision.file for decision in seed_admission.admitted)
         or "none",
-        "candidate_seed_budget_cuts": ",".join(decision.file for decision in admission.budget_cuts)
+        "candidate_seed_budget_cuts": ",".join(
+            decision.file for decision in seed_admission.budget_cuts
+        )
         or "none",
         "candidate_seed_evidence": ";".join(
-            f"{decision.file}:{','.join(decision.evidence)}" for decision in admission.admitted
+            f"{decision.file}:{','.join(decision.evidence)}" for decision in seed_admission.admitted
+        )
+        or "none",
+        "candidate_neighbor_cap": str(_COVERAGE_NEIGHBOR_CAP),
+        "candidate_neighbor_decisions": str(len(neighbor_decisions)),
+        "candidate_neighbor_admitted": ",".join(
+            decision.file for decision in neighbor_admission.admitted
+        )
+        or "none",
+        "candidate_neighbor_budget_cuts": ",".join(
+            decision.file for decision in neighbor_admission.budget_cuts
+        )
+        or "none",
+        "candidate_neighbor_evidence": ";".join(
+            f"{decision.file}<-{decision.via}:{','.join(decision.evidence)}"
+            for decision in neighbor_admission.admitted
         )
         or "none",
     }

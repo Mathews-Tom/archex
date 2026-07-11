@@ -9,9 +9,12 @@ from typing import TYPE_CHECKING
 
 from archex.models import (
     ContextBundle,
+    ContextReceiptEdge,
     ContextReceiptItem,
     ContextSkippedCandidate,
     ContextSkippedReason,
+    EdgeConfidence,
+    EdgeKind,
     RankedChunk,
 )
 from archex.reporting import count_tokens
@@ -19,6 +22,7 @@ from archex.scout import chunk_handle
 from archex.serve.context import generic_query_terms
 
 if TYPE_CHECKING:
+    from archex.benchmark.graph_multihop import GraphEdge
     from archex.index.store import IndexStore
     from archex.models import CodeChunk
 
@@ -30,6 +34,11 @@ class CoverageSeedDecision:
     file: str
     score: int
     evidence: tuple[str, ...]
+    kind: str = "seed"
+    via: str | None = None
+    edge_source: str | None = None
+    edge_target: str | None = None
+    edge_confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +68,10 @@ _GENERIC_QUERY_TERMS = frozenset(
 )
 
 
+_NEIGHBOR_MIN_CONFIDENCE = 0.5
+_EVIDENCE_HIT_CAP = 64
+
+
 def coverage_seed_decisions(
     question: str, store: IndexStore, *, limit: int
 ) -> list[CoverageSeedDecision]:
@@ -84,14 +97,14 @@ def coverage_seed_decisions(
 
     bm25 = BM25Index(store)
     for identifier in _explicit_identifiers(question):
-        for chunk in store.search_symbols(identifier, limit=12):
+        for chunk in store.search_symbols(identifier, limit=_EVIDENCE_HIT_CAP):
             if not _is_test_path(chunk.file_path):
                 evidence_by_file[chunk.file_path].add(f"identifier:{identifier.lower()}")
     for term in terms:
-        for chunk in store.search_symbols(term, limit=12):
+        for chunk in store.search_symbols(term, limit=_EVIDENCE_HIT_CAP):
             if not _is_test_path(chunk.file_path):
                 evidence_by_file[chunk.file_path].add(f"symbol:{term}")
-        for chunk, _score in bm25.search(term, top_k=12):
+        for chunk, _score in bm25.search(term, top_k=_EVIDENCE_HIT_CAP):
             if not _is_test_path(chunk.file_path):
                 evidence_by_file[chunk.file_path].add(f"lexical:{term}")
 
@@ -117,6 +130,53 @@ def coverage_seed_decisions(
         for file_path, evidence in evidence_by_file.items()
     ]
     return sorted(decisions, key=lambda decision: (-decision.score, decision.file))[:limit]
+
+
+def coverage_neighbor_decisions(
+    edges: list[GraphEdge],
+    *,
+    seed_files: set[str],
+    existing_files: set[str],
+    direct_decisions: list[CoverageSeedDecision],
+    limit: int,
+) -> list[CoverageSeedDecision]:
+    """Rank bounded direct graph neighbors using extracted edges and seed evidence."""
+    if limit < 1:
+        return []
+
+    direct_by_file = {decision.file: decision for decision in direct_decisions}
+    candidates: dict[str, CoverageSeedDecision] = {}
+    for edge in edges:
+        if edge.confidence < _NEIGHBOR_MIN_CONFIDENCE:
+            continue
+        routes: list[tuple[str, str, str, int]] = []
+        if edge.source in seed_files:
+            routes.append((edge.target, edge.source, "graph_import", 20))
+        if edge.target in seed_files:
+            routes.append((edge.source, edge.target, "graph_importer", 10))
+        for file_path, via, relation, direction_bonus in routes:
+            if file_path in seed_files or file_path in existing_files or _is_test_path(file_path):
+                continue
+            direct = direct_by_file.get(file_path)
+            direct_evidence = direct.evidence if direct is not None else ()
+            decision = CoverageSeedDecision(
+                file=file_path,
+                score=round(edge.confidence * 100) + direction_bonus,
+                evidence=(f"{relation}:{via}", *direct_evidence),
+                kind="neighbor",
+                via=via,
+                edge_source=via if relation == "graph_import" else file_path,
+                edge_target=file_path if relation == "graph_import" else via,
+                edge_confidence=edge.confidence,
+            )
+            existing = candidates.get(file_path)
+            if existing is None or (decision.score, decision.via or "") > (
+                existing.score,
+                existing.via or "",
+            ):
+                candidates[file_path] = decision
+    ordered = sorted(candidates.values(), key=lambda decision: (-decision.score, decision.file))
+    return ordered[:limit]
 
 
 def apply_coverage_seed_admission(
@@ -156,9 +216,28 @@ def apply_coverage_seed_admission(
                 start_line=chunk.start_line,
                 end_line=chunk.end_line,
                 content_hash=_chunk_content_hash(chunk),
-                reason_codes=[f"coverage_seed:{reason}" for reason in decision.evidence],
+                reason_codes=[f"coverage_{decision.kind}:{reason}" for reason in decision.evidence],
             )
         )
+
+    neighbor_edges = [
+        ContextReceiptEdge(
+            source=decision.edge_source,
+            target=decision.edge_target,
+            kind=EdgeKind.IMPORTS,
+            confidence=EdgeConfidence.EXTRACTED,
+            confidence_score=decision.edge_confidence
+            if decision.edge_confidence is not None
+            else 1.0,
+            evidence=[f"coverage graph evidence: {','.join(decision.evidence)}"],
+        )
+        for decision in admitted
+        if (
+            decision.kind == "neighbor"
+            and decision.edge_source is not None
+            and decision.edge_target is not None
+        )
+    ]
 
     receipt = bundle.receipt
     if receipt is not None:
@@ -168,16 +247,19 @@ def apply_coverage_seed_admission(
                 file_path=decision.file,
                 reason=ContextSkippedReason.OVER_BUDGET,
                 score=float(decision.score),
-                detail=f"coverage seed evidence: {','.join(decision.evidence)}",
+                detail=f"coverage {decision.kind} evidence: {','.join(decision.evidence)}",
             )
             for decision in budget_cuts
         )
         returned_context = [*receipt.returned_context, *receipt_items]
+        included_edges = [*receipt.included_edges, *neighbor_edges]
         receipt = receipt.model_copy(
             update={
                 "returned_context": returned_context,
                 "returned_total": len(returned_context),
                 "skipped_candidates": skipped,
+                "included_edges": included_edges,
+                "included_edges_total": len(included_edges),
                 "skipped_total": len(skipped),
                 "token_budget": receipt.token_budget.model_copy(
                     update={"consumed": bundle.token_count + added_tokens}
@@ -211,7 +293,11 @@ def _path_parts(file_path: str) -> set[str]:
 
 
 def _is_test_path(file_path: str) -> bool:
-    return file_path.startswith("tests/") or "/tests/" in file_path
+    return (
+        file_path.startswith(("tests/", "benchmarks/"))
+        or "/tests/" in file_path
+        or "/benchmarks/" in file_path
+    )
 
 
 def _evidence_score(evidence: set[str], frequency: Counter[str]) -> int:
@@ -232,7 +318,7 @@ def _select_evidence_chunk(chunks: list[CodeChunk], decision: CoverageSeedDecisi
         )
         return (
             -len(symbol_terms & evidence_terms),
-            -(chunk.token_count or count_tokens(chunk.content)),
+            chunk.token_count or count_tokens(chunk.content),
             chunk.start_line,
         )
 
