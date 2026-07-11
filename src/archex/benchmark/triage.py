@@ -119,6 +119,8 @@ def load_benchmark_reports(input_dir: Path) -> list[BenchmarkReport]:
     """Load benchmark report JSON files from a directory."""
     reports: list[BenchmarkReport] = []
     for json_file in sorted(input_dir.glob("*.json")):
+        if json_file.name == "manifest.json":
+            continue
         data = json.loads(json_file.read_text(encoding="utf-8"))
         reports.append(BenchmarkReport.model_validate(data))
     return reports

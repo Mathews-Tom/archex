@@ -11,6 +11,7 @@ from click.testing import CliRunner
 
 from archex.benchmark.baseline import RankingSnapshotEntry
 from archex.benchmark.models import (
+    BenchmarkEvidenceManifest,
     BenchmarkReport,
     BenchmarkResult,
     BenchmarkRetrievalOptions,
@@ -83,6 +84,20 @@ def _empty_tasks(
 ) -> list[BenchmarkTask]:
     del tasks_dir, task_filter, self_only
     return []
+
+
+def _patch_gate_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    reports: list[BenchmarkReport],
+) -> None:
+    def load_evidence(
+        input_dir: Path,
+        tasks_dir: Path,
+    ) -> tuple[BenchmarkEvidenceManifest, list[BenchmarkReport]]:
+        del input_dir, tasks_dir
+        return cast("BenchmarkEvidenceManifest", object()), reports
+
+    monkeypatch.setattr("archex.cli.benchmark_cmd.load_evidence_reports", load_evidence)
 
 
 class TestReportCommand:
@@ -457,12 +472,24 @@ expected_delta:
 
 
 class TestGateCommand:
-    def test_passes_when_max_latency_ms_not_set(self, runner: CliRunner, results_dir: Path) -> None:
+    def test_passes_when_max_latency_ms_not_set(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        report = BenchmarkReport.model_validate_json((results_dir / "test.json").read_bytes())
+        _patch_gate_evidence(monkeypatch, [report])
         result = runner.invoke(benchmark_cmd, ["gate", "--input", str(results_dir)])
         assert result.exit_code == 0
         assert "Quality gate passed." in result.output
 
-    def test_max_latency_ms_hard_fails_on_breach(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_max_latency_ms_hard_fails_on_breach(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         results = tmp_path / "results"
         results.mkdir()
         result_obj = BenchmarkResult(
@@ -485,7 +512,7 @@ class TestGateCommand:
             results=[result_obj],
             baseline_tokens=1000,
         )
-        (results / "slow.json").write_text(report.model_dump_json(indent=2))
+        _patch_gate_evidence(monkeypatch, [report])
 
         result = runner.invoke(
             benchmark_cmd,
@@ -497,8 +524,13 @@ class TestGateCommand:
         assert "slow_task/raw_files" in result.output
 
     def test_max_latency_ms_passes_under_threshold(
-        self, runner: CliRunner, results_dir: Path
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        report = BenchmarkReport.model_validate_json((results_dir / "test.json").read_bytes())
+        _patch_gate_evidence(monkeypatch, [report])
         # results_dir fixture's sample result has wall_time_ms=50.0
         result = runner.invoke(
             benchmark_cmd,

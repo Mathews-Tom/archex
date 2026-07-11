@@ -251,3 +251,72 @@ def validate_evidence_directory(
             raise BenchmarkEvidenceError(msg)
 
     return manifest
+
+
+def load_evidence_reports(
+    output_dir: Path,
+    tasks_dir: Path,
+) -> tuple[BenchmarkEvidenceManifest, list[BenchmarkReport]]:
+    """Load reports only after validating their manifest-backed evidence directory."""
+    manifest = validate_evidence_directory(output_dir, tasks_dir)
+    reports = [
+        BenchmarkReport.model_validate_json((output_dir / f"{task_id}.json").read_bytes())
+        for task_id in manifest.task_ids
+    ]
+    return manifest, reports
+
+
+def validate_baseline_coverage(
+    current: BenchmarkEvidenceManifest,
+    baseline: BenchmarkEvidenceManifest,
+) -> None:
+    """Reject baseline evidence whose corpus or retrieval configuration differs."""
+    if current.task_manifest_digest != baseline.task_manifest_digest:
+        msg = "Benchmark baseline task-manifest digest does not match current evidence"
+        raise BenchmarkEvidenceError(msg)
+    if set(current.task_ids) != set(baseline.task_ids):
+        missing = sorted(set(current.task_ids) - set(baseline.task_ids))
+        unexpected = sorted(set(baseline.task_ids) - set(current.task_ids))
+        msg = (
+            f"Benchmark baseline task coverage mismatch: missing={missing}, unexpected={unexpected}"
+        )
+        raise BenchmarkEvidenceError(msg)
+    if set(current.strategies) != set(baseline.strategies):
+        missing = sorted(
+            strategy.value for strategy in set(current.strategies) - set(baseline.strategies)
+        )
+        unexpected = sorted(
+            strategy.value for strategy in set(baseline.strategies) - set(current.strategies)
+        )
+        msg = (
+            "Benchmark baseline strategy coverage mismatch: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+        raise BenchmarkEvidenceError(msg)
+    if current.retrieval_options != baseline.retrieval_options:
+        msg = "Benchmark baseline retrieval configuration does not match current evidence"
+        raise BenchmarkEvidenceError(msg)
+
+
+def copy_evidence_as_baseline(
+    source_dir: Path,
+    output_dir: Path,
+    tasks_dir: Path,
+) -> BenchmarkEvidenceManifest:
+    """Copy validated evidence to a new immutable baseline directory."""
+    manifest = validate_evidence_directory(source_dir, tasks_dir)
+    if source_dir.resolve() == output_dir.resolve():
+        msg = "Benchmark baseline output must differ from the evidence input directory"
+        raise BenchmarkEvidenceError(msg)
+    if output_dir.exists():
+        msg = f"Benchmark baseline output already exists: {output_dir}"
+        raise BenchmarkEvidenceError(msg)
+
+    output_dir.mkdir(parents=True)
+    (output_dir / EVIDENCE_MANIFEST_FILENAME).write_bytes(
+        (source_dir / EVIDENCE_MANIFEST_FILENAME).read_bytes()
+    )
+    for task_id in manifest.task_ids:
+        (output_dir / f"{task_id}.json").write_bytes((source_dir / f"{task_id}.json").read_bytes())
+    validate_evidence_directory(output_dir, tasks_dir)
+    return manifest
