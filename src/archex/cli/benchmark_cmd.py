@@ -16,10 +16,11 @@ from archex.benchmark.arch_quality import (
     run_architecture_all,
 )
 from archex.benchmark.baseline import (
-    build_ranking_snapshot,
+    BaselineContractError,
     compare_baseline,
+    create_baseline_directory,
     load_baseline,
-    save_baseline,
+    load_baseline_directory,
 )
 from archex.benchmark.bundle_eval import BundleOnlyEvaluatorError, run_bundle_only_eval_all
 from archex.benchmark.competitive import format_competitive_markdown, load_compression_results
@@ -31,7 +32,6 @@ from archex.benchmark.evidence import (
     load_evidence_reports,
     prepare_evidence_directory,
     source_revision,
-    validate_baseline_coverage,
     validate_evidence_directory,
     write_evidence_manifest,
 )
@@ -789,6 +789,24 @@ def validate_cmd(
     click.echo(f"\nAll {summary} valid.")
 
 
+def _parse_retrieval_options(values: tuple[str, ...]) -> dict[str, str]:
+    options: dict[str, str] = {}
+    for value in values:
+        key, separator, option_value = value.partition("=")
+        if not separator or not key.strip() or not option_value.strip():
+            raise click.BadParameter(
+                "Retrieval options must use KEY=VALUE syntax.",
+                param_hint="--retrieval-option",
+            )
+        if key in options:
+            raise click.BadParameter(
+                f"Duplicate retrieval option {key!r}.",
+                param_hint="--retrieval-option",
+            )
+        options[key] = option_value
+    return options
+
+
 @benchmark_cmd.group("baseline")
 def baseline_cmd() -> None:
     """Manage benchmark baselines for regression detection."""
@@ -799,49 +817,51 @@ def baseline_cmd() -> None:
     "--input",
     "input_dir",
     default=DEFAULT_BENCHMARK_RESULTS_DIR,
-    type=click.Path(exists=True),
-    help="Directory containing result JSON files.",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Directory containing raw BenchmarkReport JSON files.",
 )
 @click.option(
     "--output",
-    "output_path",
-    default="benchmarks/baseline.json",
-    type=click.Path(),
-    help="Output path for baseline JSON.",
+    "output_dir",
+    default="benchmarks/quality-baseline",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Output directory for the canonical baseline reports and manifest.",
 )
 @click.option(
-    "--ranking-source",
-    "ranking_source",
-    default=None,
+    "--tasks-dir",
+    default="benchmarks/tasks",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help=(
-        "Optional repo path to index for a PageRank/symbol_count ranking snapshot, "
-        "attached to the saved baseline for ranking-stability gating."
-    ),
+    help="Benchmark task manifest used to prove complete coverage.",
 )
-def baseline_save_cmd(input_dir: str, output_path: str, ranking_source: str | None) -> None:
-    """Save current benchmark results as a golden baseline."""
-    input_path = Path(input_dir)
-    reports: list[BenchmarkReport] = []
-    for json_file in sorted(input_path.glob("*.json")):
-        if json_file.name == "manifest.json":
-            continue
-        data = json.loads(json_file.read_text(encoding="utf-8"))
-        reports.append(BenchmarkReport.model_validate(data))
-
-    if not reports:
-        raise click.ClickException(f"No result files found in {input_dir}")
-
-    baseline = save_baseline(reports)
-    if ranking_source is not None:
-        ranking = build_ranking_snapshot(Path(ranking_source))
-        baseline = baseline.model_copy(update={"ranking": ranking})
-    out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(baseline.model_dump_json(indent=2), encoding="utf-8")
-    click.echo(f"Saved baseline with {len(baseline.entries)} entries to {output_path}")
-    if ranking_source is not None:
-        click.echo(f"Ranking snapshot:   {len(baseline.ranking)} files")
+@click.option(
+    "--retrieval-option",
+    "retrieval_options",
+    multiple=True,
+    required=True,
+    help="Exact retrieval configuration as KEY=VALUE (repeatable).",
+)
+def baseline_save_cmd(
+    input_dir: str,
+    output_dir: str,
+    tasks_dir: str,
+    retrieval_options: tuple[str, ...],
+) -> None:
+    """Create an identity-bearing, coverage-complete baseline directory."""
+    try:
+        baseline = create_baseline_directory(
+            Path(input_dir),
+            Path(output_dir),
+            tasks_dir=Path(tasks_dir),
+            retrieval_options=_parse_retrieval_options(retrieval_options),
+        )
+    except BaselineContractError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(
+        "Saved canonical baseline with "
+        f"{len(baseline.manifest.task_ids)} task(s), "
+        f"{len(baseline.manifest.strategies)} strategy/strategies, and "
+        f"manifest {Path(output_dir) / 'manifest.json'}"
+    )
 
 
 @baseline_cmd.command("compare")
@@ -1078,13 +1098,13 @@ def gate_cmd(
 
     if baseline_dir is not None:
         try:
-            baseline_manifest, baseline_reports = load_evidence_reports(
+            baseline = load_baseline_directory(
                 Path(baseline_dir),
-                Path(tasks_dir),
+                tasks_dir=Path(tasks_dir),
             )
-            validate_baseline_coverage(current_manifest, baseline_manifest)
-        except BenchmarkEvidenceError as exc:
+        except BaselineContractError as exc:
             raise click.ClickException(str(exc)) from exc
+        baseline_reports = baseline.reports
         click.echo(format_chunker_frontier_table(reports, baseline_reports))
 
         recall_regressions = check_recall_regressions(reports, baseline_reports, thresholds)

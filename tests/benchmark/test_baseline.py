@@ -5,14 +5,21 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from archex.benchmark.baseline import (
     Baseline,
+    BaselineContractError,
+    BaselineCoverageError,
     BaselineEntry,
+    BaselineManifest,
     RankingSnapshotEntry,
     build_ranking_snapshot,
     compare_baseline,
     load_baseline,
     save_baseline,
+    task_manifest_digest,
+    validate_baseline_directory,
 )
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy
 
@@ -53,6 +60,34 @@ def _make_report(
     )
 
 
+def _write_task_manifest(tasks_dir: Path, task_id: str = "test_task") -> None:
+    tasks_dir.mkdir()
+    (tasks_dir / f"{task_id}.yaml").write_text(
+        f"""\
+task_id: {task_id}
+repo: owner/repo
+commit: abc123
+question: "How does {task_id} work?"
+expected_files:
+  - src/{task_id}.py
+""",
+        encoding="utf-8",
+    )
+
+
+def _make_manifest(tasks_dir: Path, *, strategies: list[str]) -> BaselineManifest:
+    return BaselineManifest(
+        manifest_version=1,
+        archex_version="0.19.2",
+        source_revision="a" * 40,
+        task_manifest_digest=task_manifest_digest(tasks_dir),
+        task_ids=["test_task"],
+        strategies=strategies,
+        retrieval_options={"vector": "false"},
+        generated_at="2026-07-11T00:00:00Z",
+    )
+
+
 def test_save_load_baseline_roundtrip() -> None:
     reports = [_make_report()]
     baseline = save_baseline(reports)
@@ -70,6 +105,72 @@ def test_save_load_baseline_roundtrip() -> None:
     assert loaded.entries[0].ndcg == 0.7
     assert loaded.entries[0].map_score == 0.6
     assert loaded.entries[0].token_efficiency == 0.0
+
+
+def test_baseline_directory_accepts_exact_task_strategy_coverage(tmp_path: Path) -> None:
+    tasks_dir = tmp_path / "tasks"
+    _write_task_manifest(tasks_dir)
+
+    manifest = _make_manifest(tasks_dir, strategies=[Strategy.ARCHEX_QUERY.value])
+    validate_baseline_directory(manifest, [_make_report()], tasks_dir=tasks_dir)
+
+
+def test_baseline_directory_rejects_missing_task_strategy_coverage(tmp_path: Path) -> None:
+    tasks_dir = tmp_path / "tasks"
+    _write_task_manifest(tasks_dir)
+    manifest = _make_manifest(
+        tasks_dir,
+        strategies=[Strategy.ARCHEX_QUERY.value, Strategy.RAW_FILES.value],
+    )
+
+    with pytest.raises(BaselineCoverageError, match="missing=test_task/raw_files"):
+        validate_baseline_directory(manifest, [_make_report()], tasks_dir=tasks_dir)
+
+
+def test_baseline_directory_rejects_unexpected_task_strategy_coverage(tmp_path: Path) -> None:
+    tasks_dir = tmp_path / "tasks"
+    _write_task_manifest(tasks_dir)
+    manifest = _make_manifest(tasks_dir, strategies=[Strategy.ARCHEX_QUERY.value])
+    report = _make_report()
+    report.results.append(_make_report(strategy=Strategy.RAW_FILES).results[0])
+
+    with pytest.raises(BaselineCoverageError, match="unexpected=test_task/raw_files"):
+        validate_baseline_directory(manifest, [report], tasks_dir=tasks_dir)
+
+
+def test_baseline_directory_rejects_wrong_task_manifest_digest(tmp_path: Path) -> None:
+    tasks_dir = tmp_path / "tasks"
+    _write_task_manifest(tasks_dir)
+    manifest = _make_manifest(
+        tasks_dir,
+        strategies=[Strategy.ARCHEX_QUERY.value],
+    ).model_copy(update={"task_manifest_digest": "b" * 64})
+
+    with pytest.raises(BaselineContractError, match="digest does not match"):
+        validate_baseline_directory(manifest, [_make_report()], tasks_dir=tasks_dir)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("archex_version", ""),
+        ("source_revision", ""),
+    ],
+)
+def test_baseline_directory_rejects_empty_identity_fields(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    tasks_dir = tmp_path / "tasks"
+    _write_task_manifest(tasks_dir)
+    manifest = _make_manifest(
+        tasks_dir,
+        strategies=[Strategy.ARCHEX_QUERY.value],
+    ).model_copy(update={field: value})
+
+    with pytest.raises(BaselineContractError):
+        validate_baseline_directory(manifest, [_make_report()], tasks_dir=tasks_dir)
 
 
 def test_compare_baseline_detects_regression() -> None:
@@ -138,12 +239,19 @@ def test_compare_baseline_no_regression() -> None:
     assert len(regressions) == 0
 
 
+def test_compare_baseline_rejects_missing_or_unexpected_coverage() -> None:
+    baseline = Baseline(entries=[])
+
+    with pytest.raises(BaselineCoverageError, match="unexpected=test_task/archex_query"):
+        compare_baseline([_make_report()], baseline)
+
+
 def test_compare_baseline_excludes_diagnostic_strategies() -> None:
     baseline = Baseline(
         entries=[
             BaselineEntry(
                 task_id="test_task",
-                strategy="raw_grepped",
+                strategy="raw_ripgrep",
                 recall=1.0,
                 precision=1.0,
                 f1_score=1.0,

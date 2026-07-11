@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from click.testing import CliRunner
 
-from archex.benchmark.baseline import RankingSnapshotEntry
+from archex.benchmark.baseline import create_baseline_directory
+from archex.benchmark.evidence import build_evidence_manifest, write_evidence_manifest
 from archex.benchmark.models import (
     BenchmarkEvidenceManifest,
     BenchmarkReport,
@@ -189,72 +190,90 @@ class TestReportCommand:
         assert "No result files" in result.output
 
 
-class TestBaselineSaveCommand:
-    def test_without_ranking_source_omits_ranking(
+class TestCanonicalBaselineGate:
+    def test_gate_accepts_a_manifest_backed_baseline(
         self,
         runner: CliRunner,
-        results_dir: Path,
         tmp_path: Path,
     ) -> None:
-        output_path = tmp_path / "baseline.json"
-
-        result = runner.invoke(
-            benchmark_cmd,
-            ["baseline", "save", "--input", str(results_dir), "--output", str(output_path)],
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "task.yaml").write_text(
+            """\
+task_id: task
+repo: owner/repo
+commit: abc123
+question: "How does task work?"
+expected_files:
+  - src/task.py
+""",
+            encoding="utf-8",
+        )
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
+        result = BenchmarkResult(
+            task_id="task",
+            strategy=Strategy.RAW_FILES,
+            tokens_total=100,
+            tool_calls=1,
+            files_accessed=1,
+            recall=1.0,
+            precision=1.0,
+            savings_vs_raw=0.0,
+            wall_time_ms=10.0,
+            cached=False,
+            timestamp="2026-07-11T00:00:00Z",
+        )
+        report = BenchmarkReport(
+            task_id="task",
+            repo="owner/repo",
+            question="How does task work?",
+            results=[result],
+            baseline_tokens=100,
+        )
+        (results_dir / "task.json").write_text(
+            report.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        task = BenchmarkTask(
+            task_id="task",
+            repo="owner/repo",
+            commit="abc123",
+            question="How does task work?",
+            expected_files=["src/task.py"],
+        )
+        manifest = build_evidence_manifest(
+            [report],
+            [task],
+            [Strategy.RAW_FILES],
+            BenchmarkRetrievalOptions(),
+            source_sha="a" * 40,
+            tasks_dir=tasks_dir,
+        )
+        write_evidence_manifest(results_dir, manifest)
+        baseline_dir = tmp_path / "baseline"
+        create_baseline_directory(
+            results_dir,
+            baseline_dir,
+            tasks_dir=tasks_dir,
+            retrieval_options={"vector": "false"},
         )
 
-        assert result.exit_code == 0
-        payload = json.loads(output_path.read_text(encoding="utf-8"))
-        assert payload["ranking"] == []
-
-    def test_with_ranking_source_attaches_snapshot(
-        self,
-        runner: CliRunner,
-        results_dir: Path,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        ranking_source = tmp_path / "ranking_source"
-        ranking_source.mkdir()
-        output_path = tmp_path / "baseline.json"
-
-        stub_ranking = [
-            RankingSnapshotEntry(file_path="src/a.py", centrality=0.4, symbol_count=12),
-            RankingSnapshotEntry(file_path="src/b.py", centrality=0.1, symbol_count=3),
-        ]
-        captured: list[Path] = []
-
-        def fake_build_ranking_snapshot(repo_root: Path) -> list[RankingSnapshotEntry]:
-            captured.append(repo_root)
-            return stub_ranking
-
-        monkeypatch.setattr(
-            "archex.cli.benchmark_cmd.build_ranking_snapshot",
-            fake_build_ranking_snapshot,
-        )
-
-        result = runner.invoke(
+        output = runner.invoke(
             benchmark_cmd,
             [
-                "baseline",
-                "save",
+                "gate",
                 "--input",
                 str(results_dir),
-                "--output",
-                str(output_path),
-                "--ranking-source",
-                str(ranking_source),
+                "--baseline",
+                str(baseline_dir),
+                "--tasks-dir",
+                str(tasks_dir),
             ],
         )
 
-        assert result.exit_code == 0
-        assert captured == [ranking_source]
-        assert f"Ranking snapshot:   {len(stub_ranking)} files" in result.output
-        payload = json.loads(output_path.read_text(encoding="utf-8"))
-        assert payload["ranking"] == [
-            {"file_path": "src/a.py", "centrality": 0.4, "symbol_count": 12},
-            {"file_path": "src/b.py", "centrality": 0.1, "symbol_count": 3},
-        ]
+        assert output.exit_code == 0
+        assert "Quality gate passed." in output.output
 
 
 class TestTriageCommand:
