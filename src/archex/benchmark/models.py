@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -300,6 +301,41 @@ class BenchmarkRetrievalOptions(BaseModel):
     # the blend weight on the cross-encoder vs the symbolic evidence signal.
     symbolic_rerank_mode: SymbolicRerankMode = SymbolicRerankMode.BLEND
     symbolic_rerank_alpha: float = 0.5
+
+
+class BenchmarkEvidenceManifest(BenchmarkSpecModel):
+    """Immutable identity and integrity record for one benchmark evidence directory."""
+
+    evidence_version: Literal[1] = 1
+    source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    archex_version: str = Field(min_length=1)
+    task_manifest_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    task_ids: list[str] = Field(min_length=1)
+    strategies: list[Strategy] = Field(min_length=1)
+    retrieval_options: BenchmarkRetrievalOptions
+    generated_at: str = Field(min_length=1)
+    hardware_advisory: str = Field(min_length=1)
+    report_hashes: dict[str, str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_coverage(self) -> BenchmarkEvidenceManifest:
+        if len(self.task_ids) != len(set(self.task_ids)):
+            msg = "task_ids must not contain duplicates"
+            raise ValueError(msg)
+        if any(not task_id.strip() for task_id in self.task_ids):
+            msg = "task_ids must not contain empty values"
+            raise ValueError(msg)
+        if len(self.strategies) != len(set(self.strategies)):
+            msg = "strategies must not contain duplicates"
+            raise ValueError(msg)
+        if set(self.report_hashes) != set(self.task_ids):
+            msg = "report_hashes keys must match task_ids exactly"
+            raise ValueError(msg)
+        for task_id, digest in self.report_hashes.items():
+            if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+                msg = f"report_hashes[{task_id!r}] must be a lowercase SHA-256 digest"
+                raise ValueError(msg)
+        return self
 
 
 class ComparisonLayerType(StrEnum):
