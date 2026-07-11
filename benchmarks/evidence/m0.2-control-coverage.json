@@ -1,0 +1,90 @@
+{
+  "source_revision": "c62481367f6da70f29ac0fcaa073f413431da93a",
+  "task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09",
+  "strategy": "archex_query",
+  "tasks": [
+    {
+      "task_id": "archex_adapter_registry",
+      "returned_files": [
+        "src/archex/parse/adapters/__init__.py",
+        "src/archex/parse/adapters/html.py",
+        "src/archex/parse/adapters/xml.py",
+        "src/archex/parse/adapters/yaml.py",
+        "src/archex/parse/adapters/css.py"
+      ],
+      "missing_required_files": [
+        "src/archex/parse/adapters/python.py",
+        "src/archex/parse/adapters/base.py"
+      ],
+      "missing_file_admission_state": {
+        "src/archex/parse/adapters/python.py": "not_admitted",
+        "src/archex/parse/adapters/base.py": "seed"
+      }
+    },
+    {
+      "task_id": "archex_project_status",
+      "returned_files": [
+        "src/archex/project.py",
+        "src/archex/status.py",
+        "src/archex/cli/index_cmd.py",
+        "src/archex/index/store.py"
+      ],
+      "missing_required_files": [
+        "src/archex/cli/status_cmd.py",
+        "src/archex/index/delta.py"
+      ],
+      "missing_file_admission_state": {
+        "src/archex/cli/status_cmd.py": "seed",
+        "src/archex/index/delta.py": "graph_expansion"
+      }
+    },
+    {
+      "task_id": "django_middleware",
+      "returned_files": [
+        "django/http/request.py",
+        "django/http/response.py",
+        "django/middleware/common.py",
+        "django/conf/__init__.py",
+        "django/core/handlers/base.py"
+      ],
+      "missing_required_files": [
+        "django/core/handlers/wsgi.py"
+      ],
+      "missing_file_admission_state": {
+        "django/core/handlers/wsgi.py": "graph_expansion"
+      }
+    },
+    {
+      "task_id": "loc_django_username_validator",
+      "returned_files": [
+        "django/contrib/auth/password_validation.py",
+        "django/contrib/auth/__init__.py",
+        "django/contrib/auth/migrations/0004_alter_user_username_opts.py",
+        "django/contrib/auth/forms.py",
+        "django/contrib/auth/migrations/0008_alter_user_username_max_length.py"
+      ],
+      "missing_required_files": [
+        "django/contrib/auth/validators.py"
+      ],
+      "missing_file_admission_state": {
+        "django/contrib/auth/validators.py": "graph_expansion"
+      }
+    },
+    {
+      "task_id": "routing_pl_scoring",
+      "returned_files": [
+        "src/archex/serve/context.py",
+        "src/archex/index/store.py",
+        "src/archex/cache.py",
+        "tests/serve/test_context.py",
+        "tests/serve/test_context_recall.py"
+      ],
+      "missing_required_files": [
+        "src/archex/index/bm25.py"
+      ],
+      "missing_file_admission_state": {
+        "src/archex/index/bm25.py": "seed"
+      }
+    }
+  ]
+}
