@@ -520,11 +520,15 @@ def report_cmd(output_format: str, input_dir: str, baseline_dir: str | None) -> 
     reports: list[BenchmarkReport] = []
 
     for json_file in sorted(input_path.glob("*.json")):
+        if json_file.name == "manifest.json":
+            continue
         data = json.loads(json_file.read_text(encoding="utf-8"))
         reports.append(BenchmarkReport.model_validate(data))
     baseline_reports: list[BenchmarkReport] = []
     if baseline_dir is not None:
         for json_file in sorted(Path(baseline_dir).glob("*.json")):
+            if json_file.name == "manifest.json":
+                continue
             data = json.loads(json_file.read_text(encoding="utf-8"))
             baseline_reports.append(BenchmarkReport.model_validate(data))
         if not baseline_reports:
@@ -794,6 +798,8 @@ def baseline_save_cmd(input_dir: str, output_path: str, ranking_source: str | No
     input_path = Path(input_dir)
     reports: list[BenchmarkReport] = []
     for json_file in sorted(input_path.glob("*.json")):
+        if json_file.name == "manifest.json":
+            continue
         data = json.loads(json_file.read_text(encoding="utf-8"))
         reports.append(BenchmarkReport.model_validate(data))
 
@@ -832,6 +838,8 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
     input_path = Path(input_dir)
     reports: list[BenchmarkReport] = []
     for json_file in sorted(input_path.glob("*.json")):
+        if json_file.name == "manifest.json":
+            continue
         data = json.loads(json_file.read_text(encoding="utf-8"))
         reports.append(BenchmarkReport.model_validate(data))
 
