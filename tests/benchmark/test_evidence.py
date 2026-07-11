@@ -9,8 +9,10 @@ import pytest
 from archex.benchmark.evidence import (
     BenchmarkEvidenceError,
     build_evidence_manifest,
+    copy_evidence_as_baseline,
     prepare_evidence_directory,
     task_manifest_digest,
+    validate_baseline_coverage,
     validate_evidence_directory,
     write_evidence_manifest,
 )
@@ -47,6 +49,7 @@ def _report() -> BenchmarkReport:
         ndcg=1.0,
         map_score=1.0,
         savings_vs_raw=0.0,
+        token_efficiency=0.2,
         wall_time_ms=1.0,
         cached=False,
         timestamp="2026-07-11T00:00:00+00:00",
@@ -193,6 +196,70 @@ def test_validate_command_accepts_complete_evidence(
 
     assert result.exit_code == 0
     assert "Valid benchmark evidence: 1 task(s), 1 strategy/strategies." in result.output
+
+
+def test_gate_command_requires_complete_manifest_backed_evidence(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from archex.cli.benchmark_cmd import benchmark_cmd
+
+    output_dir, tasks_dir = _write_evidence(tmp_path)
+    result = CliRunner().invoke(
+        benchmark_cmd,
+        [
+            "gate",
+            "--input",
+            str(output_dir),
+            "--tasks-dir",
+            str(tasks_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Quality gate passed." in result.output
+
+
+def test_gate_command_rejects_reports_without_manifest(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from archex.cli.benchmark_cmd import benchmark_cmd
+
+    output_dir, tasks_dir = _write_evidence(tmp_path)
+    (output_dir / "manifest.json").unlink()
+    result = CliRunner().invoke(
+        benchmark_cmd,
+        [
+            "gate",
+            "--input",
+            str(output_dir),
+            "--tasks-dir",
+            str(tasks_dir),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "manifest not found" in result.output
+
+
+def test_baseline_coverage_rejects_configuration_drift(tmp_path: Path) -> None:
+    output_dir, tasks_dir = _write_evidence(tmp_path)
+    current = validate_evidence_directory(output_dir, tasks_dir)
+    baseline = current.model_copy(
+        update={"retrieval_options": BenchmarkRetrievalOptions(chunker="cast")}
+    )
+
+    with pytest.raises(BenchmarkEvidenceError, match="retrieval configuration"):
+        validate_baseline_coverage(current, baseline)
+
+
+def test_copy_evidence_as_baseline_preserves_manifest_and_reports(tmp_path: Path) -> None:
+    output_dir, tasks_dir = _write_evidence(tmp_path)
+    baseline_dir = tmp_path / "baseline"
+
+    copied = copy_evidence_as_baseline(output_dir, baseline_dir, tasks_dir)
+    loaded = validate_evidence_directory(baseline_dir, tasks_dir)
+
+    assert copied == loaded
 
 
 def test_run_command_records_evidence_manifest(
