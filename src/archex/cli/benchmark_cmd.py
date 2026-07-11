@@ -28,8 +28,10 @@ from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.evidence import (
     BenchmarkEvidenceError,
     build_evidence_manifest,
+    load_evidence_reports,
     prepare_evidence_directory,
     source_revision,
+    validate_baseline_coverage,
     validate_evidence_directory,
     write_evidence_manifest,
 )
@@ -863,6 +865,12 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
     type=click.Path(exists=True),
     help="Directory containing result JSON files.",
 )
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/tasks",
+    type=click.Path(exists=True, file_okay=False),
+    help="Directory containing the task manifest bound to evidence.",
+)
 @click.option("--min-recall", default=0.60, type=float, help="Minimum recall threshold.")
 @click.option("--min-precision", default=0.20, type=float, help="Minimum precision threshold.")
 @click.option("--min-f1", default=0.30, type=float, help="Minimum F1 threshold.")
@@ -891,6 +899,7 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
 )
 def gate_cmd(
     input_dir: str,
+    tasks_dir: str,
     min_recall: float,
     min_precision: float,
     min_f1: float,
@@ -900,14 +909,13 @@ def gate_cmd(
     max_latency_ms: float | None,
 ) -> None:
     """Check benchmark results against quality thresholds."""
-    input_path = Path(input_dir)
-    reports: list[BenchmarkReport] = []
-    for json_file in sorted(input_path.glob("*.json")):
-        data = json.loads(json_file.read_text(encoding="utf-8"))
-        reports.append(BenchmarkReport.model_validate(data))
-
-    if not reports:
-        raise click.ClickException(f"No result files found in {input_dir}")
+    try:
+        current_manifest, reports = load_evidence_reports(
+            Path(input_dir),
+            Path(tasks_dir),
+        )
+    except BenchmarkEvidenceError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     thresholds = QualityThresholds(
         min_recall=min_recall,
@@ -947,13 +955,14 @@ def gate_cmd(
     advisory_warnings = non_token_quality_warnings(absolute_violations)
 
     if baseline_dir is not None:
-        baseline_path = Path(baseline_dir)
-        baseline_reports: list[BenchmarkReport] = []
-        for json_file in sorted(baseline_path.glob("*.json")):
-            data = json.loads(json_file.read_text(encoding="utf-8"))
-            baseline_reports.append(BenchmarkReport.model_validate(data))
-        if not baseline_reports:
-            raise click.ClickException(f"No baseline result files found in {baseline_dir}")
+        try:
+            baseline_manifest, baseline_reports = load_evidence_reports(
+                Path(baseline_dir),
+                Path(tasks_dir),
+            )
+            validate_baseline_coverage(current_manifest, baseline_manifest)
+        except BenchmarkEvidenceError as exc:
+            raise click.ClickException(str(exc)) from exc
         click.echo(format_chunker_frontier_table(reports, baseline_reports))
 
         recall_regressions = check_recall_regressions(reports, baseline_reports, thresholds)
