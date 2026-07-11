@@ -35,3 +35,24 @@ def test_self_benchmark_minimum_quality() -> None:
             assert result.mrr > 0.0, (
                 f"{task.task_id}/{result.strategy.value}: mrr {result.mrr:.2f} == 0.0"
             )
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Control characterization: archex_query omits "
+        "django/contrib/auth/validators.py for the pinned task."
+    ),
+)
+def test_django_username_validator_required_file_is_returned() -> None:
+    """Expose the pinned Django localization total miss before candidate repair."""
+    task = load_task(Path.cwd() / "benchmarks/tasks/loc_django_username_validator.yaml")
+    report = run_benchmark(
+        task,
+        strategies=[Strategy.ARCHEX_QUERY],
+        repo_path=None,
+    )
+    result = report.results[0]
+
+    assert "django/contrib/auth/validators.py" in result.result_files
