@@ -49,6 +49,9 @@ from archex.benchmark.models import (
     TaskCompletionResult,
 )
 from archex.benchmark.query_transform import transform_query
+from archex.benchmark.rank_candidate import (
+    rerank_by_direct_evidence as _rerank_by_direct_evidence,
+)
 from archex.benchmark.region_metrics import (
     ReturnedRegion,
     compute_region_metrics,
@@ -3214,6 +3217,104 @@ def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) ->
     return result
 
 
+def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only candidate: M0.2 coverage admission plus direct-evidence
+    tail ranking.
+
+    Reuses the exact same seed and neighbor admission as
+    `run_archex_query_coverage_candidate` (no change to what gets admitted,
+    so M0.2's required-file recall guarantee carries over unchanged), then
+    moves identifier-tier-evidenced files toward the front of the
+    candidate-admitted tail (`rank_candidate.rerank_by_direct_evidence`).
+    The base query's own ranked chunks are never reordered or displaced --
+    only the admitted tail is. The returned file *set* is unchanged by this
+    candidate; only tail order can move.
+    """
+    from archex.api import index_repository
+    from archex.index.graph import DependencyGraph
+    from archex.models import Config
+
+    strategy = Strategy.ARCHEX_QUERY_RANK_CANDIDATE
+    started = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    source = benchmark_repo_source(task, repo_path, strategy=strategy)
+    store = index_repository(
+        source,
+        config=Config(cache=True, languages=task.languages),
+        index_config=effective_config,
+    )
+    try:
+        direct_decisions = _coverage_seed_decisions(
+            task.question,
+            store,
+            limit=_COVERAGE_DIRECT_EVIDENCE_CAP,
+        )
+        seed_decisions = direct_decisions[:_COVERAGE_SEED_CAP]
+        seed_admission = _apply_coverage_seed_admission(
+            bundle,
+            store,
+            seed_decisions,
+            token_budget=task.token_budget,
+        )
+        graph = DependencyGraph.from_edges(store.get_edges())
+        edges = [
+            GraphEdge(edge.source, edge.target, edge.confidence_score)
+            for edge in graph.file_edges()
+        ]
+        neighbor_decisions = _coverage_neighbor_decisions(
+            edges,
+            seed_files={decision.file for decision in seed_decisions},
+            existing_files={ranked.chunk.file_path for ranked in seed_admission.bundle.chunks},
+            direct_decisions=direct_decisions,
+            limit=_COVERAGE_NEIGHBOR_CAP,
+        )
+        neighbor_admission = _apply_coverage_seed_admission(
+            seed_admission.bundle,
+            store,
+            neighbor_decisions,
+            token_budget=task.token_budget,
+        )
+    finally:
+        store.close()
+
+    reranked = _rerank_by_direct_evidence(
+        neighbor_admission.bundle,
+        [*direct_decisions, *neighbor_decisions],
+        base_chunk_count=len(bundle.chunks),
+    )
+
+    wall_ms = (time.perf_counter() - started) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=reranked.bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = {
+        "candidate_seed_cap": str(_COVERAGE_SEED_CAP),
+        "candidate_seed_admitted": ",".join(decision.file for decision in seed_admission.admitted)
+        or "none",
+        "candidate_neighbor_cap": str(_COVERAGE_NEIGHBOR_CAP),
+        "candidate_neighbor_admitted": ",".join(
+            decision.file for decision in neighbor_admission.admitted
+        )
+        or "none",
+        "rank_promoted_files": ",".join(reranked.promoted_files) or "none",
+    }
+    return result
+
+
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
     from archex.api import query, scout_with_bundle
@@ -3838,6 +3939,10 @@ default_strategy_registry.register(
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_COVERAGE_CANDIDATE.value,
     run_archex_query_coverage_candidate,
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_RANK_CANDIDATE.value,
+    run_archex_query_rank_candidate,
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK.value, run_archex_query_conditional_rerank
