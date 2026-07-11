@@ -23,6 +23,12 @@ from archex.benchmark.bounded_rerank import (
     query_signals,
     symbolic_scores,
 )
+from archex.benchmark.coverage_candidate import (
+    apply_coverage_seed_admission as _apply_coverage_seed_admission,
+)
+from archex.benchmark.coverage_candidate import (
+    coverage_seed_decisions as _coverage_seed_decisions,
+)
 from archex.benchmark.graph_multihop import (
     ExpansionAction,
     ExpansionDecision,
@@ -3101,6 +3107,71 @@ def run_archex_query_graph_multihop(task: BenchmarkTask, repo_path: Path) -> Ben
     return result
 
 
+_COVERAGE_SEED_CAP = 3
+
+
+def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only bounded seed-admission candidate; product defaults stay unchanged."""
+    from archex.api import index_repository
+    from archex.models import Config
+
+    strategy = Strategy.ARCHEX_QUERY_COVERAGE_CANDIDATE
+    started = time.perf_counter()
+    bundle, effective_config, timing = _query_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+    )
+    source = benchmark_repo_source(task, repo_path, strategy=strategy)
+    store = index_repository(
+        source,
+        config=Config(cache=True, languages=task.languages),
+        index_config=effective_config,
+    )
+    try:
+        decisions = _coverage_seed_decisions(
+            task.question,
+            store,
+            limit=_COVERAGE_SEED_CAP,
+        )
+        admission = _apply_coverage_seed_admission(
+            bundle,
+            store,
+            decisions,
+            token_budget=task.token_budget,
+        )
+    finally:
+        store.close()
+
+    wall_ms = (time.perf_counter() - started) * 1000
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=admission.bundle,
+        timing=timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = {
+        "candidate_seed_cap": str(_COVERAGE_SEED_CAP),
+        "candidate_seed_decisions": str(len(decisions)),
+        "candidate_seed_admitted": ",".join(decision.file for decision in admission.admitted)
+        or "none",
+        "candidate_seed_budget_cuts": ",".join(decision.file for decision in admission.budget_cuts)
+        or "none",
+        "candidate_seed_evidence": ";".join(
+            f"{decision.file}:{','.join(decision.evidence)}" for decision in admission.admitted
+        )
+        or "none",
+    }
+    return result
+
+
 def run_archex_scout_fetch(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Two-call scout map plus chunk-first exact fetch with direct-query guardrails."""
     from archex.api import query, scout_with_bundle
@@ -3721,6 +3792,10 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_GRAPH_MULTIHOP.value, run_archex_query_graph_multihop
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_COVERAGE_CANDIDATE.value,
+    run_archex_query_coverage_candidate,
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK.value, run_archex_query_conditional_rerank

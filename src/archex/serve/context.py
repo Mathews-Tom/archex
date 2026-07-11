@@ -463,6 +463,26 @@ def _query_terms(question: str) -> set[str]:
     return expanded
 
 
+def generic_query_terms(question: str) -> tuple[str, ...]:
+    """Return ordered lexical/path/symbol terms without semantic expansion."""
+    import re
+
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", question):
+        if raw.lower() in _QUERY_STOP:
+            continue
+        for part in _split_compound_token(raw):
+            term = part.lower()
+            if len(term) < 3 or term in _QUERY_STOP:
+                continue
+            for variant in (term, *_singular_query_variants(term)):
+                if variant not in seen:
+                    seen.add(variant)
+                    terms.append(variant)
+    return tuple(terms)
+
+
 def _adaptive_max_files(
     file_scores: list[tuple[str, float]],
     default: int = MAX_FILES,
