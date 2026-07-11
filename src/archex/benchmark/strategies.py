@@ -1631,6 +1631,7 @@ class _PackingPrep:
     candidates: list[PackingCandidate]
     signatures: dict[str, frozenset[str]]
     direct_by_id: dict[str, bool]
+    protection_reason_by_id: dict[str, str]
     outcomes: dict[str, RegionCompression]
     original_tokens_by_id: dict[str, int]
     score_by_id: dict[str, float]
@@ -1647,12 +1648,33 @@ def _region_token_signature(content: str) -> frozenset[str]:
     return frozenset(token.lower() for token in _DIVERSITY_TOKEN_RE.findall(content))
 
 
-def _prepare_packing(bundle: ContextBundle, *, question: str) -> _PackingPrep:
+def _receipt_protection_reason(item: ContextReceiptItem | None) -> str | None:
+    """Classify intrinsic M0.2 admission evidence that packing must retain."""
+    if item is None:
+        return None
+    for reason in item.reason_codes:
+        if reason.startswith("coverage_neighbor:"):
+            return "required_graph_context"
+        if reason.startswith("coverage_seed:") and reason.removeprefix("coverage_seed:").startswith(
+            ("identifier:", "symbol:", "path:")
+        ):
+            return "direct_evidence"
+    return None
+
+
+def _prepare_packing(
+    bundle: ContextBundle,
+    *,
+    question: str,
+    preserve_seed_context: bool = True,
+) -> _PackingPrep:
     """Build packing candidates, diversity signatures, and rewrite bookkeeping.
 
     Retrieval is untouched: the bundle's chunks are the candidate pool. Every
-    signal is intrinsic to the bundle; no benchmark ground truth is consulted. The
-    same preparation feeds both the efficiency-aware and diversity packing lanes.
+    signal is intrinsic to the bundle or its receipt; no benchmark ground truth is
+    consulted. The context candidate narrows protection to direct receipt evidence,
+    required graph context, the top hit, and high-scoring regions so optional
+    retrieval tail context can be selected or elided deterministically.
     """
     from archex.scout import chunk_handle
     from archex.serve.compression import compress_region
@@ -1664,22 +1686,47 @@ def _prepare_packing(bundle: ContextBundle, *, question: str) -> _PackingPrep:
     seed_paths = set(meta.seed_file_paths)
     expanded_paths = set(meta.expanded_file_paths)
     top_score = max((rc.final_score for rc in bundle.chunks), default=0.0)
+    receipt_items = (
+        {item.handle: item for item in bundle.receipt.returned_context}
+        if bundle.receipt is not None
+        else {}
+    )
 
     direct_by_id: dict[str, bool] = {}
+    protection_reason_by_id: dict[str, str] = {}
     file_direct_counts: dict[str, int] = {}
     for index, ranked in enumerate(bundle.chunks):
-        direct = _passthrough_required(
+        chunk = ranked.chunk
+        receipt_reason = _receipt_protection_reason(receipt_items.get(chunk_handle(chunk.id)))
+        if receipt_reason is not None:
+            direct = True
+            protection_reason = receipt_reason
+        elif preserve_seed_context and _passthrough_required(
             index,
             ranked,
             seed_paths=seed_paths,
             expanded_paths=expanded_paths,
             top_score=top_score,
-        )
-        direct_by_id[ranked.chunk.id] = direct
+        ):
+            direct = True
+            protection_reason = "retrieval_protected"
+        elif not preserve_seed_context and index == 0:
+            direct = True
+            protection_reason = "top_rank"
+        elif (
+            not preserve_seed_context
+            and top_score > 0.0
+            and ranked.final_score >= top_score * _PASSTHROUGH_SCORE_FRACTION
+        ):
+            direct = True
+            protection_reason = "high_score"
+        else:
+            direct = False
+            protection_reason = "optional"
+        direct_by_id[chunk.id] = direct
+        protection_reason_by_id[chunk.id] = protection_reason
         if direct:
-            file_direct_counts[ranked.chunk.file_path] = (
-                file_direct_counts.get(ranked.chunk.file_path, 0) + 1
-            )
+            file_direct_counts[chunk.file_path] = file_direct_counts.get(chunk.file_path, 0) + 1
 
     candidates: list[PackingCandidate] = []
     signatures: dict[str, frozenset[str]] = {}
@@ -1711,7 +1758,7 @@ def _prepare_packing(bundle: ContextBundle, *, question: str) -> _PackingPrep:
         else:
             compressed_tokens = original_tokens
             loss_risk = CompressionLossRisk.NONE
-        direct_or_seed = direct or chunk.file_path in seed_paths
+        direct_or_seed = direct or (preserve_seed_context and chunk.file_path in seed_paths)
         candidates.append(
             PackingCandidate(
                 signals=PackingSignals(
@@ -1737,6 +1784,7 @@ def _prepare_packing(bundle: ContextBundle, *, question: str) -> _PackingPrep:
         candidates=candidates,
         signatures=signatures,
         direct_by_id=direct_by_id,
+        protection_reason_by_id=protection_reason_by_id,
         outcomes=outcomes,
         original_tokens_by_id=original_tokens_by_id,
         score_by_id=score_by_id,
@@ -1758,6 +1806,7 @@ def _apply_packing(bundle: ContextBundle, plan: PackingPlan, prep: _PackingPrep)
 
     decisions = {region.candidate_id: region.decision for region in plan.regions}
     direct_by_id = prep.direct_by_id
+    protection_reason_by_id = prep.protection_reason_by_id
     outcomes = prep.outcomes
     original_tokens_by_id = prep.original_tokens_by_id
     score_by_id = prep.score_by_id
@@ -1827,6 +1876,13 @@ def _apply_packing(bundle: ContextBundle, plan: PackingPlan, prep: _PackingPrep)
             if direct:
                 compressed_required_tokens += new_tokens
                 hidden_required += 1
+        if item is not None:
+            protection_reason = protection_reason_by_id[chunk.id]
+            item.reason_codes = [
+                *item.reason_codes,
+                f"packing:{decision.value}",
+                f"packing_protection:{protection_reason}",
+            ]
         kept.append(ranked)
         kept_handles.add(handle)
 
@@ -1864,6 +1920,12 @@ def _apply_packing(bundle: ContextBundle, plan: PackingPlan, prep: _PackingPrep)
         "elide_count": str(actual_counts[PackDecision.ELIDE]),
         "skip_count": str(actual_counts[PackDecision.SKIP]),
         "direct_match_count": str(sum(1 for v in direct_by_id.values() if v)),
+        "protected_direct_evidence_count": str(
+            sum(reason == "direct_evidence" for reason in protection_reason_by_id.values())
+        ),
+        "protected_graph_context_count": str(
+            sum(reason == "required_graph_context" for reason in protection_reason_by_id.values())
+        ),
         "hidden_required_count": str(hidden_required),
         "bundle_compression_ratio": f"{bundle_ratio:.4f}",
         "relevance_per_1k_tokens": f"{relevance_per_1k:.4f}",
@@ -3245,35 +3307,17 @@ def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) ->
     return result
 
 
-def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
-    """Benchmark-only candidate: M0.2 coverage admission with concentrated-
-    evidence seed/neighbor-cap bounds, plus direct-evidence tail ranking.
-
-    Both admission stages use the same evidence-tier-based bound
-    (`rank_candidate.bounded_seed_cap` / `bounded_neighbor_cap`): a small,
-    non-empty set of symbol-or-better-evidenced files (from the full,
-    uncapped evidence pool -- concentration is judged before any cap
-    applies) signals a narrow query, where the flat 32-seed/24-neighbor
-    caps only add noise. An ambiguous (a large confident set, e.g. every
-    sibling language adapter sharing a generic symbol match) or absent
-    confident-evidence signal keeps the full cap -- exactly the shape of
-    M0.2's five originally-missing target tasks, which still need the wide
-    net. Verified against the real 64-task corpus by sweeping candidate cap
-    values against every concentrated task's currently-admitted
-    required-file position: no cap value at or above the ones used here
-    ever put a required file outside its stage's bound.
-
-    Finally, identifier-tier-evidenced files move toward the front of the
-    candidate-admitted tail (`rank_candidate.rerank_by_direct_evidence`).
-    The base query's own ranked chunks are never reordered or displaced --
-    only the admitted tail is.
-    """
+def _rank_candidate_bundle(
+    task: BenchmarkTask,
+    repo_path: Path,
+    *,
+    strategy: Strategy,
+) -> tuple[ContextBundle, IndexConfig, PipelineTiming, dict[str, str]]:
+    """Compose M0.2 admission and M0.3 tail ranking without packing."""
     from archex.api import index_repository
     from archex.index.graph import DependencyGraph
     from archex.models import Config
 
-    strategy = Strategy.ARCHEX_QUERY_RANK_CANDIDATE
-    started = time.perf_counter()
     bundle, effective_config, timing = _query_bundle(
         task,
         repo_path,
@@ -3328,20 +3372,7 @@ def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> Ben
         [*direct_decisions, *neighbor_decisions],
         base_chunk_count=len(bundle.chunks),
     )
-
-    wall_ms = (time.perf_counter() - started) * 1000
-    result = _assemble_query_result(
-        task,
-        repo_path,
-        strategy=strategy,
-        index_config=effective_config,
-        bundle=reranked.bundle,
-        timing=timing,
-        wall_ms=wall_ms,
-        include_completion=True,
-        measure_freshness=False,
-    )
-    result.provenance = {
+    provenance = {
         "candidate_seed_cap": str(seed_cap),
         "candidate_seed_cap_bounded": str(seed_cap < _COVERAGE_SEED_CAP),
         "candidate_seed_admitted": ",".join(decision.file for decision in seed_admission.admitted)
@@ -3353,6 +3384,85 @@ def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> Ben
         )
         or "none",
         "rank_promoted_files": ",".join(reranked.promoted_files) or "none",
+    }
+    return reranked.bundle, effective_config, timing, provenance
+
+
+def _pack_context_candidate_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
+    """Pack a composed candidate while retaining receipt-backed direct and graph evidence."""
+    prep = _prepare_packing(bundle, question=question, preserve_seed_context=False)
+    plan = pack_efficiently(
+        prep.candidates,
+        token_budget=bundle.token_budget,
+        budget_tier=prep.tier,
+    )
+    packing = _apply_packing(bundle, plan, prep)
+    provenance = dict(packing.provenance)
+    provenance["packing_protection_policy"] = "direct_evidence_and_graph_context"
+    return _BundlePacking(
+        bundle=packing.bundle,
+        result_fields=packing.result_fields,
+        provenance=provenance,
+    )
+
+
+def run_archex_query_rank_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Benchmark-only M0.2/M0.3 candidate; product defaults stay unchanged."""
+    strategy = Strategy.ARCHEX_QUERY_RANK_CANDIDATE
+    started = time.perf_counter()
+    bundle, effective_config, timing, provenance = _rank_candidate_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+    )
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=bundle,
+        timing=timing,
+        wall_ms=(time.perf_counter() - started) * 1000,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = provenance
+    return result
+
+
+def run_archex_query_context_candidate(
+    task: BenchmarkTask,
+    repo_path: Path,
+) -> BenchmarkResult:
+    """Benchmark-only M0.4 candidate: admission, tail ranking, then region packing."""
+    strategy = Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE
+    started = time.perf_counter()
+    bundle, effective_config, timing, candidate_provenance = _rank_candidate_bundle(
+        task,
+        repo_path,
+        strategy=strategy,
+    )
+    packing = _pack_context_candidate_bundle(bundle, question=task.question)
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=effective_config,
+        bundle=packing.bundle,
+        timing=timing,
+        wall_ms=(time.perf_counter() - started) * 1000,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    fields = dict(packing.result_fields)
+    fields["token_efficiency_with_compression_and_completion"] = (
+        result.token_efficiency_with_completion
+    )
+    result = result.model_copy(update=fields)
+    result.provenance = {
+        **candidate_provenance,
+        **packing.provenance,
+        "candidate_composition": "coverage_admission+tail_ranking+region_packing",
     }
     return result
 
@@ -3985,6 +4095,10 @@ default_strategy_registry.register(
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_RANK_CANDIDATE.value,
     run_archex_query_rank_candidate,
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value,
+    run_archex_query_context_candidate,
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_CONDITIONAL_RERANK.value, run_archex_query_conditional_rerank
