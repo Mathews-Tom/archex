@@ -1,0 +1,1360 @@
+{
+  "schema_version": 1,
+  "milestone": "M0.3",
+  "source_revision": "ddff2b88b70ce6bf1e0a75a4c045a864e9c2529d",
+  "task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09",
+  "gate_thresholds": {
+    "min_recall": 0.6,
+    "min_precision": 0.2,
+    "min_f1": 0.3,
+    "min_mrr": 0.55
+  },
+  "runs": {
+    "candidate_run_21": {
+      "strategy": "archex_query_rank_candidate",
+      "generated_at": "2026-07-11T22:52:36.525469+00:00"
+    },
+    "candidate_run_22": {
+      "strategy": "archex_query_rank_candidate",
+      "generated_at": "2026-07-11T23:05:35.233966+00:00"
+    },
+    "control_run_21": {
+      "strategy": "archex_query_coverage_candidate",
+      "generated_at": "2026-07-11T22:52:36.525469+00:00"
+    },
+    "control_run_22": {
+      "strategy": "archex_query_coverage_candidate",
+      "generated_at": "2026-07-11T23:05:35.233966+00:00"
+    }
+  },
+  "repeat_stability": {
+    "candidate_result_differences_across_repeat": [],
+    "control_result_differences_across_repeat": []
+  },
+  "required_file_regressions": [],
+  "m02_target_task_recovery": [
+    {
+      "task_id": "archex_adapter_registry",
+      "run21_required_file_recall": 1.0,
+      "run22_required_file_recall": 1.0
+    },
+    {
+      "task_id": "archex_project_status",
+      "run21_required_file_recall": 1.0,
+      "run22_required_file_recall": 1.0
+    },
+    {
+      "task_id": "django_middleware",
+      "run21_required_file_recall": 1.0,
+      "run22_required_file_recall": 1.0
+    },
+    {
+      "task_id": "loc_django_username_validator",
+      "run21_required_file_recall": 1.0,
+      "run22_required_file_recall": 1.0
+    },
+    {
+      "task_id": "routing_pl_scoring",
+      "run21_required_file_recall": 1.0,
+      "run22_required_file_recall": 1.0
+    }
+  ],
+  "aggregate": {
+    "candidate": {
+      "n_tasks": 64,
+      "mean_precision": 0.2232,
+      "mean_mrr": 0.8319,
+      "mean_f1": 0.3292,
+      "mean_required_file_recall": 0.9906,
+      "rank_below_first_count": 16,
+      "broad_result_set_count": 38
+    },
+    "control": {
+      "n_tasks": 64,
+      "mean_precision": 0.22,
+      "mean_mrr": 0.8319,
+      "mean_f1": 0.3238,
+      "mean_required_file_recall": 0.9906,
+      "rank_below_first_count": 16,
+      "broad_result_set_count": 38
+    },
+    "archex_query_default": {
+      "n_tasks": 64,
+      "mean_precision": 0.4244,
+      "mean_mrr": 0.8309,
+      "mean_f1": 0.5372,
+      "mean_required_file_recall": 0.9141,
+      "rank_below_first_count": 14,
+      "broad_result_set_count": 9
+    }
+  },
+  "family_breakdown": {
+    "self_repo": {
+      "candidate": {
+        "n_tasks": 24,
+        "mean_precision": 0.1549,
+        "mean_mrr": 0.9792,
+        "mean_f1": 0.2311,
+        "mean_required_file_recall": 0.975,
+        "rank_below_first_count": 1,
+        "broad_result_set_count": 20
+      },
+      "control": {
+        "n_tasks": 24,
+        "mean_precision": 0.1484,
+        "mean_mrr": 0.9792,
+        "mean_f1": 0.2203,
+        "mean_required_file_recall": 0.975,
+        "rank_below_first_count": 1,
+        "broad_result_set_count": 20
+      }
+    },
+    "external_comprehension": {
+      "candidate": {
+        "n_tasks": 19,
+        "mean_precision": 0.3177,
+        "mean_mrr": 0.8246,
+        "mean_f1": 0.4677,
+        "mean_required_file_recall": 1.0,
+        "rank_below_first_count": 5,
+        "broad_result_set_count": 5
+      },
+      "control": {
+        "n_tasks": 19,
+        "mean_precision": 0.3166,
+        "mean_mrr": 0.8246,
+        "mean_f1": 0.4661,
+        "mean_required_file_recall": 1.0,
+        "rank_below_first_count": 5,
+        "broad_result_set_count": 5
+      }
+    },
+    "localization": {
+      "candidate": {
+        "n_tasks": 21,
+        "mean_precision": 0.2158,
+        "mean_mrr": 0.6701,
+        "mean_f1": 0.3159,
+        "mean_required_file_recall": 1.0,
+        "rank_below_first_count": 10,
+        "broad_result_set_count": 13
+      },
+      "control": {
+        "n_tasks": 21,
+        "mean_precision": 0.2143,
+        "mean_mrr": 0.6701,
+        "mean_f1": 0.3132,
+        "mean_required_file_recall": 1.0,
+        "rank_below_first_count": 10,
+        "broad_result_set_count": 13
+      }
+    }
+  },
+  "rows": [
+    {
+      "task_id": "archex_adapter_registry",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.05357142857142857,
+      "control_precision": 0.05357142857142857,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_benchmark_gate_lifecycle",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.5,
+      "control_precision": 0.5,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 0.8,
+      "control_required_file_recall": 0.8,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "archex_delta_index_lifecycle",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.15789473684210525,
+      "control_precision": 0.15789473684210525,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_delta_indexing",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.06060606060606061,
+      "control_precision": 0.06060606060606061,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_graph_expansion",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.09090909090909091,
+      "control_precision": 0.09090909090909091,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_mcp_query_lifecycle",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.8333333333333334,
+      "control_precision": 0.8333333333333334,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "archex_pattern_detection",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.034482758620689655,
+      "control_precision": 0.034482758620689655,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_project_config_resolution",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.07017543859649122,
+      "control_precision": 0.07017543859649122,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_project_index",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.08771929824561403,
+      "control_precision": 0.08771929824561403,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_project_init",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.16,
+      "control_precision": 0.07017543859649122,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_project_reset",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.12,
+      "control_precision": 0.05357142857142857,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_project_status",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.07017543859649122,
+      "control_precision": 0.07017543859649122,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_query_cache_lifecycle",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.20833333333333334,
+      "control_precision": 0.20833333333333334,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "archex_query_pipeline",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.058823529411764705,
+      "control_precision": 0.058823529411764705,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "archex_scoring",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.5,
+      "control_precision": 0.5,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "archex_vector_cache_lifecycle",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.06521739130434782,
+      "control_precision": 0.06521739130434782,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 0.6,
+      "control_required_file_recall": 0.6,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "celery_task_dispatch",
+      "family": "comprehension",
+      "category": "external-large",
+      "candidate_precision": 0.16666666666666666,
+      "control_precision": 0.16666666666666666,
+      "candidate_mrr": 0.5,
+      "control_mrr": 0.5,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "click_decorators",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.1875,
+      "control_precision": 0.1875,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "django_middleware",
+      "family": "comprehension",
+      "category": "architecture-broad",
+      "candidate_precision": 0.15,
+      "control_precision": 0.15,
+      "candidate_mrr": 0.3333333333333333,
+      "control_mrr": 0.3333333333333333,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "django_orm_queries",
+      "family": "comprehension",
+      "category": "external-large",
+      "candidate_precision": 0.3333333333333333,
+      "control_precision": 0.3333333333333333,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "express_error_handling",
+      "family": "comprehension",
+      "category": "architecture-broad",
+      "candidate_precision": 0.2727272727272727,
+      "control_precision": 0.2727272727272727,
+      "candidate_mrr": 0.3333333333333333,
+      "control_mrr": 0.3333333333333333,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ],
+      "control_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ]
+    },
+    {
+      "task_id": "express_middleware",
+      "family": "comprehension",
+      "category": "framework-semantic",
+      "candidate_precision": 0.2727272727272727,
+      "control_precision": 0.2727272727272727,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "fastapi_dependency_injection",
+      "family": "comprehension",
+      "category": "framework-semantic",
+      "candidate_precision": 0.23076923076923078,
+      "control_precision": 0.23076923076923078,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "fastapi_routing",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.6,
+      "control_precision": 0.6,
+      "candidate_mrr": 0.3333333333333333,
+      "control_mrr": 0.3333333333333333,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ],
+      "control_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ]
+    },
+    {
+      "task_id": "flask_blueprints",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.42857142857142855,
+      "control_precision": 0.42857142857142855,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "gin_routing",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.5,
+      "control_precision": 0.5,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "go_gin_middleware",
+      "family": "comprehension",
+      "category": "architecture-broad",
+      "candidate_precision": 0.42857142857142855,
+      "control_precision": 0.42857142857142855,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "httpx_pooling",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.5,
+      "control_precision": 0.5,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "loc_celery_task_retry",
+      "family": "localization",
+      "category": "external-large",
+      "candidate_precision": 0.16666666666666666,
+      "control_precision": 0.16666666666666666,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_click_param_process",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.09090909090909091,
+      "control_precision": 0.09090909090909091,
+      "candidate_mrr": 0.3333333333333333,
+      "control_mrr": 0.3333333333333333,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_django_queryset_filter",
+      "family": "localization",
+      "category": "external-large",
+      "candidate_precision": 0.16666666666666666,
+      "control_precision": 0.16666666666666666,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_django_username_validator",
+      "family": "localization",
+      "category": "external-large",
+      "candidate_precision": 0.05555555555555555,
+      "control_precision": 0.030303030303030304,
+      "candidate_mrr": 0.0625,
+      "control_mrr": 0.0625,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_express_error_middleware",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.2,
+      "control_precision": 0.2,
+      "candidate_mrr": 0.5,
+      "control_mrr": 0.5,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ],
+      "control_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ]
+    },
+    {
+      "task_id": "loc_fastapi_jsonable_encoder",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.1111111111111111,
+      "control_precision": 0.1111111111111111,
+      "candidate_mrr": 0.3333333333333333,
+      "control_mrr": 0.3333333333333333,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_fastapi_solve_dependencies",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.5,
+      "control_precision": 0.5,
+      "candidate_mrr": 0.5,
+      "control_mrr": 0.5,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ],
+      "control_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ]
+    },
+    {
+      "task_id": "loc_flask_blueprint_register",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.08333333333333333,
+      "control_precision": 0.08333333333333333,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_flask_full_dispatch",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.1,
+      "control_precision": 0.1,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_gin_context_next",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.25,
+      "control_precision": 0.25,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "loc_gin_tree_route",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.25,
+      "control_precision": 0.25,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "loc_httpx_pool_transport",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.058823529411764705,
+      "control_precision": 0.058823529411764705,
+      "candidate_mrr": 0.2,
+      "control_mrr": 0.2,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_httpx_redirect_headers",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.1111111111111111,
+      "control_precision": 0.1111111111111111,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_mini_redis_command_from_frame",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.058823529411764705,
+      "control_precision": 0.05555555555555555,
+      "candidate_mrr": 0.3333333333333333,
+      "control_mrr": 0.3333333333333333,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_pydantic_validate_call",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.2,
+      "control_precision": 0.2,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "loc_pytest_fixture_resolution",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.5,
+      "control_precision": 0.5,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "loc_react_dispatch_set_state",
+      "family": "localization",
+      "category": "external-large",
+      "candidate_precision": 0.3333333333333333,
+      "control_precision": 0.3333333333333333,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "loc_requests_adapter_send",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.125,
+      "control_precision": 0.125,
+      "candidate_mrr": 0.14285714285714285,
+      "control_mrr": 0.14285714285714285,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_requests_redirect_auth",
+      "family": "localization",
+      "category": "external-framework",
+      "candidate_precision": 0.058823529411764705,
+      "control_precision": 0.05555555555555555,
+      "candidate_mrr": 0.3333333333333333,
+      "control_mrr": 0.3333333333333333,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_sqlalchemy_session_merge",
+      "family": "localization",
+      "category": "external-large",
+      "candidate_precision": 0.1111111111111111,
+      "control_precision": 0.1111111111111111,
+      "candidate_mrr": 0.3333333333333333,
+      "control_mrr": 0.3333333333333333,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "loc_tokio_current_thread_block_on",
+      "family": "localization",
+      "category": "external-large",
+      "candidate_precision": 1.0,
+      "control_precision": 1.0,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "mini_redis_async",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.17647058823529413,
+      "control_precision": 0.16666666666666666,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "pydantic_validators",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.2727272727272727,
+      "control_precision": 0.2727272727272727,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "pytest_fixtures",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.25,
+      "control_precision": 0.25,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "react_hooks",
+      "family": "comprehension",
+      "category": "external-large",
+      "candidate_precision": 0.2222222222222222,
+      "control_precision": 0.2222222222222222,
+      "candidate_mrr": 0.16666666666666666,
+      "control_mrr": 0.16666666666666666,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ],
+      "control_failure_classes": [
+        "below_mrr_floor",
+        "rank_below_first"
+      ]
+    },
+    {
+      "task_id": "requests_sessions",
+      "family": "comprehension",
+      "category": "external-framework",
+      "candidate_precision": 0.42857142857142855,
+      "control_precision": 0.42857142857142855,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    },
+    {
+      "task_id": "routing_mixed_cache",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.15384615384615385,
+      "control_precision": 0.15384615384615385,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "routing_mixed_chunker",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.16666666666666666,
+      "control_precision": 0.16666666666666666,
+      "candidate_mrr": 0.5,
+      "control_mrr": 0.5,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "below_mrr_floor",
+        "rank_below_first",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "routing_pl_intent",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.017543859649122806,
+      "control_precision": 0.017543859649122806,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "routing_pl_large",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.017543859649122806,
+      "control_precision": 0.017543859649122806,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "routing_pl_path_symbol",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.02702702702702703,
+      "control_precision": 0.02702702702702703,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "routing_pl_scoring",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.0625,
+      "control_precision": 0.0625,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "routing_pl_tight",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.16666666666666666,
+      "control_precision": 0.16666666666666666,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "routing_trace_api",
+      "family": "comprehension",
+      "category": "self",
+      "candidate_precision": 0.03508771929824561,
+      "control_precision": 0.03508771929824561,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "below_f1_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "rust_tokio_runtime",
+      "family": "comprehension",
+      "category": "external-large",
+      "candidate_precision": 0.1875,
+      "control_precision": 0.17647058823529413,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [
+        "below_precision_floor",
+        "broad_result_set"
+      ],
+      "control_failure_classes": [
+        "below_precision_floor",
+        "broad_result_set"
+      ]
+    },
+    {
+      "task_id": "sqlalchemy_sessions",
+      "family": "comprehension",
+      "category": "external-large",
+      "candidate_precision": 0.42857142857142855,
+      "control_precision": 0.42857142857142855,
+      "candidate_mrr": 1.0,
+      "control_mrr": 1.0,
+      "candidate_required_file_recall": 1.0,
+      "control_required_file_recall": 1.0,
+      "candidate_failure_classes": [],
+      "control_failure_classes": []
+    }
+  ]
+}

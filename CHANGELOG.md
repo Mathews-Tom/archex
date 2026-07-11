@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **M0.3: deterministic ranking and result-set recovery candidate.** Adds a benchmark-only `archex_query_rank_candidate` lane, built on M0.2's coverage candidate, that reorders identifier-tier-evidenced files toward the front of the candidate-admitted tail (the base query's own ranking is never displaced) and bounds the seed/neighbor admission caps when direct evidence is concentrated. Two same-revision 64-task local runs show zero required-file-recall regressions, M0.2's five-target coverage fully preserved, and measured (if modest) precision/F1 gains with zero regressions on any task. `archex_query` remains unchanged; the candidate is retained as evidence for M0.4, not promoted.
+
+
 ## [0.19.2] - 2026-07-11
 
 ### Fixed
