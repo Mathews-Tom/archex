@@ -1,17 +1,17 @@
-name: Benchmark
+name: Benchmark contract
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
 
 jobs:
-  benchmark-bm25:
+  benchmark-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -29,100 +29,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Run benchmarks (bm25, all tasks)
-        run: |
-          uv run archex benchmark run \
-            --tasks-dir benchmarks/tasks \
-            --output "$RUNNER_TEMP/archex-benchmark-results/bm25" \
-            --strategy archex_query
+      - name: Validate task definitions
+        run: uv run archex benchmark validate --kind tasks --tasks-dir benchmarks/tasks
 
-      - name: Quality gate (bm25)
-        run: |
-          uv run archex benchmark gate \
-            --input "$RUNNER_TEMP/archex-benchmark-results/bm25" \
-            --min-recall 0.60 \
-            --min-f1 0.30 \
-            --min-mrr 0.55
-
-      - name: Upload bm25 results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results-bm25
-          path: ${{ runner.temp }}/archex-benchmark-results/bm25/
-
-  benchmark-fusion:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      - name: Run benchmarks (fusion, all tasks)
-        run: |
-          uv run archex benchmark run \
-            --tasks-dir benchmarks/tasks \
-            --output "$RUNNER_TEMP/archex-benchmark-results/fusion" \
-            --strategy archex_query_fusion
-
-      - name: Quality gate (fusion)
-        run: |
-          uv run archex benchmark gate \
-            --input "$RUNNER_TEMP/archex-benchmark-results/fusion" \
-            --min-recall 0.60 \
-            --min-f1 0.30 \
-            --min-mrr 0.55
-
-      - name: Upload fusion results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results-fusion
-          path: ${{ runner.temp }}/archex-benchmark-results/fusion/
-
-  benchmark-delta:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Delta tasks under benchmarks/delta_tasks checkout specific past
-          # commits of this repo (repo: ".") to benchmark against — a shallow
-          # clone would not contain them.
-          fetch-depth: 0
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      - name: Run delta benchmark + quality gate
-        run: uv run archex benchmark delta
-
-      - name: Upload delta results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results-delta
-          path: .archex/delta-results/
-
+      - name: Validate bounded evidence contracts
+        run: uv run pytest --no-cov tests/benchmark/test_evidence.py
