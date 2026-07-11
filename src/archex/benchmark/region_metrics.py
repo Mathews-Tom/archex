@@ -22,9 +22,10 @@ from archex.benchmark.models import ExpectedRegion, RegionGranularity
 class ReturnedRegion:
     """One returned context unit, in the order the bundle ranks it.
 
-    ``start_line``/``end_line`` are 1-indexed inclusive line bounds. Returned
-    context always carries a line range because it originates from concrete code
-    chunks; ``symbol`` is the chunk's symbol name when one applies.
+    ``start_line``/``end_line`` are 1-indexed inclusive line bounds. An
+    elision anchor retains source coordinates and consumes context tokens but
+    exposes no source evidence, so it is counted as noise without earning
+    region, line, or ranking credit.
     """
 
     path: str
@@ -32,6 +33,7 @@ class ReturnedRegion:
     end_line: int
     symbol: str | None
     tokens: int
+    source_evidence: bool = True
 
 
 @dataclass(frozen=True)
@@ -229,24 +231,25 @@ def compute_region_metrics(
     if not expected_regions:
         return None
 
+    evidence_regions = [region for region in returned_regions if region.source_evidence]
     covered_weight = 0.0
     total_weight = 0.0
     for expected in expected_regions:
         total_weight += expected.weight
-        if any(_overlaps(returned, expected) for returned in returned_regions):
+        if any(_overlaps(returned, expected) for returned in evidence_regions):
             covered_weight += expected.weight
     region_recall = (covered_weight / total_weight) if total_weight > 0 else 0.0
 
     overlapping_returned = sum(
         1
-        for returned in returned_regions
+        for returned in evidence_regions
         if any(_overlaps(returned, expected) for expected in expected_regions)
     )
-    region_precision = (overlapping_returned / len(returned_regions)) if returned_regions else 0.0
+    region_precision = (overlapping_returned / len(evidence_regions)) if evidence_regions else 0.0
     region_f1 = _f1(region_precision, region_recall)
 
-    line_recall, line_precision = _line_metrics(returned_regions, expected_regions)
-    mrr, ndcg = _ranking_metrics(returned_regions, expected_regions)
+    line_recall, line_precision = _line_metrics(evidence_regions, expected_regions)
+    mrr, ndcg = _ranking_metrics(evidence_regions, expected_regions)
 
     by_path: dict[str, list[ExpectedRegion]] = {}
     for expected in expected_regions:
@@ -259,6 +262,8 @@ def compute_region_metrics(
     useful_tokens = 0
     for returned in returned_regions:
         total_tokens += returned.tokens
+        if not returned.source_evidence:
+            continue
         same_path = by_path.get(returned.path)
         if not same_path:
             continue
