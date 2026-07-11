@@ -1,0 +1,845 @@
+{
+  "comparison": {
+    "candidate_admission_differences_across_repeat": [
+      "archex_adapter_registry"
+    ],
+    "candidate_label": "candidate-11",
+    "candidate_result_file_differences_across_repeat": [
+      "archex_adapter_registry"
+    ],
+    "control_label": "control-11",
+    "control_result_file_differences_across_repeat": [
+      "archex_adapter_registry"
+    ],
+    "m02_target_task_recovery": [
+      {
+        "run11_required_file_recall": 1.0,
+        "run12_required_file_recall": 1.0,
+        "task_id": "archex_adapter_registry"
+      },
+      {
+        "run11_required_file_recall": 1.0,
+        "run12_required_file_recall": 1.0,
+        "task_id": "archex_project_status"
+      },
+      {
+        "run11_required_file_recall": 1.0,
+        "run12_required_file_recall": 1.0,
+        "task_id": "django_middleware"
+      },
+      {
+        "run11_required_file_recall": 1.0,
+        "run12_required_file_recall": 1.0,
+        "task_id": "loc_django_username_validator"
+      },
+      {
+        "run11_required_file_recall": 1.0,
+        "run12_required_file_recall": 1.0,
+        "task_id": "routing_pl_scoring"
+      }
+    ],
+    "required_file_regressions": [],
+    "rows": [
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9653392087868723,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3788.4778330335394,
+        "control_completion_adjusted_token_efficiency": 0.23531331592689297,
+        "control_missing_required_files": [
+          "src/archex/parse/adapters/python.py",
+          "src/archex/parse/adapters/base.py"
+        ],
+        "control_required_file_recall": 0.3333333333333333,
+        "control_warm_latency_or_wall_ms": 3633.842416922562,
+        "task_id": "archex_adapter_registry"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.5404522737394231,
+        "candidate_missing_required_files": [
+          "src/archex/benchmark/reporter.py"
+        ],
+        "candidate_required_file_recall": 0.8,
+        "candidate_warm_latency_or_wall_ms": 3480.9539160924032,
+        "control_completion_adjusted_token_efficiency": 0.3872351659956439,
+        "control_missing_required_files": [
+          "src/archex/benchmark/reporter.py"
+        ],
+        "control_required_file_recall": 0.8,
+        "control_warm_latency_or_wall_ms": 3308.2328750751913,
+        "task_id": "archex_benchmark_gate_lifecycle"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9291000528005955,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3498.95341694355,
+        "control_completion_adjusted_token_efficiency": 0.5669791666666666,
+        "control_missing_required_files": [
+          "src/archex/status.py"
+        ],
+        "control_required_file_recall": 0.6666666666666666,
+        "control_warm_latency_or_wall_ms": 3329.6464160084724,
+        "task_id": "archex_delta_index_lifecycle"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.955059942034077,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3349.3797500850633,
+        "control_completion_adjusted_token_efficiency": 0.8322617633809738,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3286.9941249955446,
+        "task_id": "archex_delta_indexing"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9374288704047418,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3411.9860409991816,
+        "control_completion_adjusted_token_efficiency": 0.8228851083663482,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3260.895291925408,
+        "task_id": "archex_graph_expansion"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8643615699398598,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3566.2362499861047,
+        "control_completion_adjusted_token_efficiency": 0.8555288801016805,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3315.055708051659,
+        "task_id": "archex_mcp_query_lifecycle"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9566641964852848,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3350.542875006795,
+        "control_completion_adjusted_token_efficiency": 0.7741935483870968,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3239.9197089252993,
+        "task_id": "archex_pattern_detection"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9651449667382038,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3495.8417089655995,
+        "control_completion_adjusted_token_efficiency": 0.3902504173622704,
+        "control_missing_required_files": [
+          "src/archex/models.py"
+        ],
+        "control_required_file_recall": 0.75,
+        "control_warm_latency_or_wall_ms": 3418.761832988821,
+        "task_id": "archex_project_config_resolution"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9632689446848136,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3411.0379160847515,
+        "control_completion_adjusted_token_efficiency": 0.9184578144594476,
+        "control_missing_required_files": [
+          "src/archex/cli/index_cmd.py"
+        ],
+        "control_required_file_recall": 0.8,
+        "control_warm_latency_or_wall_ms": 3299.663041019812,
+        "task_id": "archex_project_index"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9708620385628028,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3359.440458007157,
+        "control_completion_adjusted_token_efficiency": 0.38756536897152816,
+        "control_missing_required_files": [
+          "src/archex/config.py"
+        ],
+        "control_required_file_recall": 0.75,
+        "control_warm_latency_or_wall_ms": 3169.4235829636455,
+        "task_id": "archex_project_init"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9831000547627484,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3353.8370419992134,
+        "control_completion_adjusted_token_efficiency": 0.7462986198243413,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3364.017833955586,
+        "task_id": "archex_project_reset"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9740787457219042,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3491.5676249656826,
+        "control_completion_adjusted_token_efficiency": 0.5557122708039492,
+        "control_missing_required_files": [
+          "src/archex/cli/status_cmd.py",
+          "src/archex/index/delta.py"
+        ],
+        "control_required_file_recall": 0.5,
+        "control_warm_latency_or_wall_ms": 3310.8827919932082,
+        "task_id": "archex_project_status"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9350255820410106,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3494.8885838966817,
+        "control_completion_adjusted_token_efficiency": 0.23446561723280857,
+        "control_missing_required_files": [
+          "src/archex/api.py"
+        ],
+        "control_required_file_recall": 0.8,
+        "control_warm_latency_or_wall_ms": 3323.409333010204,
+        "task_id": "archex_query_cache_lifecycle"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9709373262340135,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3459.5767080318183,
+        "control_completion_adjusted_token_efficiency": 0.892680872962036,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3330.0610419828445,
+        "task_id": "archex_query_pipeline"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9114435820379219,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3378.6000830587,
+        "control_completion_adjusted_token_efficiency": 0.8082698532453941,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3274.4066250743344,
+        "task_id": "archex_scoring"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9372209519767112,
+        "candidate_missing_required_files": [
+          "src/archex/index/embeddings/base.py",
+          "src/archex/models.py"
+        ],
+        "candidate_required_file_recall": 0.6,
+        "candidate_warm_latency_or_wall_ms": 3520.261291996576,
+        "control_completion_adjusted_token_efficiency": 0.6973827010928548,
+        "control_missing_required_files": [
+          "src/archex/index/embeddings/base.py",
+          "src/archex/models.py"
+        ],
+        "control_required_file_recall": 0.6,
+        "control_warm_latency_or_wall_ms": 3362.2029579710215,
+        "task_id": "archex_vector_cache_lifecycle"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8701205966359886,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1195.2125410316512,
+        "control_completion_adjusted_token_efficiency": 0.6477113234029067,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1162.8314160043374,
+        "task_id": "celery_task_dispatch"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9066574979625102,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1139.5162499975413,
+        "control_completion_adjusted_token_efficiency": 0.645851669986566,
+        "control_missing_required_files": [
+          "src/click/types.py"
+        ],
+        "control_required_file_recall": 0.6666666666666666,
+        "control_warm_latency_or_wall_ms": 1119.2599169444293,
+        "task_id": "click_decorators"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8211745580166633,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1072.158082970418,
+        "control_completion_adjusted_token_efficiency": 0.656617489843917,
+        "control_missing_required_files": [
+          "django/core/handlers/wsgi.py"
+        ],
+        "control_required_file_recall": 0.6666666666666666,
+        "control_warm_latency_or_wall_ms": 1036.3034170586616,
+        "task_id": "django_middleware"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9319680983633796,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1678.3534589922056,
+        "control_completion_adjusted_token_efficiency": 0.914127977285872,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1569.1112499916926,
+        "task_id": "django_orm_queries"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.7905211671445438,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 979.0929580340162,
+        "control_completion_adjusted_token_efficiency": 0.5120935765265662,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 873.0568330502138,
+        "task_id": "express_error_handling"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8056586270871985,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 931.7058750893921,
+        "control_completion_adjusted_token_efficiency": 0.5473830293417923,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 870.8577500656247,
+        "task_id": "express_middleware"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9081603205052031,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1098.0746250133961,
+        "control_completion_adjusted_token_efficiency": 0.7098288621646623,
+        "control_missing_required_files": [
+          "fastapi/dependencies/utils.py"
+        ],
+        "control_required_file_recall": 0.6666666666666666,
+        "control_warm_latency_or_wall_ms": 1102.5316659361124,
+        "task_id": "fastapi_dependency_injection"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9013294242531467,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 440.905874944292,
+        "control_completion_adjusted_token_efficiency": 0.9013294242531467,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 391.0968750715256,
+        "task_id": "fastapi_routing"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.7718109577582601,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1137.5155000714585,
+        "control_completion_adjusted_token_efficiency": 0.7612049533065957,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1104.7789589501917,
+        "task_id": "flask_blueprints"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.800752688172043,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 166.82237503118813,
+        "control_completion_adjusted_token_efficiency": 0.6256413718606535,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 114.05929201282561,
+        "task_id": "gin_routing"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8152482862397592,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 136.7561660008505,
+        "control_completion_adjusted_token_efficiency": 0.7918848785090823,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 122.83191597089171,
+        "task_id": "go_gin_middleware"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.7575658868818478,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1095.1952080940828,
+        "control_completion_adjusted_token_efficiency": 0.7575658868818478,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1022.3592499969527,
+        "task_id": "httpx_pooling"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.6779881144476367,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1102.2044999990612,
+        "control_completion_adjusted_token_efficiency": 0.6779881144476367,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1079.5443749520928,
+        "task_id": "loc_celery_task_retry"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8853687927362404,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1267.985082929954,
+        "control_completion_adjusted_token_efficiency": 0.8703394546466333,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1168.06712502148,
+        "task_id": "loc_click_param_process"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8863346104725415,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1945.7081669243053,
+        "control_completion_adjusted_token_efficiency": 0.8836270034273362,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1880.6876660091802,
+        "task_id": "loc_django_queryset_filter"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.880855614973262,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1089.5173749886453,
+        "control_completion_adjusted_token_efficiency": 0.5584696823869104,
+        "control_missing_required_files": [
+          "django/contrib/auth/validators.py"
+        ],
+        "control_required_file_recall": 0.0,
+        "control_warm_latency_or_wall_ms": 1245.498750009574,
+        "task_id": "loc_django_username_validator"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.48673843748120527,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1019.5203330367804,
+        "control_completion_adjusted_token_efficiency": 0.48673843748120527,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 995.3646250069141,
+        "task_id": "loc_express_error_middleware"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8800802295619583,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1443.4203749988228,
+        "control_completion_adjusted_token_efficiency": 0.8685566180495187,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1371.8897919170558,
+        "task_id": "loc_fastapi_jsonable_encoder"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.0,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 85.55166702717543,
+        "control_completion_adjusted_token_efficiency": 0.0,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 52.84358304925263,
+        "task_id": "loc_fastapi_solve_dependencies"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8582966480640577,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1323.6497499747202,
+        "control_completion_adjusted_token_efficiency": 0.49015048763159597,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1144.523625029251,
+        "task_id": "loc_flask_blueprint_register"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8113759355210133,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1239.3844169564545,
+        "control_completion_adjusted_token_efficiency": 0.8018638967090573,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1180.4319580551237,
+        "task_id": "loc_flask_full_dispatch"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.6951164762807402,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 160.51374992821366,
+        "control_completion_adjusted_token_efficiency": 0.6951164762807402,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 117.56291694473475,
+        "task_id": "loc_gin_context_next"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.725211204979991,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 174.26312493626028,
+        "control_completion_adjusted_token_efficiency": 0.725211204979991,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 139.41733399406075,
+        "task_id": "loc_gin_tree_route"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8446607468123861,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1205.757583025843,
+        "control_completion_adjusted_token_efficiency": 0.7318546132339236,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1131.1789579922333,
+        "task_id": "loc_httpx_pool_transport"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.7523656921728089,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1319.9107089312747,
+        "control_completion_adjusted_token_efficiency": 0.7376170922622867,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1074.2922499775887,
+        "task_id": "loc_httpx_redirect_headers"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8215605059890294,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1150.7404999574646,
+        "control_completion_adjusted_token_efficiency": 0.47983921617887204,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 954.7335830284283,
+        "task_id": "loc_mini_redis_command_from_frame"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.7361996779388084,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1347.732459078543,
+        "control_completion_adjusted_token_efficiency": 0.7361996779388084,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1265.1215409860015,
+        "task_id": "loc_pydantic_validate_call"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.7273273273273273,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 287.66375000122935,
+        "control_completion_adjusted_token_efficiency": 0.7273273273273273,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 199.46725002955645,
+        "task_id": "loc_pytest_fixture_resolution"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9075693965078251,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 474.67858309391886,
+        "control_completion_adjusted_token_efficiency": 0.9075693965078251,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 425.42824998963624,
+        "task_id": "loc_react_dispatch_set_state"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.732763123530948,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1286.6817079484463,
+        "control_completion_adjusted_token_efficiency": 0.732763123530948,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1164.3359169829637,
+        "task_id": "loc_requests_adapter_send"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8144592806447732,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1190.9034579293802,
+        "control_completion_adjusted_token_efficiency": 0.6516115463483885,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 999.5569579768926,
+        "task_id": "loc_requests_redirect_auth"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9606720800580075,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3326.1308330111206,
+        "control_completion_adjusted_token_efficiency": 0.955159876946024,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 2868.4887499548495,
+        "task_id": "loc_sqlalchemy_session_merge"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.0,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 86.11095894593745,
+        "control_completion_adjusted_token_efficiency": 0.0,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 48.64620906300843,
+        "task_id": "loc_tokio_current_thread_block_on"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8249188402552334,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1043.8960419269279,
+        "control_completion_adjusted_token_efficiency": 0.6392228611256316,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 931.0539170401171,
+        "task_id": "mini_redis_async"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8474232180439925,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1284.5580000430346,
+        "control_completion_adjusted_token_efficiency": 0.7861138357943851,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1141.4006659761071,
+        "task_id": "pydantic_validators"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9103657803944455,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 314.8451669840142,
+        "control_completion_adjusted_token_efficiency": 0.8973835480673935,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 246.6222089715302,
+        "task_id": "pytest_fixtures"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9220301907614693,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 508.196167065762,
+        "control_completion_adjusted_token_efficiency": 0.9212429040932179,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 417.1809999970719,
+        "task_id": "react_hooks"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.7283265794193848,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1103.5696250619367,
+        "control_completion_adjusted_token_efficiency": 0.6337503923942778,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 1009.7087919712067,
+        "task_id": "requests_sessions"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8397227552179191,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 4417.950625065714,
+        "control_completion_adjusted_token_efficiency": 0.5294638340920587,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3564.447042066604,
+        "task_id": "routing_mixed_cache"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8335602658158392,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 4011.2421250669286,
+        "control_completion_adjusted_token_efficiency": 0.8239279108778872,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3407.7655419241637,
+        "task_id": "routing_mixed_chunker"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9684001401430096,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3861.719458946027,
+        "control_completion_adjusted_token_efficiency": 0.8270534576981551,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3244.154875050299,
+        "task_id": "routing_pl_intent"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9594748767372469,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3713.2683329982683,
+        "control_completion_adjusted_token_efficiency": 0.46762152777777777,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3502.436582930386,
+        "task_id": "routing_pl_large"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9536218756192147,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3587.097292067483,
+        "control_completion_adjusted_token_efficiency": 0.8910615133369625,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3272.805667016655,
+        "task_id": "routing_pl_path_symbol"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9523790139682022,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3764.121957938187,
+        "control_completion_adjusted_token_efficiency": 0.7906890778229576,
+        "control_missing_required_files": [
+          "src/archex/index/bm25.py"
+        ],
+        "control_required_file_recall": 0.5,
+        "control_warm_latency_or_wall_ms": 3285.7791249407455,
+        "task_id": "routing_pl_scoring"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9502446386407342,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 3635.049332980998,
+        "control_completion_adjusted_token_efficiency": 0.9452603110209601,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3293.6928750714287,
+        "task_id": "routing_pl_tight"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9680252890540441,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 4193.6295829946175,
+        "control_completion_adjusted_token_efficiency": 0.9086580182906477,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 3542.274749954231,
+        "task_id": "routing_trace_api"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.8386055285496626,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 1062.9841670161113,
+        "control_completion_adjusted_token_efficiency": 0.7409274193548387,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 922.0560409594327,
+        "task_id": "rust_tokio_runtime"
+      },
+      {
+        "candidate_completion_adjusted_token_efficiency": 0.9361775089822226,
+        "candidate_missing_required_files": [],
+        "candidate_required_file_recall": 1.0,
+        "candidate_warm_latency_or_wall_ms": 651.8070000456646,
+        "control_completion_adjusted_token_efficiency": 0.9361775089822226,
+        "control_missing_required_files": [],
+        "control_required_file_recall": 1.0,
+        "control_warm_latency_or_wall_ms": 574.6994169894606,
+        "task_id": "sqlalchemy_sessions"
+      }
+    ]
+  },
+  "milestone": "M0.2",
+  "runs": [
+    {
+      "label": "control-11",
+      "manifest_sha256": "1d0b32874a053c761b7640c4d4db6ede287bfb9749e6ab53516c8766889bfadf",
+      "source_revision": "92e7c04581a8cf56836d414af59007d7ba816f48",
+      "strategy": "archex_query",
+      "summary": {
+        "all_required_present": 50,
+        "mean_completion_adjusted_token_efficiency": 0.6880199733623116,
+        "mean_required_file_recall": 0.9140625,
+        "tasks": 64,
+        "warmed_p95_ms": 3502.436582930386
+      },
+      "task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09"
+    },
+    {
+      "label": "candidate-11",
+      "manifest_sha256": "85cb935d0db578a9047a15cbc1dfe56d148424a827735cc4634b4a9beec0a05c",
+      "source_revision": "92e7c04581a8cf56836d414af59007d7ba816f48",
+      "strategy": "archex_query_coverage_candidate",
+      "summary": {
+        "all_required_present": 62,
+        "mean_completion_adjusted_token_efficiency": 0.8337293252042924,
+        "mean_required_file_recall": 0.9906250000000001,
+        "tasks": 64,
+        "warmed_p95_ms": 3861.719458946027
+      },
+      "task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09"
+    },
+    {
+      "label": "control-12",
+      "manifest_sha256": "b912e9462da0189c2a1fb02275789b00d730b65374d4455feae118e2ea2976e1",
+      "source_revision": "92e7c04581a8cf56836d414af59007d7ba816f48",
+      "strategy": "archex_query",
+      "summary": {
+        "all_required_present": 50,
+        "mean_completion_adjusted_token_efficiency": 0.6882315666599679,
+        "mean_required_file_recall": 0.9140625,
+        "tasks": 64,
+        "warmed_p95_ms": 3508.1456660991535
+      },
+      "task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09"
+    },
+    {
+      "label": "candidate-12",
+      "manifest_sha256": "c048c11360c163d320e8667b7708c40e96d66c231b3f1b931a4d7ec1c80eb653",
+      "source_revision": "92e7c04581a8cf56836d414af59007d7ba816f48",
+      "strategy": "archex_query_coverage_candidate",
+      "summary": {
+        "all_required_present": 62,
+        "mean_completion_adjusted_token_efficiency": 0.8337885867167832,
+        "mean_required_file_recall": 0.9906250000000001,
+        "tasks": 64,
+        "warmed_p95_ms": 3788.7150830356404
+      },
+      "task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09"
+    }
+  ],
+  "schema_version": 1
+}
