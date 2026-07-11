@@ -37,6 +37,7 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_SUMMARY_SIDECAR = "archex_query_summary_sidecar"
     ARCHEX_QUERY_GRAPH_MULTIHOP = "archex_query_graph_multihop"
     ARCHEX_QUERY_COVERAGE_CANDIDATE = "archex_query_coverage_candidate"
+    ARCHEX_QUERY_RANK_CANDIDATE = "archex_query_rank_candidate"
     ARCHEX_QUERY_CONDITIONAL_RERANK = "archex_query_conditional_rerank"
     ARCHEX_QUERY_SYMBOLIC_RERANK = "archex_query_symbolic_rerank"
     ARCHEX_QUERY_DIVERSITY_PACKED = "archex_query_diversity_packed"
