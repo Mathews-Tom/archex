@@ -484,6 +484,165 @@ class TestGateCommand:
         assert result.exit_code == 0
         assert "Quality gate passed." in result.output
 
+    def test_promotion_gate_hard_checks_only_candidate_and_protects_evidence(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        control = BenchmarkResult(
+            task_id="test",
+            strategy=Strategy.ARCHEX_QUERY,
+            tokens_total=1000,
+            tool_calls=1,
+            files_accessed=3,
+            recall=1.0,
+            precision=0.1,
+            f1_score=0.18,
+            mrr=0.1,
+            savings_vs_raw=0.0,
+            token_efficiency=0.01,
+            token_efficiency_with_completion=0.01,
+            required_file_recall=1.0,
+            region_recall=1.0,
+            line_recall=1.0,
+            wall_time_ms=100.0,
+            cached=True,
+            cache_state="warm",
+            timestamp="2025-01-01T00:00:00Z",
+        )
+        candidate = control.model_copy(
+            update={
+                "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+                "precision": 1.0,
+                "f1_score": 1.0,
+                "mrr": 1.0,
+                "token_efficiency": 0.5,
+                "token_efficiency_with_completion": 0.5,
+                "warm_latency_ms": 100.0,
+            }
+        )
+        report = BenchmarkReport(
+            task_id="test",
+            repo="owner/repo",
+            question="How?",
+            results=[control, candidate],
+            baseline_tokens=1000,
+        )
+        _patch_gate_evidence(monkeypatch, [report])
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "gate",
+                "--input",
+                str(results_dir),
+                "--promotion-strategy",
+                Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value,
+                "--control-strategy",
+                Strategy.ARCHEX_QUERY.value,
+                "--min-token-efficiency-with-completion",
+                "0.08",
+                "--max-p95-warm-latency-ms",
+                "3000",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Quality gate passed." in result.output
+
+    def test_promotion_gate_fails_protected_region_regression(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        control = BenchmarkResult(
+            task_id="test",
+            strategy=Strategy.ARCHEX_QUERY,
+            tokens_total=1000,
+            tool_calls=1,
+            files_accessed=1,
+            recall=1.0,
+            precision=1.0,
+            f1_score=1.0,
+            mrr=1.0,
+            savings_vs_raw=0.0,
+            token_efficiency=0.5,
+            token_efficiency_with_completion=0.5,
+            required_file_recall=1.0,
+            region_recall=1.0,
+            line_recall=1.0,
+            wall_time_ms=100.0,
+            cached=True,
+            cache_state="warm",
+            timestamp="2025-01-01T00:00:00Z",
+        )
+        candidate = control.model_copy(
+            update={
+                "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+                "region_recall": 0.5,
+                "warm_latency_ms": 100.0,
+            }
+        )
+        report = BenchmarkReport(
+            task_id="test",
+            repo="owner/repo",
+            question="How?",
+            results=[control, candidate],
+            baseline_tokens=1000,
+        )
+        _patch_gate_evidence(monkeypatch, [report])
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "gate",
+                "--input",
+                str(results_dir),
+                "--promotion-strategy",
+                Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value,
+                "--control-strategy",
+                Strategy.ARCHEX_QUERY.value,
+                "--min-token-efficiency-with-completion",
+                "0.08",
+                "--max-p95-warm-latency-ms",
+                "3000",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "region_recall" in result.output
+
+    def test_promotion_gate_rejects_gate_exempt_candidate(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        report = BenchmarkReport.model_validate_json((results_dir / "test.json").read_bytes())
+        _patch_gate_evidence(monkeypatch, [report])
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "gate",
+                "--input",
+                str(results_dir),
+                "--promotion-strategy",
+                Strategy.RAW_FILES.value,
+                "--control-strategy",
+                Strategy.ARCHEX_QUERY.value,
+                "--min-token-efficiency-with-completion",
+                "0.08",
+                "--max-p95-warm-latency-ms",
+                "3000",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "gate-exempt" in result.output
+
     def test_max_latency_ms_hard_fails_on_breach(
         self,
         runner: CliRunner,

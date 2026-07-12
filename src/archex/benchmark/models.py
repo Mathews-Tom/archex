@@ -293,6 +293,9 @@ class BenchmarkRetrievalOptions(BaseModel):
     rerank_model: str | None = None
     allow_remote_code: bool = False
     freshness: bool = False
+    # Discard one cache-populating execution per indexed strategy before timing.
+    # This is an explicit local-operator measurement mode, not product behavior.
+    warm_cache: bool = False
     chunker: ChunkerName = "default"
     bm25_chunker: ChunkerName | None = None
     vector_chunker: ChunkerName | None = None

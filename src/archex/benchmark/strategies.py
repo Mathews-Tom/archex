@@ -1008,7 +1008,7 @@ def benchmark_index_config(
 
 def benchmark_cache_enabled(default: bool) -> bool:
     options = current_benchmark_retrieval_options()
-    return default or options.splade or options.module_prefilter
+    return default or options.warm_cache or options.splade or options.module_prefilter
 
 
 def benchmark_repo_source(
@@ -1233,6 +1233,7 @@ def _assemble_query_result(
         "map_score": compute_map(ranked_files, task.expected_files),
         "savings_vs_raw": 0.0,
         "wall_time_ms": wall_ms,
+        "warm_latency_ms": wall_ms if timing.cached else 0.0,
         "cached": timing.cached,
         "timing": timing,
         "timestamp": now_iso(),

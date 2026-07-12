@@ -13,6 +13,7 @@ from archex.benchmark.baseline import (
 from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runtime
     BenchmarkReport,
     DeltaBenchmarkResult,
+    Strategy,
 )
 
 # Tier 2.5 product-default `archex_query` minimum higher-is-better token
@@ -279,6 +280,108 @@ def check_recall_regressions(
                         actual=result.token_efficiency_with_completion,
                     )
                 )
+    return violations
+
+
+def check_strategy_non_regressions(
+    reports: list[BenchmarkReport],
+    *,
+    candidate_strategy: Strategy,
+    control_strategy: Strategy,
+) -> list[BaselineGateViolation]:
+    """Compare one candidate against its same-run control on protected evidence."""
+    violations: list[BaselineGateViolation] = []
+    for report in reports:
+        results_by_strategy = {result.strategy: result for result in report.results}
+        control = results_by_strategy.get(control_strategy)
+        candidate = results_by_strategy.get(candidate_strategy)
+        if control is None:
+            violations.append(
+                BaselineGateViolation(
+                    task_id=report.task_id,
+                    strategy=candidate_strategy.value,
+                    metric="control_missing",
+                    baseline=1.0,
+                    actual=0.0,
+                )
+            )
+            continue
+        if candidate is None:
+            violations.append(
+                BaselineGateViolation(
+                    task_id=report.task_id,
+                    strategy=candidate_strategy.value,
+                    metric="candidate_missing",
+                    baseline=1.0,
+                    actual=0.0,
+                )
+            )
+            continue
+        for metric in ("required_file_recall", "region_recall", "line_recall"):
+            control_value = getattr(control, metric)
+            candidate_value = getattr(candidate, metric)
+            if control_value is None:
+                continue
+            actual = 0.0 if candidate_value is None else candidate_value
+            if actual < control_value:
+                violations.append(
+                    BaselineGateViolation(
+                        task_id=report.task_id,
+                        strategy=candidate_strategy.value,
+                        metric=metric,
+                        baseline=control_value,
+                        actual=actual,
+                    )
+                )
+    return violations
+
+
+def check_warm_p95_latency(
+    reports: list[BenchmarkReport],
+    *,
+    strategy: Strategy,
+    max_p95_warm_latency_ms: float | None,
+) -> list[GateViolation]:
+    """Require measured warm samples and enforce their aggregate p95 when configured."""
+    violations: list[GateViolation] = []
+    warm_samples: list[float] = []
+    for report in reports:
+        result = next((item for item in report.results if item.strategy is strategy), None)
+        if result is None:
+            violations.append(
+                GateViolation(
+                    task_id=report.task_id,
+                    strategy=strategy.value,
+                    metric="candidate_missing",
+                    threshold=1.0,
+                    actual=0.0,
+                )
+            )
+            continue
+        if not result.cached or result.cache_state != "warm" or result.warm_latency_ms <= 0.0:
+            violations.append(
+                GateViolation(
+                    task_id=report.task_id,
+                    strategy=strategy.value,
+                    metric="warm_latency_unmeasured",
+                    threshold=1.0,
+                    actual=0.0,
+                )
+            )
+            continue
+        warm_samples.append(result.warm_latency_ms)
+    if max_p95_warm_latency_ms is not None and warm_samples:
+        p95 = float(np.percentile(warm_samples, 95))
+        if p95 > max_p95_warm_latency_ms:
+            violations.append(
+                GateViolation(
+                    task_id="aggregate",
+                    strategy=strategy.value,
+                    metric="warm_p95_latency_ms",
+                    threshold=max_p95_warm_latency_ms,
+                    actual=p95,
+                )
+            )
     return violations
 
 
