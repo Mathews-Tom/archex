@@ -36,5 +36,30 @@
       "rationale": "The prior issue statement evaluated validator classes without using the identifying validator concept."
     }
   ],
+  "calibrated_candidate_run": {
+    "source_revision": "56bf07a97aea07a5ee6980e5cf6a8416475f748d",
+    "manifest_sha256": "39c886239d20116449fab68745a8ce5e06d9b4585f6619bdc89cdcbc69161877",
+    "strategy": "archex_query_context_candidate",
+    "task_count": 64,
+    "warm_samples": 64,
+    "warm_p95_ms": 727.041
+  },
+  "calibrated_candidate_verdict": {
+    "verdict": "NO-GO",
+    "total_violations": 122,
+    "absolute_failures": {
+      "recall": 1,
+      "precision": 39,
+      "f1_score": 36,
+      "mrr": 17,
+      "token_efficiency": 2,
+      "token_efficiency_with_completion": 2
+    },
+    "protected_evidence_regressions": {
+      "region_recall": 10,
+      "line_recall": 15
+    },
+    "reason": "The calibrated task wording restored query-to-label specificity but the existing context candidate still broadens file sets and regresses labeled evidence."
+  },
   "runtime_boundary": "This artifact is evaluation-only. No benchmark task labels, expected files, expected symbols, or expected regions are available to production or candidate retrieval code."
 }

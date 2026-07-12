@@ -40,6 +40,16 @@ def test_task_contract_calibration_binds_the_reviewed_current_corpus() -> None:
         "loc_django_username_validator",
     }
     assert "evaluation-only" in payload["runtime_boundary"]
+    assert payload["calibrated_candidate_run"] == {
+        "source_revision": "56bf07a97aea07a5ee6980e5cf6a8416475f748d",
+        "manifest_sha256": "39c886239d20116449fab68745a8ce5e06d9b4585f6619bdc89cdcbc69161877",
+        "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value,
+        "task_count": 64,
+        "warm_samples": 64,
+        "warm_p95_ms": 727.041,
+    }
+    assert payload["calibrated_candidate_verdict"]["verdict"] == "NO-GO"
+    assert payload["calibrated_candidate_verdict"]["total_violations"] == 122
 
 
 def test_calibrated_tasks_name_their_distinguishing_runtime_evidence() -> None:

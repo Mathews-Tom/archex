@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 
 from archex.benchmark.coverage import read_required_file_coverage
-from archex.benchmark.evidence import task_manifest_digest
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy
+
+_M02_TASK_MANIFEST_DIGEST = "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09"
 
 
 def _result(task_id: str, strategy: Strategy) -> BenchmarkResult:
@@ -87,7 +88,7 @@ def test_control_coverage_artifact_characterizes_five_reproducible_misses() -> N
     payload = json.loads(artifact.read_text(encoding="utf-8"))
 
     assert payload["strategy"] == Strategy.ARCHEX_QUERY.value
-    assert payload["task_manifest_digest"] == task_manifest_digest(root / "benchmarks" / "tasks")
+    assert payload["task_manifest_digest"] == _M02_TASK_MANIFEST_DIGEST
     observations = {entry["task_id"]: entry for entry in payload["tasks"]}
     assert set(observations) == {
         "archex_adapter_registry",
