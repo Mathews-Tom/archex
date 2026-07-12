@@ -10,6 +10,8 @@ from archex.benchmark.gate import (
     check_gate,
     check_ranking_stability,
     check_recall_regressions,
+    check_strategy_non_regressions,
+    check_warm_p95_latency,
     non_token_quality_warnings,
     token_efficiency_violations,
 )
@@ -203,6 +205,84 @@ def test_baseline_gate_reports_missing_baseline_result() -> None:
     violations = check_recall_regressions(current, baseline)
 
     assert [(v.strategy, v.metric) for v in violations] == [("archex_query", "baseline_missing")]
+
+
+def test_strategy_non_regressions_flag_required_file_region_and_line_declines() -> None:
+    control = _make_report()
+    control_result = control.results[0].model_copy(
+        update={
+            "strategy": Strategy.ARCHEX_QUERY,
+            "required_file_recall": 1.0,
+            "region_recall": 1.0,
+            "line_recall": 1.0,
+        }
+    )
+    candidate_result = control_result.model_copy(
+        update={
+            "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+            "required_file_recall": 0.5,
+            "region_recall": 0.5,
+            "line_recall": 0.5,
+        }
+    )
+    reports = [control.model_copy(update={"results": [control_result, candidate_result]})]
+
+    violations = check_strategy_non_regressions(
+        reports,
+        candidate_strategy=Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+        control_strategy=Strategy.ARCHEX_QUERY,
+    )
+
+    assert [(violation.strategy, violation.metric) for violation in violations] == [
+        ("archex_query_context_candidate", "required_file_recall"),
+        ("archex_query_context_candidate", "region_recall"),
+        ("archex_query_context_candidate", "line_recall"),
+    ]
+
+
+def test_warm_p95_gate_rejects_unmeasured_candidate_rows() -> None:
+    report = _make_report()
+    candidate = report.results[0].model_copy(
+        update={
+            "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+            "cached": False,
+            "cache_state": "cold",
+            "warm_latency_ms": 0.0,
+        }
+    )
+
+    violations = check_warm_p95_latency(
+        [report.model_copy(update={"results": [candidate]})],
+        strategy=Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+        max_p95_warm_latency_ms=3000.0,
+    )
+
+    assert [(violation.strategy, violation.metric) for violation in violations] == [
+        ("archex_query_context_candidate", "warm_latency_unmeasured")
+    ]
+
+
+def test_warm_p95_gate_rejects_numeric_p95_breach() -> None:
+    report = _make_report()
+    candidate = report.results[0].model_copy(
+        update={
+            "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+            "cached": True,
+            "cache_state": "warm",
+            "warm_latency_ms": 3500.0,
+        }
+    )
+
+    violations = check_warm_p95_latency(
+        [report.model_copy(update={"results": [candidate]})],
+        strategy=Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+        max_p95_warm_latency_ms=3000.0,
+    )
+
+    assert [
+        (violation.task_id, violation.metric, violation.threshold, violation.actual)
+        for violation in violations
+    ] == [("aggregate", "warm_p95_latency_ms", 3000.0, 3500.0)]
 
 
 def test_absolute_gate_separates_token_failures_from_quality_warnings() -> None:

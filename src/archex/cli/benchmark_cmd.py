@@ -45,6 +45,8 @@ from archex.benchmark.gate import (
     check_latency_violations,
     check_latency_warnings,
     check_recall_regressions,
+    check_strategy_non_regressions,
+    check_warm_p95_latency,
     non_token_quality_warnings,
     token_efficiency_violations,
 )
@@ -101,6 +103,22 @@ if TYPE_CHECKING:
 
 DEFAULT_BENCHMARK_RESULTS_DIR = ".archex/benchmark-results"
 DEFAULT_DELTA_RESULTS_DIR = ".archex/delta-results"
+
+
+def _select_strategy_reports(
+    reports: list[BenchmarkReport],
+    strategy: Strategy,
+) -> list[BenchmarkReport]:
+    """Return one result per report for a gate's named subject strategy."""
+    selected_reports: list[BenchmarkReport] = []
+    for report in reports:
+        selected = [result for result in report.results if result.strategy is strategy]
+        if len(selected) != 1:
+            raise click.ClickException(
+                f"Expected exactly one {strategy.value} result for task {report.task_id!r}"
+            )
+        selected_reports.append(report.model_copy(update={"results": selected}))
+    return selected_reports
 
 
 @click.group("benchmark")
@@ -209,6 +227,12 @@ def benchmark_cmd() -> None:
     help="Cap candidates scored by the cross-encoder reranker.",
 )
 @click.option(
+    "--warm-cache",
+    is_flag=True,
+    default=False,
+    help="Discard a cache-populating run per indexed strategy before timing results.",
+)
+@click.option(
     "--self-only",
     is_flag=True,
     default=False,
@@ -238,6 +262,7 @@ def run_cmd(
     vector_chunker: ChunkerName | None,
     rerank_model: str | None,
     rerank_candidate_limit: int | None,
+    warm_cache: bool,
     self_only: bool,
     no_progress: bool,
 ) -> None:
@@ -269,6 +294,7 @@ def run_cmd(
         bm25_chunker=bm25_chunker,
         vector_chunker=vector_chunker,
         rerank_candidate_limit=rerank_candidate_limit,
+        warm_cache=warm_cache,
     )
     try:
         warmed_models = warm_benchmark_models(strategies, retrieval_options)
@@ -905,6 +931,30 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
         "Distinct from --warn-latency-ms, which only prints a warning. Disabled by default."
     ),
 )
+@click.option(
+    "--promotion-strategy",
+    default=None,
+    type=click.Choice([strategy.value for strategy in Strategy]),
+    help="Candidate strategy subject to strict all-row promotion checks.",
+)
+@click.option(
+    "--control-strategy",
+    default=None,
+    type=click.Choice([strategy.value for strategy in Strategy]),
+    help="Same-run control strategy for required-file, region, and line non-regression.",
+)
+@click.option(
+    "--min-token-efficiency-with-completion",
+    default=None,
+    type=float,
+    help="Required completion-adjusted token-efficiency floor for a promotion gate.",
+)
+@click.option(
+    "--max-p95-warm-latency-ms",
+    default=None,
+    type=float,
+    help="Hard maximum aggregate p95 for measured warm candidate latency in ms.",
+)
 def gate_cmd(
     input_dir: str,
     tasks_dir: str,
@@ -915,6 +965,10 @@ def gate_cmd(
     baseline_dir: str | None,
     warn_latency_ms: float,
     max_latency_ms: float | None,
+    promotion_strategy: str | None,
+    control_strategy: str | None,
+    min_token_efficiency_with_completion: float | None,
+    max_p95_warm_latency_ms: float | None,
 ) -> None:
     """Check benchmark results against quality thresholds."""
     try:
@@ -930,9 +984,69 @@ def gate_cmd(
         min_precision=min_precision,
         min_f1=min_f1,
         min_mrr=min_mrr,
+        min_token_efficiency_with_completion=(
+            0.0
+            if min_token_efficiency_with_completion is None
+            else min_token_efficiency_with_completion
+        ),
+        product_default_strategy=(
+            promotion_strategy
+            if promotion_strategy is not None
+            else QualityThresholds().product_default_strategy
+        ),
         warn_latency_ms=warn_latency_ms,
         max_latency_ms=max_latency_ms,
     )
+    if promotion_strategy is not None:
+        if control_strategy is None:
+            raise click.ClickException("--promotion-strategy requires --control-strategy")
+        if baseline_dir is not None:
+            raise click.ClickException("--promotion-strategy cannot be combined with --baseline")
+        if min_token_efficiency_with_completion is None:
+            raise click.ClickException(
+                "--promotion-strategy requires --min-token-efficiency-with-completion"
+            )
+        if max_p95_warm_latency_ms is None:
+            raise click.ClickException("--promotion-strategy requires --max-p95-warm-latency-ms")
+        promotion = Strategy(promotion_strategy)
+        if promotion.value in thresholds.gate_exempt_strategies:
+            raise click.ClickException(
+                f"--promotion-strategy {promotion.value!r} is gate-exempt and cannot be promoted"
+            )
+        control = Strategy(control_strategy)
+        if promotion is control:
+            raise click.ClickException("--promotion-strategy and --control-strategy must differ")
+        candidate_reports = _select_strategy_reports(reports, promotion)
+        absolute_violations = check_gate(candidate_reports, thresholds)
+        warm_latency_violations = check_warm_p95_latency(
+            reports,
+            strategy=promotion,
+            max_p95_warm_latency_ms=max_p95_warm_latency_ms,
+        )
+        protected_evidence_regressions = check_strategy_non_regressions(
+            reports,
+            candidate_strategy=promotion,
+            control_strategy=control,
+        )
+        violations = [*absolute_violations, *warm_latency_violations]
+        if violations or protected_evidence_regressions:
+            click.echo(
+                "PROMOTION GATE FAILED: "
+                f"{len(violations) + len(protected_evidence_regressions)} violation(s)"
+            )
+            for violation in violations:
+                click.echo(
+                    f"  {violation.task_id}/{violation.strategy} {violation.metric}: "
+                    f"{violation.actual:.3f} < {violation.threshold:.3f}"
+                )
+            for regression in protected_evidence_regressions:
+                click.echo(
+                    f"  {regression.task_id}/{regression.strategy} {regression.metric}: "
+                    f"{regression.actual:.3f} < control {regression.baseline:.3f}"
+                )
+            raise SystemExit(1)
+        click.echo("Quality gate passed.")
+        return
 
     latency_warnings: list[LatencyWarning] = check_latency_warnings(reports, thresholds)
     if latency_warnings:

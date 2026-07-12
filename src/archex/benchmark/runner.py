@@ -74,6 +74,13 @@ _VECTOR_STRATEGIES: frozenset[Strategy] = frozenset(
     }
 )
 
+_CACHE_WARMABLE_STRATEGIES: frozenset[Strategy] = frozenset(Strategy) - {
+    Strategy.RAW_FILES,
+    Strategy.RAW_GREPPED,
+    Strategy.RAW_RIPGREP,
+    Strategy.EXTERNAL_MCP,
+}
+
 
 def _check_vector_available() -> bool:
     """Check if vector embedding dependencies are available (fastembed or sentence-transformers)."""
@@ -260,6 +267,17 @@ def run_benchmark(
                 )
         if progress is not None:
             progress.finish_warmup(strategies)
+        if retrieval_options.warm_cache:
+            for strategy in strategies:
+                if strategy not in _CACHE_WARMABLE_STRATEGIES:
+                    continue
+                runner = default_strategy_registry.get(strategy)
+                if runner is None:
+                    continue
+                try:
+                    runner(task, repo_path)
+                except (NotImplementedError, ArchexIndexError) as exc:
+                    logger.info("Skipping warmup for %s: %s", strategy.value, exc)
 
         results: list[BenchmarkResult] = []
         for strategy in strategies:

@@ -8,7 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
-from archex.benchmark.models import BenchmarkRetrievalOptions, BenchmarkTask, Strategy
+from archex.benchmark.models import (
+    BenchmarkResult,
+    BenchmarkRetrievalOptions,
+    BenchmarkTask,
+    Strategy,
+)
 from archex.benchmark.runner import AVAILABLE_STRATEGIES, DEFAULT_STRATEGIES, run_benchmark
 
 if TYPE_CHECKING:
@@ -174,6 +179,70 @@ class TestRunBenchmark:
         )
         assert len(report.results) == 1
         assert report.results[0].strategy == Strategy.RAW_FILES
+
+    def test_warm_cache_primes_indexed_strategies_before_measurement(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        task, repo_path = fixture_task
+        from archex.benchmark.strategies import default_strategy_registry
+
+        calls: list[Strategy] = []
+
+        def run_candidate(_task: BenchmarkTask, _repo_path: Path) -> BenchmarkResult:
+            calls.append(Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE)
+            return BenchmarkResult(
+                task_id=task.task_id,
+                strategy=Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+                tokens_total=100,
+                tool_calls=1,
+                files_accessed=1,
+                recall=1.0,
+                precision=1.0,
+                savings_vs_raw=0.0,
+                wall_time_ms=10.0,
+                cached=True,
+                cache_state="warm",
+                timestamp="2026-01-01T00:00:00Z",
+            )
+
+        monkeypatch.setitem(
+            default_strategy_registry._runners,  # pyright: ignore[reportPrivateUsage]
+            Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value,
+            run_candidate,
+        )
+
+        run_benchmark(
+            task,
+            strategies=[Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE],
+            repo_path=repo_path,
+            retrieval_options=BenchmarkRetrievalOptions(warm_cache=True),
+        )
+
+        assert calls == [
+            Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+            Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+        ]
+
+    @REQUIRES_RG
+    def test_warm_cache_records_measured_warm_candidate_latency(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+    ) -> None:
+        task, repo_path = fixture_task
+
+        report = run_benchmark(
+            task,
+            strategies=[Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE],
+            repo_path=repo_path,
+            retrieval_options=BenchmarkRetrievalOptions(warm_cache=True),
+        )
+
+        candidate = report.results[0]
+        assert candidate.cached is True
+        assert candidate.cache_state == "warm"
+        assert candidate.warm_latency_ms > 0.0
 
     def test_warms_vector_index_when_vector_strategy_present(
         self,
