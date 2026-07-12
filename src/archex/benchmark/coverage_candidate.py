@@ -139,8 +139,9 @@ def coverage_neighbor_decisions(
     existing_files: set[str],
     direct_decisions: list[CoverageSeedDecision],
     limit: int,
+    require_direct_evidence: bool = False,
 ) -> list[CoverageSeedDecision]:
-    """Rank bounded direct graph neighbors using extracted edges and seed evidence."""
+    """Rank bounded graph neighbors, optionally requiring direct query evidence."""
     if limit < 1:
         return []
 
@@ -158,6 +159,8 @@ def coverage_neighbor_decisions(
             if file_path in seed_files or file_path in existing_files or _is_test_path(file_path):
                 continue
             direct = direct_by_file.get(file_path)
+            if require_direct_evidence and direct is None:
+                continue
             direct_evidence = direct.evidence if direct is not None else ()
             decision = CoverageSeedDecision(
                 file=file_path,
