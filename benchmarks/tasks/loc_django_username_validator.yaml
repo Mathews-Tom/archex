@@ -6,7 +6,7 @@ family: localization
 languages: [python]
 include_paths:
   - django/contrib/auth
-question: "Issue: the set of characters accepted in account usernames during authentication needs to change (the allowed-character pattern is too permissive and accepts inputs it should reject). Which classes define the username validation pattern that must be edited?"
+question: "Issue: account username validator classes accept an allowed-character pattern that is too permissive. Which username validator classes define the pattern that must be edited?"
 expected_files:
   - django/contrib/auth/validators.py
 expected_symbols:

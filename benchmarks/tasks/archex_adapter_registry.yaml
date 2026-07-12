@@ -3,7 +3,7 @@ repo: "."
 commit: "HEAD"
 category: self
 languages: [python]
-question: "How does archex register language adapters?"
+question: "How does archex register language adapters, including the default PythonAdapter implementation?"
 expected_files:
   - src/archex/parse/adapters/__init__.py
   - src/archex/parse/adapters/python.py

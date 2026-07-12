@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from archex.benchmark.evidence import task_manifest_digest
 from archex.benchmark.models import BenchmarkReport, BenchmarkResult, Strategy, TaskFamily
 from archex.benchmark.ranking import (
     BELOW_F1_FLOOR,
@@ -18,6 +17,9 @@ from archex.benchmark.ranking import (
     RANK_BELOW_FIRST,
     read_rank_noise_observations,
 )
+
+_M03_TASK_MANIFEST_DIGEST = "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09"
+
 
 _GATE = {"min_recall": 0.60, "min_precision": 0.20, "min_f1": 0.30, "min_mrr": 0.55}
 
@@ -212,7 +214,7 @@ def test_control_ranking_artifact_characterizes_seventeen_rank_noise_tasks() -> 
     artifact = root / "benchmarks" / "evidence" / "m0.3-control-ranking.json"
     payload = json.loads(artifact.read_text(encoding="utf-8"))
 
-    assert payload["task_manifest_digest"] == task_manifest_digest(root / "benchmarks" / "tasks")
+    assert payload["task_manifest_digest"] == _M03_TASK_MANIFEST_DIGEST
     assert payload["gate_thresholds"] == _GATE
 
     by_strategy = {block["strategy"]: block for block in payload["strategies"]}

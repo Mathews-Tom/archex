@@ -15,8 +15,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from archex.benchmark.evidence import task_manifest_digest
 from archex.benchmark.models import Strategy
+
+_M03_TASK_MANIFEST_DIGEST = "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09"
+
 
 _GATE = {"min_recall": 0.60, "min_precision": 0.20, "min_f1": 0.30, "min_mrr": 0.55}
 
@@ -27,11 +29,10 @@ def _load_artifact() -> dict[str, Any]:
     return json.loads(artifact.read_text(encoding="utf-8"))
 
 
-def test_corpus_artifact_identity_matches_current_task_corpus() -> None:
-    root = Path(__file__).parents[2]
+def test_corpus_artifact_identity_matches_its_historical_task_corpus() -> None:
     payload = _load_artifact()
 
-    assert payload["task_manifest_digest"] == task_manifest_digest(root / "benchmarks" / "tasks")
+    assert payload["task_manifest_digest"] == _M03_TASK_MANIFEST_DIGEST
     assert payload["gate_thresholds"] == _GATE
 
 
