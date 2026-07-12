@@ -11,22 +11,56 @@ from pathlib import Path
 from typing import Any
 
 from archex.benchmark.evidence import task_manifest_digest
+from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import Strategy
+from archex.serve.context import generic_query_terms
 
 ROOT = Path(__file__).parents[2]
 ARTIFACT = ROOT / "benchmarks" / "evidence" / "m0.4-context-candidate-run1.json"
+CALIBRATION_ARTIFACT = ROOT / "benchmarks" / "evidence" / "m0.4-task-contract-calibration.json"
+FROZEN_TASK_MANIFEST_DIGEST = "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09"
 
 
 def _load_artifact() -> dict[str, Any]:
     return json.loads(ARTIFACT.read_text(encoding="utf-8"))
 
 
-def test_context_candidate_evidence_has_current_corpus_identity() -> None:
+def test_task_contract_calibration_binds_the_reviewed_current_corpus() -> None:
+    payload = json.loads(CALIBRATION_ARTIFACT.read_text(encoding="utf-8"))
+
+    assert payload["schema_version"] == 1
+    assert payload["milestone"] == "M0.4"
+    assert payload["decision"] == "evaluation-only task contract calibration"
+    assert payload["prior_task_manifest_digest"] == FROZEN_TASK_MANIFEST_DIGEST
+    assert payload["task_manifest_digest"] == task_manifest_digest(ROOT / "benchmarks" / "tasks")
+    assert {change["task_id"] for change in payload["changes"]} == {
+        "archex_adapter_registry",
+        "archex_project_status",
+        "django_middleware",
+        "loc_django_username_validator",
+    }
+    assert "evaluation-only" in payload["runtime_boundary"]
+
+
+def test_calibrated_tasks_name_their_distinguishing_runtime_evidence() -> None:
+    tasks = {task.task_id: task for task in load_tasks(ROOT / "benchmarks" / "tasks")}
+    required_terms = {
+        "archex_adapter_registry": {"pythonadapter"},
+        "archex_project_status": {"status", "command", "signature"},
+        "django_middleware": {"basehandler", "wsgi", "commonmiddleware"},
+        "loc_django_username_validator": {"validator"},
+    }
+
+    for task_id, expected_terms in required_terms.items():
+        assert expected_terms <= set(generic_query_terms(tasks[task_id].question))
+
+
+def test_context_candidate_evidence_has_immutable_corpus_identity() -> None:
     payload = _load_artifact()
 
     assert payload["schema_version"] == 1
     assert payload["milestone"] == "M0.4"
-    assert payload["task_manifest_digest"] == task_manifest_digest(ROOT / "benchmarks" / "tasks")
+    assert payload["task_manifest_digest"] == FROZEN_TASK_MANIFEST_DIGEST
     assert payload["candidate_run"]["strategy"] == Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value
     assert payload["candidate_run"]["task_count"] == 64
     assert len(payload["candidate_run"]["manifest_sha256"]) == 64

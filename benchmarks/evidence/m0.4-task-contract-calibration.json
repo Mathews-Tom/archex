@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "milestone": "M0.4",
+  "decision": "evaluation-only task contract calibration",
+  "authorization": "User-approved 2026-07-12 after intrinsic query-to-label ambiguity review; labels remain inaccessible to runtime retrieval.",
+  "source_revision": "68310cb857de5387471b2b2cfbc0aefea57ceefc",
+  "prior_task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09",
+  "task_manifest_digest": "c9b6eb53901a572372131cb0d748af5ba487686ee6604f9baa40bcea09ae5721",
+  "changes": [
+    {
+      "task_id": "archex_adapter_registry",
+      "field": "question",
+      "before": "How does archex register language adapters?",
+      "after": "How does archex register language adapters, including the default PythonAdapter implementation?",
+      "rationale": "The expected PythonAdapter region was not distinguishable from the peer language adapters in the prior question."
+    },
+    {
+      "task_id": "archex_project_status",
+      "field": "question",
+      "before": "How does archex inspect whether a repo-local index is fresh, stale, dirty, or corrupt?",
+      "after": "How does archex inspect repo-local index state, compute its working-tree signature, and render the status command for fresh, stale, dirty, or corrupt results?",
+      "rationale": "The prior question did not name the status command or working-tree signature despite evaluating their symbols."
+    },
+    {
+      "task_id": "django_middleware",
+      "field": "question",
+      "before": "How does Django implement the middleware chain for request/response processing?",
+      "after": "How do Django's BaseHandler, WSGI entrypoint, and CommonMiddleware implement the request/response middleware chain?",
+      "rationale": "The expected WSGI and CommonMiddleware files were not distinguished from the broader middleware family."
+    },
+    {
+      "task_id": "loc_django_username_validator",
+      "field": "question",
+      "before": "Issue: the set of characters accepted in account usernames during authentication needs to change (the allowed-character pattern is too permissive and accepts inputs it should reject). Which classes define the username validation pattern that must be edited?",
+      "after": "Issue: account username validator classes accept an allowed-character pattern that is too permissive. Which username validator classes define the pattern that must be edited?",
+      "rationale": "The prior issue statement evaluated validator classes without using the identifying validator concept."
+    }
+  ],
+  "runtime_boundary": "This artifact is evaluation-only. No benchmark task labels, expected files, expected symbols, or expected regions are available to production or candidate retrieval code."
+}

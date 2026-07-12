@@ -14,7 +14,7 @@ include_paths:
   - django/utils/deprecation.py
   - django/utils/log.py
   - django/utils/module_loading.py
-question: "How does Django implement the middleware chain for request/response processing?"
+question: "How do Django's BaseHandler, WSGI entrypoint, and CommonMiddleware implement the request/response middleware chain?"
 expected_files:
   - django/core/handlers/base.py
   - django/core/handlers/wsgi.py
