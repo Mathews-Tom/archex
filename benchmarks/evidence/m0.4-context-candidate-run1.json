@@ -2,13 +2,13 @@
   "schema_version": 1,
   "milestone": "M0.4",
   "verdict": "NO-GO",
-  "source_revision": "f16464c46beb3bba249432db735ce065756490df",
+  "source_revision": "9f423fb60d62481e5cc22f5d5a4fb42cbf95d736",
   "task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09",
   "candidate_run": {
     "strategy": "archex_query_context_candidate",
-    "manifest_sha256": "147fdced3a7f943053a7bb458ffa718417dcbd0bb56f2d355194a98e67c4d35b",
+    "manifest_sha256": "0ecdb1dd372c30c64992979d32f6e0a7a44c4a08289cd56964d581145b671598",
     "task_count": 64,
-    "generated_at": "2026-07-12T00:23:09.144533+00:00"
+    "generated_at": "2026-07-12T00:42:23.239543+00:00"
   },
   "thresholds": {
     "min_recall": 0.6,
@@ -20,11 +20,11 @@
   },
   "aggregate": {
     "mean_recall": 0.990625,
-    "mean_precision": 0.2287966393215691,
-    "mean_f1": 0.33703256462555786,
+    "mean_precision": 0.22881621952207035,
+    "mean_f1": 0.33706671763102236,
     "mean_mrr": 0.8344587053571428,
-    "mean_token_efficiency_with_completion": 0.8626107765862725,
-    "wall_p95_ms": 3897.7411249998113
+    "mean_token_efficiency_with_completion": 0.8626072769046107,
+    "wall_p95_ms": 3812.877666001441
   },
   "absolute_gate_failures": {
     "recall": [],
