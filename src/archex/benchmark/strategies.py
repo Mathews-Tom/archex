@@ -1104,17 +1104,39 @@ def measure_archex_freshness(task: BenchmarkTask, repo_path: Path) -> tuple[floa
 
 
 def _bundle_returned_regions(bundle: ContextBundle) -> list[ReturnedRegion]:
-    """Build ranked returned regions from a context bundle, preserving order."""
-    return [
-        ReturnedRegion(
-            path=ranked.chunk.file_path,
-            start_line=ranked.chunk.start_line,
-            end_line=ranked.chunk.end_line,
-            symbol=ranked.chunk.symbol_name,
-            tokens=count_tokens(ranked.chunk.content),
+    """Build ranked content-bearing regions from a context bundle.
+
+    A structural-elision anchor retains a handle for later fetches but no longer
+    exposes its source lines. It must not receive region or line-recall credit;
+    doing so would turn an elision regression into a false pass.
+    """
+    from archex.scout import chunk_handle
+
+    receipt_items = (
+        {item.handle: item for item in bundle.receipt.returned_context}
+        if bundle.receipt is not None
+        else {}
+    )
+    returned: list[ReturnedRegion] = []
+    for ranked in bundle.chunks:
+        chunk = ranked.chunk
+        item = receipt_items.get(chunk_handle(chunk.id))
+        is_elided = (
+            item is not None
+            and item.compression is not None
+            and item.compression.compression_mode is CompressionMode.STRUCTURAL_CODE_ELISION
         )
-        for ranked in bundle.chunks
-    ]
+        returned.append(
+            ReturnedRegion(
+                path=chunk.file_path,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                symbol=chunk.symbol_name,
+                tokens=count_tokens(chunk.content),
+                source_evidence=not is_elided,
+            )
+        )
+    return returned
 
 
 def _region_result_fields(

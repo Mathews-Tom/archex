@@ -12,8 +12,25 @@ from pathlib import Path
 import pytest
 
 from archex.benchmark.loader import load_task, load_tasks, validate_task
-from archex.benchmark.models import RegionGranularity, TaskFamily
-from archex.benchmark.strategies import run_archex_query
+from archex.benchmark.models import ExpectedRegion, RegionGranularity, TaskFamily
+from archex.benchmark.region_metrics import compute_region_metrics
+from archex.benchmark.strategies import (
+    _bundle_returned_regions,  # pyright: ignore[reportPrivateUsage]
+    run_archex_query,
+)
+from archex.models import (
+    CodeChunk,
+    CompressionLossRisk,
+    CompressionMetadata,
+    CompressionMode,
+    ContextBundle,
+    ContextReceipt,
+    ContextReceiptItem,
+    ContextReceiptTokenBudget,
+    RankedChunk,
+    RetrievalMetadata,
+)
+from archex.scout import chunk_handle
 
 REGION_TASKS_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "region_tasks"
 REAL_TASKS_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "tasks"
@@ -79,6 +96,68 @@ def test_region_fixture_task_computes_region_metrics(python_simple_repo: Path) -
     assert result.useful_tokens is not None
     assert result.wasted_tokens is not None
     assert result.relevance_per_1k_tokens is not None
+
+
+def test_elided_anchor_does_not_count_as_returned_region_evidence() -> None:
+    """An anchor preserves fetch provenance, but not region/line evidence."""
+    chunk = CodeChunk(
+        id="elided",
+        content="... [archex packed: 50-token region elided; fetch original: handle] ...",
+        file_path="src/service.py",
+        start_line=10,
+        end_line=20,
+        language="python",
+        symbol_name="process",
+    )
+    handle = chunk_handle(chunk.id)
+    bundle = ContextBundle(
+        query="where is process implemented?",
+        chunks=[RankedChunk(chunk=chunk, final_score=1.0)],
+        token_count=12,
+        token_budget=128,
+        retrieval_metadata=RetrievalMetadata(),
+        receipt=ContextReceipt(
+            query="where is process implemented?",
+            token_budget=ContextReceiptTokenBudget(requested=128, consumed=12),
+            index_revision="test",
+            returned_context=[
+                ContextReceiptItem(
+                    handle=handle,
+                    file_path=chunk.file_path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    content_hash="test",
+                    compression=CompressionMetadata(
+                        compression_mode=CompressionMode.STRUCTURAL_CODE_ELISION,
+                        original_tokens=50,
+                        compressed_tokens=12,
+                        compression_ratio=0.24,
+                        original_content_hash="original",
+                        compressed_content_hash="elided",
+                        fetch_original_handle=handle,
+                        compression_loss_risk=CompressionLossRisk.MEDIUM,
+                    ),
+                )
+            ],
+        ),
+    )
+    expected = [
+        ExpectedRegion(
+            path=chunk.file_path,
+            granularity=RegionGranularity.LINE_RANGE,
+            start_line=10,
+            end_line=20,
+        )
+    ]
+
+    metrics = compute_region_metrics(_bundle_returned_regions(bundle), expected)
+
+    assert metrics is not None
+    assert metrics.region_recall == 0.0
+    assert metrics.line_recall == 0.0
+    assert metrics.useful_tokens == 0
+    assert metrics.wasted_tokens > 0
+    assert metrics.context_noise_ratio == 1.0
 
 
 def test_external_localization_tasks_declare_valid_region_labels() -> None:
