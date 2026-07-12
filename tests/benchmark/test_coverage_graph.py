@@ -52,6 +52,28 @@ def test_neighbor_admission_requires_confident_graph_evidence() -> None:
     assert "symbol:validateinvoice" in decision.evidence
 
 
+def test_neighbor_admission_can_require_direct_query_evidence() -> None:
+    decisions = coverage_neighbor_decisions(
+        [
+            GraphEdge("entry.py", "validation.py", 0.9),
+            GraphEdge("entry.py", "boundary.py", 0.9),
+        ],
+        seed_files={"entry.py"},
+        existing_files=set(),
+        direct_decisions=[
+            CoverageSeedDecision(
+                file="validation.py",
+                score=8,
+                evidence=("symbol:validateinvoice",),
+            )
+        ],
+        limit=3,
+        require_direct_evidence=True,
+    )
+
+    assert [decision.file for decision in decisions] == ["validation.py"]
+
+
 def test_neighbor_admission_is_bounded_and_deterministic() -> None:
     edges = [
         GraphEdge("entry.py", "b.py", 0.9),

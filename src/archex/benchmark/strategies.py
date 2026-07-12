@@ -3319,8 +3319,13 @@ def _rank_candidate_bundle(
     repo_path: Path,
     *,
     strategy: Strategy,
+    restrict_neighbor_admission: bool = False,
 ) -> tuple[ContextBundle, IndexConfig, PipelineTiming, dict[str, str]]:
-    """Compose M0.2 admission and M0.3 tail ranking without packing."""
+    """Compose M0.2 admission and M0.3 tail ranking without packing.
+
+    The M0.4 context candidate restricts graph expansion to files that also
+    carry direct query evidence; M0.2/M0.3 retain their broad graph policy.
+    """
     from archex.api import index_repository
     from archex.index.graph import DependencyGraph
     from archex.models import Config
@@ -3364,6 +3369,7 @@ def _rank_candidate_bundle(
             existing_files={ranked.chunk.file_path for ranked in seed_admission.bundle.chunks},
             direct_decisions=direct_decisions,
             limit=neighbor_cap,
+            require_direct_evidence=restrict_neighbor_admission,
         )
         neighbor_admission = _apply_coverage_seed_admission(
             seed_admission.bundle,
@@ -3386,6 +3392,7 @@ def _rank_candidate_bundle(
         or "none",
         "candidate_neighbor_cap": str(neighbor_cap),
         "candidate_neighbor_cap_bounded": str(neighbor_cap < _COVERAGE_NEIGHBOR_CAP),
+        "candidate_neighbor_requires_direct_evidence": str(restrict_neighbor_admission),
         "candidate_neighbor_admitted": ",".join(
             decision.file for decision in neighbor_admission.admitted
         )
@@ -3448,6 +3455,7 @@ def run_archex_query_context_candidate(
         task,
         repo_path,
         strategy=strategy,
+        restrict_neighbor_admission=True,
     )
     packing = _pack_context_candidate_bundle(bundle, question=task.question)
     result = _assemble_query_result(
