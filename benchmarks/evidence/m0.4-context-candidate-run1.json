@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "milestone": "M0.4",
+  "verdict": "NO-GO",
+  "source_revision": "f16464c46beb3bba249432db735ce065756490df",
+  "task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09",
+  "candidate_run": {
+    "strategy": "archex_query_context_candidate",
+    "manifest_sha256": "147fdced3a7f943053a7bb458ffa718417dcbd0bb56f2d355194a98e67c4d35b",
+    "task_count": 64,
+    "generated_at": "2026-07-12T00:23:09.144533+00:00"
+  },
+  "thresholds": {
+    "min_recall": 0.6,
+    "min_precision": 0.2,
+    "min_f1": 0.3,
+    "min_mrr": 0.55,
+    "min_token_efficiency": 0.08,
+    "max_wall_p95_ms": 3000.0
+  },
+  "aggregate": {
+    "mean_recall": 0.990625,
+    "mean_precision": 0.2287966393215691,
+    "mean_f1": 0.33703256462555786,
+    "mean_mrr": 0.8344587053571428,
+    "mean_token_efficiency_with_completion": 0.8626107765862725,
+    "wall_p95_ms": 3897.7411249998113
+  },
+  "absolute_gate_failures": {
+    "recall": [],
+    "precision": ["archex_adapter_registry", "archex_delta_index_lifecycle", "archex_delta_indexing", "archex_graph_expansion", "archex_pattern_detection", "archex_project_config_resolution", "archex_project_index", "archex_project_init", "archex_project_reset", "archex_project_status", "archex_query_pipeline", "archex_vector_cache_lifecycle", "celery_task_dispatch", "click_decorators", "django_middleware", "loc_celery_task_retry", "loc_click_param_process", "loc_django_queryset_filter", "loc_django_username_validator", "loc_fastapi_jsonable_encoder", "loc_flask_blueprint_register", "loc_flask_full_dispatch", "loc_httpx_pool_transport", "loc_httpx_redirect_headers", "loc_mini_redis_command_from_frame", "loc_requests_adapter_send", "loc_requests_redirect_auth", "loc_sqlalchemy_session_merge", "mini_redis_async", "routing_mixed_cache", "routing_mixed_chunker", "routing_pl_intent", "routing_pl_large", "routing_pl_path_symbol", "routing_pl_scoring", "routing_pl_tight", "routing_trace_api", "rust_tokio_runtime"],
+    "f1": ["archex_adapter_registry", "archex_delta_index_lifecycle", "archex_delta_indexing", "archex_graph_expansion", "archex_pattern_detection", "archex_project_config_resolution", "archex_project_index", "archex_project_init", "archex_project_reset", "archex_project_status", "archex_query_pipeline", "archex_vector_cache_lifecycle", "celery_task_dispatch", "django_middleware", "loc_celery_task_retry", "loc_click_param_process", "loc_django_queryset_filter", "loc_django_username_validator", "loc_fastapi_jsonable_encoder", "loc_flask_blueprint_register", "loc_flask_full_dispatch", "loc_httpx_pool_transport", "loc_httpx_redirect_headers", "loc_mini_redis_command_from_frame", "loc_requests_adapter_send", "loc_requests_redirect_auth", "loc_sqlalchemy_session_merge", "routing_mixed_cache", "routing_mixed_chunker", "routing_pl_intent", "routing_pl_large", "routing_pl_path_symbol", "routing_pl_scoring", "routing_pl_tight", "routing_trace_api"],
+    "mrr": ["celery_task_dispatch", "django_middleware", "express_error_handling", "fastapi_routing", "loc_click_param_process", "loc_django_username_validator", "loc_express_error_middleware", "loc_fastapi_jsonable_encoder", "loc_fastapi_solve_dependencies", "loc_httpx_pool_transport", "loc_mini_redis_command_from_frame", "loc_requests_adapter_send", "loc_requests_redirect_auth", "loc_sqlalchemy_session_merge", "react_hooks", "routing_mixed_chunker"],
+    "token_efficiency": ["loc_fastapi_solve_dependencies", "loc_tokio_current_thread_block_on"]
+  },
+  "context_economy_failures": {
+    "zero_token_efficiency_tasks": ["loc_fastapi_solve_dependencies", "loc_tokio_current_thread_block_on"],
+    "wall_p95_exceeded": true
+  },
+  "recall_regressions_vs_archex_query": {
+    "required_file_recall": [],
+    "region_recall": ["archex_project_init", "archex_project_status", "archex_query_pipeline", "archex_vector_cache_lifecycle", "django_orm_queries", "loc_click_param_process", "loc_flask_blueprint_register", "loc_httpx_pool_transport", "loc_mini_redis_command_from_frame", "loc_sqlalchemy_session_merge", "pydantic_validators", "requests_sessions"],
+    "line_recall": ["archex_adapter_registry", "archex_delta_indexing", "archex_graph_expansion", "archex_project_init", "archex_project_status", "archex_query_pipeline", "archex_vector_cache_lifecycle", "click_decorators", "django_middleware", "django_orm_queries", "flask_blueprints", "loc_click_param_process", "loc_fastapi_jsonable_encoder", "loc_flask_blueprint_register", "loc_httpx_pool_transport", "loc_mini_redis_command_from_frame", "loc_sqlalchemy_session_merge", "pydantic_validators", "requests_sessions"]
+  },
+  "promotion": {
+    "default_changed": false,
+    "canonical_baseline_changed": false,
+    "m1_unblocked": false,
+    "reason": "Candidate failed absolute, region, line, context-economy, and wall-latency gates on the first immutable full-corpus run; a second promotion run is forbidden."
+  }
+}
