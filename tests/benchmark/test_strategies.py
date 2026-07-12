@@ -687,6 +687,25 @@ class TestRunArchexQuery:
             f"test/repo@resolved#embedder={JINA_V2_CACHE_IDENTITY}+chunker=default"
         )
 
+    def test_benchmark_source_resolves_literal_head_from_git_head(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        task = BenchmarkTask(
+            task_id="test",
+            repo="test/repo",
+            commit="HEAD",
+            question="How?",
+            expected_files=["main.py"],
+        )
+
+        with patch.object(CacheManager, "git_head", return_value="resolved"):
+            source = benchmark_repo_source(task, tmp_path)
+
+        assert source.stable_identity == (
+            f"test/repo@resolved#embedder={JINA_V2_CACHE_IDENTITY}+chunker=default"
+        )
+
     def test_benchmark_source_rejects_missing_commit_without_git_head(
         self,
         tmp_path: Path,

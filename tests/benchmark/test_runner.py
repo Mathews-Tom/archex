@@ -475,8 +475,10 @@ class TestRunBenchmark:
             f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
         )
         source = benchmark_repo_source(task, repo_path)
+        assert source.stable_identity is not None
+        base_identity = source.stable_identity.split("#", maxsplit=1)[0]
         assert source.stable_identity == (
-            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=default"
+            f"{base_identity}#embedder={jina_identity}+chunker=default"
         )
 
         token = set_benchmark_retrieval_options(BenchmarkRetrievalOptions(splade=True))
@@ -486,7 +488,7 @@ class TestRunBenchmark:
             reset_benchmark_retrieval_options(token)
 
         assert splade_source.stable_identity == (
-            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=default+splade"
+            f"{base_identity}#embedder={jina_identity}+chunker=default+splade"
         )
 
         coderank_token = set_benchmark_retrieval_options(
@@ -511,14 +513,14 @@ class TestRunBenchmark:
             reset_benchmark_retrieval_options(scoped_token)
 
         assert scoped_source.stable_identity == (
-            f"test/python_simple@HEAD#scope=src|tests+embedder={jina_identity}+chunker=default"
+            f"{base_identity}#scope=src|tests+embedder={jina_identity}+chunker=default"
         )
         assert cast_source.stable_identity == (
-            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=cast"
+            f"{base_identity}#embedder={jina_identity}+chunker=cast"
         )
 
         assert coderank_source.stable_identity == (
-            "test/python_simple@HEAD#embedder=coderank+chunker=default"
+            f"{base_identity}#embedder=coderank+chunker=default"
         )
 
         split_token = set_benchmark_retrieval_options(
@@ -539,10 +541,10 @@ class TestRunBenchmark:
             reset_benchmark_retrieval_options(split_token)
 
         assert split_bm25_source.stable_identity == (
-            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=default"
+            f"{base_identity}#embedder={jina_identity}+chunker=default"
         )
         assert split_vector_source.stable_identity == (
-            f"test/python_simple@HEAD#embedder={jina_identity}+chunker=cast"
+            f"{base_identity}#embedder={jina_identity}+chunker=cast"
         )
 
     def test_benchmark_index_config_applies_module_prefilter_only_with_bm25(self) -> None:
