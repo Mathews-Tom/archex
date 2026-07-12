@@ -1016,7 +1016,14 @@ def benchmark_repo_source(
     repo_path: Path,
     strategy: Strategy | None = None,
 ) -> RepoSource:
-    commit = task.commit or CacheManager.git_head(str(repo_path))
+    # A task declares ``HEAD`` as a moving local ref. Resolve it before putting it
+    # in ``stable_identity``; treating the literal as a cache key reuses a prior
+    # revision's index after every self-repository commit.
+    commit = (
+        CacheManager.git_head(str(repo_path))
+        if task.commit == "HEAD"
+        else task.commit or CacheManager.git_head(str(repo_path))
+    )
     if not commit:
         raise ConfigError(
             f"Benchmark task {task.task_id!r} has no commit and {repo_path} has no git HEAD"
