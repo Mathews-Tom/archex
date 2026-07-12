@@ -9,8 +9,10 @@ from archex.benchmark.models import BenchmarkTask, Strategy
 from archex.benchmark.runner import AVAILABLE_STRATEGIES, DEFAULT_STRATEGIES
 from archex.benchmark.strategies import (
     _pack_bundle,  # pyright: ignore[reportPrivateUsage]
+    _pack_context_candidate_bundle,  # pyright: ignore[reportPrivateUsage]
     default_strategy_registry,
     run_archex_query,
+    run_archex_query_context_candidate,
     run_archex_query_efficiency_packed,
 )
 from archex.models import (
@@ -59,6 +61,14 @@ class TestStrategyRegistry:
         # Discoverable as a benchmark lane, but never part of the product default.
         assert Strategy.ARCHEX_QUERY_EFFICIENCY_PACKED in AVAILABLE_STRATEGIES
         assert Strategy.ARCHEX_QUERY_EFFICIENCY_PACKED not in DEFAULT_STRATEGIES
+
+    def test_context_candidate_is_available_but_not_default(self) -> None:
+        assert (
+            default_strategy_registry.get(Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE)
+            is run_archex_query_context_candidate
+        )
+        assert Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE in AVAILABLE_STRATEGIES
+        assert Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE not in DEFAULT_STRATEGIES
 
 
 class TestProductPathIndependence:
@@ -207,6 +217,27 @@ class TestPackBundle:
         # _pack_bundle works on a deep copy; the input bundle is untouched.
         assert bundle.chunks[1].chunk.content == original_wf
 
+    def test_existing_packer_keeps_high_score_expansion_compressible(self) -> None:
+        seed = _ranked("seed", file_path="main.py", score=0.1, body_lines=4)
+        expanded = _ranked(
+            "expanded",
+            file_path="svc.py",
+            score=1.0,
+            body_lines=60,
+            whole_file=True,
+        )
+        bundle = _packing_bundle(
+            [seed, expanded],
+            token_budget=4096,
+            seed_files=["main.py"],
+            expanded_files=["svc.py"],
+        )
+
+        packing = _pack_bundle(bundle, question="how does the service layer work")
+
+        assert packing.provenance["compress_count"] == "1"
+        assert packing.provenance["direct_match_count"] == "1"
+
     def test_packed_tokens_stay_within_budget(self) -> None:
         seed = _ranked("seed", file_path="main.py", score=1.0, body_lines=6)
         far = _ranked("far", file_path="util.py", score=0.1, body_lines=120)
@@ -217,3 +248,41 @@ class TestPackBundle:
         packing = _pack_bundle(bundle, question="how does main start up")
         # Optional context is dropped/anchored so the packed bundle fits the budget.
         assert packing.bundle.token_count <= budget
+
+    def test_context_candidate_preserves_receipt_backed_direct_and_graph_evidence(self) -> None:
+        direct = _ranked("direct", file_path="target.py", score=0.2, body_lines=40)
+        graph = _ranked("graph", file_path="dependency.py", score=0.1, body_lines=40)
+        optional = _ranked("optional", file_path="tail.py", score=1.0, body_lines=120)
+        bundle = _packing_bundle(
+            [direct, graph, optional],
+            token_budget=4096,
+            seed_files=[],
+            expanded_files=[],
+        )
+        assert bundle.receipt is not None
+        items = {item.handle: item for item in bundle.receipt.returned_context}
+        items[chunk_handle("direct")].reason_codes = ["coverage_seed:identifier:Target"]
+        items[chunk_handle("graph")].reason_codes = ["coverage_neighbor:graph_import:target.py"]
+
+        packing = _pack_context_candidate_bundle(
+            bundle,
+            question="Where is Target implemented?",
+        )
+
+        packed = {ranked.chunk.id: ranked.chunk for ranked in packing.bundle.chunks}
+        assert packed["direct"].content == direct.chunk.content
+        assert packed["graph"].content == graph.chunk.content
+        receipt = packing.bundle.receipt
+        assert receipt is not None
+        packed_items = {item.handle: item for item in receipt.returned_context}
+        assert "packing:include" in packed_items[chunk_handle("direct")].reason_codes
+        assert (
+            "packing_protection:direct_evidence"
+            in packed_items[chunk_handle("direct")].reason_codes
+        )
+        assert (
+            "packing_protection:required_graph_context"
+            in packed_items[chunk_handle("graph")].reason_codes
+        )
+        assert packing.provenance["protected_direct_evidence_count"] == "1"
+        assert packing.provenance["protected_graph_context_count"] == "1"
