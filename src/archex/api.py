@@ -994,28 +994,40 @@ def _file_path_boost(
     max_boost_chunks: int = 30,
     max_chunks_per_file: int = 3,
 ) -> list[tuple[CodeChunk, float]]:
-    """Find chunks whose file_path contains query terms as exact substrings.
+    """Find chunks whose file path matches query terms or explicit locations."""
+    import re
 
-    Terms are searched longest-first (from _extract_path_terms) so specific terms
-    like "validators" get priority over generic ones like "pydantic". Boost score
-    is max BM25 multiplied by _path_match_multiplier: 0.85 for stem/basename
-    matches, 0.70 for path segment matches, and 0.45 for substring matches.
-    Per-file caps prevent one matching directory from flooding file-level aggregation.
-    """
     terms = _extract_path_terms(question)
+    explicit_paths = {
+        path.lower()
+        for path in re.findall(
+            r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.[A-Za-z0-9]+",
+            question,
+        )
+    }
     boosted: list[tuple[CodeChunk, float]] = []
     seen: set[str] = set(existing_ids)
     boosted_by_file: dict[str, int] = {}
+    for path in sorted(explicit_paths, key=len, reverse=True):
+        for chunk in store.search_chunks_by_path_keyword(path, limit=max_chunks_per_file):
+            if chunk.file_path.lower() != path:
+                continue
+            # An explicit source location is user-supplied direct evidence. Keep
+            # its score even when BM25 already returned the same chunk.
+            boosted.append((chunk, max_bm25_score * 5.0))
+            seen.add(chunk.id)
+            boosted_by_file[chunk.file_path] = boosted_by_file.get(chunk.file_path, 0) + 1
 
     for term in terms:
         for chunk in store.search_chunks_by_path_keyword(term, limit=20):
             if boosted_by_file.get(chunk.file_path, 0) >= max_chunks_per_file:
                 continue
-            if chunk.id not in seen:
-                seen.add(chunk.id)
-                boost_score = max_bm25_score * _path_match_multiplier(chunk.file_path, term)
-                boosted.append((chunk, boost_score))
-                boosted_by_file[chunk.file_path] = boosted_by_file.get(chunk.file_path, 0) + 1
+            if chunk.id in seen:
+                continue
+            seen.add(chunk.id)
+            boost_score = max_bm25_score * _path_match_multiplier(chunk.file_path, term)
+            boosted.append((chunk, boost_score))
+            boosted_by_file[chunk.file_path] = boosted_by_file.get(chunk.file_path, 0) + 1
             if len(boosted) >= max_boost_chunks:
                 return boosted
 
@@ -1036,10 +1048,10 @@ def _symbol_search_seeds(
 
     Differentiates between two confidence levels:
     - Exact symbol_name match (case-insensitive equality): high-confidence seed,
-      boosted at 0.60× max BM25.  Handles queries like "dependency injection"
+      boosted at 0.60× max BM25. Handles queries like "dependency injection"
       finding symbols literally named "depend" or "inject".
     - Partial / qualified-name match: low-confidence seed, boosted at 0.15×
-      max BM25.  Gets the file into seed_files for import expansion without
+      max BM25. Gets the file into seed_files for import expansion without
       competing directly for top file slots.
 
     File_path-only matches from FTS5 are discarded as noise.
@@ -1779,8 +1791,9 @@ def query(
     if index_config is None:
         index_config = load_index_config(source)
     _bootstrap_plugins()
-    from archex.serve.intent import token_budget_for_query
+    from archex.serve.intent import QueryIntent, classify_intent, token_budget_for_query
 
+    query_intent = classify_intent(question)
     intent_budget = None if explicit_token_budget else token_budget_for_query(question)
 
     t0 = time.perf_counter()
@@ -1848,8 +1861,12 @@ def query(
                     intent_budget,
                 )
 
-                # Passthrough: entire repo fits within budget
-                if effective_budget >= total_repo_tokens:
+                # A debugging question needs ranked evidence, not a whole-repository
+                # dump, even when that repository happens to fit the budget.
+                if (
+                    effective_budget >= total_repo_tokens
+                    and query_intent is not QueryIntent.DEBUGGING
+                ):
                     cached_chunks = store.get_chunks()
                     pt = passthrough_context(cached_chunks, question, effective_budget)
                     if timing is not None:

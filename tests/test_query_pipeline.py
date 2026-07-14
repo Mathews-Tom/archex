@@ -115,6 +115,22 @@ class TestQueryPipelineEndToEnd:
         assert timing.search_ms is not None or timing.strategy == "passthrough"
         assert len(bundle.chunks) > 0
 
+    def test_debugging_query_does_not_passthrough_small_repository(
+        self, python_simple_repo: Path
+    ) -> None:
+        source = RepoSource(local_path=str(python_simple_repo))
+        timing = PipelineTiming()
+
+        bundle = query(
+            source,
+            "Bug report: authentication rejects a valid user. Where is validation performed?",
+            config=Config(cache=True),
+            timing=timing,
+        )
+
+        assert timing.strategy != "passthrough"
+        assert bundle.retrieval_metadata.strategy != "passthrough"
+
     def test_query_with_custom_weights(self, python_simple_repo: Path) -> None:
         source = RepoSource(local_path=str(python_simple_repo))
         config = Config(cache=False)

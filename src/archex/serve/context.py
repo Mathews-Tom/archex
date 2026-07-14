@@ -533,6 +533,9 @@ def _path_alignment_boost(file_path: str, query_terms: set[str]) -> float:
         part for token in stem.replace("-", "_").split("_") for part in _split_compound_token(token)
     )
     path_terms = {term.lower() for term in path_terms if len(term) >= 3}
+    normalized_stem_variants = {normalized_stem, *_singular_query_variants(normalized_stem)}
+    if normalized_stem_variants & query_terms:
+        return 3.0
     if stem.lower() in query_terms or normalized_stem in query_terms:
         return 3.0
     matched_terms = path_terms & query_terms
@@ -1097,7 +1100,9 @@ def assemble_context(
             cli_terms.add("api")
         alignment_terms = q_terms & cli_terms or q_terms
     else:
-        alignment_terms = {term for term in q_terms if term not in _ARCH_KEYWORDS} or q_terms
+        # Architectural vocabulary is still direct lexical/path evidence. Excluding
+        # it hides exact implementation files such as ``adapters.py``.
+        alignment_terms = q_terms
 
     # Determine whether this is an architecture query (enables 2-hop expansion)
     is_arch_query = _is_architecture_query(question)
@@ -1496,6 +1501,8 @@ def assemble_context(
     )
     top_files: set[str] = set()
     adaptive_max = _adaptive_max_files(sorted_files)
+    if intent == QueryIntent.DEBUGGING:
+        adaptive_max = min(adaptive_max, 5)
     if intent == QueryIntent.CLI or q_terms & {
         "graph",
         "dependency",

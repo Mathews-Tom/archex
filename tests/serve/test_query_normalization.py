@@ -290,6 +290,27 @@ def test_file_path_boost_caps_chunks_per_file() -> None:
         store.close()
 
 
+def test_file_path_boost_promotes_explicit_source_location() -> None:
+    from archex.api import _file_path_boost
+
+    chunk = _chunk(
+        file_path="src/archex/cache.py",
+        name="cache_key",
+        qualified_name="cache_key",
+    )
+    store = _make_store([chunk])
+    try:
+        boosted = _file_path_boost(
+            store,
+            'Traceback: File "src/archex/cache.py", line 60',
+            existing_ids={chunk.id},
+            max_bm25_score=10.0,
+        )
+        assert boosted == [(chunk, 50.0)]
+    finally:
+        store.close()
+
+
 def test_exact_symbol_match_gets_high_boost() -> None:
     """Exact symbol_name equality → 0.60× max_bm25_score boost.
 

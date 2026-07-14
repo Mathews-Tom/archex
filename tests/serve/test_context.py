@@ -1472,6 +1472,12 @@ def test_path_alignment_matches_query_term_in_filename() -> None:
     )
 
 
+def test_path_alignment_matches_singular_query_to_plural_filename() -> None:
+    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
+
+    assert _path_alignment_boost("src/requests/adapters.py", {"adapter"}) == 3.0
+
+
 def test_query_terms_expand_query_pipeline_to_bm25_context_signals() -> None:
     from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
 
