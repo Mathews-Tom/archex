@@ -992,7 +992,7 @@ def gate_cmd(
 ) -> None:
     """Check benchmark results against quality thresholds."""
     try:
-        current_manifest, reports = load_evidence_reports(
+        _, reports = load_evidence_reports(
             Path(input_dir),
             Path(tasks_dir),
         )
