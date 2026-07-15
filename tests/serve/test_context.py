@@ -211,6 +211,25 @@ def test_packing_covers_selected_files_before_extra_chunks() -> None:
     assert bundle.token_count <= 460
 
 
+def test_packing_orders_files_by_aggregate_score() -> None:
+    graph = DependencyGraph()
+    graph.add_file_node("aggregate.py")
+    graph.add_file_node("peak.py")
+    aggregate_a = make_chunk("aggregate_a", "aggregate.py", token_count=50)
+    aggregate_b = make_chunk("aggregate_b", "aggregate.py", token_count=50)
+    peak = make_chunk("peak", "peak.py", token_count=50)
+
+    bundle = assemble_context(
+        [(peak, 10.0), (aggregate_a, 9.0), (aggregate_b, 8.0)],
+        graph,
+        [aggregate_a, aggregate_b, peak],
+        "query",
+        token_budget=500,
+    )
+
+    assert [rc.chunk.id for rc in bundle.chunks][:2] == ["aggregate_a", "peak"]
+
+
 def test_cli_packing_limits_extra_chunks_per_file() -> None:
     graph = DependencyGraph()
     chunks: list[CodeChunk] = []

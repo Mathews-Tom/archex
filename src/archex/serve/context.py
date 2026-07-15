@@ -655,12 +655,9 @@ def _pack_ranked_chunks(
         for file_path, _score in sorted_files
         if file_path in top_files and file_path in best_by_file
     ]
-    ordered_files.sort(
-        key=lambda file_path: (
-            _is_test_file(file_path),
-            -best_by_file[file_path].final_score,
-        )
-    )
+    # Preserve aggregate relevance order while delaying test files. Python's
+    # stable sort retains the `sorted_files` order within each file class.
+    ordered_files.sort(key=_is_test_file)
     for file_path in ordered_files:
         total_tokens = _try_include_ranked_chunk(
             best_by_file[file_path],
