@@ -395,6 +395,7 @@ Need another language? Register an adapter via Python entry points. See [System 
 - **Not a vector database** — vector search is optional; BM25 and structural signals are first-class.
 - **Not an LSP replacement** — use LSAP/LSP where compiler-backed type resolution matters; archex packages repository-scale context for agents.
 - **Not a prompt template library** — output is structured retrieval evidence, not prompt prose.
+- **Not a multimodal knowledge-graph builder** — no LLM-driven concept extraction over PDFs, images, or notes, and no persistent cross-session graph artifact; archex indexes source code deterministically to assemble token-budgeted retrieval context, not a browsable knowledge base.
 
 ## Development
 
