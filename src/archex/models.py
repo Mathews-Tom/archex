@@ -77,6 +77,24 @@ class RetrievalPolicy(StrEnum):
     CROSS_LAYER = "cross_layer"
 
 
+class RetrievalProfile(StrEnum):
+    """Named retrieval-cost/quality tradeoff, mapped to IndexConfig feature flags.
+
+    FAST: bm25 only — zero vector/model thread work, the cheapest and always
+        available tier. Equivalent to IndexConfig()'s own defaults.
+    BALANCED: adds module-responsibility prefiltering, a pure structural
+        signal computed from the dependency graph — still no model calls.
+    DEEP: adds vector search and cross-encoder reranking for maximum quality
+        at the highest cost. Falls back to the bm25-only path per the
+        existing embedder/reranker-unavailable behavior if neither is
+        configured.
+    """
+
+    FAST = "fast"
+    BALANCED = "balanced"
+    DEEP = "deep"
+
+
 class LanguageTier(StrEnum):
     FULL = "full"
     STRUCTURED = "structured"
@@ -746,6 +764,10 @@ class RetrievalMetadata(BaseModel):
     chunker: ChunkerName = "default"
     index_chunk_count: int = 0
     mean_chunk_tokens: float = 0.0
+    #: Named profile (fast/balanced/deep) resolved for this query, when one was
+    #: used to construct the effective IndexConfig. None when the caller
+    #: supplied an explicit IndexConfig or the auto-loaded repo config as-is.
+    retrieval_profile: str | None = None
 
 
 class ContextReceiptTokenBudget(BaseModel):

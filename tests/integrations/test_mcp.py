@@ -345,6 +345,30 @@ class TestHandleQueryRepo:
             handle_query_repo("/fake/repo", "question?")
         assert mock_query.call_args.kwargs["runtime"] is None
 
+    def test_passes_valid_profile_string_through_to_query(self) -> None:
+        from archex.models import RetrievalProfile
+
+        bundle = _make_context_bundle()
+        with (
+            patch("archex.integrations.mcp.query", return_value=bundle) as mock_query,
+            patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+        ):
+            handle_query_repo("/fake/repo", "question?", profile="fast")
+        assert mock_query.call_args.kwargs["profile"] is RetrievalProfile.FAST
+
+    def test_omits_profile_by_default(self) -> None:
+        bundle = _make_context_bundle()
+        with (
+            patch("archex.integrations.mcp.query", return_value=bundle) as mock_query,
+            patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+        ):
+            handle_query_repo("/fake/repo", "question?")
+        assert mock_query.call_args.kwargs["profile"] is None
+
+    def test_rejects_invalid_profile_string(self) -> None:
+        with pytest.raises(ValueError, match="profile must be one of"):
+            handle_query_repo("/fake/repo", "question?", profile="ultra")
+
 
 class TestHandleScoutRepo:
     def test_returns_scout_markdown_with_meta(self) -> None:
@@ -666,6 +690,8 @@ class TestBuildServer:
         budget_schema = query_repo.inputSchema["properties"]["budget"]
         assert "default" not in budget_schema
         assert "Omit to use adaptive intent routing" in budget_schema["description"]
+        profile_schema = query_repo.inputSchema["properties"]["profile"]
+        assert profile_schema["enum"] == ["fast", "balanced", "deep"]
 
     @pytest.mark.asyncio
     async def test_call_tool_analyze_repo(self) -> None:

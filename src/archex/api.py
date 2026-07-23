@@ -79,6 +79,7 @@ from archex.models import (
     RepoMetadata,
     RepoSource,
     RetrievalMetadata,
+    RetrievalProfile,
     ScoringWeights,
     SymbolMatch,
     SymbolSource,
@@ -114,6 +115,7 @@ from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
 from archex.serve.generation import read_generation_id
 from archex.serve.profile import build_profile
+from archex.serve.profiles import index_config_for_profile
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1797,6 +1799,7 @@ def query(
     refresh: bool = True,
     handles: list[str] | None = None,
     runtime: QueryRuntime | None = None,
+    profile: RetrievalProfile | None = None,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -1808,8 +1811,11 @@ def query(
     """
     if config is None:
         config = load_config(source)
+    profile_applied = index_config is None and profile is not None
     if index_config is None:
         index_config = load_index_config(source)
+        if profile is not None:
+            index_config = index_config_for_profile(profile, index_config)
     _bootstrap_plugins()
     from archex.serve.intent import token_budget_for_query
 
@@ -1884,6 +1890,9 @@ def query(
                 if effective_budget >= total_repo_tokens:
                     cached_chunks = store.get_chunks()
                     pt = passthrough_context(cached_chunks, question, effective_budget)
+                    pt.retrieval_metadata.retrieval_profile = (
+                        profile.value if profile_applied and profile is not None else None
+                    )
                     if timing is not None:
                         timing.strategy = "passthrough"
                         timing.index_ms = 0.0
@@ -2091,6 +2100,9 @@ def query(
                     reranker=_reranker,
                     rerank_candidate_limit=index_config.rerank_candidate_limit,
                     apply_intent_budget=False,
+                )
+                bundle.retrieval_metadata.retrieval_profile = (
+                    profile.value if profile_applied and profile is not None else None
                 )
                 bundle.retrieval_metadata.expanded_query = expanded_query
                 bundle.retrieval_metadata.expansion_provenance = expansion_prov
@@ -2331,6 +2343,9 @@ def query(
             if effective_budget >= total_repo_tokens:
                 t_assemble = time.perf_counter()
                 pt = passthrough_context(all_chunks, question, effective_budget)
+                pt.retrieval_metadata.retrieval_profile = (
+                    profile.value if profile_applied and profile is not None else None
+                )
                 if timing is not None:
                     timing.strategy = "passthrough"
                     timing.assemble_ms = _elapsed_ms(t_assemble)
@@ -2478,6 +2493,9 @@ def query(
                 reranker=_reranker_miss,
                 rerank_candidate_limit=index_config.rerank_candidate_limit,
                 apply_intent_budget=False,
+            )
+            bundle.retrieval_metadata.retrieval_profile = (
+                profile.value if profile_applied and profile is not None else None
             )
             logger.info("Search + assemble in %.0fms", _elapsed_ms(t6))
         finally:

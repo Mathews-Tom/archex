@@ -234,6 +234,116 @@ class TestQueryVector:
         assert bundle.retrieval_metadata.strategy in ("bm25+graph", "passthrough")
 
 
+class TestQueryRetrievalProfile:
+    """Named profile (fast/balanced/deep) selection through the public query() API."""
+
+    def test_fast_profile_never_calls_get_embedder_or_constructs_reranker(
+        self, python_simple_repo: Path
+    ) -> None:
+        """FAST performs zero vector/model thread work: even when the repo's
+        loaded IndexConfig has vector+rerank enabled, FAST suppresses both —
+        neither an embedder nor a cross-encoder reranker is ever instantiated
+        (asserted by forcing both to raise if hit)."""
+        from unittest.mock import patch
+
+        from archex.models import RetrievalProfile
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        vector_and_rerank_config = IndexConfig(vector=True, rerank=True, embedder="jina-v2")
+        with (
+            patch("archex.api.load_index_config", return_value=vector_and_rerank_config),
+            patch("archex.api._get_embedder", side_effect=AssertionError("embedder touched")),
+            patch(
+                "archex.index.rerank.CrossEncoderReranker.__init__",
+                side_effect=AssertionError("reranker constructed"),
+            ),
+        ):
+            bundle = query(
+                source,
+                "models",
+                token_budget=100,
+                explicit_token_budget=True,
+                config=Config(languages=["python"], cache=False),
+                profile=RetrievalProfile.FAST,
+            )
+        assert isinstance(bundle, ContextBundle)
+        assert bundle.retrieval_metadata.retrieval_profile == "fast"
+
+    def test_deep_profile_reaches_get_embedder(self, python_simple_repo: Path) -> None:
+        """DEEP actually attempts vector search and reranking — _get_embedder and
+        _maybe_reranker are both invoked, even though neither model is actually
+        loaded here (both are mocked to avoid a real remote-code model load) and
+        the query still falls back to bm25-only output."""
+        from unittest.mock import patch
+
+        from archex.models import RetrievalProfile
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        with (
+            patch("archex.api._get_embedder", return_value=None) as mock_embedder,
+            patch("archex.api._maybe_reranker", return_value=None) as mock_reranker,
+        ):
+            bundle = query(
+                source,
+                "models",
+                token_budget=100,
+                explicit_token_budget=True,
+                config=Config(languages=["python"], cache=False),
+                profile=RetrievalProfile.DEEP,
+            )
+        mock_embedder.assert_called()
+        mock_reranker.assert_called()
+        assert isinstance(bundle, ContextBundle)
+        assert bundle.retrieval_metadata.retrieval_profile == "deep"
+
+    def test_balanced_profile_sets_retrieval_metadata(self, python_simple_repo: Path) -> None:
+        from archex.models import RetrievalProfile
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        bundle = query(
+            source,
+            "models",
+            token_budget=100,
+            explicit_token_budget=True,
+            config=Config(languages=["python"], cache=False),
+            profile=RetrievalProfile.BALANCED,
+        )
+        assert bundle.retrieval_metadata.retrieval_profile == "balanced"
+
+    def test_no_profile_leaves_retrieval_metadata_profile_none(
+        self, python_simple_repo: Path
+    ) -> None:
+        source = RepoSource(local_path=str(python_simple_repo))
+        bundle = query(
+            source,
+            "models",
+            token_budget=100,
+            explicit_token_budget=True,
+            config=Config(languages=["python"], cache=False),
+        )
+        assert bundle.retrieval_metadata.retrieval_profile is None
+
+    def test_explicit_index_config_ignores_profile_and_leaves_receipt_unset(
+        self, python_simple_repo: Path
+    ) -> None:
+        """An explicit index_config is never overwritten by a profile; since the
+        profile had no actual effect, the receipt must not claim one was applied."""
+        from archex.models import RetrievalProfile
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        explicit_config = IndexConfig(module_prefilter=False, rerank=False, vector=False)
+        bundle = query(
+            source,
+            "models",
+            token_budget=100,
+            explicit_token_budget=True,
+            config=Config(languages=["python"], cache=False),
+            index_config=explicit_config,
+            profile=RetrievalProfile.DEEP,
+        )
+        assert bundle.retrieval_metadata.retrieval_profile is None
+
+
 class TestCompareEndToEnd:
     """Compare two repos via api.compare()."""
 
