@@ -38,6 +38,7 @@ from archex.benchmark.coverage_candidate import (
 from archex.benchmark.coverage_candidate import (
     has_identifier_evidence as _has_identifier_evidence,
 )
+from archex.benchmark.fixed_agent import compute_fixed_agent_search_turns
 from archex.benchmark.graph_multihop import (
     ExpansionAction,
     ExpansionDecision,
@@ -92,6 +93,7 @@ from archex.models import (
     PipelineTiming,
     RankedChunk,
     RepoSource,
+    RetrievalProfile,
 )
 from archex.reporting import count_tokens
 from archex.serve.modality import BudgetTier, budget_tier, classify_query
@@ -104,6 +106,7 @@ from archex.serve.packing import (
     pack_efficiently,
     pack_with_diversity,
 )
+from archex.serve.profiles import index_config_for_profile
 
 if TYPE_CHECKING:
     from archex.index.rerank import CrossEncoderReranker
@@ -1292,6 +1295,7 @@ def _assemble_query_result(
         result_fields.update(
             {
                 "post_bundle_read_turns": len(completion_files),
+                "post_bundle_search_turns": compute_fixed_agent_search_turns(completion_files),
                 "task_completion_result": completion_result_from_missing(completion_files),
                 "bundle_completion_tokens": completion_tokens,
                 "bundle_completion_files": completion_files,
@@ -1364,6 +1368,43 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
         repo_path,
         strategy=Strategy.ARCHEX_QUERY,
         index_config=IndexConfig(vector=False),
+        cache=benchmark_cache_enabled(default=False),
+        include_completion=True,
+        measure_freshness=True,
+    )
+
+
+def run_archex_query_profile_fast(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """archex query under the product's ``fast`` retrieval profile (M3 candidate lane).
+
+    Reuses ``index_config_for_profile`` from ``archex.serve.profiles`` -- the
+    exact toggle set shipped to users via ``--profile fast`` -- so this lane
+    measures the product's real fast profile, not a reimplementation of it.
+    """
+    index_config = index_config_for_profile(RetrievalProfile.FAST, IndexConfig(vector=False))
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_PROFILE_FAST,
+        index_config=index_config,
+        cache=benchmark_cache_enabled(default=False),
+        include_completion=True,
+        measure_freshness=True,
+    )
+
+
+def run_archex_query_profile_balanced(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """archex query under the product's ``balanced`` retrieval profile (M3 candidate lane).
+
+    See ``run_archex_query_profile_fast``; reuses the same product profile
+    overlay for ``balanced``.
+    """
+    index_config = index_config_for_profile(RetrievalProfile.BALANCED, IndexConfig(vector=False))
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_PROFILE_BALANCED,
+        index_config=index_config,
         cache=benchmark_cache_enabled(default=False),
         include_completion=True,
         measure_freshness=True,
@@ -4262,3 +4303,9 @@ default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_DIVERSITY_PACKED.value, run_archex_query_diversity_packed
 )
 default_strategy_registry.register(Strategy.EXTERNAL_MCP.value, _run_external_mcp_strategy)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_PROFILE_FAST.value, run_archex_query_profile_fast
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_PROFILE_BALANCED.value, run_archex_query_profile_balanced
+)
