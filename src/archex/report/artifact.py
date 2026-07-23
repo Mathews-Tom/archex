@@ -217,6 +217,11 @@ class AnalysisArtifactV1(BaseModel):
     generated_at: str
 
     source_identity: str
+    # Absolute local filesystem root of the analyzed checkout -- distinct
+    # from source_identity (a logical identity, which may be a remote URL):
+    # renderers use this to build offline, local-only file-open links
+    # (e.g. HTML's vscode://file/ handles), never a remote fetch target.
+    source_root: str
     source_revision: str
     working_tree_fingerprint: str
     index_generation: str
@@ -327,6 +332,7 @@ def build_analysis_artifact(source: str | Path, *, base_ref: str) -> AnalysisArt
     return AnalysisArtifactV1(
         generated_at=str(time.time()),
         source_identity=repo_source.url or repo_source.local_path or str(repo_root),
+        source_root=str(repo_root),
         source_revision=source_revision,
         working_tree_fingerprint=working_tree_fingerprint,
         index_generation=index_generation,
