@@ -195,8 +195,14 @@ def build_readiness_report(
     mean_precision = _mean([result.precision for result in metric_results])
     mean_f1 = _mean([result.f1_score for result in metric_results])
     mean_mrr = _mean([result.mrr for result in metric_results])
-    median_latency_ms = _percentile([result.wall_time_ms for result in metric_results], 0.50)
-    p95_latency_ms = _percentile([result.wall_time_ms for result in metric_results], 0.95)
+    median_latency_ms = _percentile(
+        [result.wall_time_ms for result in metric_results if result.wall_time_ms is not None],
+        0.50,
+    )
+    p95_latency_ms = _percentile(
+        [result.wall_time_ms for result in metric_results if result.wall_time_ms is not None],
+        0.95,
+    )
     tokens_total = sum(result.tokens_total for result in metric_results)
     token_efficiency = _mean([result.token_efficiency for result in metric_results])
     savings_vs_raw = _mean([result.savings_vs_raw for result in metric_results])

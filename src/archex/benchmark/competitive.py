@@ -75,6 +75,11 @@ def _optional_mean(values: list[float | None], *, digits: int = 2) -> str:
     return _num(_mean(present), digits=digits) if present else "n/a"
 
 
+def _optional_percentile(values: list[float | None], quantile: float, *, digits: int = 2) -> str:
+    present = [value for value in values if value is not None]
+    return _num(_percentile(present, quantile), digits=digits) if present else "n/a"
+
+
 def _optional_rate(flags: list[bool | None]) -> str:
     present = [1.0 if flag else 0.0 for flag in flags if flag is not None]
     return _num(_mean(present)) if present else "n/a"
@@ -85,8 +90,8 @@ def _gated_rate(flags: list[bool], measured: list[bool]) -> str:
     return _num(_mean(present)) if present else "n/a"
 
 
-def _warm_latency(results: list[BenchmarkResult]) -> list[float]:
-    return [r.warm_latency_ms or r.wall_time_ms for r in results]
+def _warm_latency(results: list[BenchmarkResult]) -> list[float | None]:
+    return [result.warm_latency_ms for result in results]
 
 
 def _retrieval_row(label: str, layer: ComparisonLayerType, results: list[BenchmarkResult]) -> str:
@@ -108,8 +113,8 @@ def _retrieval_row(label: str, layer: ComparisonLayerType, results: list[Benchma
             [r.freshness_measured for r in results],
         ),
         _num(_mean([r.cold_start_ms for r in results]), digits=0),
-        _num(_percentile(latencies, 0.50), digits=0),
-        _num(_percentile(latencies, 0.95), digits=0),
+        _optional_percentile(latencies, 0.50, digits=0),
+        _optional_percentile(latencies, 0.95, digits=0),
     ]
     return "| " + " | ".join(cells) + " |"
 
