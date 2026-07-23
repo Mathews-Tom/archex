@@ -18,11 +18,21 @@ from html import escape
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from archex.explorer.viewmodel import DiffView, ManifestView
+    from archex.explorer.viewmodel import (
+        DiffView,
+        HealthView,
+        ManifestView,
+        ModuleMapView,
+        NeighborhoodView,
+        ReceiptView,
+    )
 
-# PR-2 extends this with Module Map, Receipt Inspector, and Index Health.
 NAV_ITEMS: list[tuple[str, str]] = [
+    ("Module Map", "/view/modules"),
     ("Diff Review", "/view/diff"),
+    ("Target Neighborhood", "/view/neighborhood"),
+    ("Receipt Inspector", "/view/receipt"),
+    ("Index Health", "/view/health"),
 ]
 
 _STYLE = """
@@ -228,3 +238,183 @@ def render_error_page(status: int, title: str, message: str) -> str:
         f"<main><h2>{status} {escape(title)}</h2><p>{escape(message)}</p></main>\n"
         "</body>\n</html>\n"
     )
+
+
+def render_module_map_page(manifest: ManifestView, view: ModuleMapView) -> str:
+    if not view.available:
+        body = (
+            "<h2>Module Map</h2>"
+            '<p class="empty">No graph artifact provided. '
+            "Pass <code>--graph</code> (an <code>archex graph export</code> output) "
+            "to <code>archex explore</code> to enable this view.</p>"
+        )
+        return render_page("Module Map", manifest, body)
+
+    if not view.modules:
+        body = '<h2>Module Map</h2><p class="empty">The graph has no nodes.</p>'
+        return render_page("Module Map", manifest, body)
+
+    rows = "".join(
+        "<tr>"
+        f"<td>{escape(row.module)}</td><td>{row.node_count}</td><td>{row.file_count}</td>"
+        f"<td>{row.symbol_count}</td><td>{row.interface_count}</td>"
+        "</tr>"
+        for row in view.modules
+    )
+    note = _truncation_note(view.modules_total, len(view.modules))
+    body = (
+        "<h2>Module Map</h2>"
+        '<p class="note">Module-aggregated node counts (not a per-node graph). '
+        "Look up a module's file or symbol under Target Neighborhood.</p>"
+        "<table><tr><th>Module</th><th>Nodes</th><th>Files</th>"
+        "<th>Symbols</th><th>Interfaces</th></tr>" + rows + "</table>" + note
+    )
+    return render_page("Module Map", manifest, body)
+
+
+def render_receipt_page(manifest: ManifestView, view: ReceiptView) -> str:
+    evidence_rows_html = "".join(
+        "<tr>"
+        f"<td>{escape(item.path)}</td>"
+        f"<td>{item.start_line if item.start_line is not None else '-'}</td>"
+        f"<td>{item.end_line if item.end_line is not None else '-'}</td>"
+        f"<td>{escape(item.handle or '-')}</td>"
+        f"<td>{escape(item.description)}</td>"
+        "</tr>"
+        for item in view.evidence_locations
+    )
+    evidence_note = _truncation_note(view.evidence_locations_total, len(view.evidence_locations))
+    excluded_rows = (
+        "".join(
+            f"<li>{escape(key)}: {value}</li>"
+            for key, value in sorted(view.excluded_counts.items())
+        )
+        or '<li class="empty">none</li>'
+    )
+    unknown_rows = (
+        "".join(
+            f"<li>{escape(key)}: {value}</li>" for key, value in sorted(view.unknown_counts.items())
+        )
+        or '<li class="empty">none</li>'
+    )
+    body = (
+        "<h2>Receipt</h2>"
+        "<ul>"
+        f"<li>Freshness: {escape(view.freshness)}</li>"
+        f"<li>Completeness: {escape(view.completeness)}</li>"
+        f"<li>Confidence: {escape(view.confidence)}</li>"
+        f"<li>Redaction mode: {escape(view.redaction_mode)}</li>"
+        f"<li>Generated at: {escape(view.generated_at)}</li>"
+        "</ul>"
+        "<h2>Excluded counts</h2><ul>" + excluded_rows + "</ul>"
+        "<h2>Unknown counts</h2><ul>" + unknown_rows + "</ul>"
+        "<h2>Evidence locations</h2>"
+        + (
+            "<table><tr><th>Path</th><th>Start</th><th>End</th>"
+            "<th>Handle</th><th>Description</th></tr>"
+            + evidence_rows_html
+            + "</table>"
+            + evidence_note
+            if view.evidence_locations
+            else '<p class="empty">none</p>'
+        )
+    )
+    return render_page("Receipt Inspector", manifest, body)
+
+
+def render_health_page(manifest: ManifestView, view: HealthView) -> str:
+    parser_rows = (
+        "".join(
+            f"<li>{escape(language)}: {escape(version)}</li>"
+            for language, version in sorted(view.parser_versions.items())
+        )
+        or '<li class="empty">none recorded</li>'
+    )
+    body = (
+        "<h2>Index Health</h2>"
+        "<ul>"
+        f"<li>archex version: {escape(view.archex_version)}</li>"
+        f"<li>Artifact schema version: {escape(view.schema_version)}</li>"
+        f"<li>Index generation: {escape(view.index_generation)}</li>"
+        f"<li>Index schema version: {escape(view.index_schema_version)}</li>"
+        f"<li>Chunker revision: {escape(view.chunker_revision)}</li>"
+        f"<li>Retrieval profile: {escape(view.retrieval_profile or 'default')}</li>"
+        f"<li>Config fingerprint: {escape(view.config_fingerprint)}</li>"
+        f"<li>Working tree fingerprint: {escape(view.working_tree_fingerprint)}</li>"
+        f"<li>Producer: {escape(view.producer)} {escape(view.producer_version)}</li>"
+        "</ul>"
+        "<h2>Parser versions</h2><ul>" + parser_rows + "</ul>"
+    )
+    return render_page("Index Health", manifest, body)
+
+
+def render_neighborhood_page(manifest: ManifestView, view: NeighborhoodView) -> str:
+    form = (
+        '<form method="get" action="/view/neighborhood">'
+        f'<input type="text" name="node" placeholder="file or symbol id" '
+        f'value="{escape(view.query or "")}">'
+        '<select name="direction">'
+        + "".join(
+            f'<option value="{d}"{" selected" if d == view.direction else ""}>{d}</option>'
+            for d in ("both", "out", "in")
+        )
+        + "</select>"
+        f'<input type="number" name="depth" min="1" value="{view.depth}">'
+        f'<input type="number" name="limit" min="1" value="{view.limit}">'
+        '<button type="submit">Find neighbors</button>'
+        "</form>"
+    )
+    if not view.available:
+        body = (
+            "<h2>Target Neighborhood</h2>" + form + '<p class="empty">No graph artifact provided. '
+            "Pass <code>--graph</code> to <code>archex explore</code> to enable this view.</p>"
+        )
+        return render_page("Target Neighborhood", manifest, body)
+
+    if view.error is not None:
+        body = "<h2>Target Neighborhood</h2>" + form + f'<p class="empty">{escape(view.error)}</p>'
+        return render_page("Target Neighborhood", manifest, body)
+
+    if view.seed is None:
+        body = (
+            "<h2>Target Neighborhood</h2>"
+            + form
+            + '<p class="empty">Enter a file path or symbol id to see its bounded '
+            "neighborhood.</p>"
+        )
+        return render_page("Target Neighborhood", manifest, body)
+
+    node_rows = "".join(
+        f"<tr><td>{escape(node.id)}</td><td>{escape(node.type)}</td>"
+        f"<td>{escape(node.label)}</td><td>{node.degree}</td></tr>"
+        for node in view.nodes
+    )
+    edge_rows = "".join(
+        f"<tr><td>{escape(edge.source_id)}</td><td>{escape(edge.type)}</td>"
+        f"<td>{escape(edge.target_id)}</td><td>{escape(edge.confidence)}</td></tr>"
+        for edge in view.edges
+    )
+    hub_rows = "".join(f"<li>{escape(hub.id)}</li>" for hub in view.hubs) or (
+        '<li class="empty">none</li>'
+    )
+    truncation = (
+        f'<p class="note">Truncated: {view.omitted_edges} edges omitted at limit {view.limit}.</p>'
+        if view.truncated
+        else ""
+    )
+    body = (
+        "<h2>Target Neighborhood</h2>" + form + f"<p>Seed: <code>{escape(view.seed.id)}</code> "
+        f"({escape(view.seed.type)}, degree {view.seed.degree}) &middot; "
+        f"direction: {escape(view.direction)} &middot; depth: {view.depth}</p>"
+        + truncation
+        + "<h3>Nodes</h3>"
+        "<table><tr><th>ID</th><th>Type</th><th>Label</th><th>Degree</th></tr>"
+        + node_rows
+        + "</table>"
+        "<h3>Edges</h3>"
+        "<table><tr><th>Source</th><th>Type</th><th>Target</th><th>Confidence</th></tr>"
+        + edge_rows
+        + "</table>"
+        "<h3>Hubs skipped (high fan-out)</h3><ul>" + hub_rows + "</ul>"
+    )
+    return render_page("Target Neighborhood", manifest, body)
