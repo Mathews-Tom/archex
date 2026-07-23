@@ -23,6 +23,7 @@ from archex.cli.metrics_cmd import metrics_cmd
 from archex.cli.onboard_cmd import onboard_cmd
 from archex.cli.outline_cmd import outline_cmd
 from archex.cli.query_cmd import query_cmd
+from archex.cli.report_cmd import report_cmd
 from archex.cli.reset_cmd import reset_cmd
 from archex.cli.scout_cmd import scout_cmd
 from archex.cli.setup_cmd import setup_cmd
@@ -63,6 +64,7 @@ cli.add_command(graph_cmd)
 cli.add_command(explain_cmd)
 cli.add_command(impact_cmd)
 cli.add_command(onboard_cmd)
+cli.add_command(report_cmd)
 
 
 if __name__ == "__main__":
