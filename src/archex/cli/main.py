@@ -13,6 +13,7 @@ from archex.cli.context_cmd import context_cmd
 from archex.cli.doctor_cmd import doctor_cmd
 from archex.cli.dogfood_cmd import dogfood_cmd
 from archex.cli.explain_cmd import explain_cmd
+from archex.cli.explore_cmd import explore_cmd
 from archex.cli.graph_cmd import graph_cmd
 from archex.cli.impact_cmd import impact_cmd
 from archex.cli.index_cmd import index_cmd
@@ -65,6 +66,7 @@ cli.add_command(explain_cmd)
 cli.add_command(impact_cmd)
 cli.add_command(onboard_cmd)
 cli.add_command(report_cmd)
+cli.add_command(explore_cmd)
 
 
 if __name__ == "__main__":
