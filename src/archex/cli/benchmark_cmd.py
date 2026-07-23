@@ -93,6 +93,11 @@ from archex.benchmark.reporter import (
     format_summary,
 )
 from archex.benchmark.runner import DEFAULT_STRATEGIES, load_selected_tasks, run_all
+from archex.benchmark.scorecard import (
+    build_m3_scorecard_artifact,
+    format_m3_scorecard_markdown,
+    save_m3_scorecard_artifact,
+)
 from archex.benchmark.triage import (
     format_triage_json,
     format_triage_markdown,
@@ -685,6 +690,84 @@ def readiness_cmd(input_dir: str, tasks_dir: str, strategy_name: str, output_for
         click.echo(format_readiness_json(readiness))
     else:
         click.echo(format_readiness_markdown(readiness))
+
+
+@benchmark_cmd.command("scorecard")
+@click.option(
+    "--input",
+    "input_dir",
+    default=DEFAULT_BENCHMARK_RESULTS_DIR,
+    type=click.Path(exists=True),
+    help="Directory containing manifest-backed result JSON files.",
+)
+@click.option(
+    "--tasks-dir",
+    default="benchmarks/tasks",
+    type=click.Path(exists=True, file_okay=False),
+    help="Directory containing the task manifest bound to evidence.",
+)
+@click.option(
+    "--strategy",
+    "strategy_name",
+    default=Strategy.ARCHEX_QUERY.value,
+    type=click.Choice([s.value for s in Strategy]),
+    help="Strategy to score.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    default="markdown",
+    type=click.Choice(["markdown", "json"]),
+    help="Output format.",
+)
+@click.option(
+    "--output",
+    "artifact_path",
+    default=None,
+    type=click.Path(),
+    help="Optional path to also write the raw M3 scorecard artifact JSON.",
+)
+@click.option(
+    "--allow-sealed-corpus",
+    is_flag=True,
+    default=False,
+    help=(
+        "Required to target the sealed chronological holdout corpus "
+        "(benchmarks/sealed_tasks); refused otherwise."
+    ),
+)
+def scorecard_cmd(
+    input_dir: str,
+    tasks_dir: str,
+    strategy_name: str,
+    output_format: str,
+    artifact_path: str | None,
+    allow_sealed_corpus: bool,
+) -> None:
+    """Report M3 language/repo-size/intent/family scorecards with raw provenance."""
+    tasks_path = Path(tasks_dir)
+    try:
+        enforce_sealed_corpus_access(tasks_path, allow_sealed=allow_sealed_corpus)
+    except SealedCorpusAccessError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        manifest, reports = load_evidence_reports(Path(input_dir), tasks_path)
+    except BenchmarkEvidenceError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    tasks_by_id = load_benchmark_tasks(tasks_path)
+    artifact = build_m3_scorecard_artifact(
+        reports,
+        tasks_by_id,
+        manifest,
+        strategy=Strategy(strategy_name),
+    )
+    if artifact_path is not None:
+        save_m3_scorecard_artifact(Path(artifact_path), artifact)
+    if output_format == "json":
+        click.echo(artifact.model_dump_json(indent=2))
+    else:
+        click.echo(format_m3_scorecard_markdown(artifact))
 
 
 @benchmark_cmd.command("validate")
