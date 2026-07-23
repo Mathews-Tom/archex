@@ -312,6 +312,9 @@ def _full_index(
                 store.set_metadata("source_identity", identity)
                 store.set_metadata("indexed_at", str(time.time()))
                 _set_working_tree_signature(store, repo_path, config)
+                from archex.serve.generation import finalize_generation_id
+
+                finalize_generation_id(store, effective_index_config)
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
 
                 manifest = IndexGenerationManifest(
@@ -498,6 +501,9 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                         "working_tree_signature", attempt.working_tree_signature
                     )
                 clean_store.set_metadata("indexed_at", str(time.time()))
+                from archex.serve.generation import finalize_generation_id
+
+                finalize_generation_id(clean_store, attempt.index_config or IndexConfig())
                 if attempt.timing is not None:
                     attempt.timing.cached = True
                     attempt.timing.strategy = "cached"
@@ -594,6 +600,9 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
             store.set_metadata("indexed_at", str(time.time()))
             if attempt.working_tree_signature is not None:
                 store.set_metadata("working_tree_signature", attempt.working_tree_signature)
+            from archex.serve.generation import finalize_generation_id
+
+            finalize_generation_id(store, index_config)
             store.conn.execute("PRAGMA wal_checkpoint(FULL)")
             attempt.cache.put(
                 attempt.cache_key,

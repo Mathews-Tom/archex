@@ -1038,6 +1038,156 @@ class TestDeltaIndexIntegration:
             store.close()
 
 
+class TestGenerationIdIntegration:
+    """Index generation identity is stable across warm reuse and changes across real pipelines."""
+
+    def test_generation_id_stable_across_repeated_cache_hits(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """Repeated cache-hit queries against an unchanged commit must not mutate identity."""
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+        from archex.serve.generation import read_generation_id
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=True, cache_dir=str(tmp_path / "cache"))
+
+        store1 = _ensure_index(source, config=config)
+        try:
+            first_id = read_generation_id(store1)
+        finally:
+            store1.close()
+        assert first_id is not None
+
+        store2 = _ensure_index(source, config=config)
+        try:
+            second_id = read_generation_id(store2)
+        finally:
+            store2.close()
+
+        assert second_id == first_id
+
+    def test_generation_id_changes_after_committed_delta(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """A real content change via the delta path must change the generation id."""
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+        from archex.serve.generation import read_generation_id
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=True, cache_dir=str(tmp_path / "cache"))
+
+        store1 = _ensure_index(source, config=config)
+        try:
+            before_id = read_generation_id(store1)
+        finally:
+            store1.close()
+
+        (python_simple_repo / "utils.py").write_text(
+            "def generation_id_delta_marker():\n    return 1\n"
+        )
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "generation id delta test")
+
+        timing = PipelineTiming()
+        store2 = _ensure_index(source, config=config, timing=timing)
+        try:
+            after_id = read_generation_id(store2)
+        finally:
+            store2.close()
+
+        assert timing.strategy == "delta"
+        assert after_id is not None
+        assert after_id != before_id
+
+    def test_generation_id_changes_after_uncommitted_working_tree_edit(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """An uncommitted edit refreshed through the delta path changes identity too,
+        even though HEAD is unchanged — a warm snapshot keyed only on commit hash
+        would wrongly treat this as still current."""
+        import time as _time
+
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+        from archex.serve.generation import read_generation_id
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=True, cache_dir=str(tmp_path / "cache"))
+
+        store1 = _ensure_index(source, config=config)
+        try:
+            before_id = read_generation_id(store1)
+        finally:
+            store1.close()
+
+        _time.sleep(0.01)
+        (python_simple_repo / "utils.py").write_text(
+            "def uncommitted_generation_id_marker():\n    return 1\n",
+            encoding="utf-8",
+        )
+
+        store2 = _ensure_index(source, config=config)
+        try:
+            after_id = read_generation_id(store2)
+        finally:
+            store2.close()
+
+        assert after_id is not None
+        assert after_id != before_id
+
+    def test_generation_id_changes_when_index_config_changes(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """The same commit indexed under two different IndexConfigs must not
+        collide on generation id, since retrieval output differs between them."""
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+        from archex.serve.generation import read_generation_id
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        default_config = Config(
+            languages=["python"], cache=True, cache_dir=str(tmp_path / "cache_default")
+        )
+        chunked_config = Config(
+            languages=["python"], cache=True, cache_dir=str(tmp_path / "cache_chunked")
+        )
+
+        store_default = _ensure_index(source, config=default_config)
+        try:
+            default_id = read_generation_id(store_default)
+        finally:
+            store_default.close()
+
+        store_chunked = _ensure_index(
+            source,
+            config=chunked_config,
+            index_config=IndexConfig(chunk_max_tokens=256, chunk_min_tokens=32),
+        )
+        try:
+            chunked_id = read_generation_id(store_chunked)
+        finally:
+            store_chunked.close()
+
+        assert default_id is not None
+        assert chunked_id is not None
+        assert default_id != chunked_id
+
+    def test_generation_id_present_after_full_index_without_cache(
+        self, python_simple_repo: Path
+    ) -> None:
+        """A no-cache full index still publishes a generation id for callers that
+        want to validate a store's identity even without disk caching enabled."""
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+        from archex.serve.generation import read_generation_id
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=False)
+
+        store = _ensure_index(source, config=config)
+        try:
+            assert read_generation_id(store) is None
+        finally:
+            store.close()
+
+
 # ---------------------------------------------------------------------------
 # New language integration tests (Java, Kotlin, C#, Swift)
 # ---------------------------------------------------------------------------
