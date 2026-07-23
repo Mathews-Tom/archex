@@ -20,7 +20,7 @@ def report_cmd() -> None:
     "--format",
     "output_format",
     default="markdown",
-    type=click.Choice(["json", "markdown"]),
+    type=click.Choice(["json", "markdown", "html"]),
     help="Output format.",
 )
 def diff_cmd(source: str, base: str, output_format: str) -> None:
@@ -32,6 +32,12 @@ def diff_cmd(source: str, base: str, output_format: str) -> None:
 
     if output_format == "json":
         click.echo(artifact.to_json())
+        return
+
+    if output_format == "html":
+        from archex.report.render_html import render_html
+
+        click.echo(render_html(artifact), nl=False)
         return
 
     from archex.report.render_markdown import render_markdown
