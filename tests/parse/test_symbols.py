@@ -83,6 +83,21 @@ def test_extract_symbols_and_imports_matches_separate_passes(
     } == {path: [imp.model_dump() for imp in imports] for path, imports in separate_imports.items()}
 
 
+def test_extract_symbols_and_imports_reads_each_file_exactly_once(
+    python_simple_files: list[DiscoveredFile],
+    engine: TreeSitterEngine,
+    adapters: dict[str, LanguageAdapter],
+) -> None:
+    """Symbol extraction, chunk-range extraction, and import parsing all reuse
+    one read of a file's bytes — no per-file double read via a separate tree
+    parse and a second manual read."""
+    from pathlib import Path
+
+    with patch("pathlib.Path.read_bytes", wraps=Path.read_bytes, autospec=True) as mock_read_bytes:
+        extract_symbols_and_imports(python_simple_files, engine, adapters, parallel=False)
+    assert mock_read_bytes.call_count == len(python_simple_files)
+
+
 def test_all_files_have_correct_language(
     python_simple_files: list[DiscoveredFile],
     engine: TreeSitterEngine,

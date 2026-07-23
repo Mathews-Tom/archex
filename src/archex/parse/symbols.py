@@ -70,8 +70,7 @@ def _parse_with_adapter(
     engine: TreeSitterEngine,
     adapter: LanguageAdapter,
 ) -> ParsedFile:
-    tree = engine.parse_file(absolute_path, language)
-    source = Path(absolute_path).read_bytes()
+    tree, source = engine.read_and_parse_file(absolute_path, language)
     symbols = adapter.extract_symbols(tree, source, relative_path)
     return ParsedFile(
         path=relative_path,
@@ -90,8 +89,9 @@ def _parse_with_adapter_and_imports(
     engine: TreeSitterEngine,
     adapter: LanguageAdapter,
 ) -> tuple[ParsedFile, list[ImportStatement]]:
-    tree = engine.parse_file(absolute_path, language)
-    source = Path(absolute_path).read_bytes()
+    """Read the file once and reuse its bytes for both the tree-sitter parse
+    and every downstream extraction step (symbols, chunk ranges, imports)."""
+    tree, source = engine.read_and_parse_file(absolute_path, language)
     symbols = adapter.extract_symbols(tree, source, relative_path)
     parsed = ParsedFile(
         path=relative_path,

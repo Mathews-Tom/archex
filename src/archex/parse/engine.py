@@ -124,6 +124,21 @@ class TreeSitterEngine:
 
         Raises ParseError on IO errors, unsupported language, or files exceeding max_file_size.
         """
+        tree, _source = self.read_and_parse_file(file_path, language_id, max_file_size)
+        return tree
+
+    def read_and_parse_file(
+        self, file_path: str | Path, language_id: str, max_file_size: int = 10_000_000
+    ) -> tuple[object, bytes]:
+        """Read a file once and return both its parse tree and raw source bytes.
+
+        Callers that also need the source for symbol/import/chunk-range
+        extraction should use this instead of parse_file() plus a second
+        manual read — it makes the single read the only read, while keeping
+        parse_file()'s IO-error and oversized-file safety checks intact.
+
+        Raises ParseError on IO errors, unsupported language, or files exceeding max_file_size.
+        """
         path = Path(file_path)
         try:
             size = path.stat().st_size
@@ -135,7 +150,7 @@ class TreeSitterEngine:
             source = path.read_bytes()
         except OSError as exc:
             raise ParseError(f"Failed to read file {file_path!r}: {exc}") from exc
-        return self.parse_bytes(source, language_id)
+        return self.parse_bytes(source, language_id), source
 
     def parse_bytes(self, source: bytes, language_id: str) -> object:
         """Parse raw bytes and return the tree-sitter Tree object.

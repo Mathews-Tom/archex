@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 from archex.exceptions import ParseError
 from archex.parse.engine import TreeSitterEngine
@@ -88,6 +86,56 @@ def test_parse_file_at_limit_succeeds(tmp_path: Path) -> None:
     tree = engine.parse_file(str(source_file), "python", max_file_size=len(content))
     root: Any = tree  # type: ignore[assignment]
     assert root.root_node is not None
+
+
+def test_read_and_parse_file_returns_tree_and_source(tmp_path: Path) -> None:
+    source_file = tmp_path / "sample.py"
+    source_file.write_bytes(PYTHON_SOURCE)
+    engine = TreeSitterEngine()
+    tree, source = engine.read_and_parse_file(str(source_file), "python")
+    assert source == PYTHON_SOURCE
+    assert _root(tree).type == "module"
+
+
+def test_read_and_parse_file_missing_raises_parse_error(tmp_path: Path) -> None:
+    engine = TreeSitterEngine()
+    with pytest.raises(ParseError, match="Failed to"):
+        engine.read_and_parse_file(str(tmp_path / "nonexistent.py"), "python")
+
+
+def test_read_and_parse_file_exceeds_max_size_raises_parse_error(tmp_path: Path) -> None:
+    source_file = tmp_path / "big.py"
+    source_file.write_bytes(b"x = 1\n" * 100)
+    engine = TreeSitterEngine()
+    with pytest.raises(ParseError, match="exceeds maximum size limit"):
+        engine.read_and_parse_file(str(source_file), "python", max_file_size=10)
+
+
+def test_read_and_parse_file_read_error_raises_parse_error(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    source_file = tmp_path / "unreadable.py"
+    source_file.write_bytes(b"x = 1")
+    engine = TreeSitterEngine()
+    with (
+        patch("pathlib.Path.read_bytes", side_effect=OSError("permission denied")),
+        pytest.raises(ParseError, match="Failed to read"),
+    ):
+        engine.read_and_parse_file(str(source_file), "python")
+
+
+def test_parse_file_reads_source_exactly_once(tmp_path: Path) -> None:
+    """parse_file() (and by extension read_and_parse_file()) must read a file's
+    bytes exactly once — the double-read this method exists to eliminate at
+    every call site would otherwise silently creep back in."""
+    from unittest.mock import patch
+
+    source_file = tmp_path / "sample.py"
+    source_file.write_bytes(PYTHON_SOURCE)
+    engine = TreeSitterEngine()
+    with patch("pathlib.Path.read_bytes", wraps=Path.read_bytes, autospec=True) as mock_read_bytes:
+        engine.read_and_parse_file(str(source_file), "python")
+    mock_read_bytes.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
