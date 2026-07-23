@@ -347,6 +347,12 @@ archex graph path src/archex/cli/query_cmd.py src/archex/serve/context.py --grap
 archex impact --changed-file src/archex/serve/context.py
 archex impact --diff HEAD~1
 
+# Diff review — one versioned AnalysisArtifactV1, source-redacted by construction
+archex report diff --base origin/main --format json
+archex report diff --base origin/main --format markdown
+archex report diff --base origin/main --format html > report.html
+archex report delta --base origin/main --format markdown
+
 # Benchmarks and gates
 archex benchmark headtohead report --input .archex/headtohead --format markdown
 archex benchmark run --strategy archex_query_hybrid_quantized_4bit --output .archex/e2e-quantized --allow-remote-code

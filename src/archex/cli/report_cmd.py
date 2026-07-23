@@ -43,3 +43,29 @@ def diff_cmd(source: str, base: str, output_format: str) -> None:
     from archex.report.render_markdown import render_markdown
 
     click.echo(render_markdown(artifact), nl=False)
+
+
+@report_cmd.command("delta")
+@click.argument("source", required=False, default=".")
+@click.option("--base", default="main", help="Base ref to diff against.")
+@click.option(
+    "--format",
+    "output_format",
+    default="json",
+    type=click.Choice(["json", "markdown"]),
+    help="Output format.",
+)
+def delta_cmd(source: str, base: str, output_format: str) -> None:
+    """Build a bounded, CI-log-sized delta summary of the diff-review artifact for SOURCE."""
+    try:
+        artifact = build_analysis_artifact(source, base_ref=base)
+    except (ArchexError, ReportArtifactError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    from archex.report.delta import build_report_delta
+
+    delta = build_report_delta(artifact)
+    if output_format == "markdown":
+        click.echo(delta.to_markdown(), nl=False)
+        return
+    click.echo(delta.to_json())
