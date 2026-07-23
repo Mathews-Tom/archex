@@ -42,9 +42,9 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 
 | If you are evaluating... | Start here | Why |
 | --- | --- | --- |
-| Agent workflows | `archex doctor`, then `archex scout "question" --budget 1000 --format json` | Checks local trust first, then returns a compact map, a receipt summary, and exact fetch handles. |
+| Agent workflows | `archex doctor`, then `archex context "question"` | Checks local trust first, then returns a candidate map, exact fetch handles, selected code, relation paths, a route decision, and a receipt in one call. |
 | Already using an agent that calls Grep/Glob | `archex install-client <client> --hooks` | Zero added context cost — augments existing tool calls instead of registering a new MCP tool surface. |
-| Want the full tool surface (graph, impact, symbol lookup, etc.) | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts. Registers 17 tool schemas that resend every turn regardless of use — heavier than hooks, richer than grep/glob augmentation. |
+| Want the full tool surface (graph, impact, symbol lookup, etc.) | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts. Registers 18 tool schemas that resend every turn regardless of use — heavier than hooks, richer than grep/glob augmentation. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
 | Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, raw-ripgrep/read baseline, bundle-only evaluator reports, required-file trust gates, and TurboQuant storage/recall evidence. |
 | Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Client bootstrap paths for Claude Code, Codex, Pi, OpenCode, Cursor, and oh-my-pi (`omp`); global/user scope by default, `--dry-run` previews. |
@@ -54,6 +54,12 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 ```bash
 uv tool install archex
 archex setup
+archex context "How does authentication work?"
+```
+
+`archex context` is the documented primary agent path — one call returns a candidate map, exact fetch handles, selected code, relation paths, a route decision, and a receipt. The specialized `archex query`/`archex scout`/`archex symbol` commands remain fully supported for their narrower use cases:
+
+```bash
 archex query "How does authentication work?" --format xml
 ```
 
@@ -157,6 +163,7 @@ archex is a selection and assembly layer. Compression tools can shrink the final
 ### CLI
 
 ```bash
+archex context "Where is cache invalidation handled?"
 archex query "Where is cache invalidation handled?" --format xml
 archex scout "How does authentication flow through this repo?" --budget 1000 --format json
 archex query "How does authentication work?" --format toon   # requires: uv add "archex[toon]"
@@ -168,7 +175,7 @@ archex symbol 'symbol:src/auth/middleware.py::authenticate#function'
 
 ### MCP and Claude Code
 
-Registers all 17 archex tools with a client; every tool's schema resends on every conversational turn regardless of use, since tool-calling APIs are stateless. That is real, measurable context cost — roughly 6,000 tokens for the full set, computed from the tool schemas in `src/archex/integrations/mcp.py`. If a client only needs grep/glob-shaped lookups, `archex install-client <client> --hooks` (documented further down this section) gets the same retrieval quality with zero added schema cost. Use MCP when the fuller surface — graph inspection, impact analysis, batch symbol lookup — is worth that fixed per-turn cost.
+Registers all 18 archex tools with a client; every tool's schema resends on every conversational turn regardless of use, since tool-calling APIs are stateless. That is real, measurable context cost — roughly 6,000 tokens for the full set, computed from the tool schemas in `src/archex/integrations/mcp.py`. If a client only needs grep/glob-shaped lookups, `archex install-client <client> --hooks` (documented further down this section) gets the same retrieval quality with zero added schema cost. Use MCP when the fuller surface — graph inspection, impact analysis, batch symbol lookup — is worth that fixed per-turn cost. The `context` tool is the same primary agent path as the CLI's `archex context`: query/intent/profile/filters/budgets/handles in, candidate map/fetch handles/selected code/relation paths/route/receipt/next action out.
 
 Install the MCP extra and register the stdio server:
 

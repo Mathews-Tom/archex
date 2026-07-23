@@ -87,3 +87,15 @@ jobs:
             echo "BM25 smoke integrity failed: no hit for scoring"
             exit 1
           fi
+
+      - name: Exercise the primary agent-facing context path on a clean install
+        run: |
+          OUTPUT=$(.smoke-venv/bin/archex context "how does archex score and rank retrieval candidates")
+          if ! echo "$OUTPUT" | grep -qi '"fetch_handles"'; then
+            echo "context() smoke integrity failed: no fetch_handles in output"
+            exit 1
+          fi
+          if ! echo "$OUTPUT" | grep -qi "score"; then
+            echo "context() smoke integrity failed: no hit for scoring"
+            exit 1
+          fi
