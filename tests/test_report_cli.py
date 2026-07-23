@@ -38,6 +38,7 @@ def test_report_diff_markdown_is_default_format(impact_diff_repo: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert result.output.startswith("# Diff Review:")
+    assert "```mermaid" in result.output
 
 
 def test_report_diff_html_format_not_yet_supported(impact_diff_repo: Path) -> None:
