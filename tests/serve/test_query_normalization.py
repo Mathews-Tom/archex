@@ -198,19 +198,20 @@ def _chunk(
 def test_retrieval_question_expands_query_pipeline_terms() -> None:
     from archex.api import _expand_retrieval_question
 
-    expanded = _expand_retrieval_question("How does archex implement the query pipeline?")
+    expanded, prov = _expand_retrieval_question("How does archex implement the query pipeline?")
 
     assert "api" in expanded
     assert "bm25" in expanded
     assert "BM25Index" in expanded
     assert "assemble_context" in expanded
     assert "context" in expanded
+    assert prov
 
 
 def test_retrieval_question_expands_index_terms() -> None:
     from archex.api import _expand_retrieval_question
 
-    expanded = _expand_retrieval_question(
+    expanded, prov = _expand_retrieval_question(
         "How does archex explicitly build or refresh a repo-local index?"
     )
 
@@ -218,14 +219,16 @@ def test_retrieval_question_expands_index_terms() -> None:
     assert "config" in expanded
     assert "project" in expanded
     assert "CacheManager" in expanded
+    assert prov
 
 
 def test_non_retrieval_question_is_not_expanded() -> None:
     from archex.api import _expand_retrieval_question
 
     question = "Where is User defined?"
-
-    assert _expand_retrieval_question(question) == question
+    expanded, prov = _expand_retrieval_question(question)
+    assert expanded == question
+    assert not prov
 
 
 def test_path_terms_expand_query_pipeline_keywords() -> None:

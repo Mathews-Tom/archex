@@ -531,10 +531,8 @@ class BenchmarkResult(BaseModel):
     token_efficiency: float = 0.0
     tokens_raw_baseline: int = 0
     savings_vs_raw: float
-    cold_latency_ms: float | None = None
-    warm_latency_ms: float | None = None
     wall_time_ms: float | None = None
-    cached: bool
+    cached: bool = False
     timing: PipelineTiming | None = None
     timestamp: str
     # Seed vs expansion diagnostics
