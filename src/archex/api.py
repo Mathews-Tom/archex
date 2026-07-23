@@ -43,6 +43,7 @@ import shutil
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -111,6 +112,7 @@ from archex.scout import (
 )
 from archex.serve.compare import compare_repos
 from archex.serve.context import assemble_context, passthrough_context
+from archex.serve.generation import read_generation_id
 from archex.serve.profile import build_profile
 
 if TYPE_CHECKING:
@@ -121,6 +123,7 @@ if TYPE_CHECKING:
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
     from archex.models import ComparisonResult
+    from archex.serve.runtime import QueryRuntime
 
 # ---------------------------------------------------------------------------
 # Acquisition + Indexing — shared helpers for all entry points
@@ -1793,6 +1796,7 @@ def query(
     explicit_token_budget: bool = False,
     refresh: bool = True,
     handles: list[str] | None = None,
+    runtime: QueryRuntime | None = None,
 ) -> ContextBundle:
     """Retrieve a ranked ContextBundle for a natural-language query.
 
@@ -1908,18 +1912,45 @@ def query(
                     )
                     return pt
 
-                bm25 = BM25Index(
-                    store,
-                    identifier_fragment_tokenization=index_config.identifier_fragment_tokenization,
-                )
-                stored_edges = store.get_edges()
-                graph = DependencyGraph.from_edges(stored_edges)
-
-                if graph.file_edge_count == 0 and graph.file_count > 1:
-                    co_dir_added = graph.add_co_directory_edges()
-                    logger.info(
-                        "Added %d co-directory edges (cached index had 0 edges)", co_dir_added
+                if runtime is not None:
+                    current_generation_id = read_generation_id(store)
+                    snapshot = runtime.get_or_build(
+                        cache_key,
+                        str(cache.db_path(cache_key)),
+                        current_generation_id,
+                        index_config,
                     )
+                else:
+                    snapshot = None
+                if snapshot is not None:
+                    store.close()
+                    search_store = snapshot.store
+                    bm25 = snapshot.bm25
+                    graph = snapshot.graph
+                    all_chunks_cached = snapshot.all_chunks
+                    surrogate_lookup = snapshot.surrogate_lookup
+                    modules_cached = snapshot.modules
+                    search_guard: AbstractContextManager[object] = snapshot.lock
+                else:
+                    search_store = store
+                    bm25 = BM25Index(
+                        store,
+                        identifier_fragment_tokenization=index_config.identifier_fragment_tokenization,
+                    )
+                    stored_edges = store.get_edges()
+                    graph = DependencyGraph.from_edges(stored_edges)
+
+                    if graph.file_edge_count == 0 and graph.file_count > 1:
+                        co_dir_added = graph.add_co_directory_edges()
+                        logger.info(
+                            "Added %d co-directory edges (cached index had 0 edges)", co_dir_added
+                        )
+                    # Pre-load all chunks into memory before parallel search so the
+                    # vector thread has no dependency on the SQLite store connection.
+                    all_chunks_cached = store.get_chunks()
+                    surrogate_lookup = _surrogate_lookup(store, all_chunks_cached, index_config)
+                    modules_cached = _modules_or_raise(store, index_config)
+                    search_guard = nullcontext()
 
                 top_k = _compute_top_k(chunk_count)
                 vector_top_k = _compute_vector_top_k(
@@ -1930,11 +1961,6 @@ def query(
                     bm25_top_k=top_k,
                     total_chunks=chunk_count,
                 )
-                # Pre-load all chunks into memory before parallel search so the
-                # vector thread has no dependency on the SQLite store connection.
-                all_chunks_cached = store.get_chunks()
-                surrogate_lookup = _surrogate_lookup(store, all_chunks_cached, index_config)
-                modules_cached = _modules_or_raise(store, index_config)
                 if timing is not None:
                     timing.index_ms = _elapsed_ms(t0)
                 t_search = time.perf_counter()
@@ -1947,7 +1973,10 @@ def query(
                 # calling thread.  BM25 must stay on the creating thread because
                 # SQLite connections are not thread-safe; the vector path uses only
                 # pre-loaded numpy arrays and requires no store access.
-                with ThreadPoolExecutor(max_workers=1) as _pool:
+                # search_guard additionally serializes access to a shared warm
+                # snapshot's store connection across separate query() calls when
+                # a runtime is used; it is a no-op context manager otherwise.
+                with search_guard, ThreadPoolExecutor(max_workers=1) as _pool:
                     _vec_future = _pool.submit(
                         _vector_search_precomputed,
                         cached_npz,
@@ -1968,7 +1997,7 @@ def query(
                             expansion_prov,
                         ) = _bm25_search_with_boosts(
                             bm25,
-                            store,
+                            search_store,
                             question,
                             top_k,
                             all_chunks_cached,
@@ -1982,7 +2011,7 @@ def query(
                         symbol_seeds = []
                         module_boost = []
                     splade_results = _splade_search_or_raise(
-                        store,
+                        search_store,
                         question,
                         index_config,
                         splade_top_k,
@@ -2040,11 +2069,12 @@ def query(
                             },
                         )
                     )
-                query_avg_idf = (
-                    bm25.avg_idf(question)
-                    if vector_results is not None or splade_results is not None
-                    else None
-                )
+                with search_guard:
+                    query_avg_idf = (
+                        bm25.avg_idf(question)
+                        if vector_results is not None or splade_results is not None
+                        else None
+                    )
                 # Cross-encoder reranker: enabled only when index_config.rerank is set.
                 _reranker = _maybe_reranker(index_config)
                 bundle = assemble_context(

@@ -185,7 +185,13 @@ def _decode_edge_evidence(raw: object) -> list[str]:
 class IndexStore:
     """SQLite-backed persistence for chunks, edges, and metadata."""
 
-    def __init__(self, db_path: str | Path, *, delete_dir_on_close: bool = False) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        delete_dir_on_close: bool = False,
+        check_same_thread: bool = True,
+    ) -> None:
         """Open (creating if absent) the SQLite store at `db_path`.
 
         `delete_dir_on_close` opts into deleting `db_path`'s *entire parent
@@ -194,10 +200,17 @@ class IndexStore:
         exclusively to this store (e.g. a fresh `tempfile.mkdtemp()`); a
         shared or otherwise meaningful directory would have its other
         contents silently deleted too.
+
+        `check_same_thread=False` lets the returned connection be used from
+        threads other than the one that opened it. Only pass it when the
+        caller independently serializes every operation on this store (a
+        single lock around each call) — sqlite3 connections are not safe
+        for genuinely concurrent use across threads regardless of this
+        flag, which only disables Python's own thread-affinity check.
         """
         self._db_path = str(db_path)
         self._delete_dir_on_close = delete_dir_on_close
-        self._conn = sqlite3.connect(self._db_path)
+        self._conn = sqlite3.connect(self._db_path, check_same_thread=check_same_thread)
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self.create_schema()
