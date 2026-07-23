@@ -1514,6 +1514,7 @@ def _finalize_context_bundle(
     metadata_timing: PipelineTiming | None,
     index_revision: str,
     freshness: ContextFreshness,
+    post_search_at: float | None = None,
 ) -> ContextBundle:
     _attach_vector_metadata(bundle, index_config)
     _attach_index_metadata(
@@ -1523,7 +1524,17 @@ def _finalize_context_bundle(
         total_repo_tokens=total_repo_tokens,
     )
     if timing is not None:
-        timing.assemble_ms = bundle.retrieval_metadata.assembly_time_ms
+        # post_search_at brackets everything from just after the search phase
+        # to the end of finalize (assemble_context's own call overhead, vector/
+        # index metadata attachment, and receipt building) so assemble_ms is
+        # not silently understated by assembly_time_ms's narrower internal
+        # measurement -- the gap between the two was material on small repos,
+        # where fixed per-call overhead is a larger fraction of total runtime.
+        timing.assemble_ms = (
+            _elapsed_ms(post_search_at)
+            if post_search_at is not None
+            else bundle.retrieval_metadata.assembly_time_ms
+        )
         timing.total_ms = _elapsed_ms(started_at)
     bundle.retrieval_metadata.retrieval_time_ms = _elapsed_ms(started_at)
     if label:
@@ -1854,6 +1865,8 @@ def query(
                     pt = passthrough_context(cached_chunks, question, effective_budget)
                     if timing is not None:
                         timing.strategy = "passthrough"
+                        timing.index_ms = 0.0
+                        timing.assemble_ms = _elapsed_ms(t0)
                     if trace is not None:
                         trace.metadata["strategy"] = "passthrough"
                     pt.retrieval_metadata.retrieval_time_ms = _elapsed_ms(t0)
@@ -1905,7 +1918,8 @@ def query(
                 all_chunks_cached = store.get_chunks()
                 surrogate_lookup = _surrogate_lookup(store, all_chunks_cached, index_config)
                 modules_cached = _modules_or_raise(store, index_config)
-
+                if timing is not None:
+                    timing.index_ms = _elapsed_ms(t0)
                 t_search = time.perf_counter()
                 cached_npz = cache.vector_path(
                     cache_key,
@@ -1984,6 +1998,7 @@ def query(
                         _elapsed_ms(t_search),
                     )
 
+                t_post_search = time.perf_counter()
                 if timing is not None:
                     timing.search_ms = _elapsed_ms(t_search)
                 if trace is not None:
@@ -2038,6 +2053,7 @@ def query(
                     metadata_timing=metadata_timing,
                     index_revision=index_revision,
                     freshness=_freshness_for_query(refresh),
+                    post_search_at=t_post_search,
                 )
             finally:
                 store.close()
@@ -2260,9 +2276,11 @@ def query(
             index_revision = index_revision_from_store(store)
             # Passthrough: entire repo fits within budget
             if effective_budget >= total_repo_tokens:
+                t_assemble = time.perf_counter()
                 pt = passthrough_context(all_chunks, question, effective_budget)
                 if timing is not None:
                     timing.strategy = "passthrough"
+                    timing.assemble_ms = _elapsed_ms(t_assemble)
                     timing.total_ms = _elapsed_ms(t0)
                 if trace is not None:
                     trace.metadata["strategy"] = "passthrough"
@@ -2362,6 +2380,7 @@ def query(
                     _elapsed_ms(t6),
                 )
 
+            t_post_search_miss = time.perf_counter()
             if timing is not None:
                 timing.search_ms = _elapsed_ms(t6)
             if trace is not None:
@@ -2419,6 +2438,7 @@ def query(
             metadata_timing=metadata_timing,
             index_revision=index_revision,
             freshness=_freshness_for_query(refresh),
+            post_search_at=t_post_search_miss,
         )
     finally:
         cleanup()
