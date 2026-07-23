@@ -12,7 +12,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -24,6 +24,9 @@ from archex.benchmark.bounded_rerank import (
     symbolic_scores,
 )
 from archex.benchmark.coverage_candidate import (
+    DEFAULT_NEIGHBOR_MIN_CONFIDENCE as _DEFAULT_NEIGHBOR_MIN_CONFIDENCE,
+)
+from archex.benchmark.coverage_candidate import (
     apply_coverage_seed_admission as _apply_coverage_seed_admission,
 )
 from archex.benchmark.coverage_candidate import (
@@ -31,6 +34,9 @@ from archex.benchmark.coverage_candidate import (
 )
 from archex.benchmark.coverage_candidate import (
     coverage_seed_decisions as _coverage_seed_decisions,
+)
+from archex.benchmark.coverage_candidate import (
+    has_identifier_evidence as _has_identifier_evidence,
 )
 from archex.benchmark.graph_multihop import (
     ExpansionAction,
@@ -90,6 +96,7 @@ from archex.reporting import count_tokens
 from archex.serve.modality import BudgetTier, budget_tier, classify_query
 from archex.serve.packing import (
     PackDecision,
+    PackedRegion,
     PackingCandidate,
     PackingPlan,
     PackingSignals,
@@ -1643,6 +1650,7 @@ class _PackingPrep:
     outcomes: dict[str, RegionCompression]
     original_tokens_by_id: dict[str, int]
     score_by_id: dict[str, float]
+    admission_by_id: dict[str, bool]
     intent: QueryIntent
     protect_code: bool
     tier: BudgetTier
@@ -1670,6 +1678,22 @@ def _receipt_protection_reason(item: ContextReceiptItem | None) -> str | None:
     return None
 
 
+def _is_admission_chunk(item: ContextReceiptItem | None) -> bool:
+    """Whether *item* was appended by M0.2/M0.4 seed/neighbor admission.
+
+    Admission-appended chunks carry a ``CoverageSeedDecision.score`` as their
+    ``RankedChunk.final_score`` — a raw evidence-weight integer on a completely
+    different scale from the base query's own 0..~1 relevance score. Mixing the
+    two when computing a shared "top score" lets a weakly-evidenced admitted
+    chunk's inflated score dwarf the base query's real top hit, corrupting the
+    score-fraction protection check for every other chunk in the bundle.
+    """
+    return item is not None and any(
+        reason.startswith("coverage_seed:") or reason.startswith("coverage_neighbor:")
+        for reason in item.reason_codes
+    )
+
+
 def _prepare_packing(
     bundle: ContextBundle,
     *,
@@ -1693,19 +1717,38 @@ def _prepare_packing(
     meta = bundle.retrieval_metadata
     seed_paths = set(meta.seed_file_paths)
     expanded_paths = set(meta.expanded_file_paths)
-    top_score = max((rc.final_score for rc in bundle.chunks), default=0.0)
     receipt_items = (
         {item.handle: item for item in bundle.receipt.returned_context}
         if bundle.receipt is not None
         else {}
     )
+    if preserve_seed_context:
+        top_score = max((rc.final_score for rc in bundle.chunks), default=0.0)
+    else:
+        # The context candidate's bundle mixes the base query's own scores with
+        # admission-appended `CoverageSeedDecision.score` values (see
+        # `_is_admission_chunk`); comparing across that scale would corrupt the
+        # `high_score` passthrough check below, so the base query's own top
+        # score is the only valid reference point for "how relevant is this
+        # optional region relative to what the query actually found".
+        top_score = max(
+            (
+                rc.final_score
+                for rc in bundle.chunks
+                if not _is_admission_chunk(receipt_items.get(chunk_handle(rc.chunk.id)))
+            ),
+            default=0.0,
+        )
 
     direct_by_id: dict[str, bool] = {}
     protection_reason_by_id: dict[str, str] = {}
+    admission_by_id: dict[str, bool] = {}
     file_direct_counts: dict[str, int] = {}
     for index, ranked in enumerate(bundle.chunks):
         chunk = ranked.chunk
-        receipt_reason = _receipt_protection_reason(receipt_items.get(chunk_handle(chunk.id)))
+        item = receipt_items.get(chunk_handle(chunk.id))
+        admission_by_id[chunk.id] = _is_admission_chunk(item)
+        receipt_reason = _receipt_protection_reason(item)
         if receipt_reason is not None:
             direct = True
             protection_reason = receipt_reason
@@ -1758,7 +1801,22 @@ def _prepare_packing(
             required=direct,
             protect_code=protect_code,
         )
-        eligible = outcome is not None and outcome.mode is not CompressionMode.PASSTHROUGH_REQUIRED
+        # `compress_region` can pick STRUCTURAL_CODE_ELISION as a genuine
+        # *compression* style (a shrunk-but-real skeleton), sharing the exact
+        # enum tag `_bundle_returned_regions` uses to zero out region/line
+        # recall credit for a fully elided-to-anchor region. For the context
+        # candidate that conflation silently drops credit for a region the
+        # packer only meant to shrink, not hide — so it never offers that mode
+        # as a COMPRESS outcome; the packer falls back to a true anchor ELIDE
+        # (an explicit, correctly-labeled fetch handle) or plain INCLUDE.
+        structural_elision_as_compress = (
+            outcome is not None and outcome.mode is CompressionMode.STRUCTURAL_CODE_ELISION
+        )
+        eligible = (
+            outcome is not None
+            and outcome.mode is not CompressionMode.PASSTHROUGH_REQUIRED
+            and not (not preserve_seed_context and structural_elision_as_compress)
+        )
         if eligible and outcome is not None:
             outcomes[chunk.id] = outcome
             compressed_tokens = count_tokens(outcome.content)
@@ -1796,6 +1854,7 @@ def _prepare_packing(
         outcomes=outcomes,
         original_tokens_by_id=original_tokens_by_id,
         score_by_id=score_by_id,
+        admission_by_id=admission_by_id,
         intent=intent,
         protect_code=protect_code,
         tier=budget_tier(bundle.token_budget),
@@ -3215,6 +3274,13 @@ _COVERAGE_SEED_CAP = 32
 _COVERAGE_DIRECT_EVIDENCE_CAP = 64
 _COVERAGE_NEIGHBOR_CAP = 24
 
+# The M0.4 context candidate raises the neighbor-admission confidence floor
+# above the shared module default (0.5): a graph edge alone is a weaker
+# admission signal than a direct query match, so the context candidate's
+# file-set narrowing (see `_rank_candidate_bundle`'s `tighten_admission`)
+# requires a "bounded-confidence" edge, not merely "not the lowest tier".
+_CONTEXT_CANDIDATE_NEIGHBOR_MIN_CONFIDENCE = 0.75
+
 
 def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Benchmark-only bounded seed-admission candidate; product defaults stay unchanged."""
@@ -3320,12 +3386,20 @@ def _rank_candidate_bundle(
     repo_path: Path,
     *,
     strategy: Strategy,
-    restrict_neighbor_admission: bool = False,
+    tighten_admission: bool = False,
 ) -> tuple[ContextBundle, IndexConfig, PipelineTiming, dict[str, str]]:
     """Compose M0.2 admission and M0.3 tail ranking without packing.
 
-    The M0.4 context candidate restricts graph expansion to files that also
-    carry direct query evidence; M0.2/M0.3 retain their broad graph policy.
+    The M0.4 context candidate (``tighten_admission=True``) narrows file-set
+    admission to evidence a product query could actually justify: seed files
+    need an explicit identifier-tier match (a symbol/path/lexical hit alone is
+    not enough — measured against the real corpus, "adapter"/"language"-style
+    symbol and path matches are shared by every file in a directory family and
+    carry no real discriminating power, mirroring `rank_candidate.py`'s own
+    documented lesson for the ranking lane), and a neighbor file must also
+    carry that same identifier-tier backing plus a bounded-confidence graph
+    edge, not merely the module's permissive floor. M0.2/M0.3 retain their
+    original broad policy unchanged.
     """
     from archex.api import index_repository
     from archex.index.graph import DependencyGraph
@@ -3351,7 +3425,14 @@ def _rank_candidate_bundle(
             limit=_COVERAGE_DIRECT_EVIDENCE_CAP,
         )
         seed_cap = _bounded_seed_cap(direct_decisions, default_cap=_COVERAGE_SEED_CAP)
-        seed_decisions = direct_decisions[:seed_cap]
+        seed_pool = direct_decisions
+        identifier_only_excluded: list[str] = []
+        if tighten_admission:
+            seed_pool = [d for d in direct_decisions if _has_identifier_evidence(d.evidence)]
+            identifier_only_excluded = [
+                d.file for d in direct_decisions if not _has_identifier_evidence(d.evidence)
+            ]
+        seed_decisions = seed_pool[:seed_cap]
         seed_admission = _apply_coverage_seed_admission(
             bundle,
             store,
@@ -3364,13 +3445,19 @@ def _rank_candidate_bundle(
             for edge in graph.file_edges()
         ]
         neighbor_cap = _bounded_neighbor_cap(direct_decisions, default_cap=_COVERAGE_NEIGHBOR_CAP)
+        neighbor_min_confidence = (
+            _CONTEXT_CANDIDATE_NEIGHBOR_MIN_CONFIDENCE
+            if tighten_admission
+            else _DEFAULT_NEIGHBOR_MIN_CONFIDENCE
+        )
         neighbor_decisions = _coverage_neighbor_decisions(
             edges,
             seed_files={decision.file for decision in seed_decisions},
             existing_files={ranked.chunk.file_path for ranked in seed_admission.bundle.chunks},
-            direct_decisions=direct_decisions,
+            direct_decisions=seed_pool,
             limit=neighbor_cap,
-            require_direct_evidence=restrict_neighbor_admission,
+            require_direct_evidence=tighten_admission,
+            min_confidence=neighbor_min_confidence,
         )
         neighbor_admission = _apply_coverage_seed_admission(
             seed_admission.bundle,
@@ -3391,9 +3478,11 @@ def _rank_candidate_bundle(
         "candidate_seed_cap_bounded": str(seed_cap < _COVERAGE_SEED_CAP),
         "candidate_seed_admitted": ",".join(decision.file for decision in seed_admission.admitted)
         or "none",
+        "candidate_seed_non_identifier_excluded": ",".join(identifier_only_excluded) or "none",
         "candidate_neighbor_cap": str(neighbor_cap),
         "candidate_neighbor_cap_bounded": str(neighbor_cap < _COVERAGE_NEIGHBOR_CAP),
-        "candidate_neighbor_requires_direct_evidence": str(restrict_neighbor_admission),
+        "candidate_neighbor_requires_direct_evidence": str(tighten_admission),
+        "candidate_neighbor_min_confidence": f"{neighbor_min_confidence:.2f}",
         "candidate_neighbor_admitted": ",".join(
             decision.file for decision in neighbor_admission.admitted
         )
@@ -3401,6 +3490,46 @@ def _rank_candidate_bundle(
         "rank_promoted_files": ",".join(reranked.promoted_files) or "none",
     }
     return reranked.bundle, effective_config, timing, provenance
+
+
+def _protect_base_query_regions(plan: PackingPlan, prep: _PackingPrep) -> PackingPlan:
+    """Never fully drop a base-query region's source lines from the context candidate.
+
+    The context candidate's admission tightening already keeps its seed/neighbor
+    tail small and evidence-backed; the score-model packer's SKIP/ELIDE
+    downgrades exist to trim *that* speculative tail, not to re-adjudicate what
+    the base query itself already ranked into its own bundle. A base-query
+    region can still legitimately score "optional" (it did not clear the
+    receipt-evidence or high-score bar) and get shrunk, but silently discarding
+    its source lines entirely would regress required-file/region/line recall
+    below the same-run `archex_query` control on a signal (query relevance
+    versus admission provenance) that has nothing to do with why it would be
+    dropped. Upgrade any SKIP/ELIDE decision on a non-admission-appended region
+    to the richest representation that still fits the remaining budget:
+    COMPRESS (real, shrunk content) when viable, else plain INCLUDE.
+    """
+    candidates_by_id = {c.signals.candidate_id: c for c in prep.candidates}
+    remaining = plan.token_budget - plan.included_tokens
+    regions: list[PackedRegion] = []
+    for region in plan.regions:
+        if region.decision in (
+            PackDecision.SKIP,
+            PackDecision.ELIDE,
+        ) and not prep.admission_by_id.get(region.candidate_id, False):
+            candidate = candidates_by_id[region.candidate_id]
+            if region.candidate_id in prep.outcomes:
+                target_decision = PackDecision.COMPRESS
+                target_cost = candidate.compressed_token_count
+            else:
+                target_decision = PackDecision.INCLUDE
+                target_cost = candidate.signals.token_count
+            delta = target_cost - region.tokens_charged
+            if delta <= remaining:
+                remaining -= delta
+                region = replace(region, decision=target_decision, tokens_charged=target_cost)
+        regions.append(region)
+    included_tokens = sum(region.tokens_charged for region in regions)
+    return replace(plan, regions=regions, included_tokens=included_tokens)
 
 
 def _pack_context_candidate_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
@@ -3411,6 +3540,7 @@ def _pack_context_candidate_bundle(bundle: ContextBundle, *, question: str) -> _
         token_budget=bundle.token_budget,
         budget_tier=prep.tier,
     )
+    plan = _protect_base_query_regions(plan, prep)
     packing = _apply_packing(bundle, plan, prep)
     provenance = dict(packing.provenance)
     provenance["packing_protection_policy"] = "direct_evidence_and_graph_context"
@@ -3456,7 +3586,7 @@ def run_archex_query_context_candidate(
         task,
         repo_path,
         strategy=strategy,
-        restrict_neighbor_admission=True,
+        tighten_admission=True,
     )
     packing = _pack_context_candidate_bundle(bundle, question=task.question)
     result = _assemble_query_result(
