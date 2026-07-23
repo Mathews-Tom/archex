@@ -35,6 +35,43 @@ def test_render_html_has_no_remote_references(impact_diff_repo: Path) -> None:
     assert "cdn" not in html.lower()
 
 
+def test_render_html_changed_file_paths_are_clickable_editor_links(
+    impact_diff_repo: Path,
+) -> None:
+    _edit_hub(impact_diff_repo)
+    artifact = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")
+
+    html = render_html(artifact)
+
+    expected_href = f'href="vscode://file/{artifact.source_root}/hub.py:5"'
+    assert expected_href in html
+    assert '<a class="file-link"' in html
+
+
+def test_render_html_symbol_candidate_lines_are_clickable(impact_diff_repo: Path) -> None:
+    _edit_hub(impact_diff_repo)
+    artifact = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")
+    shared_helper = next(
+        c for c in artifact.diff.symbol_candidates if c.symbol_name == "shared_helper"
+    )
+
+    html = render_html(artifact)
+
+    expected_href = f'href="vscode://file/{artifact.source_root}/hub.py:{shared_helper.start_line}"'
+    assert expected_href in html
+
+
+def test_render_html_path_list_links_have_no_line_suffix(impact_diff_repo: Path) -> None:
+    _edit_hub(impact_diff_repo)
+    artifact = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")
+
+    html = render_html(artifact)
+
+    interface_path = artifact.diff.affected_interfaces[0].path
+    expected_href = f'href="vscode://file/{artifact.source_root}/{interface_path}"'
+    assert expected_href in html
+
+
 def test_render_html_is_a_single_self_contained_document(impact_diff_repo: Path) -> None:
     _edit_hub(impact_diff_repo)
     artifact = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")

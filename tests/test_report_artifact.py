@@ -56,6 +56,7 @@ def test_build_analysis_artifact_reports_full_provenance(impact_diff_repo: Path)
     assert artifact.freshness == ContextFreshness.CLEAN
     assert artifact.redaction_mode == RedactionMode.REDACTED
     assert artifact.parser_versions.get("python")
+    assert artifact.source_root == str(impact_diff_repo)
 
 
 def test_build_analysis_artifact_reports_diff_symbol_risk(impact_diff_repo: Path) -> None:
