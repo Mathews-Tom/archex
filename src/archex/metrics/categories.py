@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 CONTEXT_RETRIEVAL = "context_retrieval"
 STRUCTURAL_TOOLS = "structural_tools"
 
-_CONTEXT_RETRIEVAL_TOOLS = frozenset({"query", "scout", "query_repo", "scout_repo"})
+_CONTEXT_RETRIEVAL_TOOLS = frozenset({"context", "query", "scout", "query_repo", "scout_repo"})
 _STRUCTURAL_TOOLS = frozenset(
     {
         "analyze",

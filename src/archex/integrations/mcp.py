@@ -14,6 +14,7 @@ from typing import Any
 from archex.api import (
     analyze,
     compare,
+    context,
     file_outline,
     file_tree,
     get_file_token_count,
@@ -27,6 +28,12 @@ from archex.api import (
     search_symbols,
 )
 from archex.config import load_config, load_index_config
+from archex.context_facade import (
+    ContextBudgets,
+    ContextFilters,
+    ContextRequest,
+    render_context_markdown,
+)
 from archex.explain import (
     ExplainError,
     explain_file,
@@ -71,7 +78,7 @@ from archex.onboarding import OnboardingError, render_onboarding_markdown
 from archex.reporting import compute_meta, count_tokens
 from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, ScoutResult, render_scout
 from archex.serve.compare import validate_dimensions
-from archex.serve.intent import DEFAULT_TOKEN_BUDGET
+from archex.serve.intent import DEFAULT_TOKEN_BUDGET, QueryIntent
 from archex.serve.renderers.xml import render_xml, render_xml_envelope
 from archex.serve.runtime import QueryRuntime
 from archex.utils import resolve_source
@@ -205,6 +212,93 @@ def handle_query_repo(
     )
 
 
+def handle_context(
+    repo_url: str,
+    query_text: str,
+    intent: str | None = None,
+    profile: str | None = None,
+    filters: dict[str, Any] | None = None,
+    budgets: dict[str, Any] | None = None,
+    handles: list[str] | None = None,
+    output_format: str = "json",
+) -> str:
+    """Retrieve the primary agent-facing context result for a repository question.
+
+    Args:
+        repo_url: Local path or HTTP(S) URL of the repository to query.
+        query_text: Natural-language question to answer from the codebase.
+        intent: Optional query-intent override — pins the scoring-weight
+            preset and default token budget instead of auto-classifying
+            from `query_text`.
+        profile: Optional named retrieval profile — 'fast', 'balanced', or
+            'deep'. Omit to use the repo's configured retrieval settings.
+        filters: Optional `{include_paths, exclude_paths, languages}`
+            deterministic post-retrieval candidate filter.
+        budgets: Optional `{token_budget}` explicit budget override.
+        handles: Optional exact fetch handles — bypasses broad search and
+            returns exactly these candidates.
+        output_format: 'json' or 'markdown'. Defaults to 'json'.
+
+    Returns:
+        JSON envelope with content, candidate_map, fetch_handles,
+        relation_paths, route, receipt, next_action, and the standard
+        _meta efficiency block.
+    """
+    if not query_text.strip():
+        raise ValueError("query must not be empty")
+    if output_format not in {"json", "markdown"}:
+        raise ValueError(f"format must be one of ['json', 'markdown'], got {output_format!r}")
+    try:
+        request = ContextRequest(
+            query=query_text,
+            intent=QueryIntent(intent) if intent is not None else None,
+            profile=RetrievalProfile(profile) if profile is not None else None,
+            filters=ContextFilters(**(filters or {})),
+            budgets=ContextBudgets(**(budgets or {})),
+            handles=list(handles or []),
+        )
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"invalid context request: {exc}") from exc
+
+    source = resolve_source(repo_url)
+    pt = PipelineTiming()
+    result = context(source, request, timing=pt)
+
+    content: Any
+    if output_format == "markdown":
+        content = render_context_markdown(result)
+    else:
+        content = [chunk.model_dump(mode="json") for chunk in result.selected_code]
+
+    raw_file_paths = sorted({c.chunk.file_path for c in result.bundle.chunks})
+    raw_tokens = get_files_token_count(source, raw_file_paths)
+    response_text = content if isinstance(content, str) else json.dumps(content)
+    meta = compute_meta(
+        tool_name="context",
+        response_text=response_text,
+        raw_file_tokens=raw_tokens or 0,
+        strategy="context_facade",
+        cached=pt.cached,
+        index_time_ms=pt.index_ms,
+        query_time_ms=pt.total_ms,
+        delta=pt.delta_meta,
+    )
+    _record_query_metrics(source, result.bundle, raw_tokens, tool_name="context")
+    return json.dumps(
+        {
+            "content": content,
+            "candidate_map": [item.model_dump(mode="json") for item in result.candidate_map],
+            "fetch_handles": result.fetch_handles,
+            "relation_paths": result.relation_paths.model_dump(mode="json"),
+            "route": result.route.model_dump(mode="json"),
+            "receipt": _receipt_payload(result.bundle.receipt),
+            "next_action": result.next_action.value if result.next_action else None,
+            "_meta": meta.model_dump(),
+        },
+        indent=2,
+    )
+
+
 def handle_scout_repo(
     repo_url: str,
     question: str,
@@ -251,6 +345,8 @@ def _record_query_metrics(
     source: RepoSource,
     bundle: ContextBundle,
     raw_tokens: int | None,
+    *,
+    tool_name: str = "query_repo",
 ) -> None:
     try:
         policy = resolve_metrics_policy()
@@ -261,7 +357,7 @@ def _record_query_metrics(
             source,
             bundle,
             surface="mcp",
-            tool_name="query_repo",
+            tool_name=tool_name,
             tokens_raw_equivalent=raw_tokens,
             whole_repo_tokens=whole_repo_tokens,
         )
@@ -1188,6 +1284,27 @@ async def _run_mcp_tool(
         return await loop.run_in_executor(
             None, handle_query_repo, repo_url, question, budget, runtime, profile_arg
         )
+    if name == "context":
+        context_repo_url: str = arguments["repo_url"]
+        context_query: str = arguments["query"]
+        context_intent: str | None = arguments.get("intent")
+        context_profile: str | None = arguments.get("profile")
+        context_filters: dict[str, Any] | None = arguments.get("filters")
+        context_budgets: dict[str, Any] | None = arguments.get("budgets")
+        context_handles: list[str] | None = arguments.get("handles")
+        context_format: str = arguments.get("format", "json")
+        return await loop.run_in_executor(
+            None,
+            handle_context,
+            context_repo_url,
+            context_query,
+            context_intent,
+            context_profile,
+            context_filters,
+            context_budgets,
+            context_handles,
+            context_format,
+        )
     if name == "compare_repos":
         repo_a: str = arguments["repo_a"]
         repo_b: str = arguments["repo_b"]
@@ -1468,6 +1585,108 @@ def build_server(runtime: QueryRuntime | None = None) -> Any:
                         },
                     },
                     "required": ["repo_url", "question"],
+                },
+            ),
+            mcp_types.Tool(
+                name="context",
+                description=(
+                    "Primary agent-facing context retrieval: query, intent, profile, "
+                    "filters, budgets, and handles as one contract. Returns a compact "
+                    "candidate map, exact fetch handles, selected code, relation paths, "
+                    "the route decision, a receipt, and a recommended next action. A "
+                    "thin facade over query_repo — query_repo and the other specialized "
+                    "tools remain fully supported."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "repo_url": {
+                            "type": "string",
+                            "description": (
+                                "Local filesystem path or HTTP(S) Git URL of the repository."
+                            ),
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": (
+                                "Natural-language question to answer from the codebase."
+                            ),
+                        },
+                        "intent": {
+                            "type": "string",
+                            "enum": [intent.value for intent in QueryIntent],
+                            "description": (
+                                "Optional: pin the query intent instead of "
+                                "auto-classifying it from the query text. Determines "
+                                "the scoring-weight preset and default token budget."
+                            ),
+                        },
+                        "profile": {
+                            "type": "string",
+                            "enum": [profile.value for profile in RetrievalProfile],
+                            "description": (
+                                "Optional named retrieval profile. Omit to use the "
+                                "repo's configured retrieval settings unchanged."
+                            ),
+                        },
+                        "filters": {
+                            "type": "object",
+                            "description": (
+                                "Optional deterministic post-retrieval candidate "
+                                "filters — never changes ranking or adds candidates."
+                            ),
+                            "properties": {
+                                "include_paths": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": (
+                                        "fnmatch glob(s) a candidate's file path must match."
+                                    ),
+                                },
+                                "exclude_paths": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": (
+                                        "fnmatch glob(s) that exclude a candidate by file path."
+                                    ),
+                                },
+                                "languages": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": (
+                                        "Restrict returned candidates to these languages."
+                                    ),
+                                },
+                            },
+                        },
+                        "budgets": {
+                            "type": "object",
+                            "description": "Optional token-budget input.",
+                            "properties": {
+                                "token_budget": {
+                                    "type": "integer",
+                                    "description": (
+                                        "Explicit token budget override. Omit to resolve "
+                                        "from 'intent' or the query's own auto-scaling."
+                                    ),
+                                },
+                            },
+                        },
+                        "handles": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Optional exact fetch handle(s) — bypasses broad search "
+                                "and returns exactly these candidates."
+                            ),
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "description": "Output format. Defaults to 'json'.",
+                        },
+                    },
+                    "required": ["repo_url", "query"],
                 },
             ),
             mcp_types.Tool(
