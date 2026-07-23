@@ -321,6 +321,30 @@ class TestHandleQueryRepo:
         source = mock_query.call_args[0][0]
         assert source.url == "https://github.com/example/repo"
 
+    def test_passes_runtime_through_to_query(self) -> None:
+        from archex.serve.runtime import QueryRuntime
+
+        bundle = _make_context_bundle()
+        runtime = QueryRuntime()
+        try:
+            with (
+                patch("archex.integrations.mcp.query", return_value=bundle) as mock_query,
+                patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+            ):
+                handle_query_repo("/fake/repo", "question?", runtime=runtime)
+            assert mock_query.call_args.kwargs["runtime"] is runtime
+        finally:
+            runtime.close()
+
+    def test_omits_runtime_by_default(self) -> None:
+        bundle = _make_context_bundle()
+        with (
+            patch("archex.integrations.mcp.query", return_value=bundle) as mock_query,
+            patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+        ):
+            handle_query_repo("/fake/repo", "question?")
+        assert mock_query.call_args.kwargs["runtime"] is None
+
 
 class TestHandleScoutRepo:
     def test_returns_scout_markdown_with_meta(self) -> None:
@@ -565,6 +589,42 @@ class TestRunStdioServer:
             with pytest.raises(ImportError, match="mcp"):
                 await run_stdio_server()
 
+    @pytest.mark.asyncio
+    async def test_run_stdio_server_creates_and_closes_query_runtime(self) -> None:
+        """One QueryRuntime lives for the server's lifetime and is closed on shutdown."""
+        from collections.abc import AsyncIterator
+        from contextlib import asynccontextmanager
+
+        from archex.integrations.mcp import run_stdio_server
+        from archex.serve.runtime import QueryRuntime
+
+        captured: dict[str, object] = {}
+
+        @asynccontextmanager
+        async def fake_stdio_server() -> AsyncIterator[tuple[None, None]]:
+            yield (None, None)
+
+        class FakeServer:
+            def create_initialization_options(self) -> object:
+                return object()
+
+            async def run(self, *args: object, **kwargs: object) -> None:
+                return None
+
+        def fake_build_server(runtime: QueryRuntime | None = None) -> object:
+            captured["runtime"] = runtime
+            return FakeServer()
+
+        with (
+            patch("archex.integrations.mcp.build_server", side_effect=fake_build_server),
+            patch("mcp.server.stdio.stdio_server", fake_stdio_server),
+            patch("archex.serve.runtime.QueryRuntime.close") as mock_close,
+        ):
+            await run_stdio_server()
+
+        assert isinstance(captured["runtime"], QueryRuntime)
+        mock_close.assert_called_once()
+
 
 class TestBuildServer:
     def test_returns_server_instance(self) -> None:
@@ -725,6 +785,103 @@ class TestBuildServer:
         assert "get_impact" in tool_names
         assert "explain_target" in tool_names
         assert "generate_onboarding" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_call_tool_query_repo_passes_explicit_runtime_to_handler(self) -> None:
+        from archex.serve.runtime import QueryRuntime
+
+        runtime = QueryRuntime()
+        try:
+            with patch(
+                "archex.integrations.mcp.handle_query_repo", return_value="<context/>"
+            ) as mock_handle:
+                server = build_server(runtime=runtime)
+                from mcp import types as mcp_types
+
+                handler = server.request_handlers[mcp_types.CallToolRequest]
+                list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+                await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
+                req = mcp_types.CallToolRequest(
+                    method="tools/call",
+                    params=mcp_types.CallToolRequestParams(
+                        name="query_repo",
+                        arguments={"repo_url": "/fake", "question": "what?"},
+                    ),
+                )
+                await handler(req)
+            assert mock_handle.call_args[0][3] is runtime
+        finally:
+            runtime.close()
+
+    @pytest.mark.asyncio
+    async def test_call_tool_query_repo_default_runtime_is_query_runtime_instance(self) -> None:
+        from archex.serve.runtime import QueryRuntime
+
+        with patch(
+            "archex.integrations.mcp.handle_query_repo", return_value="<context/>"
+        ) as mock_handle:
+            server = build_server()
+            from mcp import types as mcp_types
+
+            handler = server.request_handlers[mcp_types.CallToolRequest]
+            list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+            await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
+            req = mcp_types.CallToolRequest(
+                method="tools/call",
+                params=mcp_types.CallToolRequestParams(
+                    name="query_repo",
+                    arguments={"repo_url": "/fake", "question": "what?"},
+                ),
+            )
+            await handler(req)
+        passed_runtime = mock_handle.call_args[0][3]
+        assert isinstance(passed_runtime, QueryRuntime)
+
+    @pytest.mark.asyncio
+    async def test_query_repo_reuses_warm_snapshot_across_calls(
+        self, python_simple_repo: Path
+    ) -> None:
+        """End-to-end (unmocked): a second query_repo call against the same repo
+        through one server-owned runtime reuses the exact same warm snapshot."""
+        from archex.api import _cache_manager_for_source  # pyright: ignore[reportPrivateUsage]
+        from archex.models import Config, RepoSource
+        from archex.serve.runtime import QueryRuntime
+
+        runtime = QueryRuntime()
+        try:
+            server = build_server(runtime=runtime)
+            from mcp import types as mcp_types
+
+            handler = server.request_handlers[mcp_types.CallToolRequest]
+            list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+            await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
+
+            def _call(question: str) -> mcp_types.CallToolRequest:
+                return mcp_types.CallToolRequest(
+                    method="tools/call",
+                    params=mcp_types.CallToolRequestParams(
+                        name="query_repo",
+                        arguments={
+                            "repo_url": str(python_simple_repo),
+                            "question": question,
+                            "budget": 100,
+                        },
+                    ),
+                )
+
+            source = RepoSource(local_path=str(python_simple_repo))
+            cache_key = _cache_manager_for_source(source, Config()).cache_key(source)
+
+            await handler(_call("calculate_sum"))
+            first_snapshot = runtime._snapshots.get(cache_key)  # pyright: ignore[reportPrivateUsage]
+            assert first_snapshot is not None
+
+            await handler(_call("models"))
+            second_snapshot = runtime._snapshots.get(cache_key)  # pyright: ignore[reportPrivateUsage]
+
+            assert second_snapshot is first_snapshot
+        finally:
+            runtime.close()
 
 
 # ---------------------------------------------------------------------------
