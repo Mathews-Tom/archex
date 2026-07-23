@@ -15,6 +15,7 @@ from archex.benchmark.models import (
     Strategy,
 )
 from archex.benchmark.runner import AVAILABLE_STRATEGIES, DEFAULT_STRATEGIES, run_benchmark
+from archex.cache import CacheManager
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -133,6 +134,34 @@ class TestRunBenchmark:
         assert len(report.results) == 2
         assert report.median_latency_ms > 0
         assert report.p95_latency_ms >= report.median_latency_ms
+
+    def test_records_evaluated_revision_and_runtime_configuration(
+        self,
+        fixture_task: tuple[BenchmarkTask, Path],
+    ) -> None:
+        task, repo_path = fixture_task
+        options = BenchmarkRetrievalOptions(
+            module_prefilter=True,
+            freshness=True,
+            rerank_candidate_limit=32,
+        )
+
+        report = run_benchmark(
+            task,
+            strategies=[Strategy.RAW_FILES],
+            repo_path=repo_path,
+            retrieval_options=options,
+        )
+
+        assert report.provenance is not None
+        assert report.provenance.commit == CacheManager.git_head(str(repo_path))
+        assert report.provenance.config["token_budget"] == task.token_budget
+        assert report.provenance.config["languages"] == "all"
+        assert report.provenance.config["include_paths"] == []
+        assert report.provenance.config["strategies"] == [Strategy.RAW_FILES.value]
+        assert report.provenance.config["module_prefilter"] is True
+        assert report.provenance.config["freshness"] is True
+        assert report.provenance.config["rerank_candidate_limit"] == 32
 
     @REQUIRES_RG
     def test_baseline_tokens_from_raw_files(
