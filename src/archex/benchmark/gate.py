@@ -12,8 +12,11 @@ from archex.benchmark.baseline import (
 )
 from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runtime
     BenchmarkReport,
+    BenchmarkResult,
+    BenchmarkTask,
     DeltaBenchmarkResult,
     Strategy,
+    TaskCompletionResult,
 )
 
 # Tier 2.5 product-default `archex_query` minimum higher-is-better token
@@ -333,6 +336,144 @@ def check_strategy_non_regressions(
                         actual=actual,
                     )
                 )
+    return violations
+
+
+def check_zero_recall_non_regression(
+    reports: list[BenchmarkReport],
+    *,
+    candidate_strategy: Strategy,
+    control_strategy: Strategy,
+) -> list[BaselineGateViolation]:
+    """Flag any task where the candidate goes zero-recall but the control did not.
+
+    An absolute-threshold check already fails a zero-recall task outright
+    once its recall drops below ``min_recall``, but that says nothing about
+    whether the candidate *introduced* a zero-recall failure the control
+    did not have. This is the comparative half of the M3 promotion rule
+    "must not increase zero-recall tasks."
+    """
+    violations: list[BaselineGateViolation] = []
+    for report in reports:
+        results_by_strategy = {result.strategy: result for result in report.results}
+        control = results_by_strategy.get(control_strategy)
+        candidate = results_by_strategy.get(candidate_strategy)
+        if control is None or candidate is None:
+            continue  # already reported by check_strategy_non_regressions
+        if control.recall > 0.0 and candidate.recall <= 0.0:
+            violations.append(
+                BaselineGateViolation(
+                    task_id=report.task_id,
+                    strategy=candidate_strategy.value,
+                    metric="zero_recall_regression",
+                    baseline=control.recall,
+                    actual=candidate.recall,
+                )
+            )
+    return violations
+
+
+def check_language_family_non_regression(
+    reports: list[BenchmarkReport],
+    tasks_by_id: dict[str, BenchmarkTask],
+    *,
+    candidate_strategy: Strategy,
+    control_strategy: Strategy,
+    tolerance: float = 0.0,
+) -> list[BaselineGateViolation]:
+    """Flag any language whose candidate mean recall regresses behind its control mean.
+
+    One cross-family recall mean can hide a regression in a single language
+    behind gains in the others. Groups by ``BenchmarkTask.languages`` (a
+    multi-language task counts toward every language it declares) and
+    compares per-language means, so an improved aggregate can never mask a
+    hidden per-language loss -- the M3 "no hidden language-family
+    regression" promotion rule.
+    """
+    control_by_language: dict[str, list[float]] = {}
+    candidate_by_language: dict[str, list[float]] = {}
+    for report in reports:
+        task = tasks_by_id.get(report.task_id)
+        if task is None or not task.languages:
+            continue
+        results_by_strategy = {result.strategy: result for result in report.results}
+        control = results_by_strategy.get(control_strategy)
+        candidate = results_by_strategy.get(candidate_strategy)
+        if control is None or candidate is None:
+            continue
+        for language in task.languages:
+            control_by_language.setdefault(language, []).append(control.recall)
+            candidate_by_language.setdefault(language, []).append(candidate.recall)
+
+    violations: list[BaselineGateViolation] = []
+    for language in sorted(control_by_language):
+        control_values = control_by_language[language]
+        control_mean = sum(control_values) / len(control_values)
+        candidate_values = candidate_by_language.get(language, [])
+        candidate_mean = sum(candidate_values) / len(candidate_values) if candidate_values else 0.0
+        if candidate_mean < control_mean - tolerance:
+            violations.append(
+                BaselineGateViolation(
+                    task_id=f"language:{language}",
+                    strategy=candidate_strategy.value,
+                    metric="language_family_recall",
+                    baseline=control_mean,
+                    actual=candidate_mean,
+                )
+            )
+    return violations
+
+
+def _completion_outcome_score(result: BenchmarkResult) -> float | None:
+    outcome = (
+        result.bundle_only_success
+        if result.bundle_only_success is not None
+        else result.task_completion_result
+    )
+    if outcome is TaskCompletionResult.PASS:
+        return 1.0
+    if outcome is TaskCompletionResult.FAIL:
+        return 0.0
+    return None
+
+
+def check_fixed_agent_non_regression(
+    reports: list[BenchmarkReport],
+    *,
+    candidate_strategy: Strategy,
+    control_strategy: Strategy,
+) -> list[BaselineGateViolation]:
+    """Flag any task where the fixed-agent downstream outcome regresses.
+
+    Compares each task's completion outcome (``bundle_only_success``, or
+    ``task_completion_result`` when no external evaluator ran) between
+    candidate and control. A control PASS that becomes a candidate FAIL is a
+    fixed-agent success regression: the retrieval change broke a previously
+    solvable downstream task even if upstream recall/F1 look unchanged.
+    Tasks where either side's outcome is UNKNOWN are skipped -- there is no
+    outcome to regress from or to.
+    """
+    violations: list[BaselineGateViolation] = []
+    for report in reports:
+        results_by_strategy = {result.strategy: result for result in report.results}
+        control = results_by_strategy.get(control_strategy)
+        candidate = results_by_strategy.get(candidate_strategy)
+        if control is None or candidate is None:
+            continue
+        control_score = _completion_outcome_score(control)
+        candidate_score = _completion_outcome_score(candidate)
+        if control_score is None or candidate_score is None:
+            continue
+        if candidate_score < control_score:
+            violations.append(
+                BaselineGateViolation(
+                    task_id=report.task_id,
+                    strategy=candidate_strategy.value,
+                    metric="fixed_agent_success_regression",
+                    baseline=control_score,
+                    actual=candidate_score,
+                )
+            )
     return violations
 
 
