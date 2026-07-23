@@ -135,6 +135,16 @@ Disposition: **ships disabled by default.** A nine-task self-repo identifier-fra
 
 No recall/MRR improvement is claimed for the general corpus. Any future promotion to enabled-by-default must come from a checked-in benchmark artifact showing the fragment-collision root cause is resolved (e.g. a more targeted expansion that excludes colliding PascalCase siblings) without regressing the general corpus.
 
+## External quality frontier (M3)
+
+DEVELOPMENT_PLAN.md §4 M3 builds reproducible, task-family-specific external evidence comparing the product default (`archex_query`) against candidate lanes — cAST chunking (`--chunker cast`), the `fast`/`balanced` retrieval profiles (`archex_query_profile_fast`/`archex_query_profile_balanced`), and an only-if-defined symbolic-rerank lane — plus a pinned-external-corpus and sealed-chronological-holdout policy, a four-dimension scorecard (language/repository-size/query-intent/task-family), and a promotion gate extended with zero-recall, language-family, and fixed-agent non-regression checks.
+
+Decision rule: no candidate is eligible for automatic product-default promotion. Promotion requires every mandatory dimension to hold on a clean run — no index-invariant regression, no increase in zero-recall tasks, no required-file/region/line regression, no hidden per-language regression, a predeclared efficiency/ranking improvement within profile p95/RSS budgets, and preserved or improved fixed-agent downstream success — evaluated via `archex benchmark gate --promotion-strategy`/`--control-strategy` for same-strategy-family candidates (fast/balanced/symbolic-rerank) and via the absolute-threshold gate plus scorecard comparison for cAST (see the raw report for why a cross-chunker `--baseline` regression gate is not currently reachable).
+
+Disposition (local evaluation, 2026-07-23, self-repo scope): see `docs/m3-external-quality-frontier.md` for the full reproducible run (commands, thresholds, and every gate's exact output). On the 24-task self-repo scope, `fast`/`balanced` matched `archex_query` bit-for-bit on recall/F1/MRR/downstream-success with a marginally lower cold p50, but the promotion gate could not clear because warm-latency evidence was not measured in this run (a `--warm-cache` interaction with the `balanced` profile's `module_prefilter`, a pre-existing runner behavior, not root-caused here). cAST measurably regressed recall, F1, and downstream success on this scope and failed its absolute-threshold gate outright. The full pinned-external (48 tasks) and sealed-holdout (2 tasks) corpus runs, and the `--warm-cache` root cause, remain open local-operator follow-on work.
+
+No numeric external/sealed-corpus results are claimed here beyond the self-repo scope in `docs/m3-external-quality-frontier.md`. `archex_query` (default chunker) remains the product default; any future promotion claim must come from a checked-in benchmark artifact produced by `scripts/m3_frontier_pipeline.sh` against the full corpus that satisfies every mandatory M3 dimension above.
+
 ## Decision rationale
 
 ### Why this gate exists

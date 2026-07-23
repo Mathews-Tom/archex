@@ -18,6 +18,7 @@ from archex.benchmark.models import (
     BenchmarkTask,
     BundleOnlyEvaluatorCommand,
     Strategy,
+    TaskCompletionResult,
 )
 from archex.cli.benchmark_cmd import benchmark_cmd
 
@@ -613,6 +614,201 @@ class TestGateCommand:
 
         assert result.exit_code != 0
         assert "region_recall" in result.output
+
+    def test_promotion_gate_fails_zero_recall_regression(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        control = BenchmarkResult(
+            task_id="test",
+            strategy=Strategy.ARCHEX_QUERY,
+            tokens_total=1000,
+            tool_calls=1,
+            files_accessed=1,
+            recall=1.0,
+            precision=1.0,
+            f1_score=1.0,
+            mrr=1.0,
+            savings_vs_raw=0.0,
+            token_efficiency=0.5,
+            token_efficiency_with_completion=0.5,
+            required_file_recall=1.0,
+            wall_time_ms=100.0,
+            cached=True,
+            cache_state="warm",
+            timestamp="2025-01-01T00:00:00Z",
+        )
+        candidate = control.model_copy(
+            update={
+                "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+                "recall": 0.0,
+                "required_file_recall": 0.0,
+                "warm_latency_ms": 100.0,
+            }
+        )
+        report = BenchmarkReport(
+            task_id="test",
+            repo="owner/repo",
+            question="How?",
+            results=[control, candidate],
+            baseline_tokens=1000,
+        )
+        _patch_gate_evidence(monkeypatch, [report])
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "gate",
+                "--input",
+                str(results_dir),
+                "--promotion-strategy",
+                Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value,
+                "--control-strategy",
+                Strategy.ARCHEX_QUERY.value,
+                "--min-token-efficiency-with-completion",
+                "0.08",
+                "--max-p95-warm-latency-ms",
+                "3000",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "zero_recall_regression" in result.output
+
+    def test_promotion_gate_fails_fixed_agent_success_regression(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        control = BenchmarkResult(
+            task_id="test",
+            strategy=Strategy.ARCHEX_QUERY,
+            tokens_total=1000,
+            tool_calls=1,
+            files_accessed=1,
+            recall=1.0,
+            precision=1.0,
+            f1_score=1.0,
+            mrr=1.0,
+            savings_vs_raw=0.0,
+            token_efficiency=0.5,
+            token_efficiency_with_completion=0.5,
+            required_file_recall=1.0,
+            task_completion_result=TaskCompletionResult.PASS,
+            wall_time_ms=100.0,
+            cached=True,
+            cache_state="warm",
+            timestamp="2025-01-01T00:00:00Z",
+        )
+        candidate = control.model_copy(
+            update={
+                "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+                "task_completion_result": TaskCompletionResult.FAIL,
+                "warm_latency_ms": 100.0,
+            }
+        )
+        report = BenchmarkReport(
+            task_id="test",
+            repo="owner/repo",
+            question="How?",
+            results=[control, candidate],
+            baseline_tokens=1000,
+        )
+        _patch_gate_evidence(monkeypatch, [report])
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "gate",
+                "--input",
+                str(results_dir),
+                "--promotion-strategy",
+                Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value,
+                "--control-strategy",
+                Strategy.ARCHEX_QUERY.value,
+                "--min-token-efficiency-with-completion",
+                "0.08",
+                "--max-p95-warm-latency-ms",
+                "3000",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "fixed_agent_success_regression" in result.output
+
+    def test_promotion_gate_fails_language_family_regression(
+        self,
+        runner: CliRunner,
+        results_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "test.yaml").write_text(
+            "task_id: test\nrepo: owner/repo\ncommit: v1.0.0\nquestion: How?\n"
+            "expected_files: [a.py]\nlanguages: [python]\n"
+        )
+        control = BenchmarkResult(
+            task_id="test",
+            strategy=Strategy.ARCHEX_QUERY,
+            tokens_total=1000,
+            tool_calls=1,
+            files_accessed=1,
+            recall=0.9,
+            precision=1.0,
+            f1_score=1.0,
+            mrr=1.0,
+            savings_vs_raw=0.0,
+            token_efficiency=0.5,
+            token_efficiency_with_completion=0.5,
+            required_file_recall=1.0,
+            wall_time_ms=100.0,
+            cached=True,
+            cache_state="warm",
+            timestamp="2025-01-01T00:00:00Z",
+        )
+        candidate = control.model_copy(
+            update={
+                "strategy": Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE,
+                "recall": 0.4,
+                "warm_latency_ms": 100.0,
+            }
+        )
+        report = BenchmarkReport(
+            task_id="test",
+            repo="owner/repo",
+            question="How?",
+            results=[control, candidate],
+            baseline_tokens=1000,
+        )
+        _patch_gate_evidence(monkeypatch, [report])
+
+        result = runner.invoke(
+            benchmark_cmd,
+            [
+                "gate",
+                "--input",
+                str(results_dir),
+                "--tasks-dir",
+                str(tasks_dir),
+                "--promotion-strategy",
+                Strategy.ARCHEX_QUERY_CONTEXT_CANDIDATE.value,
+                "--control-strategy",
+                Strategy.ARCHEX_QUERY.value,
+                "--min-token-efficiency-with-completion",
+                "0.08",
+                "--max-p95-warm-latency-ms",
+                "3000",
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "language_family_recall" in result.output
+        assert "language:python" in result.output
 
     def test_promotion_gate_rejects_gate_exempt_candidate(
         self,

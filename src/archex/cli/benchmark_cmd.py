@@ -45,12 +45,15 @@ from archex.benchmark.gate import (
     LatencyWarning,
     QualityThresholds,
     check_delta_gate,
+    check_fixed_agent_non_regression,
     check_gate,
+    check_language_family_non_regression,
     check_latency_violations,
     check_latency_warnings,
     check_recall_regressions,
     check_strategy_non_regressions,
     check_warm_p95_latency,
+    check_zero_recall_non_regression,
     non_token_quality_warnings,
     token_efficiency_violations,
 )
@@ -1143,6 +1146,28 @@ def gate_cmd(
             candidate_strategy=promotion,
             control_strategy=control,
         )
+        zero_recall_regressions = check_zero_recall_non_regression(
+            reports,
+            candidate_strategy=promotion,
+            control_strategy=control,
+        )
+        language_family_regressions = check_language_family_non_regression(
+            reports,
+            load_benchmark_tasks(Path(tasks_dir)),
+            candidate_strategy=promotion,
+            control_strategy=control,
+        )
+        fixed_agent_regressions = check_fixed_agent_non_regression(
+            reports,
+            candidate_strategy=promotion,
+            control_strategy=control,
+        )
+        protected_evidence_regressions = [
+            *protected_evidence_regressions,
+            *zero_recall_regressions,
+            *language_family_regressions,
+            *fixed_agent_regressions,
+        ]
         violations = [*absolute_violations, *warm_latency_violations]
         if violations or protected_evidence_regressions:
             click.echo(
