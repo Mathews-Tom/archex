@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-07-24
+
 ### Added
 
 - **M5: local explorer for the canonical diff-review artifact.** Added `archex explore ARTIFACT [--graph GRAPH] [--port N]`: a loopback-only, session-token-gated local HTTP server rendering a previously exported `AnalysisArtifactV1` (`archex report diff --format json`) and an optional `ArchGraph` (`archex graph export`). Five read-only views project the artifact without any new source parsing or graph-edge construction: Module Map (node counts aggregated by module, not a force graph), Target Neighborhood (a bounded traversal via the existing `GraphQuery.neighbors`, reached through a plain HTML search form), Diff Review, Receipt Inspector (freshness/completeness/confidence/evidence/exclusions/unknowns), and Index Health (schema/parser/config identity). Every response carries a restrictive Content-Security-Policy plus `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/`Cache-Control` headers; every request is validated against the server's own `Host` header (DNS-rebinding defense) and a per-process session token (hardened cookie: `HttpOnly`, `SameSite=Strict`); the bind address is hardcoded to loopback (`127.0.0.1`/`::1`) with no wider-bind option; and the server is GET-only with no client-side JavaScript at all. Declared 10k/100k-node projection budgets and a new-contributor orientation usability proxy (real HTTP navigation timing against an objectively correct answer, not self-reported satisfaction) are documented in `docs/EXPLORER_USABILITY_EVIDENCE.md` and reproducible via `scripts/m5_explorer_projection_benchmark.py` / `scripts/m5_explorer_usability_evidence.py`.
