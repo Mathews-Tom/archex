@@ -14,6 +14,7 @@ import pytest
 
 pytest.importorskip("mcp", reason="mcp not installed")
 
+from archex.context_facade import ContextResult, ContextRouteDecision
 from archex.explain import ExplainError
 from archex.graph_artifact import (
     ArchGraph,
@@ -31,6 +32,7 @@ from archex.integrations.mcp import (
     clear_graph_query_cache,
     handle_analyze_repo,
     handle_compare_repos,
+    handle_context,
     handle_explain_target,
     handle_generate_onboarding,
     handle_get_impact,
@@ -59,6 +61,8 @@ from archex.models import (
     TypeDefinition,
 )
 from archex.reporting import count_tokens
+from archex.serve.intent import QueryIntent
+from archex.serve.modality import BudgetTier, QueryModality
 from archex.serve.renderers.xml import render_xml, render_xml_envelope
 
 # ---------------------------------------------------------------------------
@@ -83,6 +87,24 @@ def _make_context_bundle(question: str = "how does auth work?") -> ContextBundle
             context_complete=ContextCompletenessStatus.COMPLETE,
             context_complete_reason=ContextCompletenessReason.COMPLETE,
             recommended_next_action=ContextRecommendedAction.USE_BUNDLE,
+        ),
+    )
+
+
+def _make_context_result(question: str = "how does auth work?") -> ContextResult:
+    return ContextResult(
+        bundle=_make_context_bundle(question),
+        route=ContextRouteDecision(
+            resolved_intent=QueryIntent.GENERAL,
+            intent_source="auto",
+            resolved_modality=QueryModality.NL_TO_PL,
+            resolved_profile=None,
+            profile_source="none",
+            resolved_budget_tier=BudgetTier.STANDARD,
+            token_budget_requested=8000,
+            budget_source="intent_default",
+            handles_mode=False,
+            filters_active=False,
         ),
     )
 
@@ -368,6 +390,100 @@ class TestHandleQueryRepo:
     def test_rejects_invalid_profile_string(self) -> None:
         with pytest.raises(ValueError, match="profile must be one of"):
             handle_query_repo("/fake/repo", "question?", profile="ultra")
+
+
+class TestHandleContext:
+    def test_returns_json_envelope_with_all_six_outputs(self) -> None:
+        result = _make_context_result()
+        with (
+            patch("archex.integrations.mcp.context", return_value=result) as mock_context,
+            patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+        ):
+            output = handle_context("/fake/repo", "how does auth work?")
+        mock_context.assert_called_once()
+        parsed = json.loads(output)
+        for key in (
+            "content",
+            "candidate_map",
+            "fetch_handles",
+            "relation_paths",
+            "route",
+            "receipt",
+            "next_action",
+            "_meta",
+        ):
+            assert key in parsed
+        assert parsed["_meta"]["tool_name"] == "context"
+        assert parsed["_meta"]["strategy"] == "context_facade"
+        assert parsed["receipt"]["index_revision"] == "rev"
+        assert parsed["route"]["resolved_intent"] == "general"
+        assert parsed["next_action"] == "use_bundle"
+
+    def test_markdown_format_returns_rendered_string_content(self) -> None:
+        result = _make_context_result()
+        with (
+            patch("archex.integrations.mcp.context", return_value=result),
+            patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+        ):
+            output = handle_context("/fake/repo", "how does auth work?", output_format="markdown")
+        parsed = json.loads(output)
+        assert isinstance(parsed["content"], str)
+        assert "## Route" in parsed["content"]
+
+    def test_rejects_blank_query(self) -> None:
+        with pytest.raises(ValueError, match="query must not be empty"):
+            handle_context("/fake/repo", "   ")
+
+    def test_rejects_invalid_format(self) -> None:
+        with pytest.raises(ValueError, match="format must be one of"):
+            handle_context("/fake/repo", "question?", output_format="xml")
+
+    def test_rejects_invalid_intent(self) -> None:
+        with pytest.raises(ValueError, match="invalid context request"):
+            handle_context("/fake/repo", "question?", intent="not_a_real_intent")
+
+    def test_rejects_invalid_profile(self) -> None:
+        with pytest.raises(ValueError, match="invalid context request"):
+            handle_context("/fake/repo", "question?", profile="ultra")
+
+    def test_rejects_non_positive_budget(self) -> None:
+        with pytest.raises(ValueError, match="invalid context request"):
+            handle_context("/fake/repo", "question?", budgets={"token_budget": 0})
+
+    def test_passes_request_fields_through_to_context(self) -> None:
+        result = _make_context_result()
+        with (
+            patch("archex.integrations.mcp.context", return_value=result) as mock_context,
+            patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+        ):
+            handle_context(
+                "/fake/repo",
+                "question?",
+                intent="debugging",
+                profile="fast",
+                filters={"include_paths": ["src/**"], "languages": ["python"]},
+                budgets={"token_budget": 2048},
+                handles=["chunk:a.py:1"],
+            )
+        request = mock_context.call_args.args[1]
+        assert request.query == "question?"
+        assert request.intent == QueryIntent.DEBUGGING
+        assert request.filters.include_paths == ["src/**"]
+        assert request.filters.languages == ["python"]
+        assert request.budgets.token_budget == 2048
+        assert request.handles == ["chunk:a.py:1"]
+
+    def test_records_metrics_under_context_tool_name(self) -> None:
+        result = _make_context_result()
+        with (
+            patch("archex.integrations.mcp.context", return_value=result),
+            patch("archex.integrations.mcp.get_files_token_count", return_value=0),
+            patch("archex.integrations.mcp.record_query_usage") as mock_record,
+            patch("archex.integrations.mcp.resolve_metrics_policy") as mock_policy,
+        ):
+            mock_policy.return_value.metrics_enabled = True
+            handle_context("/fake/repo", "how does auth work?")
+        assert mock_record.call_args.kwargs["tool_name"] == "context"
 
 
 class TestHandleScoutRepo:
@@ -799,7 +915,7 @@ class TestBuildServer:
         server_result = await handler(req)
         result = server_result.root
         assert isinstance(result, mcp_types.ListToolsResult)
-        assert len(result.tools) == 17
+        assert len(result.tools) == 18
         tool_names = {t.name for t in result.tools}
         assert "scout_repo" in tool_names
         assert "get_file_tree" in tool_names
@@ -811,6 +927,7 @@ class TestBuildServer:
         assert "get_impact" in tool_names
         assert "explain_target" in tool_names
         assert "generate_onboarding" in tool_names
+        assert "context" in tool_names
 
     @pytest.mark.asyncio
     async def test_call_tool_query_repo_passes_explicit_runtime_to_handler(self) -> None:
@@ -1545,3 +1662,73 @@ class TestHandleGenerateOnboarding:
 
         with pytest.raises(OnboardingError, match="max-files must be greater than zero"):
             handle_generate_onboarding(str(python_simple_repo), max_files=0)
+
+
+class TestHandleContextEndToEnd:
+    """Unmocked context() facade exercised through the real MCP dispatch path."""
+
+    def test_matches_cli_output_for_json(self, python_simple_repo: Path) -> None:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        runner = CliRunner()
+        cli_result = runner.invoke(
+            cli, ["context", str(python_simple_repo), "how does authentication work?"]
+        )
+        assert cli_result.exit_code == 0, cli_result.output
+        cli_data = json.loads(cli_result.output)
+
+        mcp_result = handle_context(str(python_simple_repo), "how does authentication work?")
+        envelope = json.loads(mcp_result)
+
+        assert envelope["fetch_handles"] == cli_data["fetch_handles"]
+        assert [item["handle"] for item in envelope["candidate_map"]] == [
+            item["handle"] for item in cli_data["candidate_map"]
+        ]
+        assert envelope["route"]["resolved_intent"] == cli_data["route"]["resolved_intent"]
+
+    @pytest.mark.asyncio
+    async def test_stable_handle_round_trip_through_call_tool_dispatch(
+        self, python_simple_repo: Path
+    ) -> None:
+        """A handle returned by one `context` MCP call fetches the exact same
+        chunk on a second `context` call routed through the real dispatch
+        path — no broad search re-run."""
+        server = build_server()
+        from mcp import types as mcp_types
+
+        handler = server.request_handlers[mcp_types.CallToolRequest]
+        list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+        await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
+
+        def _call(query: str, handles: list[str] | None = None) -> mcp_types.CallToolRequest:
+            arguments: dict[str, object] = {
+                "repo_url": str(python_simple_repo),
+                "query": query,
+            }
+            if handles is not None:
+                arguments["handles"] = handles
+            return mcp_types.CallToolRequest(
+                method="tools/call",
+                params=mcp_types.CallToolRequestParams(name="context", arguments=arguments),
+            )
+
+        first = (await handler(_call("how does authentication work?"))).root
+        assert isinstance(first, mcp_types.CallToolResult)
+        first_envelope = json.loads(first.content[0].text)  # type: ignore[union-attr]
+        handle = first_envelope["fetch_handles"][0]
+        expected_chunk = next(
+            item for item in first_envelope["content"] if item["chunk"]["id"] in handle
+        )
+
+        second = (await handler(_call("ignored query text", handles=[handle]))).root
+        assert isinstance(second, mcp_types.CallToolResult)
+        second_envelope = json.loads(second.content[0].text)  # type: ignore[union-attr]
+
+        assert second_envelope["route"]["handles_mode"] is True
+        assert second_envelope["fetch_handles"] == [handle]
+        assert len(second_envelope["content"]) == 1
+        assert (
+            second_envelope["content"][0]["chunk"]["content"] == expected_chunk["chunk"]["content"]
+        )
