@@ -32,10 +32,7 @@ def _parse_imports_worker(
         return None
 
     adapter = adapter_class()
-    tree = engine.parse_file(absolute_path, language)
-
-    with open(absolute_path, "rb") as fh:
-        source = fh.read()
+    tree, source = engine.read_and_parse_file(absolute_path, language)
 
     imports = adapter.parse_imports(tree, source, relative_path)
     return (relative_path, imports)
@@ -96,10 +93,7 @@ def parse_imports(
         if adapter is None:
             continue
 
-        tree = engine.parse_file(f.absolute_path, f.language)
-
-        with open(f.absolute_path, "rb") as fh:
-            source = fh.read()
+        tree, source = engine.read_and_parse_file(f.absolute_path, f.language)
 
         imports = adapter.parse_imports(tree, source, f.path)
         result_seq[f.path] = imports

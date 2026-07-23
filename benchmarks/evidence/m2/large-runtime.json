@@ -1,0 +1,62 @@
+{
+  "mode": "runtime",
+  "repo": "/private/tmp/m2-large-fixture/django",
+  "task_count": 5,
+  "repeats_per_task": 5,
+  "peak_rss_mb": 500.0,
+  "p50_latency_ms": 495.6,
+  "p95_latency_ms": 576.03,
+  "p99_latency_ms": 612.54,
+  "zero_recall_task_count": 0,
+  "per_task_latencies_ms": {
+    "q_entry_point": [
+      444.88,
+      392.18,
+      468.17,
+      390.65,
+      391.47
+    ],
+    "q_config": [
+      551.64,
+      612.54,
+      532.08,
+      546.66,
+      535.72
+    ],
+    "q_error_handling": [
+      484.19,
+      556.3,
+      482.89,
+      478.7,
+      508.06
+    ],
+    "q_models": [
+      495.6,
+      497.65,
+      576.03,
+      486.63,
+      477.92
+    ],
+    "q_tests": [
+      501.19,
+      569.87,
+      512.36,
+      487.2,
+      494.27
+    ]
+  },
+  "per_task_recall": {
+    "q_entry_point": null,
+    "q_config": null,
+    "q_error_handling": null,
+    "q_models": null,
+    "q_tests": null
+  },
+  "per_task_required_file_recall": {
+    "q_entry_point": null,
+    "q_config": null,
+    "q_error_handling": null,
+    "q_models": null,
+    "q_tests": null
+  }
+}
