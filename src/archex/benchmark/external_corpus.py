@@ -115,7 +115,7 @@ def sealed_vocabulary_terms(task: BenchmarkTask) -> set[str]:
     """Return a sealed task's distinguishing terms that must not leak into production code.
 
     Limited to ``task_id`` — the same task-keyed-logic guard already enforced
-    ad hoc by ``scripts/benchmark_replay_smoke.sh`` (``grep 'task_id == "'``)
+    ad hoc by ``scripts/benchmark_replay_smoke.sh`` (its task-ID equality grep check)
     — rather than ``keywords``/``expected_symbols``/``question`` text. Those
     fields deliberately reuse ordinary domain vocabulary (``proxy``,
     ``environ``, ``root_path``) that already appears throughout unrelated
