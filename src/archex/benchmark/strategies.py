@@ -38,6 +38,7 @@ from archex.benchmark.coverage_candidate import (
 from archex.benchmark.coverage_candidate import (
     has_identifier_evidence as _has_identifier_evidence,
 )
+from archex.benchmark.fixed_agent import compute_fixed_agent_search_turns
 from archex.benchmark.graph_multihop import (
     ExpansionAction,
     ExpansionDecision,
@@ -1292,6 +1293,7 @@ def _assemble_query_result(
         result_fields.update(
             {
                 "post_bundle_read_turns": len(completion_files),
+                "post_bundle_search_turns": compute_fixed_agent_search_turns(completion_files),
                 "task_completion_result": completion_result_from_missing(completion_files),
                 "bundle_completion_tokens": completion_tokens,
                 "bundle_completion_files": completion_files,
