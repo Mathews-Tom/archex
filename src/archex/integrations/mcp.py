@@ -73,6 +73,7 @@ from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, ScoutResult, r
 from archex.serve.compare import validate_dimensions
 from archex.serve.intent import DEFAULT_TOKEN_BUDGET
 from archex.serve.renderers.xml import render_xml, render_xml_envelope
+from archex.serve.runtime import QueryRuntime
 from archex.utils import resolve_source
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,12 @@ def handle_analyze_repo(repo_url: str, output_format: str = "json") -> str:
     return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
 
 
-def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -> str:
+def handle_query_repo(
+    repo_url: str,
+    question: str,
+    budget: int | None = None,
+    runtime: QueryRuntime | None = None,
+) -> str:
     """Retrieve context from a repository for a natural-language question.
 
     Args:
@@ -130,6 +136,8 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         question: Natural-language question to answer from the codebase.
         budget: Optional explicit token budget override. Defaults to adaptive
             intent routing with a product ceiling of 8192.
+        runtime: Optional warm QueryRuntime shared across calls in one server
+            process. Omit for the exact pre-runtime per-call behavior.
 
     Returns:
         JSON envelope with ContextBundle content and _meta efficiency block.
@@ -148,6 +156,7 @@ def handle_query_repo(repo_url: str, question: str, budget: int | None = None) -
         token_budget=token_budget,
         timing=pt,
         explicit_token_budget=budget is not None,
+        runtime=runtime,
     )
 
     content = render_xml(bundle, include_receipt=False)
@@ -1141,6 +1150,7 @@ async def _run_mcp_tool(
     loop: asyncio.AbstractEventLoop,
     name: str,
     arguments: dict[str, Any],
+    runtime: QueryRuntime | None = None,
 ) -> str:
     if name == "analyze_repo":
         repo_url: str = arguments["repo_url"]
@@ -1161,7 +1171,9 @@ async def _run_mcp_tool(
         question: str = arguments["question"]
         budget_arg = arguments.get("budget")
         budget = int(budget_arg) if budget_arg is not None else None
-        return await loop.run_in_executor(None, handle_query_repo, repo_url, question, budget)
+        return await loop.run_in_executor(
+            None, handle_query_repo, repo_url, question, budget, runtime
+        )
     if name == "compare_repos":
         repo_a: str = arguments["repo_a"]
         repo_b: str = arguments["repo_b"]
@@ -1319,7 +1331,7 @@ async def _run_mcp_tool(
     raise ValueError(f"Unknown tool: {name!r}")
 
 
-def build_server() -> Any:
+def build_server(runtime: QueryRuntime | None = None) -> Any:
     """Build and return a configured MCP Server instance.
 
     Raises:
@@ -1332,6 +1344,9 @@ def build_server() -> Any:
         raise ImportError(
             "The 'mcp' package is required for MCP integration. Install it with: uv add mcp"
         ) from exc
+
+    if runtime is None:
+        runtime = QueryRuntime()
 
     server: Server[None, Any] = Server("archex")  # type: ignore[type-arg]
 
@@ -1877,7 +1892,7 @@ def build_server() -> Any:
         arguments: dict[str, Any],
     ) -> list[mcp_types.TextContent]:
         loop = asyncio.get_running_loop()
-        result_text = await _run_mcp_tool(loop, name, arguments)
+        result_text = await _run_mcp_tool(loop, name, arguments, runtime)
 
         return [mcp_types.TextContent(type="text", text=result_text)]
 
@@ -1968,12 +1983,17 @@ async def run_stdio_server(
     if watch:
         observer = _start_index_watch(Path(watch_path).expanduser().resolve(), watch_debounce_ms)
 
-    server = build_server()
+    # One QueryRuntime lives for this server process's whole lifetime, shared
+    # across every query_repo call so repeat warm queries against the same
+    # generation skip re-hydrating from SQLite.
+    runtime = QueryRuntime()
+    server = build_server(runtime=runtime)
     try:
         async with stdio_server() as (read_stream, write_stream):
             init_opts = server.create_initialization_options()
             await server.run(read_stream, write_stream, init_opts, raise_exceptions=True)
     finally:
+        runtime.close()
         if observer is not None:
             observer.stop()
             observer.join(timeout=5)
