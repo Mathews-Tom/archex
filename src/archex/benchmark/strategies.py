@@ -12,7 +12,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -96,6 +96,7 @@ from archex.reporting import count_tokens
 from archex.serve.modality import BudgetTier, budget_tier, classify_query
 from archex.serve.packing import (
     PackDecision,
+    PackedRegion,
     PackingCandidate,
     PackingPlan,
     PackingSignals,
@@ -1649,6 +1650,7 @@ class _PackingPrep:
     outcomes: dict[str, RegionCompression]
     original_tokens_by_id: dict[str, int]
     score_by_id: dict[str, float]
+    admission_by_id: dict[str, bool]
     intent: QueryIntent
     protect_code: bool
     tier: BudgetTier
@@ -1740,10 +1742,13 @@ def _prepare_packing(
 
     direct_by_id: dict[str, bool] = {}
     protection_reason_by_id: dict[str, str] = {}
+    admission_by_id: dict[str, bool] = {}
     file_direct_counts: dict[str, int] = {}
     for index, ranked in enumerate(bundle.chunks):
         chunk = ranked.chunk
-        receipt_reason = _receipt_protection_reason(receipt_items.get(chunk_handle(chunk.id)))
+        item = receipt_items.get(chunk_handle(chunk.id))
+        admission_by_id[chunk.id] = _is_admission_chunk(item)
+        receipt_reason = _receipt_protection_reason(item)
         if receipt_reason is not None:
             direct = True
             protection_reason = receipt_reason
@@ -1796,7 +1801,22 @@ def _prepare_packing(
             required=direct,
             protect_code=protect_code,
         )
-        eligible = outcome is not None and outcome.mode is not CompressionMode.PASSTHROUGH_REQUIRED
+        # `compress_region` can pick STRUCTURAL_CODE_ELISION as a genuine
+        # *compression* style (a shrunk-but-real skeleton), sharing the exact
+        # enum tag `_bundle_returned_regions` uses to zero out region/line
+        # recall credit for a fully elided-to-anchor region. For the context
+        # candidate that conflation silently drops credit for a region the
+        # packer only meant to shrink, not hide — so it never offers that mode
+        # as a COMPRESS outcome; the packer falls back to a true anchor ELIDE
+        # (an explicit, correctly-labeled fetch handle) or plain INCLUDE.
+        structural_elision_as_compress = (
+            outcome is not None and outcome.mode is CompressionMode.STRUCTURAL_CODE_ELISION
+        )
+        eligible = (
+            outcome is not None
+            and outcome.mode is not CompressionMode.PASSTHROUGH_REQUIRED
+            and not (not preserve_seed_context and structural_elision_as_compress)
+        )
         if eligible and outcome is not None:
             outcomes[chunk.id] = outcome
             compressed_tokens = count_tokens(outcome.content)
@@ -1834,6 +1854,7 @@ def _prepare_packing(
         outcomes=outcomes,
         original_tokens_by_id=original_tokens_by_id,
         score_by_id=score_by_id,
+        admission_by_id=admission_by_id,
         intent=intent,
         protect_code=protect_code,
         tier=budget_tier(bundle.token_budget),
@@ -3471,6 +3492,46 @@ def _rank_candidate_bundle(
     return reranked.bundle, effective_config, timing, provenance
 
 
+def _protect_base_query_regions(plan: PackingPlan, prep: _PackingPrep) -> PackingPlan:
+    """Never fully drop a base-query region's source lines from the context candidate.
+
+    The context candidate's admission tightening already keeps its seed/neighbor
+    tail small and evidence-backed; the score-model packer's SKIP/ELIDE
+    downgrades exist to trim *that* speculative tail, not to re-adjudicate what
+    the base query itself already ranked into its own bundle. A base-query
+    region can still legitimately score "optional" (it did not clear the
+    receipt-evidence or high-score bar) and get shrunk, but silently discarding
+    its source lines entirely would regress required-file/region/line recall
+    below the same-run `archex_query` control on a signal (query relevance
+    versus admission provenance) that has nothing to do with why it would be
+    dropped. Upgrade any SKIP/ELIDE decision on a non-admission-appended region
+    to the richest representation that still fits the remaining budget:
+    COMPRESS (real, shrunk content) when viable, else plain INCLUDE.
+    """
+    candidates_by_id = {c.signals.candidate_id: c for c in prep.candidates}
+    remaining = plan.token_budget - plan.included_tokens
+    regions: list[PackedRegion] = []
+    for region in plan.regions:
+        if region.decision in (
+            PackDecision.SKIP,
+            PackDecision.ELIDE,
+        ) and not prep.admission_by_id.get(region.candidate_id, False):
+            candidate = candidates_by_id[region.candidate_id]
+            if region.candidate_id in prep.outcomes:
+                target_decision = PackDecision.COMPRESS
+                target_cost = candidate.compressed_token_count
+            else:
+                target_decision = PackDecision.INCLUDE
+                target_cost = candidate.signals.token_count
+            delta = target_cost - region.tokens_charged
+            if delta <= remaining:
+                remaining -= delta
+                region = replace(region, decision=target_decision, tokens_charged=target_cost)
+        regions.append(region)
+    included_tokens = sum(region.tokens_charged for region in regions)
+    return replace(plan, regions=regions, included_tokens=included_tokens)
+
+
 def _pack_context_candidate_bundle(bundle: ContextBundle, *, question: str) -> _BundlePacking:
     """Pack a composed candidate while retaining receipt-backed direct and graph evidence."""
     prep = _prepare_packing(bundle, question=question, preserve_seed_context=False)
@@ -3479,6 +3540,7 @@ def _pack_context_candidate_bundle(bundle: ContextBundle, *, question: str) -> _
         token_budget=bundle.token_budget,
         budget_tier=prep.tier,
     )
+    plan = _protect_base_query_regions(plan, prep)
     packing = _apply_packing(bundle, plan, prep)
     provenance = dict(packing.provenance)
     provenance["packing_protection_policy"] = "direct_evidence_and_graph_context"
