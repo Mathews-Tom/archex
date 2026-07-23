@@ -242,6 +242,7 @@ class TestRunBenchmark:
         candidate = report.results[0]
         assert candidate.cached is True
         assert candidate.cache_state == "warm"
+        assert candidate.warm_latency_ms is not None
         assert candidate.warm_latency_ms > 0.0
 
     def test_warms_vector_index_when_vector_strategy_present(

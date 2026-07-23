@@ -247,6 +247,7 @@ class TestRunDualTransformFixture:
         assert result.tool_calls == 1
         assert 0.0 <= result.required_file_recall <= 1.0
         # Added latency is reported like every other lane.
+        assert result.wall_time_ms is not None
         assert result.wall_time_ms >= 0.0
         prov = result.provenance
         assert prov["subquery_structural"]

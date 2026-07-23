@@ -21,6 +21,7 @@ from archex.benchmark.models import (
     TaskFamily,
 )
 from archex.benchmark.reporter import (
+    format_baseline_comparison,
     format_bucketed_summary,
     format_chunker_frontier_table,
     format_cross_tool_comparison,
@@ -50,6 +51,7 @@ def _make_result(
     chunker: ChunkerName = "default",
     index_chunk_count: int = 10,
     mean_chunk_tokens: float = 50.0,
+    wall_time_ms: float | None = 50.0,
     category: TaskCategory | None = None,
 ) -> BenchmarkResult:
     return BenchmarkResult(
@@ -67,7 +69,7 @@ def _make_result(
         recall=recall,
         precision=precision,
         savings_vs_raw=savings,
-        wall_time_ms=50.0,
+        wall_time_ms=wall_time_ms,
         cached=False,
         timestamp="2025-01-01T00:00:00Z",
         chunker=chunker,
@@ -233,6 +235,21 @@ class TestFormatStrategyComparison:
         report = _make_report()
         result = format_strategy_comparison([report])
         assert "Best Strategy per Metric" in result
+
+
+class TestFormatBaselineComparison:
+    def test_renders_unmeasured_latency_as_na(self) -> None:
+        candidate = _make_report([_make_result(Strategy.ARCHEX_QUERY, wall_time_ms=None)])
+        baseline = _make_report([_make_result(Strategy.RAW_FILES, wall_time_ms=None)])
+
+        output = format_baseline_comparison(
+            [candidate],
+            [baseline],
+            candidate_strategy=Strategy.ARCHEX_QUERY.value,
+            baseline_strategy=Strategy.RAW_FILES.value,
+        )
+
+        assert "n/a" in output
 
 
 class TestFormatBucketedSummary:

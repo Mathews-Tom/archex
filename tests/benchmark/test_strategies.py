@@ -629,6 +629,7 @@ class TestRunRawRipgrep:
             keywords=["import"],
         )
         result = run_raw_ripgrep(task, python_simple_repo)
+        assert result.wall_time_ms is not None
         assert result.wall_time_ms >= 0
         assert result.cached is False
         assert result.savings_vs_raw == 0.0  # Not yet backfilled

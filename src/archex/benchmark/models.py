@@ -504,6 +504,14 @@ class TaskCompletionResult(StrEnum):
     UNKNOWN = "unknown"
 
 
+class QueryTiming(BaseModel):
+    """Explicit timing representation for query execution."""
+
+    cold_ms: float | None = None
+    warm_ms: float | None = None
+    wall_ms: float | None = None
+
+
 class BenchmarkResult(BaseModel):
     task_id: str
     strategy: Strategy
@@ -523,7 +531,9 @@ class BenchmarkResult(BaseModel):
     token_efficiency: float = 0.0
     tokens_raw_baseline: int = 0
     savings_vs_raw: float
-    wall_time_ms: float
+    cold_latency_ms: float | None = None
+    warm_latency_ms: float | None = None
+    wall_time_ms: float | None = None
     cached: bool
     timing: PipelineTiming | None = None
     timestamp: str
@@ -569,8 +579,8 @@ class BenchmarkResult(BaseModel):
     bundle_completion_files: list[str] = []
     token_efficiency_with_completion: float = 0.0
     cold_start_ms: float = 0.0
-    warm_latency_ms: float = 0.0
     provenance: dict[str, str] = {}
+    warm_latency_ms: float | None = None
     freshness_latency_ms: float = 0.0
     freshness_measured: bool = False
     freshness_correct: bool = False

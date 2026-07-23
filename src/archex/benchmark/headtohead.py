@@ -522,10 +522,13 @@ def format_headtohead_markdown(
                         provenance,
                         "token_efficiency_with_completion",
                     ),
-                    _integer_metric_cell(
-                        _mean([r.warm_latency_ms or r.wall_time_ms for r in results]),
+                    _optional_metric_cell(
+                        _mean([r.warm_latency_ms for r in results if r.warm_latency_ms is not None])
+                        if any(r.warm_latency_ms is not None for r in results)
+                        else None,
                         provenance,
                         "warm_latency_ms",
+                        digits=0,
                     ),
                     _integer_metric_cell(
                         _mean([r.cold_start_ms for r in results]),

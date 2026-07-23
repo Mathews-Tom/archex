@@ -20,7 +20,7 @@ class RequiredFileCoverage:
     missing_required_files: tuple[str, ...]
     required_file_recall: float
     completion_adjusted_token_efficiency: float
-    warm_latency_ms: float
+    warm_latency_ms: float | None
     seed_files: tuple[str, ...]
     expanded_files: tuple[str, ...]
 
