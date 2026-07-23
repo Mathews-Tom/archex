@@ -1,4 +1,4 @@
-# M3 — External Quality Frontier: Reproducible Comparison
+# External Quality Frontier — Reproducible Comparison
 
 Status: candidate evidence, self-repo scope. No default-promotion decision is made by this document — see [Verdict](#verdict).
 
