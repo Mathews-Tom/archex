@@ -140,6 +140,7 @@ class ContextSkippedReason(StrEnum):
     BELOW_THRESHOLD = "below_threshold"
     DEPENDENCY_FRONTIER_CUT = "dependency_frontier_cut"
     DUPLICATE = "duplicate"
+    FILTER_EXCLUDED = "filter_excluded"
     OVER_BUDGET = "over_budget"
     STALE_INDEX = "stale_index"
     TEST_DEPRIORITIZED = "test_deprioritized"

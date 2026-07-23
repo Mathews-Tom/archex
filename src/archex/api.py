@@ -56,6 +56,12 @@ from archex.analyze.modules import detect_modules
 from archex.analyze.patterns import detect_patterns
 from archex.cache import CacheManager
 from archex.config import load_config, load_index_config
+from archex.context_facade import (
+    ContextRequest,
+    ContextResult,
+    apply_context_filters,
+    resolve_context_route,
+)
 from archex.exceptions import ArchexIndexError, DeltaIndexError
 from archex.index.bm25 import BM25Index
 from archex.index.graph import DependencyGraph
@@ -2519,6 +2525,52 @@ def query(
         )
     finally:
         cleanup()
+
+
+def context(
+    source: RepoSource,
+    request: ContextRequest,
+    *,
+    config: Config | None = None,
+    index_config: IndexConfig | None = None,
+    timing: PipelineTiming | None = None,
+    trace: PipelineTrace | None = None,
+    refresh: bool = True,
+    runtime: QueryRuntime | None = None,
+) -> ContextResult:
+    """Retrieve the primary agent-facing context result for `request`.
+
+    Thin wrapper over `query()`: resolves `request.intent`/`request.profile`/
+    `request.budgets`/`request.handles` into `query()` call parameters via
+    `archex.context_facade.resolve_context_route`, runs the canonical
+    retrieval pipeline unchanged, then applies `request.filters` as a
+    deterministic post-retrieval exclusion. The returned `ContextResult`
+    exposes a compact candidate map, exact fetch handles, selected code,
+    relation paths, the route decision, the single `ContextBundle` receipt,
+    and a recommended next action — every field either newly resolved
+    routing metadata or a read-only view over the one `ContextBundle`
+    `query()` produced. Existing specialized entry points (`query`, `scout`,
+    `get_symbol`, ...) are unaffected and remain fully supported.
+    """
+    resolution = resolve_context_route(request)
+    bundle = query(
+        source,
+        request.query,
+        token_budget=resolution.token_budget,
+        config=config,
+        index_config=index_config,
+        scoring_weights=resolution.scoring_weights,
+        timing=timing,
+        trace=trace,
+        explicit_token_budget=resolution.explicit_token_budget,
+        refresh=refresh,
+        handles=request.handles or None,
+        runtime=runtime,
+        profile=request.profile,
+    )
+    if not request.filters.is_empty():
+        bundle = apply_context_filters(bundle, request.filters)
+    return ContextResult(bundle=bundle, route=resolution.route)
 
 
 _RERANK_MAX_CANDIDATES = 50
