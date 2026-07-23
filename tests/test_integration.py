@@ -1188,6 +1188,158 @@ class TestGenerationIdIntegration:
             store.close()
 
 
+class TestQueryRuntimeIntegration:
+    """query(..., runtime=QueryRuntime()) is byte-equivalent and warm-reuses correctly.
+
+    A small explicit token_budget forces query()'s non-passthrough BM25/graph path
+    (the fixture repo otherwise fits entirely within the default budget and returns
+    via the earlier passthrough short-circuit, before any runtime code ever runs).
+    """
+
+    def test_query_with_runtime_matches_query_without_runtime(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """A runtime-backed query must return the same chunks as the pre-runtime path."""
+        from archex.serve.runtime import QueryRuntime
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=True, cache_dir=str(tmp_path / "cache"))
+        question = "calculate_sum"
+
+        without_runtime = query(
+            source, question, config=config, token_budget=100, explicit_token_budget=True
+        )
+
+        runtime = QueryRuntime()
+        try:
+            with_runtime = query(
+                source,
+                question,
+                config=config,
+                token_budget=100,
+                explicit_token_budget=True,
+                runtime=runtime,
+            )
+        finally:
+            runtime.close()
+
+        without_files = sorted(rc.chunk.id for rc in without_runtime.chunks)
+        with_files = sorted(rc.chunk.id for rc in with_runtime.chunks)
+        assert with_files == without_files
+        assert with_runtime.token_count == without_runtime.token_count
+        assert (
+            with_runtime.retrieval_metadata.strategy == without_runtime.retrieval_metadata.strategy
+        )
+
+    def test_query_with_runtime_reuses_snapshot_across_repeat_calls(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """A second query against an unchanged generation must not rebuild the snapshot."""
+        from archex.api import _cache_manager_for_source  # pyright: ignore[reportPrivateUsage]
+        from archex.serve.runtime import QueryRuntime
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=True, cache_dir=str(tmp_path / "cache"))
+        cache_key = _cache_manager_for_source(source, config).cache_key(source)
+
+        runtime = QueryRuntime()
+        try:
+            query(
+                source,
+                "calculate_sum",
+                config=config,
+                token_budget=100,
+                explicit_token_budget=True,
+                runtime=runtime,
+            )
+            first_snapshot = runtime._snapshots[cache_key]  # pyright: ignore[reportPrivateUsage]
+
+            query(
+                source,
+                "models",
+                config=config,
+                token_budget=100,
+                explicit_token_budget=True,
+                runtime=runtime,
+            )
+            second_snapshot = runtime._snapshots[cache_key]  # pyright: ignore[reportPrivateUsage]
+
+            assert second_snapshot is first_snapshot
+        finally:
+            runtime.close()
+
+    def test_query_with_runtime_reflects_committed_delta(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        """A shared runtime must serve fresh content after a real delta, not a stale snapshot."""
+        from archex.serve.runtime import QueryRuntime
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=True, cache_dir=str(tmp_path / "cache"))
+
+        runtime = QueryRuntime()
+        try:
+            query(
+                source,
+                "models",
+                config=config,
+                token_budget=100,
+                explicit_token_budget=True,
+                runtime=runtime,
+            )
+
+            (python_simple_repo / "utils.py").write_text(
+                "def runtime_delta_marker():\n    return 1\n"
+            )
+            _git(python_simple_repo, "add", ".")
+            _git(python_simple_repo, "commit", "-m", "runtime delta test")
+
+            bundle = query(
+                source,
+                "runtime_delta_marker",
+                config=config,
+                token_budget=100,
+                explicit_token_budget=True,
+                runtime=runtime,
+            )
+            text = "\n".join(rc.chunk.content for rc in bundle.chunks)
+            assert "runtime_delta_marker" in text
+        finally:
+            runtime.close()
+
+    def test_query_with_runtime_sets_cached_timing_strategy(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        from archex.serve.runtime import QueryRuntime
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(languages=["python"], cache=True, cache_dir=str(tmp_path / "cache"))
+        runtime = QueryRuntime()
+        try:
+            query(
+                source,
+                "models",
+                config=config,
+                token_budget=100,
+                explicit_token_budget=True,
+                runtime=runtime,
+            )
+            timing = PipelineTiming()
+            query(
+                source,
+                "models",
+                config=config,
+                token_budget=100,
+                explicit_token_budget=True,
+                runtime=runtime,
+                timing=timing,
+            )
+            assert timing.cached is True
+            assert timing.strategy == "cached"
+        finally:
+            runtime.close()
+
+
 # ---------------------------------------------------------------------------
 # New language integration tests (Java, Kotlin, C#, Swift)
 # ---------------------------------------------------------------------------
