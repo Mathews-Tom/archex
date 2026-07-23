@@ -51,6 +51,7 @@ from archex.explorer.viewmodel import (
     build_neighborhood_view,
     build_receipt_view,
 )
+from archex.graph_query import GraphQuery
 
 if TYPE_CHECKING:
     from archex.explorer.loader import ExplorerData
@@ -74,6 +75,7 @@ class ExplorerServer(ThreadingHTTPServer):
     data: ExplorerData
     token: str
     allowed_host_headers: frozenset[str]
+    graph_query: GraphQuery | None
 
     def __init__(
         self,
@@ -90,6 +92,10 @@ class ExplorerServer(ThreadingHTTPServer):
             )
         self.data = data
         self.token = token or generate_token()
+        # Built once, reused for the server's lifetime: `data.graph` is loaded once
+        # and never mutated, so every neighborhood lookup shares one set of adjacency
+        # indices instead of rebuilding them (see the M5 projection benchmark).
+        self.graph_query = GraphQuery(data.graph) if data.graph is not None else None
         self.address_family = socket.AF_INET6 if host == "::1" else socket.AF_INET
         super().__init__((host, port), _ExplorerRequestHandler)
         self.allowed_host_headers = allowed_host_headers(host, self.server_address[1])
@@ -192,7 +198,12 @@ class _ExplorerRequestHandler(BaseHTTPRequestHandler):
         depth = _parse_positive_int(params.get("depth", [None])[0], DEFAULT_NEIGHBORHOOD_DEPTH)
         limit = _parse_positive_int(params.get("limit", [None])[0], DEFAULT_NEIGHBORHOOD_LIMIT)
         return build_neighborhood_view(
-            server.data, query, direction=direction, depth=depth, limit=limit
+            server.data,
+            query,
+            direction=direction,
+            depth=depth,
+            limit=limit,
+            graph_query=server.graph_query,
         )
 
     def _explorer_server(self) -> ExplorerServer:
