@@ -68,7 +68,7 @@ _GENERIC_QUERY_TERMS = frozenset(
 )
 
 
-_NEIGHBOR_MIN_CONFIDENCE = 0.5
+DEFAULT_NEIGHBOR_MIN_CONFIDENCE = 0.5
 _EVIDENCE_HIT_CAP = 64
 
 
@@ -132,6 +132,23 @@ def coverage_seed_decisions(
     return sorted(decisions, key=lambda decision: (-decision.score, decision.file))[:limit]
 
 
+def has_identifier_evidence(evidence: tuple[str, ...]) -> bool:
+    """Whether *evidence* carries an explicit identifier-tier match.
+
+    Measured against the real corpus (see ``rank_candidate.py``'s own
+    documented precedent for the identical lesson in the ranking lane):
+    "symbol"/"path"/"lexical" tags are generic dictionary-word matches common
+    across every file in a directory family (e.g. every language adapter
+    shares a "language"/"adapter" symbol or path segment), so they carry no
+    real discriminating power. Only "identifier" — an explicit CamelCase or
+    snake_case token copied verbatim out of the question — reliably singles
+    out the file it names. Admission gates that must resist over-broadening
+    use this as their bar, not the full identifier/symbol/path/lexical tier
+    set that ``coverage_seed_decisions`` collects for scoring/ranking.
+    """
+    return any(reason.split(":", 1)[0] == "identifier" for reason in evidence)
+
+
 def coverage_neighbor_decisions(
     edges: list[GraphEdge],
     *,
@@ -140,15 +157,19 @@ def coverage_neighbor_decisions(
     direct_decisions: list[CoverageSeedDecision],
     limit: int,
     require_direct_evidence: bool = False,
+    min_confidence: float = DEFAULT_NEIGHBOR_MIN_CONFIDENCE,
 ) -> list[CoverageSeedDecision]:
-    """Rank bounded graph neighbors, optionally requiring direct query evidence."""
-    if limit < 1:
-        return []
+    """Rank bounded graph neighbors, optionally requiring direct query evidence.
+
+    ``min_confidence`` bounds the admitting edge's confidence; callers that need
+    a tighter (fewer, higher-confidence) neighbor set pass a floor above the
+    module default without affecting other callers, which keep the default.
+    """
 
     direct_by_file = {decision.file: decision for decision in direct_decisions}
     candidates: dict[str, CoverageSeedDecision] = {}
     for edge in edges:
-        if edge.confidence < _NEIGHBOR_MIN_CONFIDENCE:
+        if edge.confidence < min_confidence:
             continue
         routes: list[tuple[str, str, str, int]] = []
         if edge.source in seed_files:

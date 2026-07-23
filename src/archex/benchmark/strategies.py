@@ -24,6 +24,9 @@ from archex.benchmark.bounded_rerank import (
     symbolic_scores,
 )
 from archex.benchmark.coverage_candidate import (
+    DEFAULT_NEIGHBOR_MIN_CONFIDENCE as _DEFAULT_NEIGHBOR_MIN_CONFIDENCE,
+)
+from archex.benchmark.coverage_candidate import (
     apply_coverage_seed_admission as _apply_coverage_seed_admission,
 )
 from archex.benchmark.coverage_candidate import (
@@ -31,6 +34,9 @@ from archex.benchmark.coverage_candidate import (
 )
 from archex.benchmark.coverage_candidate import (
     coverage_seed_decisions as _coverage_seed_decisions,
+)
+from archex.benchmark.coverage_candidate import (
+    has_identifier_evidence as _has_identifier_evidence,
 )
 from archex.benchmark.graph_multihop import (
     ExpansionAction,
@@ -1670,6 +1676,22 @@ def _receipt_protection_reason(item: ContextReceiptItem | None) -> str | None:
     return None
 
 
+def _is_admission_chunk(item: ContextReceiptItem | None) -> bool:
+    """Whether *item* was appended by M0.2/M0.4 seed/neighbor admission.
+
+    Admission-appended chunks carry a ``CoverageSeedDecision.score`` as their
+    ``RankedChunk.final_score`` — a raw evidence-weight integer on a completely
+    different scale from the base query's own 0..~1 relevance score. Mixing the
+    two when computing a shared "top score" lets a weakly-evidenced admitted
+    chunk's inflated score dwarf the base query's real top hit, corrupting the
+    score-fraction protection check for every other chunk in the bundle.
+    """
+    return item is not None and any(
+        reason.startswith("coverage_seed:") or reason.startswith("coverage_neighbor:")
+        for reason in item.reason_codes
+    )
+
+
 def _prepare_packing(
     bundle: ContextBundle,
     *,
@@ -1693,12 +1715,28 @@ def _prepare_packing(
     meta = bundle.retrieval_metadata
     seed_paths = set(meta.seed_file_paths)
     expanded_paths = set(meta.expanded_file_paths)
-    top_score = max((rc.final_score for rc in bundle.chunks), default=0.0)
     receipt_items = (
         {item.handle: item for item in bundle.receipt.returned_context}
         if bundle.receipt is not None
         else {}
     )
+    if preserve_seed_context:
+        top_score = max((rc.final_score for rc in bundle.chunks), default=0.0)
+    else:
+        # The context candidate's bundle mixes the base query's own scores with
+        # admission-appended `CoverageSeedDecision.score` values (see
+        # `_is_admission_chunk`); comparing across that scale would corrupt the
+        # `high_score` passthrough check below, so the base query's own top
+        # score is the only valid reference point for "how relevant is this
+        # optional region relative to what the query actually found".
+        top_score = max(
+            (
+                rc.final_score
+                for rc in bundle.chunks
+                if not _is_admission_chunk(receipt_items.get(chunk_handle(rc.chunk.id)))
+            ),
+            default=0.0,
+        )
 
     direct_by_id: dict[str, bool] = {}
     protection_reason_by_id: dict[str, str] = {}
@@ -3215,6 +3253,13 @@ _COVERAGE_SEED_CAP = 32
 _COVERAGE_DIRECT_EVIDENCE_CAP = 64
 _COVERAGE_NEIGHBOR_CAP = 24
 
+# The M0.4 context candidate raises the neighbor-admission confidence floor
+# above the shared module default (0.5): a graph edge alone is a weaker
+# admission signal than a direct query match, so the context candidate's
+# file-set narrowing (see `_rank_candidate_bundle`'s `tighten_admission`)
+# requires a "bounded-confidence" edge, not merely "not the lowest tier".
+_CONTEXT_CANDIDATE_NEIGHBOR_MIN_CONFIDENCE = 0.75
+
 
 def run_archex_query_coverage_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """Benchmark-only bounded seed-admission candidate; product defaults stay unchanged."""
@@ -3320,12 +3365,20 @@ def _rank_candidate_bundle(
     repo_path: Path,
     *,
     strategy: Strategy,
-    restrict_neighbor_admission: bool = False,
+    tighten_admission: bool = False,
 ) -> tuple[ContextBundle, IndexConfig, PipelineTiming, dict[str, str]]:
     """Compose M0.2 admission and M0.3 tail ranking without packing.
 
-    The M0.4 context candidate restricts graph expansion to files that also
-    carry direct query evidence; M0.2/M0.3 retain their broad graph policy.
+    The M0.4 context candidate (``tighten_admission=True``) narrows file-set
+    admission to evidence a product query could actually justify: seed files
+    need an explicit identifier-tier match (a symbol/path/lexical hit alone is
+    not enough — measured against the real corpus, "adapter"/"language"-style
+    symbol and path matches are shared by every file in a directory family and
+    carry no real discriminating power, mirroring `rank_candidate.py`'s own
+    documented lesson for the ranking lane), and a neighbor file must also
+    carry that same identifier-tier backing plus a bounded-confidence graph
+    edge, not merely the module's permissive floor. M0.2/M0.3 retain their
+    original broad policy unchanged.
     """
     from archex.api import index_repository
     from archex.index.graph import DependencyGraph
@@ -3351,7 +3404,14 @@ def _rank_candidate_bundle(
             limit=_COVERAGE_DIRECT_EVIDENCE_CAP,
         )
         seed_cap = _bounded_seed_cap(direct_decisions, default_cap=_COVERAGE_SEED_CAP)
-        seed_decisions = direct_decisions[:seed_cap]
+        seed_pool = direct_decisions
+        identifier_only_excluded: list[str] = []
+        if tighten_admission:
+            seed_pool = [d for d in direct_decisions if _has_identifier_evidence(d.evidence)]
+            identifier_only_excluded = [
+                d.file for d in direct_decisions if not _has_identifier_evidence(d.evidence)
+            ]
+        seed_decisions = seed_pool[:seed_cap]
         seed_admission = _apply_coverage_seed_admission(
             bundle,
             store,
@@ -3364,13 +3424,19 @@ def _rank_candidate_bundle(
             for edge in graph.file_edges()
         ]
         neighbor_cap = _bounded_neighbor_cap(direct_decisions, default_cap=_COVERAGE_NEIGHBOR_CAP)
+        neighbor_min_confidence = (
+            _CONTEXT_CANDIDATE_NEIGHBOR_MIN_CONFIDENCE
+            if tighten_admission
+            else _DEFAULT_NEIGHBOR_MIN_CONFIDENCE
+        )
         neighbor_decisions = _coverage_neighbor_decisions(
             edges,
             seed_files={decision.file for decision in seed_decisions},
             existing_files={ranked.chunk.file_path for ranked in seed_admission.bundle.chunks},
-            direct_decisions=direct_decisions,
+            direct_decisions=seed_pool,
             limit=neighbor_cap,
-            require_direct_evidence=restrict_neighbor_admission,
+            require_direct_evidence=tighten_admission,
+            min_confidence=neighbor_min_confidence,
         )
         neighbor_admission = _apply_coverage_seed_admission(
             seed_admission.bundle,
@@ -3391,9 +3457,11 @@ def _rank_candidate_bundle(
         "candidate_seed_cap_bounded": str(seed_cap < _COVERAGE_SEED_CAP),
         "candidate_seed_admitted": ",".join(decision.file for decision in seed_admission.admitted)
         or "none",
+        "candidate_seed_non_identifier_excluded": ",".join(identifier_only_excluded) or "none",
         "candidate_neighbor_cap": str(neighbor_cap),
         "candidate_neighbor_cap_bounded": str(neighbor_cap < _COVERAGE_NEIGHBOR_CAP),
-        "candidate_neighbor_requires_direct_evidence": str(restrict_neighbor_admission),
+        "candidate_neighbor_requires_direct_evidence": str(tighten_admission),
+        "candidate_neighbor_min_confidence": f"{neighbor_min_confidence:.2f}",
         "candidate_neighbor_admitted": ",".join(
             decision.file for decision in neighbor_admission.admitted
         )
@@ -3456,7 +3524,7 @@ def run_archex_query_context_candidate(
         task,
         repo_path,
         strategy=strategy,
-        restrict_neighbor_admission=True,
+        tighten_admission=True,
     )
     packing = _pack_context_candidate_bundle(bundle, question=task.question)
     result = _assemble_query_result(
