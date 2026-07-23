@@ -382,9 +382,29 @@ def setup_cmd(
         click.echo("\nWarning: archex mcp runtime is not available.")
         click.echo("MCP clients cannot be used until the 'mcp' extra is installed.")
 
-    # Clients
+    # Hooks — offered first: zero context cost, augments existing Grep/Glob
+    # calls instead of registering a new tool surface. Default on when a
+    # supported client is discovered, since it has no downside worth an
+    # explicit opt-out.
+    do_hooks = hooks
+    if not do_hooks and preflight.discovered_clients:
+        click.echo(
+            "\nHooks quietly augment your client's existing Grep/Glob calls with archex "
+            "results — no new tool schema, no added context cost per turn."
+        )
+        do_hooks = click.confirm("Install optional shell/editor hooks?", default=True)
+
+    # Clients (MCP) — registers the full 17-tool surface (query, scout, graph
+    # inspection, impact analysis, etc.). Every tool's schema is resent on
+    # every turn regardless of use, so this is worth it when you want that
+    # full surface, not just grep/glob augmentation.
     do_clients = clients
     if do_clients is None and preflight.discovered_clients and preflight.mcp_runtime_available:
+        click.echo(
+            "\nMCP registers all 17 archex tools with your client (query, scout, graph "
+            "inspection, impact analysis, and more) — the richest surface, at the cost of "
+            "resending every tool's schema on every turn."
+        )
         do_clients = click.confirm(
             f"Configure {len(preflight.discovered_clients)} discovered MCP clients?",
             default=True,
@@ -398,11 +418,6 @@ def setup_cmd(
     if do_metrics is None:
         click.echo("\nUsage metrics are anonymous and local-only.")
         do_metrics = click.confirm("Enable local usage metrics?", default=False)
-
-    # Hooks
-    do_hooks = hooks
-    if not do_hooks and preflight.discovered_clients:
-        do_hooks = click.confirm("Install optional shell/editor hooks?", default=False)
 
     mh_results = apply_metrics_hooks(
         source, preflight, dry_run=False, metrics_flag=do_metrics, hooks_flag=do_hooks
