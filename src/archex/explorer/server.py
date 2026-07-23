@@ -1,10 +1,15 @@
 """Loopback-only HTTP server rendering the local explorer.
 
-Binds hardcoded to `127.0.0.1`/`::1` and requires a per-process session
-token on every request (see `archex.explorer.security`). CSP response
-headers and `Host` header validation are added by a follow-up hardening
-change; until then this server is loopback-reachable-only, GET-only, and
-serves nothing without a valid token.
+Every request must pass three independent checks before any artifact data
+is rendered: the bind address itself is hardcoded to loopback
+(`127.0.0.1`/`::1`, never configurable to a wider address), the `Host`
+header must match the server's own bind address/port (defends against DNS
+rebinding), and a valid per-process session token must be present (query
+string or session cookie) -- see `archex.explorer.security`. Every response
+carries a restrictive Content-Security-Policy and related hardening
+headers. The server is GET-only (405 on any other method) and serves
+nothing beyond the read-only view HTML this module renders: no source
+upload, no state mutation, no remote fetch.
 """
 
 from __future__ import annotations
@@ -26,10 +31,13 @@ from archex.explorer.render import (
     render_receipt_page,
 )
 from archex.explorer.security import (
-    SESSION_COOKIE_NAME,
+    SECURITY_RESPONSE_HEADERS,
     TOKEN_QUERY_PARAM,
+    allowed_host_headers,
     generate_token,
     is_authorized,
+    is_valid_host_header,
+    session_cookie_header,
     token_from_query,
     token_matches,
 )
@@ -65,6 +73,7 @@ class ExplorerServer(ThreadingHTTPServer):
     allow_reuse_address = True
     data: ExplorerData
     token: str
+    allowed_host_headers: frozenset[str]
 
     def __init__(
         self,
@@ -83,6 +92,7 @@ class ExplorerServer(ThreadingHTTPServer):
         self.token = token or generate_token()
         self.address_family = socket.AF_INET6 if host == "::1" else socket.AF_INET
         super().__init__((host, port), _ExplorerRequestHandler)
+        self.allowed_host_headers = allowed_host_headers(host, self.server_address[1])
 
     @property
     def url(self) -> str:
@@ -124,6 +134,11 @@ class _ExplorerRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_get(self) -> None:
         server = self._explorer_server()
+
+        if not is_valid_host_header(self.headers.get("Host"), server.allowed_host_headers):
+            self._reject(400, "Bad Request", "Invalid Host header.")
+            return
+
         split = urlsplit(self.path)
         if not is_authorized(
             query_string=split.query,
@@ -136,7 +151,7 @@ class _ExplorerRequestHandler(BaseHTTPRequestHandler):
         route = split.path
         params = parse_qs(split.query)
         manifest = build_manifest_view(server.data)
-        body = self._render_route(route, params, server, manifest)
+        body: str | None = self._render_route(route, params, server, manifest)
         if body is None:
             self._reject(404, "Not Found", f"No view at {route!r}.")
             return
@@ -201,8 +216,10 @@ class _ExplorerRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        for name, value in SECURITY_RESPONSE_HEADERS.items():
+            self.send_header(name, value)
         if presented_token is not None and token_matches(presented_token, server.token):
-            self.send_header("Set-Cookie", f"{SESSION_COOKIE_NAME}={presented_token}; Path=/")
+            self.send_header("Set-Cookie", session_cookie_header(presented_token))
         self.end_headers()
         self.wfile.write(payload)
 
@@ -211,6 +228,8 @@ class _ExplorerRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        for name, value in SECURITY_RESPONSE_HEADERS.items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
 

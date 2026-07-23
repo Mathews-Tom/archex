@@ -185,6 +185,52 @@ def running_server_with_graph(explorer_data_with_graph: ExplorerData) -> Iterato
         thread.join(timeout=5)
 
 
+def test_valid_response_carries_csp_and_hardening_headers(running_server: ExplorerServer) -> None:
+    response = _get(running_server.url)
+
+    csp = response.headers.get("Content-Security-Policy", "")
+    assert "default-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Frame-Options") == "DENY"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("Cache-Control") == "no-store"
+
+
+def test_session_cookie_is_hardened(running_server: ExplorerServer) -> None:
+    response = _get(running_server.url)
+
+    cookie = response.headers.get("Set-Cookie", "")
+    assert "HttpOnly" in cookie
+    assert "SameSite=Strict" in cookie
+    assert "Path=/" in cookie
+
+
+def test_wrong_host_header_is_rejected(running_server: ExplorerServer) -> None:
+    port = running_server.server_address[1]
+    request = urllib.request.Request(  # noqa: S310
+        f"http://127.0.0.1:{port}/?token={running_server.token}",
+        headers={"Host": "evil.example.com"},
+    )
+
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(request, timeout=5)  # noqa: S310
+
+    assert exc_info.value.code == 400
+
+
+def test_localhost_alias_host_header_is_accepted(running_server: ExplorerServer) -> None:
+    port = running_server.server_address[1]
+    request = urllib.request.Request(  # noqa: S310
+        f"http://127.0.0.1:{port}/?token={running_server.token}",
+        headers={"Host": f"localhost:{port}"},
+    )
+
+    response = urllib.request.urlopen(request, timeout=5)  # noqa: S310
+
+    assert response.status == 200
+
+
 def test_module_map_view_is_reachable(running_server: ExplorerServer) -> None:
     port = running_server.server_address[1]
 
