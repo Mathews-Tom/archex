@@ -42,6 +42,8 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_CONDITIONAL_RERANK = "archex_query_conditional_rerank"
     ARCHEX_QUERY_SYMBOLIC_RERANK = "archex_query_symbolic_rerank"
     ARCHEX_QUERY_DIVERSITY_PACKED = "archex_query_diversity_packed"
+    ARCHEX_QUERY_PROFILE_FAST = "archex_query_profile_fast"
+    ARCHEX_QUERY_PROFILE_BALANCED = "archex_query_profile_balanced"
     EXTERNAL_MCP = "external_mcp"
 
 
