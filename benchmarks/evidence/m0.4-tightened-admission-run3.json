@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "milestone": "M0.4",
+  "round": 3,
+  "verdict": "NO-GO",
+  "decision": "tightened context candidate corpus proof",
+  "source_revision": "fabbf2897f6a9d815bd3affd893c10a0a95f4209",
+  "task_manifest_digest": "c9b6eb53901a572372131cb0d748af5ba487686ee6604f9baa40bcea09ae5721",
+  "runs": [
+    {
+      "run": "a",
+      "manifest_sha256": "0caeee9d67520c99f9aec2b8d692bdf595b92362efbd4ace42c3cb0758b597a6",
+      "task_count": 64,
+      "generated_at": "2026-07-23T01:47:27.094363+00:00"
+    },
+    {
+      "run": "b",
+      "manifest_sha256": "e006e9812cb9b8bee69aef87578cf4be009a3321d252535f834b051363ea6957",
+      "task_count": 64,
+      "generated_at": "2026-07-23T01:42:59.057194+00:00"
+    }
+  ],
+  "two_run_agreement": {
+    "same_source_revision": true,
+    "per_task_quality_metrics_identical": true,
+    "note": "recall/precision/f1/mrr/token_efficiency identical to full float precision across both runs on the same source_revision; warm_latency_ms differs only by wall-clock jitter (771.88ms vs 790.71ms p95, both well under the 3000ms limit)."
+  },
+  "thresholds": {
+    "min_recall": 0.6,
+    "min_precision": 0.2,
+    "min_f1": 0.3,
+    "min_mrr": 0.55,
+    "min_token_efficiency_with_completion": 0.08,
+    "max_p95_warm_latency_ms": 3000.0
+  },
+  "aggregate": {
+    "mean_recall": 0.9361979166666666,
+    "mean_precision": 0.42808779761904764,
+    "mean_f1": 0.5439236111111111,
+    "mean_mrr": 0.8334821428571428,
+    "mean_token_efficiency_with_completion": 0.703496493859015,
+    "warm_p95_ms_run_a": 771.8840999354135,
+    "warm_p95_ms_run_b": 790.7113911816849
+  },
+  "absolute_gate_failures": {
+    "recall": [
+      "loc_django_username_validator"
+    ],
+    "precision": [
+      "loc_celery_task_retry",
+      "loc_click_param_process",
+      "loc_django_username_validator",
+      "loc_fastapi_jsonable_encoder",
+      "loc_flask_full_dispatch",
+      "loc_httpx_pool_transport",
+      "loc_httpx_redirect_headers",
+      "loc_requests_adapter_send",
+      "loc_requests_redirect_auth",
+      "loc_sqlalchemy_session_merge"
+    ],
+    "f1": [
+      "loc_celery_task_retry",
+      "loc_click_param_process",
+      "loc_django_username_validator",
+      "loc_fastapi_jsonable_encoder",
+      "loc_flask_full_dispatch",
+      "loc_httpx_pool_transport",
+      "loc_httpx_redirect_headers",
+      "loc_requests_adapter_send",
+      "loc_requests_redirect_auth",
+      "loc_sqlalchemy_session_merge"
+    ],
+    "mrr": [
+      "celery_task_dispatch",
+      "django_middleware",
+      "express_error_handling",
+      "fastapi_routing",
+      "loc_click_param_process",
+      "loc_django_username_validator",
+      "loc_express_error_middleware",
+      "loc_fastapi_jsonable_encoder",
+      "loc_fastapi_solve_dependencies",
+      "loc_httpx_pool_transport",
+      "loc_mini_redis_command_from_frame",
+      "loc_requests_adapter_send",
+      "loc_requests_redirect_auth",
+      "loc_sqlalchemy_session_merge",
+      "react_hooks",
+      "routing_mixed_chunker"
+    ],
+    "token_efficiency": [
+      "loc_fastapi_solve_dependencies",
+      "loc_tokio_current_thread_block_on"
+    ]
+  },
+  "protected_evidence_regressions_vs_archex_query": {
+    "required_file_recall": [],
+    "region_recall": [],
+    "line_recall": []
+  },
+  "context_economy_failures": {
+    "zero_token_efficiency_tasks": [
+      "loc_fastapi_solve_dependencies",
+      "loc_tokio_current_thread_block_on"
+    ],
+    "wall_p95_exceeded": false
+  },
+  "comparison_to_prior_rounds": {
+    "round1_context_candidate_run1": {
+      "total_violations": 133,
+      "precision_failures": 38,
+      "f1_failures": 35,
+      "mrr_failures": 16,
+      "region_recall_regressions": 12,
+      "line_recall_regressions": 19,
+      "warm_p95_ms": 3812.877666001441
+    },
+    "round2_task_contract_calibration": {
+      "total_violations": 122,
+      "precision_failures": 39,
+      "f1_failures": 36,
+      "mrr_failures": 17,
+      "region_recall_regressions": 10,
+      "line_recall_regressions": 15,
+      "warm_p95_ms": 727.041
+    },
+    "round3_tightened_admission": {
+      "total_violations": 41,
+      "precision_failures": 10,
+      "f1_failures": 10,
+      "mrr_failures": 16,
+      "region_recall_regressions": 0,
+      "line_recall_regressions": 0,
+      "warm_p95_ms": 771.8840999354135
+    },
+    "measured_improvement_round2_to_round3": {
+      "total_violations": "122 -> 41 (-66%)",
+      "precision_failures": "39 -> 10 (-74%)",
+      "f1_failures": "36 -> 10 (-72%)",
+      "mrr_failures": "17 -> 16 (-1, unchanged within measurement noise)",
+      "region_recall_regressions": "10 -> 0 (fully resolved)",
+      "line_recall_regressions": "15 -> 0 (fully resolved)"
+    },
+    "residual_failure_analysis": {
+      "mrr_failures_all_match_control_exactly": true,
+      "mrr_note": "Every one of the 16 remaining MRR failures has archex_query_context_candidate MRR exactly equal to the same-task archex_query control MRR (verified per-task, not aggregate) -- the context candidate never regresses ranking; it is bounded by the already-merged M0.2/M0.3 base retrieval/reranking, out of this round's file-set/region-elision scope.",
+      "precision_f1_failures_all_match_control_exactly": true,
+      "precision_f1_note": "All 10 remaining precision/F1 failures are loc_* single-target localization tasks where archex_query_context_candidate's precision/F1 are byte-identical to the archex_query control -- no seed/neighbor admission occurs (no identifier-tier evidence beyond what the base query already found) and no base-query region is ever elided, so the candidate cannot diverge from control on these tasks within this round's scope.",
+      "token_efficiency_failures_unchanged_from_round1": true,
+      "token_efficiency_note": "loc_fastapi_solve_dependencies and loc_tokio_current_thread_block_on remain zero-efficiency in every round to date. Root cause (per-task inspection): the entire base-query bundle for these two tasks classifies as protected/direct, so nothing is eligible for compression under any round's packing policy. This is a distinct defect from the confirmed over-broadening defect this round targets and was not in scope.",
+      "recall_failure_matches_control": true,
+      "recall_note": "loc_django_username_validator: both archex_query and archex_query_context_candidate score 0.0 recall (the base query does not retrieve the required file at all for the recalibrated question) -- not a regression, a base-retrieval miss out of this round's scope."
+    }
+  },
+  "promotion": {
+    "default_changed": false,
+    "canonical_baseline_changed": false,
+    "m1_unblocked": false,
+    "reason": "The tightened candidate clears every recall/precision/F1/MRR/region/line/token-efficiency row it can influence within its file-set/region-elision scope and fully resolves the confirmed region/line over-broadening defect, but 41 absolute-row violations remain on both same-revision runs (16 MRR, 10 precision, 10 F1, 2 token-efficiency, 1 recall), every one of which is provably bounded by already-merged M0.2/M0.3 base retrieval/reranking or a distinct compression-eligibility defect, not by anything in this round's admission/packing scope. Per DEVELOPMENT_PLAN.md M0.4, default promotion requires every absolute row to pass on both runs; a partial pass is NO-GO regardless of the measured improvement."
+  },
+  "runtime_boundary": "This artifact is evaluation-only. No benchmark task labels, expected files, expected symbols, or expected regions are available to production or candidate retrieval code."
+}
