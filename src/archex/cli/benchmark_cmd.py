@@ -35,6 +35,10 @@ from archex.benchmark.evidence import (
     validate_evidence_directory,
     write_evidence_manifest,
 )
+from archex.benchmark.external_corpus import (
+    SealedCorpusAccessError,
+    enforce_sealed_corpus_access,
+)
 from archex.benchmark.gate import (
     DeltaQualityThresholds,
     LatencyViolation,
@@ -244,6 +248,15 @@ def benchmark_cmd() -> None:
     default=False,
     help="Disable the live progress display.",
 )
+@click.option(
+    "--allow-sealed-corpus",
+    is_flag=True,
+    default=False,
+    help=(
+        "Required to target the sealed chronological holdout corpus "
+        "(benchmarks/sealed_tasks); refused otherwise."
+    ),
+)
 def run_cmd(
     output_dir: str,
     task_id: str | None,
@@ -265,8 +278,13 @@ def run_cmd(
     warm_cache: bool,
     self_only: bool,
     no_progress: bool,
+    allow_sealed_corpus: bool,
 ) -> None:
     """Run benchmarks across strategies."""
+    try:
+        enforce_sealed_corpus_access(Path(tasks_dir), allow_sealed=allow_sealed_corpus)
+    except SealedCorpusAccessError as exc:
+        raise click.ClickException(str(exc)) from exc
     strategies: list[Strategy] = list(DEFAULT_STRATEGIES)
     for name in strategy_names:
         strategy = Strategy(name)
@@ -955,6 +973,15 @@ def baseline_compare_cmd(input_dir: str, baseline_path: str) -> None:
     type=float,
     help="Hard maximum aggregate p95 for measured warm candidate latency in ms.",
 )
+@click.option(
+    "--allow-sealed-corpus",
+    is_flag=True,
+    default=False,
+    help=(
+        "Required to target the sealed chronological holdout corpus "
+        "(benchmarks/sealed_tasks); refused otherwise."
+    ),
+)
 def gate_cmd(
     input_dir: str,
     tasks_dir: str,
@@ -969,8 +996,13 @@ def gate_cmd(
     control_strategy: str | None,
     min_token_efficiency_with_completion: float | None,
     max_p95_warm_latency_ms: float | None,
+    allow_sealed_corpus: bool,
 ) -> None:
     """Check benchmark results against quality thresholds."""
+    try:
+        enforce_sealed_corpus_access(Path(tasks_dir), allow_sealed=allow_sealed_corpus)
+    except SealedCorpusAccessError as exc:
+        raise click.ClickException(str(exc)) from exc
     try:
         current_manifest, reports = load_evidence_reports(
             Path(input_dir),

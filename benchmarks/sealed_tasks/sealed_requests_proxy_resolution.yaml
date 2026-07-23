@@ -1,0 +1,51 @@
+task_id: sealed_requests_proxy_resolution
+repo: psf/requests
+commit: "v2.32.3"
+category: external-framework
+family: localization
+languages: [python]
+include_paths:
+  - src/requests
+question: "Issue: requests is not honoring the no_proxy environment variable correctly when deciding whether to bypass a proxy for a given URL, and the environment-derived proxy dict does not agree with the final per-scheme proxy selection. Where is the proxy bypass and resolution logic that decides whether a URL should bypass proxies, reads environment proxies, and picks the effective proxy for a request?"
+expected_files:
+  - src/requests/utils.py
+expected_symbols:
+  - should_bypass_proxies
+  - get_environ_proxies
+  - select_proxy
+  - resolve_proxies
+expected_regions:
+  - path: src/requests/utils.py
+    granularity: symbol
+    symbol: should_bypass_proxies
+    start_line: 765
+    end_line: 823
+    notes: "Decides whether a URL bypasses proxies via no_proxy env/arg and system proxy_bypass; pinned to requests v2.32.3."
+  - path: src/requests/utils.py
+    granularity: symbol
+    symbol: get_environ_proxies
+    start_line: 826
+    end_line: 835
+    notes: "Returns environment proxies unless should_bypass_proxies says to skip them; pinned to requests v2.32.3."
+    weight: 0.9
+  - path: src/requests/utils.py
+    granularity: symbol
+    symbol: select_proxy
+    start_line: 838
+    end_line: 861
+    notes: "Picks the effective proxy for a URL from a scheme/host-keyed proxies mapping; pinned to requests v2.32.3."
+    weight: 0.9
+  - path: src/requests/utils.py
+    granularity: symbol
+    symbol: resolve_proxies
+    start_line: 864
+    end_line: 888
+    notes: "Combines request proxies with environment proxies when trust_env is set; pinned to requests v2.32.3."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - proxy
+  - no_proxy
+  - bypass
+  - environ
+  - resolve_proxies

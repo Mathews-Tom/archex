@@ -1,0 +1,34 @@
+task_id: sealed_flask_send_file_root_path
+repo: pallets/flask
+commit: "3.1.0"
+category: external-framework
+family: comprehension
+languages: [python]
+include_paths:
+  - src/flask
+question: "How does Flask's send_file helper resolve which file to send to the client, and how does get_root_path determine a package's root directory for resolving relative paths when no explicit root is configured?"
+expected_files:
+  - src/flask/helpers.py
+expected_symbols:
+  - send_file
+  - get_root_path
+expected_regions:
+  - path: src/flask/helpers.py
+    granularity: symbol
+    symbol: send_file
+    start_line: 400
+    end_line: 523
+    notes: "Wraps werkzeug.utils.send_file with Flask-specific request/environ plumbing; pinned to Flask 3.1.0."
+  - path: src/flask/helpers.py
+    granularity: symbol
+    symbol: get_root_path
+    start_line: 570
+    end_line: 624
+    notes: "Resolves a package/module's root path via sys.modules, import spec loader, or cwd fallback; pinned to Flask 3.1.0."
+    weight: 0.8
+token_budget: 8192
+keywords:
+  - send_file
+  - get_root_path
+  - root_path
+  - werkzeug
