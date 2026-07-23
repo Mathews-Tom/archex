@@ -84,6 +84,20 @@ def test_build_analysis_artifact_reports_diff_symbol_risk(impact_diff_repo: Path
     assert "high_fan_in" in artifact.diff.risk_reasons
 
 
+def test_interface_candidates_carry_resolvable_symbol_handles(impact_diff_repo: Path) -> None:
+    _edit_hub(impact_diff_repo)
+
+    artifact = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")
+
+    assert artifact.diff.affected_interfaces_total >= 1
+    interface = next(
+        c for c in artifact.diff.affected_interfaces if c.symbol_id.startswith("hub.py::")
+    )
+    assert interface.path == "hub.py"
+    assert interface.handle == f"symbol:{interface.symbol_id}"
+    assert "::" not in interface.path
+
+
 def test_fully_unmapped_diff_is_low_confidence(impact_diff_repo: Path) -> None:
     new_file = impact_diff_repo / "notes.bin"
     new_file.write_bytes(b"\x00\x01binary-blob")

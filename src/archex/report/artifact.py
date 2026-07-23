@@ -149,7 +149,16 @@ class SymbolCandidate(BaseModel):
 
 
 class InterfaceCandidate(BaseModel):
+    """A public interface symbol touched by the diff.
+
+    `archex.impact._public_interfaces` returns composite
+    `path::qualified_name#kind` strings -- the same shape as
+    `CodeChunk.symbol_id` -- so `path` here is the file path extracted
+    from that identifier, not the identifier itself.
+    """
+
     path: str
+    symbol_id: str
     handle: str
     confidence: AnalysisConfidence = AnalysisConfidence.HIGH
     evidence: list[EvidenceLocation] = []
@@ -374,6 +383,21 @@ def _parser_versions_for_changes(changes: list[ImpactFileChange]) -> dict[str, s
     return versions
 
 
+def _interface_candidate(symbol_id: str) -> InterfaceCandidate:
+    file_path = symbol_id.split("::", 1)[0]
+    handle = symbol_handle(symbol_id)
+    return InterfaceCandidate(
+        path=file_path,
+        symbol_id=symbol_id,
+        handle=handle,
+        evidence=[
+            EvidenceLocation(
+                path=file_path, handle=handle, description="public interface symbol changed"
+            )
+        ],
+    )
+
+
 def _symbol_candidate(impact: SymbolImpact, chunk: CodeChunk | None) -> SymbolCandidate:
     if chunk is not None and chunk.symbol_id is not None:
         handle = symbol_handle(chunk.symbol_id)
@@ -445,12 +469,7 @@ def _build_diff_analysis(
     symbol_candidates = symbol_candidates[:MAX_SYMBOL_CANDIDATES]
 
     affected_interfaces = [
-        InterfaceCandidate(
-            path=path,
-            handle=file_handle(path),
-            evidence=[EvidenceLocation(path=path, description="public interface symbol changed")],
-        )
-        for path in report.affected_interfaces
+        _interface_candidate(symbol_id) for symbol_id in report.affected_interfaces
     ]
     interfaces_total = len(affected_interfaces)
     affected_interfaces = affected_interfaces[:MAX_INTERFACE_CANDIDATES]
