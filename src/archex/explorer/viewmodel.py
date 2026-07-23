@@ -384,6 +384,7 @@ def build_neighborhood_view(
     direction: GraphDirection = "both",
     depth: int = DEFAULT_NEIGHBORHOOD_DEPTH,
     limit: int = DEFAULT_NEIGHBORHOOD_LIMIT,
+    graph_query: GraphQuery | None = None,
 ) -> NeighborhoodView:
     if data.graph is None:
         return NeighborhoodView(
@@ -416,9 +417,9 @@ def build_neighborhood_view(
             omitted_edges=0,
         )
 
-    graph_query = GraphQuery(data.graph)
+    engine = graph_query if graph_query is not None else GraphQuery(data.graph)
     try:
-        result = graph_query.neighbors(query, direction=direction, depth=depth, limit=limit)
+        result = engine.neighbors(query, direction=direction, depth=depth, limit=limit)
     except GraphQueryError as exc:
         return NeighborhoodView(
             available=True,
