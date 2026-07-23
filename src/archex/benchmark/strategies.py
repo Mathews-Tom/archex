@@ -68,6 +68,7 @@ from archex.benchmark.region_metrics import (
     ReturnedRegion,
     compute_region_metrics,
 )
+from archex.benchmark.scorecard import classify_repo_size
 from archex.benchmark.summary_sidecar import SummarySidecar, file_content_hash
 from archex.benchmark.task_aware import DenseTrigger, TaskAwarePolicy, policy_for
 from archex.cache import CacheManager
@@ -1205,6 +1206,9 @@ def _assemble_query_result(
     """Build a BenchmarkResult from an already-retrieved bundle."""
     ranked_files = [chunk.chunk.file_path for chunk in bundle.chunks]
     unique_ranked = _deduplicate_ranked(ranked_files)
+    duplicate_rate = (
+        (len(ranked_files) - len(unique_ranked)) / len(ranked_files) if ranked_files else 0.0
+    )
     result_files = set(unique_ranked)
     recall = compute_recall(result_files, task.expected_files)
     precision = compute_precision(result_files, task.expected_files)
@@ -1245,6 +1249,7 @@ def _assemble_query_result(
         "timing": timing,
         "timestamp": now_iso(),
         "unique_ranked_files": af.unique_ranked_files,
+        "duplicate_rate": duplicate_rate,
         "seed_files": af.seed_files,
         "expanded_files": af.expanded_files,
         "expansion_ratio": af.expansion_ratio,
@@ -1273,6 +1278,7 @@ def _assemble_query_result(
         "chunker": af.chunker,
         "index_chunk_count": af.index_chunk_count,
         "mean_chunk_tokens": af.mean_chunk_tokens,
+        "repo_size_class": classify_repo_size(repo_path),
         "category": task.category,
         "family": task.family,
         "vector_mode": index_config.vector_mode,

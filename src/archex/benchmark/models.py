@@ -67,6 +67,19 @@ class TaskFamily(StrEnum):
     LOCALIZATION = "localization"
 
 
+class RepoSizeClass(StrEnum):
+    """Coarse repository-size bucket for M3 scorecard slicing.
+
+    Classification counts non-blank lines across recognized source
+    extensions in the checked-out task repository at benchmark run time —
+    a deterministic, offline proxy for scale, not a precise LOC audit.
+    """
+
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
+
+
 class BenchmarkSpecModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -537,6 +550,10 @@ class BenchmarkResult(BaseModel):
     timestamp: str
     # Seed vs expansion diagnostics
     unique_ranked_files: int = 0
+    # Fraction of ranked (pre-dedup) files that were duplicates of a path
+    # already ranked higher (e.g. re-surfaced by both a seed hit and a
+    # graph-expansion edge). 0.0 when every returned file is unique.
+    duplicate_rate: float = 0.0
     seed_files: list[str] = []
     expanded_files: list[str] = []
     expansion_ratio: float = 0.0
@@ -585,6 +602,10 @@ class BenchmarkResult(BaseModel):
     chunker: ChunkerName = "default"
     index_chunk_count: int = 0
     mean_chunk_tokens: float = 0.0
+    # Coarse repository-size bucket, computed once from the checked-out task
+    # repository. None ("unmeasured") for benchmark-only lanes that do not
+    # resolve the archex_query-family assembly path.
+    repo_size_class: RepoSizeClass | None = None
     # Optional region/line-level retrieval-quality metrics. Populated only when a
     # task declares expected_regions; otherwise left as None ("unknown").
     region_recall: float | None = None
