@@ -66,7 +66,7 @@ from archex.impact import (
 from archex.metrics.capture import record_query_usage, record_scout_usage, record_structural_usage
 from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
-from archex.models import ContextBundle, PipelineTiming, RepoSource
+from archex.models import ContextBundle, PipelineTiming, RepoSource, RetrievalProfile
 from archex.onboarding import OnboardingError, render_onboarding_markdown
 from archex.reporting import compute_meta, count_tokens
 from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, ScoutResult, render_scout
@@ -128,6 +128,7 @@ def handle_query_repo(
     question: str,
     budget: int | None = None,
     runtime: QueryRuntime | None = None,
+    profile: str | None = None,
 ) -> str:
     """Retrieve context from a repository for a natural-language question.
 
@@ -138,6 +139,10 @@ def handle_query_repo(
             intent routing with a product ceiling of 8192.
         runtime: Optional warm QueryRuntime shared across calls in one server
             process. Omit for the exact pre-runtime per-call behavior.
+        profile: Optional named retrieval profile — 'fast' (bm25 only, zero
+            vector/model work), 'balanced' (adds module prefiltering), or
+            'deep' (adds vector search and reranking). Omit to use the
+            repo's configured IndexConfig unchanged.
 
     Returns:
         JSON envelope with ContextBundle content and _meta efficiency block.
@@ -146,6 +151,13 @@ def handle_query_repo(
         raise ValueError("question must not be empty")
     if budget is not None and budget <= 0:
         raise ValueError(f"budget must be positive, got {budget}")
+    resolved_profile: RetrievalProfile | None = None
+    if profile is not None:
+        try:
+            resolved_profile = RetrievalProfile(profile)
+        except ValueError as exc:
+            valid = sorted(p.value for p in RetrievalProfile)
+            raise ValueError(f"profile must be one of {valid}, got {profile!r}") from exc
 
     source = resolve_source(repo_url)
     pt = PipelineTiming()
@@ -157,6 +169,7 @@ def handle_query_repo(
         timing=pt,
         explicit_token_budget=budget is not None,
         runtime=runtime,
+        profile=resolved_profile,
     )
 
     content = render_xml(bundle, include_receipt=False)
@@ -1171,8 +1184,9 @@ async def _run_mcp_tool(
         question: str = arguments["question"]
         budget_arg = arguments.get("budget")
         budget = int(budget_arg) if budget_arg is not None else None
+        profile_arg: str | None = arguments.get("profile")
         return await loop.run_in_executor(
-            None, handle_query_repo, repo_url, question, budget, runtime
+            None, handle_query_repo, repo_url, question, budget, runtime, profile_arg
         )
     if name == "compare_repos":
         repo_a: str = arguments["repo_a"]
@@ -1440,6 +1454,16 @@ def build_server(runtime: QueryRuntime | None = None) -> Any:
                             "description": (
                                 "Optional explicit token budget override. Omit to use "
                                 "adaptive intent routing with the 8192 product ceiling."
+                            ),
+                        },
+                        "profile": {
+                            "type": "string",
+                            "enum": ["fast", "balanced", "deep"],
+                            "description": (
+                                "Optional named retrieval profile: 'fast' (bm25 only, zero "
+                                "vector/model work), 'balanced' (adds module prefiltering), "
+                                "or 'deep' (adds vector search and reranking). Omit to use "
+                                "the repo's configured retrieval settings unchanged."
                             ),
                         },
                     },

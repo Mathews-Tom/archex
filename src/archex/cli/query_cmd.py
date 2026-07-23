@@ -67,6 +67,17 @@ logger = logging.getLogger(__name__)
     help="Allow explicitly selected pinned model paths that require Hugging Face remote code.",
 )
 @click.option(
+    "--profile",
+    type=click.Choice(["fast", "balanced", "deep"]),
+    default=None,
+    help=(
+        "Named retrieval profile: 'fast' (bm25 only, zero vector/model work), "
+        "'balanced' (adds module prefiltering), or 'deep' (adds vector search and "
+        "reranking). Applied before --strategy/--splade/--module-prefilter, which "
+        "still override individual fields on top of it."
+    ),
+)
+@click.option(
     "--no-refresh",
     is_flag=True,
     default=False,
@@ -90,6 +101,7 @@ def query_cmd(
     splade: bool,
     module_prefilter: bool,
     allow_remote_code: bool,
+    profile: str | None,
     no_refresh: bool,
     refresh_threshold: float | None,
 ) -> None:
@@ -105,6 +117,11 @@ def query_cmd(
     if language:
         config = config.model_copy(update={"languages": list(language)})
     index_config = load_index_config(repo_source)
+    if profile is not None:
+        from archex.models import RetrievalProfile
+        from archex.serve.profiles import index_config_for_profile
+
+        index_config = index_config_for_profile(RetrievalProfile(profile), index_config)
     if strategy is not None:
         index_config = index_config.model_copy(update={"vector": strategy == "hybrid"})
     if allow_remote_code:
