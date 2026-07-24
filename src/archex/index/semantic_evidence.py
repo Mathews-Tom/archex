@@ -9,20 +9,22 @@ silent gap.
 
 from __future__ import annotations
 
+import datetime as _dt
+import logging
 from typing import TYPE_CHECKING
 
 from archex.integrations.semantic.lsp_provider import LspEvidenceProvider
+from archex.integrations.semantic.models import ProviderAvailability, SemanticProviderReceipt
 from archex.integrations.semantic.scip_provider import ScipEvidenceProvider
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from archex.integrations.semantic.models import (
-        SemanticEdgeEvidence,
-        SemanticProviderReceipt,
-    )
+    from archex.integrations.semantic.models import SemanticEdgeEvidence
     from archex.integrations.semantic.provider import SemanticEvidenceProvider
     from archex.models import IndexConfig, ParsedFile
+
+logger = logging.getLogger(__name__)
 
 
 def _default_provider(name: str) -> SemanticEvidenceProvider:
@@ -49,6 +51,12 @@ def collect_semantic_evidence(
     lets a caller inject an already-configured provider (for example an
     ``LspEvidenceProvider`` bound to a live ``lsp_client.Client``); entries not
     supplied fall back to a stock provider constructed with default settings.
+
+    A provider must never raise for ordinary unavailability, but this is an
+    external-tool boundary (a built-in provider's own bug, or a caller-
+    injected custom provider), so every ``collect()`` call is defended here:
+    an unexpected exception degrades that one provider to an explicit
+    ``UNAVAILABLE`` receipt rather than aborting the entire index build.
     """
     if not index_config.semantic_evidence_providers:
         return [], []
@@ -58,7 +66,21 @@ def collect_semantic_evidence(
     receipts: list[SemanticProviderReceipt] = []
     for name in index_config.semantic_evidence_providers:
         provider = resolved.get(name) or _default_provider(name)
-        item_evidence, receipt = provider.collect(parsed_files, repo_root)
+        try:
+            item_evidence, receipt = provider.collect(parsed_files, repo_root)
+        except Exception as exc:
+            logger.warning(
+                "semantic evidence provider %r raised during collect()", name, exc_info=True
+            )
+            receipts.append(
+                SemanticProviderReceipt(
+                    provider=provider.name,
+                    availability=ProviderAvailability.UNAVAILABLE,
+                    reason=f"provider raised {type(exc).__name__}: {exc}",
+                    collected_at=_dt.datetime.now(tz=_dt.UTC).isoformat(),
+                )
+            )
+            continue
         evidence.extend(item_evidence)
         receipts.append(receipt)
     return evidence, receipts

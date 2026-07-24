@@ -158,9 +158,12 @@ def _index_config_metadata_matches(store: IndexStore, index_config: IndexConfig)
     stored_quantize_enabled = stored_quantize == "True" if stored_quantize is not None else False
     if stored_quantize_enabled != index_config.quantize_vectors:
         return False
-    if index_config.quantize_vectors:
-        return store.get_metadata("quantize_bits") == str(index_config.quantize_bits)
-    return True
+    if index_config.quantize_vectors and store.get_metadata("quantize_bits") != str(
+        index_config.quantize_bits
+    ):
+        return False
+    stored_semantic_providers = store.get_metadata("semantic_evidence_providers") or ""
+    return stored_semantic_providers == ",".join(index_config.semantic_evidence_providers)
 
 
 def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> None:
@@ -168,6 +171,9 @@ def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> 
     store.set_metadata("chunker_revision", chunker_revision(index_config.chunker))
     store.set_metadata("quantize_vectors", str(index_config.quantize_vectors))
     store.set_metadata("quantize_bits", str(index_config.quantize_bits))
+    store.set_metadata(
+        "semantic_evidence_providers", ",".join(index_config.semantic_evidence_providers)
+    )
 
 
 def _full_index(
@@ -2143,6 +2149,7 @@ def query(
                     index_revision=index_revision,
                     freshness=_freshness_for_query(refresh),
                     post_search_at=t_post_search,
+                    semantic_providers=search_store.get_semantic_provider_receipts(),
                 )
             finally:
                 store.close()
@@ -2401,6 +2408,7 @@ def query(
                     index_revision=index_revision,
                     freshness=_freshness_for_query(refresh),
                     metadata_timing=metadata_timing,
+                    semantic_providers=semantic_receipts,
                 )
                 return pt
 
