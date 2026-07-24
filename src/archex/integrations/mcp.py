@@ -1459,6 +1459,85 @@ async def _run_mcp_tool(
             hub_degree,
             token_budget,
         )
+    if name == "graph_query":
+        graph_path = arguments["graph_path"]
+        operation: str = arguments["operation"]
+        fmt = arguments.get("format", "json")
+        hub_degree = int(arguments.get("hub_degree", 50))
+        token_budget = int(arguments.get("token_budget", DEFAULT_GRAPH_TOKEN_BUDGET))
+        if operation == "lookup":
+            node = arguments["node"]
+            limit = int(arguments.get("limit", 25))
+            return await loop.run_in_executor(
+                None,
+                handle_graph_lookup,
+                graph_path,
+                node,
+                fmt,
+                limit,
+                hub_degree,
+                token_budget,
+            )
+        if operation == "neighbors":
+            node = arguments["node"]
+            direction: GraphDirection = arguments.get("direction", "both")
+            depth = int(arguments.get("depth", 1))
+            limit = int(arguments.get("limit", 25))
+            return await loop.run_in_executor(
+                None,
+                handle_graph_neighbors,
+                graph_path,
+                node,
+                fmt,
+                direction,
+                depth,
+                limit,
+                hub_degree,
+                token_budget,
+            )
+        if operation == "path":
+            source: str = arguments["source"]
+            target: str = arguments["target"]
+            direction = arguments.get("direction", "both")
+            max_edges = int(arguments.get("max_edges", 100))
+            return await loop.run_in_executor(
+                None,
+                handle_graph_path,
+                graph_path,
+                source,
+                target,
+                fmt,
+                direction,
+                max_edges,
+                hub_degree,
+                token_budget,
+            )
+        if operation == "stats":
+            hub_limit = int(arguments.get("hub_limit", 10))
+            return await loop.run_in_executor(
+                None,
+                handle_graph_stats,
+                graph_path,
+                fmt,
+                hub_limit,
+                hub_degree,
+                token_budget,
+            )
+        if operation == "hubs":
+            limit = int(arguments.get("limit", 25))
+            threshold_arg = arguments.get("threshold")
+            threshold = int(threshold_arg) if threshold_arg is not None else None
+            return await loop.run_in_executor(
+                None,
+                handle_graph_hubs,
+                graph_path,
+                fmt,
+                limit,
+                threshold,
+                hub_degree,
+                token_budget,
+            )
+        raise ValueError(f"Unknown graph_query operation: {operation!r}")
     raise ValueError(f"Unknown tool: {name!r}")
 
 
@@ -2095,6 +2174,78 @@ def _tool_schemas() -> list[dict[str, Any]]:
                     },
                 },
                 "required": ["graph_path"],
+            },
+        },
+        {
+            "name": "graph_query",
+            "description": (
+                "Consolidated graph_* dispatch: one tool covering graph_lookup, "
+                "graph_neighbors, graph_path, graph_stats, and graph_hubs via "
+                "'operation'. Reads an exported graph artifact (no reindexing); "
+                "results are identical to calling the equivalent graph_* tool "
+                "directly, which remains available unchanged."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "enum": ["lookup", "neighbors", "path", "stats", "hubs"],
+                        "description": "Which graph_* operation to run.",
+                    },
+                    "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                    "node": {
+                        "type": "string",
+                        "description": "Node ID/path/label/query. Required for lookup, neighbors.",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Source node ID or path. Required for path.",
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Target node ID or path. Required for path.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["out", "in", "both"],
+                        "default": "both",
+                        "description": "Used by neighbors, path.",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Used by neighbors.",
+                    },
+                    "max_edges": {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Used by path.",
+                    },
+                    "hub_limit": {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Used by stats.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "default": 25,
+                        "description": "Used by lookup, hubs.",
+                    },
+                    "threshold": {"type": "integer", "description": "Used by hubs."},
+                    "hub_degree": {"type": "integer", "default": 50},
+                    "token_budget": {
+                        "type": "integer",
+                        "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                        "description": "Maximum markdown content tokens to return.",
+                    },
+                },
+                "required": ["operation", "graph_path"],
             },
         },
     ]

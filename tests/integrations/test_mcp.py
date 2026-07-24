@@ -917,7 +917,7 @@ class TestBuildServer:
         server_result = await handler(req)
         result = server_result.root
         assert isinstance(result, mcp_types.ListToolsResult)
-        assert len(result.tools) == 18
+        assert len(result.tools) == 19
         tool_names = {t.name for t in result.tools}
         assert "scout_repo" in tool_names
         assert "get_file_tree" in tool_names
@@ -1867,3 +1867,163 @@ class TestBuildServerToolScoping:
             assert isinstance(result, mcp_types.CallToolResult)
             assert not result.isError
             mock_handle.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# graph_query consolidation tests (M11 PR-3)
+# ---------------------------------------------------------------------------
+
+
+class TestGraphQueryConsolidation:
+    """graph_query must return byte-identical results to its graph_* predecessor
+    for every operation, and every original graph_* tool name must keep
+    dispatching unchanged through the same deprecation-window server."""
+
+    @staticmethod
+    async def _call(server: object, name: str, arguments: dict[str, object]) -> str:
+        from mcp import types as mcp_types
+
+        handler = server.request_handlers[mcp_types.CallToolRequest]  # type: ignore[attr-defined]
+        req = mcp_types.CallToolRequest(
+            method="tools/call",
+            params=mcp_types.CallToolRequestParams(name=name, arguments=arguments),
+        )
+        result = (await handler(req)).root
+        assert isinstance(result, mcp_types.CallToolResult)
+        assert not result.isError
+        text = result.content[0].text  # type: ignore[union-attr]
+        assert isinstance(text, str)
+        return text
+
+    @staticmethod
+    def _normalize(response_text: str) -> dict[str, object]:
+        """Parse a graph-tool response, dropping timing fields that legitimately
+        differ between two separate calls but carry no semantic content."""
+        parsed: dict[str, object] = json.loads(response_text)
+        meta = parsed.get("_meta")
+        if isinstance(meta, dict):
+            meta.pop("index_time_ms", None)
+            meta.pop("query_time_ms", None)
+        return parsed
+
+    @pytest.mark.asyncio
+    async def test_lookup_parity(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        server = build_server()
+
+        via_graph_query = await self._call(
+            server,
+            "graph_query",
+            {"operation": "lookup", "graph_path": str(artifact), "node": "pkg/app.py"},
+        )
+        via_graph_lookup = await self._call(
+            server, "graph_lookup", {"graph_path": str(artifact), "node": "pkg/app.py"}
+        )
+        assert self._normalize(via_graph_query) == self._normalize(via_graph_lookup)
+
+    @pytest.mark.asyncio
+    async def test_neighbors_parity(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        server = build_server()
+
+        via_graph_query = await self._call(
+            server,
+            "graph_query",
+            {"operation": "neighbors", "graph_path": str(artifact), "node": "pkg/app.py"},
+        )
+        via_graph_neighbors = await self._call(
+            server, "graph_neighbors", {"graph_path": str(artifact), "node": "pkg/app.py"}
+        )
+        assert self._normalize(via_graph_query) == self._normalize(via_graph_neighbors)
+
+    @pytest.mark.asyncio
+    async def test_path_parity(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        server = build_server()
+
+        via_graph_query = await self._call(
+            server,
+            "graph_query",
+            {
+                "operation": "path",
+                "graph_path": str(artifact),
+                "source": "pkg/hub.py",
+                "target": "pkg/db.py",
+            },
+        )
+        via_graph_path = await self._call(
+            server,
+            "graph_path",
+            {"graph_path": str(artifact), "source": "pkg/hub.py", "target": "pkg/db.py"},
+        )
+        assert self._normalize(via_graph_query) == self._normalize(via_graph_path)
+
+    @pytest.mark.asyncio
+    async def test_stats_parity(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        server = build_server()
+
+        via_graph_query = await self._call(
+            server, "graph_query", {"operation": "stats", "graph_path": str(artifact)}
+        )
+        via_graph_stats = await self._call(server, "graph_stats", {"graph_path": str(artifact)})
+        assert self._normalize(via_graph_query) == self._normalize(via_graph_stats)
+
+    @pytest.mark.asyncio
+    async def test_hubs_parity(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        server = build_server()
+
+        via_graph_query = await self._call(
+            server,
+            "graph_query",
+            {"operation": "hubs", "graph_path": str(artifact), "threshold": 3},
+        )
+        via_graph_hubs = await self._call(
+            server, "graph_hubs", {"graph_path": str(artifact), "threshold": 3}
+        )
+        assert self._normalize(via_graph_query) == self._normalize(via_graph_hubs)
+        assert json.loads(via_graph_query)["content"]["hubs"][0]["path"] == "pkg/hub.py"
+
+    @pytest.mark.asyncio
+    async def test_unknown_operation_raises(self, tmp_path: Path) -> None:
+        artifact = _write_mcp_graph_artifact(tmp_path)
+        server = build_server()
+        from mcp import types as mcp_types
+
+        handler = server.request_handlers[mcp_types.CallToolRequest]
+        req = mcp_types.CallToolRequest(
+            method="tools/call",
+            params=mcp_types.CallToolRequestParams(
+                name="graph_query",
+                arguments={"operation": "not_a_real_operation", "graph_path": str(artifact)},
+            ),
+        )
+        result = (await handler(req)).root
+        assert isinstance(result, mcp_types.CallToolResult)
+        assert result.isError
+
+    @pytest.mark.asyncio
+    async def test_all_five_original_graph_tools_still_registered(self) -> None:
+        server = build_server()
+        from mcp import types as mcp_types
+
+        handler = server.request_handlers[mcp_types.ListToolsRequest]
+        result = (await handler(mcp_types.ListToolsRequest(method="tools/list", params=None))).root
+        assert isinstance(result, mcp_types.ListToolsResult)
+        tool_names = {t.name for t in result.tools}
+        assert {
+            "graph_lookup",
+            "graph_neighbors",
+            "graph_path",
+            "graph_stats",
+            "graph_hubs",
+            "graph_query",
+        }.issubset(tool_names)
+
+    def test_core_scope_includes_graph_query_but_not_raw_graph_tools(self) -> None:
+        core_scope = mcp_integration.resolve_tool_scope("core")
+        assert core_scope is not None
+        assert "graph_query" in core_scope
+        assert "graph_lookup" not in core_scope
+        assert "graph_neighbors" not in core_scope
