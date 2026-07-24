@@ -41,11 +41,7 @@ def render_markdown(artifact: AnalysisArtifactV1) -> str:
             artifact.diff.affected_interfaces_total,
         ),
         "",
-        *_path_list_section(
-            "Test Candidates",
-            [candidate.path for candidate in artifact.diff.test_candidates],
-            artifact.diff.test_candidates_total,
-        ),
+        *_test_candidates_section(artifact),
         "",
         *_path_list_section(
             "Unsupported Files",
@@ -128,24 +124,57 @@ def _symbol_candidates_section(artifact: AnalysisArtifactV1) -> list[str]:
     lines = [
         "## Symbol Risk Candidates",
         "",
-        "| Risk | Confidence | Symbol | File | Lines | Handle |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Risk | Confidence | Symbol | File | Lines | Handle | Runtime evidence |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for candidate in artifact.diff.symbol_candidates:
         label = candidate.qualified_name or candidate.symbol_name or "<unnamed>"
         lines.append(
             f"| `{candidate.risk_level}` | `{candidate.confidence.value}` | `{label}` | "
             f"`{candidate.file_path}` | {candidate.start_line}-{candidate.end_line} | "
-            f"`{candidate.handle}` |"
+            f"`{candidate.handle}` | {_runtime_evidence_label(candidate)} |"
         )
     if not artifact.diff.symbol_candidates:
-        lines.append("| - | - | _none_ | - | - | - |")
+        lines.append("| - | - | _none_ | - | - | - | - |")
     if artifact.diff.symbol_candidates_total > len(artifact.diff.symbol_candidates):
         remaining = artifact.diff.symbol_candidates_total - len(artifact.diff.symbol_candidates)
         lines.append("")
         lines.append(
             f"_{remaining} additional symbol candidate(s) omitted; see the JSON artifact._"
         )
+    return lines
+
+
+def _runtime_evidence_label(candidate: SymbolCandidate) -> str:
+    if candidate.runtime_sample_count is None:
+        return "-"
+    revision = (candidate.runtime_revision or "unknown")[:8]
+    stale = " **STALE**" if candidate.runtime_stale else ""
+    return f"{candidate.runtime_sample_count} samples @ `{revision}`{stale}"
+
+
+def _test_candidates_section(artifact: AnalysisArtifactV1) -> list[str]:
+    lines = [
+        "## Test Candidates",
+        "",
+        "| Path | Handle | Coverage | Revision | Stale |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for candidate in artifact.diff.test_candidates:
+        coverage = "-"
+        if candidate.coverage_line_rate is not None:
+            coverage = f"{candidate.coverage_line_rate:.2f}"
+        revision = f"`{candidate.coverage_revision[:8]}`" if candidate.coverage_revision else "-"
+        stale = "yes" if candidate.coverage_stale else "no"
+        lines.append(
+            f"| `{candidate.path}` | `{candidate.handle}` | {coverage} | {revision} | {stale} |"
+        )
+    if not artifact.diff.test_candidates:
+        lines.append("| _none_ | - | - | - | - |")
+    if artifact.diff.test_candidates_total > len(artifact.diff.test_candidates):
+        remaining = artifact.diff.test_candidates_total - len(artifact.diff.test_candidates)
+        lines.append("")
+        lines.append(f"_{remaining} additional test candidate(s) omitted; see the JSON artifact._")
     return lines
 
 

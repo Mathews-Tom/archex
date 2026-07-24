@@ -9,6 +9,11 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from archex.integrations.runtime.models import (
+    CoverageFileEvidence,
+    RuntimeProfileEvidence,
+    RuntimeProviderReceipt,
+)
 from archex.integrations.semantic.models import SemanticProviderReceipt
 from archex.models import (
     ChunkSurrogate,
@@ -25,6 +30,9 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 _SEMANTIC_PROVIDER_RECEIPTS_KEY = "semantic_provider_receipts"
+_RUNTIME_PROVIDER_RECEIPTS_KEY = "runtime_provider_receipts"
+_RUNTIME_COVERAGE_EVIDENCE_KEY = "runtime_coverage_evidence"
+_RUNTIME_PROFILE_EVIDENCE_KEY = "runtime_profile_evidence"
 
 logger = logging.getLogger(__name__)
 
@@ -842,6 +850,62 @@ class IndexStore:
         if not raw:
             return []
         return [SemanticProviderReceipt.model_validate(item) for item in json.loads(raw)]
+
+    def set_runtime_provider_receipts(self, receipts: list[RuntimeProviderReceipt]) -> None:
+        """Persist the M7 conditional runtime/coverage-evidence provider receipts for this build."""
+        self.set_metadata(
+            _RUNTIME_PROVIDER_RECEIPTS_KEY,
+            json.dumps([r.model_dump(mode="json") for r in receipts], sort_keys=True),
+        )
+
+    def get_runtime_provider_receipts(self) -> list[RuntimeProviderReceipt]:
+        """Return the persisted M7 runtime/coverage-evidence provider receipts, if any.
+
+        Empty when no runtime/coverage provider was configured for this
+        build — a store built before M7 or with ``runtime_evidence_providers``
+        unset has no receipts, which is a fully expected, honest empty
+        result, not an error.
+        """
+        raw = self.get_metadata(_RUNTIME_PROVIDER_RECEIPTS_KEY)
+        if not raw:
+            return []
+        return [RuntimeProviderReceipt.model_validate(item) for item in json.loads(raw)]
+
+    def set_runtime_coverage_evidence(self, evidence: list[CoverageFileEvidence]) -> None:
+        """Persist the M7 revision-bound coverage evidence collected for this build."""
+        self.set_metadata(
+            _RUNTIME_COVERAGE_EVIDENCE_KEY,
+            json.dumps([e.model_dump(mode="json") for e in evidence], sort_keys=True),
+        )
+
+    def get_runtime_coverage_evidence(self) -> list[CoverageFileEvidence]:
+        """Return the persisted M7 coverage evidence, if any.
+
+        Empty when the coverage provider was not configured or produced no
+        available evidence for this build.
+        """
+        raw = self.get_metadata(_RUNTIME_COVERAGE_EVIDENCE_KEY)
+        if not raw:
+            return []
+        return [CoverageFileEvidence.model_validate(item) for item in json.loads(raw)]
+
+    def set_runtime_profile_evidence(self, evidence: list[RuntimeProfileEvidence]) -> None:
+        """Persist the M7 revision-bound folded-stack runtime evidence collected for this build."""
+        self.set_metadata(
+            _RUNTIME_PROFILE_EVIDENCE_KEY,
+            json.dumps([e.model_dump(mode="json") for e in evidence], sort_keys=True),
+        )
+
+    def get_runtime_profile_evidence(self) -> list[RuntimeProfileEvidence]:
+        """Return the persisted M7 folded-stack runtime evidence, if any.
+
+        Empty when the runtime-profile provider was not configured or
+        produced no available evidence for this build.
+        """
+        raw = self.get_metadata(_RUNTIME_PROFILE_EVIDENCE_KEY)
+        if not raw:
+            return []
+        return [RuntimeProfileEvidence.model_validate(item) for item in json.loads(raw)]
 
     def needs_reindex(self) -> bool:
         """Return True if the store contains chunks without symbol_ids (pre-stable-ID data)."""

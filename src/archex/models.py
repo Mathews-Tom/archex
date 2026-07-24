@@ -10,6 +10,7 @@ from pydantic import BaseModel, model_validator
 
 from archex.index.quantize import SUPPORTED_BITS
 from archex.integrations.lsap_models import LSAPEnrichment  # noqa: TCH001
+from archex.integrations.runtime.models import RuntimeProviderReceipt  # noqa: TCH001
 from archex.integrations.semantic.models import SemanticProviderReceipt  # noqa: TCH001
 
 # ---------------------------------------------------------------------------
@@ -280,6 +281,13 @@ class IndexConfig(BaseModel):
     #: graph change, matching the plan's "no automatic provider promotion"
     #: requirement. Accepted values: "scip", "lsp".
     semantic_evidence_providers: list[str] = []
+    #: Conditional coverage/folded-stack runtime-evidence providers to run
+    #: at index time (M7). Empty by default: no provider runs, no bytes of
+    #: the syntax graph or the retrieval path change. Accepted values:
+    #: "coverage", "runtime_profile". Kept independent from
+    #: semantic_evidence_providers -- the two conditional evidence channels
+    #: are separately disableable and separately rollback-able.
+    runtime_evidence_providers: list[str] = []
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
@@ -299,10 +307,20 @@ class IndexConfig(BaseModel):
             raise ValueError("rerank_candidate_limit must be at least 1")
         if self.quantize_bits not in SUPPORTED_BITS:
             raise ValueError(f"quantize_bits must be one of {SUPPORTED_BITS}")
-        unknown_providers = set(self.semantic_evidence_providers) - {"scip", "lsp"}
-        if unknown_providers:
+        unknown_semantic_providers = set(self.semantic_evidence_providers) - {"scip", "lsp"}
+        if unknown_semantic_providers:
             raise ValueError(
-                f"semantic_evidence_providers has unknown entries: {sorted(unknown_providers)}"
+                "semantic_evidence_providers has unknown entries: "
+                f"{sorted(unknown_semantic_providers)}"
+            )
+        unknown_runtime_providers = set(self.runtime_evidence_providers) - {
+            "coverage",
+            "runtime_profile",
+        }
+        if unknown_runtime_providers:
+            raise ValueError(
+                "runtime_evidence_providers has unknown entries: "
+                f"{sorted(unknown_runtime_providers)}"
             )
         return self
 
@@ -892,6 +910,7 @@ class ContextReceipt(BaseModel):
     omitted_edges: list[ContextReceiptEdge] = []
     skipped_candidates: list[ContextSkippedCandidate] = []
     semantic_providers: list[SemanticProviderReceipt] = []
+    runtime_providers: list[RuntimeProviderReceipt] = []
     returned_total: int = 0
     skipped_total: int = 0
     included_edges_total: int = 0

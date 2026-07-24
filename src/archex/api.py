@@ -130,6 +130,7 @@ if TYPE_CHECKING:
 
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
+    from archex.integrations.runtime.models import RuntimeProviderReceipt
     from archex.integrations.semantic.models import SemanticProviderReceipt
     from archex.models import ComparisonResult
     from archex.serve.runtime import QueryRuntime
@@ -163,7 +164,10 @@ def _index_config_metadata_matches(store: IndexStore, index_config: IndexConfig)
     ):
         return False
     stored_semantic_providers = store.get_metadata("semantic_evidence_providers") or ""
-    return stored_semantic_providers == ",".join(index_config.semantic_evidence_providers)
+    if stored_semantic_providers != ",".join(index_config.semantic_evidence_providers):
+        return False
+    stored_runtime_providers = store.get_metadata("runtime_evidence_providers") or ""
+    return stored_runtime_providers == ",".join(index_config.runtime_evidence_providers)
 
 
 def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> None:
@@ -173,6 +177,9 @@ def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> 
     store.set_metadata("quantize_bits", str(index_config.quantize_bits))
     store.set_metadata(
         "semantic_evidence_providers", ",".join(index_config.semantic_evidence_providers)
+    )
+    store.set_metadata(
+        "runtime_evidence_providers", ",".join(index_config.runtime_evidence_providers)
     )
 
 
@@ -259,6 +266,20 @@ def _full_index(
                 )
                 graph.add_semantic_edges(semantic_edges)
                 store.set_semantic_provider_receipts(semantic_receipts)
+            if effective_index_config.runtime_evidence_providers:
+                from archex.index.runtime_evidence import collect_runtime_evidence
+
+                runtime_revision = (
+                    cloned_head or cache.git_head(source.local_path) or source.commit or ""
+                )
+                coverage_evidence, profile_evidence, runtime_receipts = collect_runtime_evidence(
+                    repo_path,
+                    effective_index_config.runtime_evidence_providers,
+                    expected_revision=runtime_revision,
+                )
+                store.set_runtime_coverage_evidence(coverage_evidence)
+                store.set_runtime_profile_evidence(profile_evidence)
+                store.set_runtime_provider_receipts(runtime_receipts)
             edges = graph.file_edges()
             store.replace_file_states(compute_file_states(repo_path, files))
             store.insert_edges(edges)
@@ -1527,6 +1548,7 @@ def _refresh_receipt(
     freshness: ContextFreshness,
     metadata_timing: PipelineTiming | None,
     semantic_providers: list[SemanticProviderReceipt] | None = None,
+    runtime_providers: list[RuntimeProviderReceipt] | None = None,
 ) -> None:
     skipped = list(bundle.receipt.skipped_candidates) if bundle.receipt is not None else []
     if freshness != ContextFreshness.CLEAN:
@@ -1540,6 +1562,11 @@ def _refresh_receipt(
         if semantic_providers is not None
         else (bundle.receipt.semantic_providers if bundle.receipt is not None else [])
     )
+    resolved_runtime_providers = (
+        runtime_providers
+        if runtime_providers is not None
+        else (bundle.receipt.runtime_providers if bundle.receipt is not None else [])
+    )
     bundle.receipt = build_context_receipt(
         bundle,
         index_revision=index_revision,
@@ -1548,6 +1575,7 @@ def _refresh_receipt(
         omitted_edges=omitted_edges,
         skipped_candidates=skipped,
         semantic_providers=resolved_semantic_providers,
+        runtime_providers=resolved_runtime_providers,
     )
 
 
@@ -1566,6 +1594,7 @@ def _finalize_context_bundle(
     freshness: ContextFreshness,
     post_search_at: float | None = None,
     semantic_providers: list[SemanticProviderReceipt] | None = None,
+    runtime_providers: list[RuntimeProviderReceipt] | None = None,
 ) -> ContextBundle:
     _attach_vector_metadata(bundle, index_config)
     _attach_index_metadata(
@@ -1602,6 +1631,7 @@ def _finalize_context_bundle(
         freshness=freshness,
         metadata_timing=metadata_timing,
         semantic_providers=semantic_providers,
+        runtime_providers=runtime_providers,
     )
     return bundle
 
@@ -2150,6 +2180,7 @@ def query(
                     freshness=_freshness_for_query(refresh),
                     post_search_at=t_post_search,
                     semantic_providers=search_store.get_semantic_provider_receipts(),
+                    runtime_providers=search_store.get_runtime_provider_receipts(),
                 )
             finally:
                 store.close()
@@ -2270,6 +2301,21 @@ def query(
                 )
                 graph.add_semantic_edges(semantic_edges)
                 store.set_semantic_provider_receipts(semantic_receipts)
+            runtime_receipts: list[RuntimeProviderReceipt] = []
+            if index_config.runtime_evidence_providers:
+                from archex.index.runtime_evidence import collect_runtime_evidence
+
+                runtime_revision = (
+                    cloned_head or cache.git_head(source.local_path) or source.commit or ""
+                )
+                coverage_evidence, profile_evidence, runtime_receipts = collect_runtime_evidence(
+                    repo_path,
+                    index_config.runtime_evidence_providers,
+                    expected_revision=runtime_revision,
+                )
+                store.set_runtime_coverage_evidence(coverage_evidence)
+                store.set_runtime_profile_evidence(profile_evidence)
+                store.set_runtime_provider_receipts(runtime_receipts)
             edges = graph.file_edges()
             from archex.index.delta import compute_file_states
 
@@ -2409,6 +2455,7 @@ def query(
                     freshness=_freshness_for_query(refresh),
                     metadata_timing=metadata_timing,
                     semantic_providers=semantic_receipts,
+                    runtime_providers=runtime_receipts,
                 )
                 return pt
 
@@ -2558,6 +2605,7 @@ def query(
             freshness=_freshness_for_query(refresh),
             post_search_at=t_post_search_miss,
             semantic_providers=semantic_receipts,
+            runtime_providers=runtime_receipts,
         )
     finally:
         cleanup()

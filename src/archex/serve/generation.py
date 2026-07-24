@@ -55,6 +55,7 @@ def _index_config_fingerprint(index_config: IndexConfig) -> str:
         index_config.quantize_bits,
         index_config.identifier_fragment_tokenization,
         ",".join(index_config.semantic_evidence_providers),
+        ",".join(index_config.runtime_evidence_providers),
     )
     return "|".join(str(field) for field in fields)
 
