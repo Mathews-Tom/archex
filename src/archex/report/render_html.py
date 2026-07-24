@@ -26,7 +26,12 @@ from urllib.parse import quote
 from archex.report.render_markdown import render_mermaid
 
 if TYPE_CHECKING:
-    from archex.report.artifact import AnalysisArtifactV1, DiffFileChange, SymbolCandidate
+    from archex.report.artifact import (
+        AnalysisArtifactV1,
+        DiffFileChange,
+        SymbolCandidate,
+        TestCandidate,
+    )
 
 MAX_HTML_ROWS = 50
 
@@ -66,12 +71,7 @@ def render_html(artifact: AnalysisArtifactV1) -> str:
             artifact.diff.affected_interfaces_total,
             artifact.source_root,
         ),
-        _path_list(
-            "Test Candidates",
-            [c.path for c in artifact.diff.test_candidates],
-            artifact.diff.test_candidates_total,
-            artifact.source_root,
-        ),
+        _test_candidates_table(artifact),
         _path_list(
             "Unsupported Files",
             [item.path for item in artifact.diff.unsupported_files],
@@ -173,14 +173,22 @@ def _symbol_candidates_table(artifact: AnalysisArtifactV1) -> str:
     candidates = artifact.diff.symbol_candidates[:MAX_HTML_ROWS]
     header = (
         "<tr><th>Risk</th><th>Confidence</th><th>Symbol</th>"
-        "<th>File</th><th>Lines</th><th>Handle</th></tr>"
+        "<th>File</th><th>Lines</th><th>Handle</th><th>Runtime evidence</th></tr>"
     )
     rows = (
         "".join(_symbol_candidate_row(candidate, artifact.source_root) for candidate in candidates)
-        or "<tr><td colspan='6'><em>None</em></td></tr>"
+        or "<tr><td colspan='7'><em>None</em></td></tr>"
     )
     note = _truncation_note(artifact.diff.symbol_candidates_total, len(candidates))
     return f"<h2>Symbol Risk Candidates</h2>\n<table>{header}{rows}</table>{note}"
+
+
+def _runtime_evidence_cell(candidate: SymbolCandidate) -> str:
+    if candidate.runtime_sample_count is None:
+        return "-"
+    revision = escape((candidate.runtime_revision or "unknown")[:8])
+    stale = " <strong>STALE</strong>" if candidate.runtime_stale else ""
+    return f"{candidate.runtime_sample_count} samples @ <code>{revision}</code>{stale}"
 
 
 def _symbol_candidate_row(candidate: SymbolCandidate, source_root: str) -> str:
@@ -195,7 +203,39 @@ def _symbol_candidate_row(candidate: SymbolCandidate, source_root: str) -> str:
         f"<td><code>{escape(label)}</code></td>"
         f"<td><code>{file_link}</code></td>"
         f"<td>{candidate.start_line}-{candidate.end_line}</td>"
-        f"<td><code>{escape(candidate.handle)}</code></td></tr>"
+        f"<td><code>{escape(candidate.handle)}</code></td>"
+        f"<td>{_runtime_evidence_cell(candidate)}</td></tr>"
+    )
+
+
+def _test_candidates_table(artifact: AnalysisArtifactV1) -> str:
+    candidates = artifact.diff.test_candidates[:MAX_HTML_ROWS]
+    header = "<tr><th>Path</th><th>Handle</th><th>Coverage</th><th>Revision</th><th>Stale</th></tr>"
+    rows = (
+        "".join(_test_candidate_row(candidate, artifact.source_root) for candidate in candidates)
+        or "<tr><td colspan='5'><em>None</em></td></tr>"
+    )
+    note = _truncation_note(artifact.diff.test_candidates_total, len(candidates))
+    return f"<h2>Test Candidates</h2>\n<table>{header}{rows}</table>{note}"
+
+
+def _test_candidate_row(candidate: TestCandidate, source_root: str) -> str:
+    path_link = _editor_link(source_root, candidate.path, None, escape(candidate.path))
+    coverage = (
+        f"{candidate.coverage_line_rate:.2f}" if candidate.coverage_line_rate is not None else "-"
+    )
+    revision = (
+        f"<code>{escape(candidate.coverage_revision[:8])}</code>"
+        if candidate.coverage_revision
+        else "-"
+    )
+    stale = "yes" if candidate.coverage_stale else "no"
+    return (
+        f"<tr><td><code>{path_link}</code></td>"
+        f"<td><code>{escape(candidate.handle)}</code></td>"
+        f"<td>{coverage}</td>"
+        f"<td>{revision}</td>"
+        f"<td>{stale}</td></tr>"
     )
 
 

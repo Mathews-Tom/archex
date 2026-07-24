@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from archex.integrations.runtime.models import (
+    ProviderAvailability as RuntimeProviderAvailability,
+)
+from archex.integrations.runtime.models import (
+    RuntimeEvidenceProviderName,
+    RuntimeProviderReceipt,
+)
 from archex.integrations.semantic.models import (
     ProviderAvailability,
     SemanticProviderName,
@@ -246,6 +253,32 @@ def test_build_context_receipt_defaults_semantic_providers_empty() -> None:
     bundle = ContextBundle(query="q", token_count=10, token_budget=100)
     receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
     assert receipt.semantic_providers == []
+
+
+def test_build_context_receipt_carries_runtime_providers() -> None:
+    bundle = ContextBundle(query="q", token_count=10, token_budget=100)
+    receipts = [
+        RuntimeProviderReceipt(
+            provider=RuntimeEvidenceProviderName.COVERAGE,
+            availability=RuntimeProviderAvailability.AVAILABLE,
+            records_collected=3,
+        )
+    ]
+
+    receipt = build_context_receipt(
+        bundle,
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+        runtime_providers=receipts,
+    )
+
+    assert receipt.runtime_providers == receipts
+
+
+def test_build_context_receipt_defaults_runtime_providers_empty() -> None:
+    bundle = ContextBundle(query="q", token_count=10, token_budget=100)
+    receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
+    assert receipt.runtime_providers == []
 
 
 def test_receipt_edge_from_edge_helper_propagates_provider() -> None:

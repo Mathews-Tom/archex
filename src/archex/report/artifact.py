@@ -48,6 +48,7 @@ from archex.serve.generation import read_generation_id
 
 if TYPE_CHECKING:
     from archex.impact import ImpactReport, SymbolImpact
+    from archex.integrations.runtime.models import CoverageFileEvidence, RuntimeProfileEvidence
     from archex.models import CodeChunk
 
 REPORT_SCHEMA_VERSION = "1.0.0"
@@ -146,6 +147,19 @@ class SymbolCandidate(BaseModel):
     confidence: AnalysisConfidence
     signals: list[str] = []
     evidence: list[EvidenceLocation] = []
+    #: M7: total folded-stack sample count observed for this symbol's file
+    #: (and, when available, its qualified name) in the most recently
+    #: collected runtime-profile evidence. ``None`` when the runtime_profile
+    #: provider was not enabled or produced no matching evidence -- never a
+    #: fabricated zero.
+    runtime_sample_count: int | None = None
+    #: Git revision the runtime-profile evidence above was collected
+    #: against; ``None`` alongside ``runtime_sample_count is None``.
+    runtime_revision: str | None = None
+    #: True when ``runtime_revision`` does not match this artifact's own
+    #: ``source_revision`` -- the evidence is displayed but flagged unusable
+    #: for any downstream decision rather than silently applied.
+    runtime_stale: bool = False
 
 
 class InterfaceCandidate(BaseModel):
@@ -170,6 +184,17 @@ class TestCandidate(BaseModel):
     reason: str
     confidence: AnalysisConfidence = AnalysisConfidence.HIGH
     evidence: list[EvidenceLocation] = []
+    #: M7: line-coverage rate (0.0-1.0) observed for this test file in the
+    #: most recently collected coverage evidence. ``None`` when the
+    #: coverage provider was not enabled or produced no matching evidence.
+    coverage_line_rate: float | None = None
+    #: Git revision the coverage evidence above was collected against;
+    #: ``None`` alongside ``coverage_line_rate is None``.
+    coverage_revision: str | None = None
+    #: True when ``coverage_revision`` does not match this artifact's own
+    #: ``source_revision`` -- the evidence is displayed but flagged unusable
+    #: for any downstream decision rather than silently applied.
+    coverage_stale: bool = False
 
 
 class UnsupportedFile(BaseModel):
@@ -302,6 +327,8 @@ def build_analysis_artifact(source: str | Path, *, base_ref: str) -> AnalysisArt
         source_revision = (
             store.get_metadata("commit_hash") or CacheManager.git_head(str(repo_root)) or ""
         )
+        coverage_evidence = store.get_runtime_coverage_evidence()
+        profile_evidence = store.get_runtime_profile_evidence()
     finally:
         store.close()
 
@@ -313,6 +340,9 @@ def build_analysis_artifact(source: str | Path, *, base_ref: str) -> AnalysisArt
         report=report,
         touched_chunks=touched_chunks,
         hunks=hunks,
+        coverage_evidence=coverage_evidence,
+        profile_evidence=profile_evidence,
+        source_revision=source_revision,
     )
     parser_versions = _parser_versions_for_changes(changes)
     excluded_counts = {"unmapped_changed_files": diff.unsupported_files_total}
@@ -404,7 +434,55 @@ def _interface_candidate(symbol_id: str) -> InterfaceCandidate:
     )
 
 
-def _symbol_candidate(impact: SymbolImpact, chunk: CodeChunk | None) -> SymbolCandidate:
+def _runtime_sample_count_for_symbol(
+    file_path: str,
+    qualified_name: str | None,
+    profile_evidence: list[RuntimeProfileEvidence],
+    source_revision: str,
+) -> tuple[int | None, str | None, bool]:
+    """Sum folded-stack sample counts observed for *file_path* (and, when
+    given, *qualified_name*) across the most recently collected runtime
+    profile evidence. Returns ``(None, None, False)`` when no sample ever
+    touched this file -- never a fabricated zero.
+    """
+    for record in profile_evidence:
+        total = 0
+        matched = False
+        for sample in record.samples:
+            for frame in sample.frames:
+                frame_path, _, frame_symbol = frame.partition(":")
+                if frame_path != file_path:
+                    continue
+                if qualified_name is not None and frame_symbol != qualified_name:
+                    continue
+                total += sample.sample_count
+                matched = True
+                break
+        if matched:
+            return total, record.revision, record.revision != source_revision
+    return None, None, False
+
+
+def _coverage_for_path(
+    path: str, coverage_evidence: list[CoverageFileEvidence], source_revision: str
+) -> tuple[float | None, str | None, bool]:
+    """Return ``(line_rate, revision, stale)`` for *path* from the most
+    recently collected coverage evidence. Returns ``(None, None, False)``
+    when no coverage record was collected for this file.
+    """
+    for record in coverage_evidence:
+        if record.file_path == path:
+            return record.line_rate, record.revision, record.revision != source_revision
+    return None, None, False
+
+
+def _symbol_candidate(
+    impact: SymbolImpact,
+    chunk: CodeChunk | None,
+    *,
+    profile_evidence: list[RuntimeProfileEvidence],
+    source_revision: str,
+) -> SymbolCandidate:
     if chunk is not None and chunk.symbol_id is not None:
         handle = symbol_handle(chunk.symbol_id)
     elif chunk is not None:
@@ -427,6 +505,9 @@ def _symbol_candidate(impact: SymbolImpact, chunk: CodeChunk | None) -> SymbolCa
         )
         for signal in impact.signals
     ]
+    runtime_sample_count, runtime_revision, runtime_stale = _runtime_sample_count_for_symbol(
+        impact.file_path, impact.qualified_name, profile_evidence, source_revision
+    )
     return SymbolCandidate(
         handle=handle,
         file_path=impact.file_path,
@@ -439,6 +520,9 @@ def _symbol_candidate(impact: SymbolImpact, chunk: CodeChunk | None) -> SymbolCa
         confidence=confidence,
         signals=[f"{signal.name}: {signal.detail}" for signal in impact.signals],
         evidence=evidence,
+        runtime_sample_count=runtime_sample_count,
+        runtime_revision=runtime_revision,
+        runtime_stale=runtime_stale,
     )
 
 
@@ -450,6 +534,9 @@ def _build_diff_analysis(
     report: ImpactReport,
     touched_chunks: list[CodeChunk],
     hunks: dict[str, list[tuple[int, int]]],
+    coverage_evidence: list[CoverageFileEvidence],
+    profile_evidence: list[RuntimeProfileEvidence],
+    source_revision: str,
 ) -> DiffAnalysis:
     changed_files = [
         DiffFileChange(
@@ -468,7 +555,12 @@ def _build_diff_analysis(
     changed_files = changed_files[:MAX_CHANGED_FILES]
 
     symbol_candidates = [
-        _symbol_candidate(impact, chunk)
+        _symbol_candidate(
+            impact,
+            chunk,
+            profile_evidence=profile_evidence,
+            source_revision=source_revision,
+        )
         for impact, chunk in _zip_symbols(report.affected_symbols, touched_chunks)
     ]
     symbols_total = len(symbol_candidates)
@@ -480,17 +572,26 @@ def _build_diff_analysis(
     interfaces_total = len(affected_interfaces)
     affected_interfaces = affected_interfaces[:MAX_INTERFACE_CANDIDATES]
 
-    test_candidates = [
-        TestCandidate(
-            path=path,
-            handle=file_handle(path),
-            reason="affected_test_surface",
-            evidence=[
-                EvidenceLocation(path=path, description="test file reachable from changed files")
-            ],
+    test_candidates: list[TestCandidate] = []
+    for path in report.affected_tests:
+        coverage_line_rate, coverage_revision, coverage_stale = _coverage_for_path(
+            path, coverage_evidence, source_revision
         )
-        for path in report.affected_tests
-    ]
+        test_candidates.append(
+            TestCandidate(
+                path=path,
+                handle=file_handle(path),
+                reason="affected_test_surface",
+                evidence=[
+                    EvidenceLocation(
+                        path=path, description="test file reachable from changed files"
+                    )
+                ],
+                coverage_line_rate=coverage_line_rate,
+                coverage_revision=coverage_revision,
+                coverage_stale=coverage_stale,
+            )
+        )
     tests_total = len(test_candidates)
     test_candidates = test_candidates[:MAX_TEST_CANDIDATES]
 
