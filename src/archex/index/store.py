@@ -9,6 +9,12 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from archex.integrations.history.models import (
+    ChangeCard,
+    HistoryProviderReceipt,
+    OperatorRationale,
+    TemporalCouplingObservation,
+)
 from archex.integrations.runtime.models import (
     CoverageFileEvidence,
     RuntimeProfileEvidence,
@@ -33,6 +39,10 @@ _SEMANTIC_PROVIDER_RECEIPTS_KEY = "semantic_provider_receipts"
 _RUNTIME_PROVIDER_RECEIPTS_KEY = "runtime_provider_receipts"
 _RUNTIME_COVERAGE_EVIDENCE_KEY = "runtime_coverage_evidence"
 _RUNTIME_PROFILE_EVIDENCE_KEY = "runtime_profile_evidence"
+_HISTORY_PROVIDER_RECEIPTS_KEY = "history_provider_receipts"
+_HISTORY_CHANGE_CARDS_KEY = "history_change_cards"
+_HISTORY_COUPLING_OBSERVATIONS_KEY = "history_coupling_observations"
+_HISTORY_OPERATOR_RATIONALE_KEY = "history_operator_rationale"
 
 logger = logging.getLogger(__name__)
 
@@ -906,6 +916,82 @@ class IndexStore:
         if not raw:
             return []
         return [RuntimeProfileEvidence.model_validate(item) for item in json.loads(raw)]
+
+    def set_history_provider_receipts(self, receipts: list[HistoryProviderReceipt]) -> None:
+        """Persist the M8 conditional repository-memory provider receipts for this build."""
+        self.set_metadata(
+            _HISTORY_PROVIDER_RECEIPTS_KEY,
+            json.dumps([r.model_dump(mode="json") for r in receipts], sort_keys=True),
+        )
+
+    def get_history_provider_receipts(self) -> list[HistoryProviderReceipt]:
+        """Return the persisted M8 repository-memory provider receipts, if any.
+
+        Empty when no history provider was configured for this build — a
+        store built before M8 or with ``history_evidence_providers`` unset
+        has no receipts, which is a fully expected, honest empty result,
+        not an error.
+        """
+        raw = self.get_metadata(_HISTORY_PROVIDER_RECEIPTS_KEY)
+        if not raw:
+            return []
+        return [HistoryProviderReceipt.model_validate(item) for item in json.loads(raw)]
+
+    def set_history_change_cards(self, cards: list[ChangeCard]) -> None:
+        """Persist the M8 revision-bound local-history change cards for this build."""
+        self.set_metadata(
+            _HISTORY_CHANGE_CARDS_KEY,
+            json.dumps([c.model_dump(mode="json") for c in cards], sort_keys=True),
+        )
+
+    def get_history_change_cards(self) -> list[ChangeCard]:
+        """Return the persisted M8 change cards, if any.
+
+        Empty when the git_log provider was not configured or produced no
+        available evidence for this build.
+        """
+        raw = self.get_metadata(_HISTORY_CHANGE_CARDS_KEY)
+        if not raw:
+            return []
+        return [ChangeCard.model_validate(item) for item in json.loads(raw)]
+
+    def set_history_coupling_observations(
+        self, observations: list[TemporalCouplingObservation]
+    ) -> None:
+        """Persist the M8 non-causal temporal-coupling observations for this build."""
+        self.set_metadata(
+            _HISTORY_COUPLING_OBSERVATIONS_KEY,
+            json.dumps([o.model_dump(mode="json") for o in observations], sort_keys=True),
+        )
+
+    def get_history_coupling_observations(self) -> list[TemporalCouplingObservation]:
+        """Return the persisted M8 temporal-coupling observations, if any.
+
+        Empty when the git_log provider was not configured or produced no
+        available evidence for this build.
+        """
+        raw = self.get_metadata(_HISTORY_COUPLING_OBSERVATIONS_KEY)
+        if not raw:
+            return []
+        return [TemporalCouplingObservation.model_validate(item) for item in json.loads(raw)]
+
+    def set_history_operator_rationale(self, entries: list[OperatorRationale]) -> None:
+        """Persist the M8 revision-bound operator-authored rationale for this build."""
+        self.set_metadata(
+            _HISTORY_OPERATOR_RATIONALE_KEY,
+            json.dumps([e.model_dump(mode="json") for e in entries], sort_keys=True),
+        )
+
+    def get_history_operator_rationale(self) -> list[OperatorRationale]:
+        """Return the persisted M8 operator rationale, if any.
+
+        Empty when the operator_rationale provider was not configured or
+        produced no available evidence for this build.
+        """
+        raw = self.get_metadata(_HISTORY_OPERATOR_RATIONALE_KEY)
+        if not raw:
+            return []
+        return [OperatorRationale.model_validate(item) for item in json.loads(raw)]
 
     def needs_reindex(self) -> bool:
         """Return True if the store contains chunks without symbol_ids (pre-stable-ID data)."""

@@ -130,6 +130,11 @@ if TYPE_CHECKING:
 
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
+    from archex.integrations.history.models import (
+        ChangeCard,
+        HistoryProviderReceipt,
+        TemporalCouplingObservation,
+    )
     from archex.integrations.runtime.models import RuntimeProviderReceipt
     from archex.integrations.semantic.models import SemanticProviderReceipt
     from archex.models import ComparisonResult
@@ -167,7 +172,10 @@ def _index_config_metadata_matches(store: IndexStore, index_config: IndexConfig)
     if stored_semantic_providers != ",".join(index_config.semantic_evidence_providers):
         return False
     stored_runtime_providers = store.get_metadata("runtime_evidence_providers") or ""
-    return stored_runtime_providers == ",".join(index_config.runtime_evidence_providers)
+    if stored_runtime_providers != ",".join(index_config.runtime_evidence_providers):
+        return False
+    stored_history_providers = store.get_metadata("history_evidence_providers") or ""
+    return stored_history_providers == ",".join(index_config.history_evidence_providers)
 
 
 def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> None:
@@ -180,6 +188,9 @@ def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> 
     )
     store.set_metadata(
         "runtime_evidence_providers", ",".join(index_config.runtime_evidence_providers)
+    )
+    store.set_metadata(
+        "history_evidence_providers", ",".join(index_config.history_evidence_providers)
     )
 
 
@@ -280,6 +291,26 @@ def _full_index(
                 store.set_runtime_coverage_evidence(coverage_evidence)
                 store.set_runtime_profile_evidence(profile_evidence)
                 store.set_runtime_provider_receipts(runtime_receipts)
+            if effective_index_config.history_evidence_providers:
+                from archex.index.history_evidence import collect_history_evidence
+
+                history_revision = (
+                    cloned_head or cache.git_head(source.local_path) or source.commit or ""
+                )
+                (
+                    history_change_cards,
+                    history_coupling_observations,
+                    history_rationale,
+                    history_receipts,
+                ) = collect_history_evidence(
+                    repo_path,
+                    effective_index_config.history_evidence_providers,
+                    expected_revision=history_revision,
+                )
+                store.set_history_change_cards(history_change_cards)
+                store.set_history_coupling_observations(history_coupling_observations)
+                store.set_history_operator_rationale(history_rationale)
+                store.set_history_provider_receipts(history_receipts)
             edges = graph.file_edges()
             store.replace_file_states(compute_file_states(repo_path, files))
             store.insert_edges(edges)
@@ -1549,6 +1580,9 @@ def _refresh_receipt(
     metadata_timing: PipelineTiming | None,
     semantic_providers: list[SemanticProviderReceipt] | None = None,
     runtime_providers: list[RuntimeProviderReceipt] | None = None,
+    history_providers: list[HistoryProviderReceipt] | None = None,
+    history_change_cards: list[ChangeCard] | None = None,
+    history_coupling_observations: list[TemporalCouplingObservation] | None = None,
 ) -> None:
     skipped = list(bundle.receipt.skipped_candidates) if bundle.receipt is not None else []
     if freshness != ContextFreshness.CLEAN:
@@ -1567,6 +1601,11 @@ def _refresh_receipt(
         if runtime_providers is not None
         else (bundle.receipt.runtime_providers if bundle.receipt is not None else [])
     )
+    resolved_history_providers = (
+        history_providers
+        if history_providers is not None
+        else (bundle.receipt.history_providers if bundle.receipt is not None else [])
+    )
     bundle.receipt = build_context_receipt(
         bundle,
         index_revision=index_revision,
@@ -1576,6 +1615,9 @@ def _refresh_receipt(
         skipped_candidates=skipped,
         semantic_providers=resolved_semantic_providers,
         runtime_providers=resolved_runtime_providers,
+        history_providers=resolved_history_providers,
+        history_change_cards=history_change_cards or [],
+        history_coupling_observations=history_coupling_observations or [],
     )
 
 
@@ -1595,6 +1637,9 @@ def _finalize_context_bundle(
     post_search_at: float | None = None,
     semantic_providers: list[SemanticProviderReceipt] | None = None,
     runtime_providers: list[RuntimeProviderReceipt] | None = None,
+    history_providers: list[HistoryProviderReceipt] | None = None,
+    history_change_cards: list[ChangeCard] | None = None,
+    history_coupling_observations: list[TemporalCouplingObservation] | None = None,
 ) -> ContextBundle:
     _attach_vector_metadata(bundle, index_config)
     _attach_index_metadata(
@@ -1632,6 +1677,9 @@ def _finalize_context_bundle(
         metadata_timing=metadata_timing,
         semantic_providers=semantic_providers,
         runtime_providers=runtime_providers,
+        history_providers=history_providers,
+        history_change_cards=history_change_cards,
+        history_coupling_observations=history_coupling_observations,
     )
     return bundle
 
@@ -2181,6 +2229,9 @@ def query(
                     post_search_at=t_post_search,
                     semantic_providers=search_store.get_semantic_provider_receipts(),
                     runtime_providers=search_store.get_runtime_provider_receipts(),
+                    history_providers=search_store.get_history_provider_receipts(),
+                    history_change_cards=search_store.get_history_change_cards(),
+                    history_coupling_observations=search_store.get_history_coupling_observations(),
                 )
             finally:
                 store.close()
@@ -2316,6 +2367,29 @@ def query(
                 store.set_runtime_coverage_evidence(coverage_evidence)
                 store.set_runtime_profile_evidence(profile_evidence)
                 store.set_runtime_provider_receipts(runtime_receipts)
+            history_change_cards: list[ChangeCard] = []
+            history_coupling_observations: list[TemporalCouplingObservation] = []
+            history_receipts: list[HistoryProviderReceipt] = []
+            if index_config.history_evidence_providers:
+                from archex.index.history_evidence import collect_history_evidence
+
+                history_revision = (
+                    cloned_head or cache.git_head(source.local_path) or source.commit or ""
+                )
+                (
+                    history_change_cards,
+                    history_coupling_observations,
+                    history_rationale,
+                    history_receipts,
+                ) = collect_history_evidence(
+                    repo_path,
+                    index_config.history_evidence_providers,
+                    expected_revision=history_revision,
+                )
+                store.set_history_change_cards(history_change_cards)
+                store.set_history_coupling_observations(history_coupling_observations)
+                store.set_history_operator_rationale(history_rationale)
+                store.set_history_provider_receipts(history_receipts)
             edges = graph.file_edges()
             from archex.index.delta import compute_file_states
 
@@ -2456,6 +2530,9 @@ def query(
                     metadata_timing=metadata_timing,
                     semantic_providers=semantic_receipts,
                     runtime_providers=runtime_receipts,
+                    history_providers=history_receipts,
+                    history_change_cards=history_change_cards,
+                    history_coupling_observations=history_coupling_observations,
                 )
                 return pt
 
@@ -2606,6 +2683,9 @@ def query(
             post_search_at=t_post_search_miss,
             semantic_providers=semantic_receipts,
             runtime_providers=runtime_receipts,
+            history_providers=history_receipts,
+            history_change_cards=history_change_cards,
+            history_coupling_observations=history_coupling_observations,
         )
     finally:
         cleanup()

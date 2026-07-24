@@ -9,6 +9,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, model_validator
 
 from archex.index.quantize import SUPPORTED_BITS
+from archex.integrations.history.eligibility import HistoryEligibilityDecision  # noqa: TCH001
+from archex.integrations.history.models import HistoryProviderReceipt  # noqa: TCH001
 from archex.integrations.lsap_models import LSAPEnrichment  # noqa: TCH001
 from archex.integrations.runtime.models import RuntimeProviderReceipt  # noqa: TCH001
 from archex.integrations.semantic.models import SemanticProviderReceipt  # noqa: TCH001
@@ -288,6 +290,15 @@ class IndexConfig(BaseModel):
     #: semantic_evidence_providers -- the two conditional evidence channels
     #: are separately disableable and separately rollback-able.
     runtime_evidence_providers: list[str] = []
+    #: Conditional local-git-history/operator-rationale evidence providers
+    #: to run at index time (M8). Empty by default: no provider runs.
+    #: Accepted values: "git_log", "operator_rationale". Kept independent
+    #: from semantic_evidence_providers/runtime_evidence_providers -- every
+    #: conditional evidence channel is separately disableable and
+    #: separately rollback-able. Collected evidence is further gated by a
+    #: predeclared density/linkage/relevance eligibility policy
+    #: (archex.integrations.history.eligibility) before it is ever surfaced.
+    history_evidence_providers: list[str] = []
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
@@ -321,6 +332,15 @@ class IndexConfig(BaseModel):
             raise ValueError(
                 "runtime_evidence_providers has unknown entries: "
                 f"{sorted(unknown_runtime_providers)}"
+            )
+        unknown_history_providers = set(self.history_evidence_providers) - {
+            "git_log",
+            "operator_rationale",
+        }
+        if unknown_history_providers:
+            raise ValueError(
+                "history_evidence_providers has unknown entries: "
+                f"{sorted(unknown_history_providers)}"
             )
         return self
 
@@ -911,6 +931,8 @@ class ContextReceipt(BaseModel):
     skipped_candidates: list[ContextSkippedCandidate] = []
     semantic_providers: list[SemanticProviderReceipt] = []
     runtime_providers: list[RuntimeProviderReceipt] = []
+    history_providers: list[HistoryProviderReceipt] = []
+    history_eligibility: HistoryEligibilityDecision | None = None
     returned_total: int = 0
     skipped_total: int = 0
     included_edges_total: int = 0
