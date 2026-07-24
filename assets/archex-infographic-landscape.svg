@@ -33,7 +33,7 @@
   <rect x="0" y="0" width="1920" height="8" fill="#2dd4bf"></rect>
 
   <!-- ===== HERO ===== -->
-  <text class="eyebrow-m mono" x="68" y="62">v0.19 &#183; APACHE-2.0 &#183; LOCAL-FIRST &#183; NO API KEY &#183; NO TELEMETRY</text>
+  <text class="eyebrow-m mono" x="68" y="62">v0.24 &#183; APACHE-2.0 &#183; LOCAL-FIRST &#183; NO API KEY &#183; NO TELEMETRY</text>
   <text class="brand" x="64" y="150">archex<tspan fill="#2dd4bf">.</tspan></text>
   <text class="subtitle" x="68" y="196">Local code context for agents.</text>
   <text class="lede" x="68" y="234">Turns a repository into a ranked, token-budgeted context bundle — symbols, dependencies,</text>
@@ -147,8 +147,8 @@
   <!-- ===== FOOTER ===== -->
   <text class="sectlabel" x="68" y="862">SHIP IT ANYWHERE &#183; ONE DETERMINISTIC CORE</text>
   <g>
-    <rect x="64"   y="882" width="200" height="40" rx="20" class="panel"></rect><rect x="64"   y="882" width="200" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="164"  y="907" text-anchor="middle">CLI &#183; 24 commands</text>
-    <rect x="288"  y="882" width="175" height="40" rx="20" class="panel"></rect><rect x="288"  y="882" width="175" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="375"  y="907" text-anchor="middle">MCP &#183; 17 tools</text>
+    <rect x="64"   y="882" width="200" height="40" rx="20" class="panel"></rect><rect x="64"   y="882" width="200" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="164"  y="907" text-anchor="middle">CLI &#183; 28 commands</text>
+    <rect x="288"  y="882" width="175" height="40" rx="20" class="panel"></rect><rect x="288"  y="882" width="175" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="375"  y="907" text-anchor="middle">MCP &#183; 19 tools</text>
     <rect x="487"  y="882" width="150" height="40" rx="20" class="panel"></rect><rect x="487"  y="882" width="150" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="562"  y="907" text-anchor="middle">Python API</text>
     <rect x="661"  y="882" width="185" height="40" rx="20" class="panel"></rect><rect x="661"  y="882" width="185" height="40" rx="20" class="stroke" stroke="#2a3350" stroke-width="1.3"></rect><text class="chip-t" x="753"  y="907" text-anchor="middle">Docker slim / full</text>
     <rect x="870"  y="882" width="195" height="40" rx="20" class="panel"></rect><rect x="870"  y="882" width="195" height="40" rx="20" class="stroke" stroke="#2dd4bf" stroke-width="1.3"></rect><text class="chip-t" x="967"  y="907" text-anchor="middle" fill="#2dd4bf">hooks &#183; 6 clients</text>
