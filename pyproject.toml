@@ -59,8 +59,9 @@ mcp = [] # Preserved for backwards compatibility with archex[mcp]
 langchain = ["langchain-core>=0.2"]
 llamaindex = ["llama-index-core>=0.10"]
 lsap = ["lsp-client>=0.3; python_version >= '3.12'"]
+scip = ["protobuf>=7.35.1"]
 toon = ["toons>=0.7.0"]
-all = ["archex[vector-fast,graph,vector-torch,splade,mcp,langchain,llamaindex,lsap,toon]"]
+all = ["archex[vector-fast,graph,vector-torch,splade,mcp,langchain,llamaindex,lsap,scip,toon]"]
 
 [project.scripts]
 archex = "archex.cli.main:cli"
@@ -87,6 +88,7 @@ packages = ["src/archex"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+extend-exclude = ["src/archex/integrations/semantic/scip_pb2.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
@@ -98,7 +100,15 @@ typeCheckingMode = "strict"
 include = ["src/archex", "tests"]
 # assets/archex_explainer.py depends on optional Manim rendering packages and is validated by render smoke when edited.
 # Generated approval-test state is not repository source and is not type-checked.
-exclude = ["tests/fixtures/", ".venv/", "assets/", ".approval_tests_temp/"]
+# scip_pb2.py is protoc-generated code (regenerate via scip.proto in the same directory),
+# not hand-authored source, and is not type-checked.
+exclude = [
+    "tests/fixtures/",
+    ".venv/",
+    "assets/",
+    ".approval_tests_temp/",
+    "src/archex/integrations/semantic/scip_pb2.py",
+]
 venvPath = "."
 venv = ".venv"
 
