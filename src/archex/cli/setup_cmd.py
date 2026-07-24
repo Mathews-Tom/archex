@@ -417,19 +417,22 @@ def setup_cmd(
         )
         do_hooks = click.confirm("Install optional shell/editor hooks?", default=True)
 
-    # Clients (MCP) — registers the full 18-tool surface (context, query,
-    # scout, graph inspection, impact analysis, etc.). Every tool's schema
-    # is resent on every turn regardless of use, so this is worth it when
-    # you want that full surface, not just grep/glob augmentation. Pass
-    # --tool-scope (e.g. 'core', 'graph', or an explicit tool-name
+    # Clients (MCP) — registers the full 19-tool surface (context, query,
+    # scout, graph inspection via graph_query or the five graph_* tools,
+    # impact analysis, etc.). Every tool's schema is resent on every turn
+    # regardless of use, so this is worth it when you want that full
+    # surface, not just grep/glob augmentation. Pass --tool-scope (e.g.
+    # 'core' -- excludes the five raw graph_* tools but keeps the single
+    # graph_query dispatch tool -- 'graph', or an explicit tool-name
     # allowlist) to register a narrower surface and cut that per-turn cost.
     do_clients = clients
     if do_clients is None and preflight.discovered_clients and preflight.mcp_runtime_available:
         click.echo(
-            "\nMCP registers all 18 archex tools with your client (context, query, scout, "
+            "\nMCP registers all 19 archex tools with your client (context, query, scout, "
             "graph inspection, impact analysis, and more) — the richest surface, at the cost "
-            "of resending every tool's schema on every turn. Use --tool-scope to register "
-            "fewer tools instead."
+            "of resending every tool's schema on every turn. Use --tool-scope core to drop "
+            "the five raw graph_* tools in favor of the lighter graph_query dispatch tool, "
+            "or pass an explicit allowlist for a narrower surface still."
         )
         do_clients = click.confirm(
             f"Configure {len(preflight.discovered_clients)} discovered MCP clients?",
