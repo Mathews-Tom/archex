@@ -1444,6 +1444,28 @@ def run_archex_query_history_evidence(task: BenchmarkTask, repo_path: Path) -> B
     )
 
 
+def run_archex_query_documentation_evidence(
+    task: BenchmarkTask, repo_path: Path
+) -> BenchmarkResult:
+    """archex query with the doc_link documentation-evidence provider enabled (M9 lane).
+
+    Benchmark-only: enables ``IndexConfig.documentation_evidence_providers=
+    ["doc_link"]`` on top of the exact ``archex_query`` baseline
+    configuration. Scans ``repo_path``'s own README/docs/.docs markdown
+    live -- never an external tool dependency -- for links that resolve to
+    real files under ``repo_path``. Never the product default.
+    """
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_DOCUMENTATION_EVIDENCE,
+        index_config=IndexConfig(vector=False, documentation_evidence_providers=["doc_link"]),
+        cache=benchmark_cache_enabled(default=False),
+        include_completion=True,
+        measure_freshness=True,
+    )
+
+
 def run_archex_query_profile_fast(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """archex query under the product's ``fast`` retrieval profile (M3 candidate lane).
 
@@ -4385,4 +4407,7 @@ default_strategy_registry.register(
 )
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_HISTORY_EVIDENCE.value, run_archex_query_history_evidence
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_DOCUMENTATION_EVIDENCE.value, run_archex_query_documentation_evidence
 )

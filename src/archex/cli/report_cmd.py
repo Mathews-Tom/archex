@@ -6,6 +6,7 @@ import click
 
 from archex.exceptions import ArchexError
 from archex.report.artifact import ReportArtifactError, build_analysis_artifact
+from archex.report.release_artifact import CompatibilityArtifactError, build_compatibility_artifact
 from archex.report.status_card import StatusCardError, build_status_card
 
 
@@ -102,3 +103,22 @@ def status_card_cmd(source: str, output_format: str) -> None:
     from archex.report.render_status_card import render_status_card_markdown
 
     click.echo(render_status_card_markdown(card), nl=False)
+
+
+@report_cmd.command("release-artifact")
+@click.argument("source", required=False, default=".")
+def release_artifact_cmd(source: str) -> None:
+    """Build the per-release CompatibilityArtifact: version/schema facts plus SOURCE's status card.
+
+    Bundles archex's own installed version, supported Python range, and
+    report/index schema versions with SOURCE's dimensioned status card and
+    a pointer to any checked-in benchmark evidence into one read-only
+    artifact suitable for attaching to a GitHub release. Never runs a
+    benchmark or mutates SOURCE.
+    """
+    try:
+        artifact = build_compatibility_artifact(source)
+    except (ArchexError, CompatibilityArtifactError, StatusCardError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(artifact.to_json())

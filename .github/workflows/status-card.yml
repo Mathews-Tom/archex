@@ -1,0 +1,55 @@
+name: Status card
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Read-only by construction: no write scope is granted, so no step in this
+# workflow can push, comment, or otherwise mutate the repository even by
+# accident. Actions are pinned to full commit SHAs (not floating tags) for
+# supply-chain immutability -- mirrors report-diff.yml's pin discipline.
+permissions:
+  contents: read
+
+jobs:
+  status-card:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Build dimensioned documentation/release status card
+        run: |
+          uv run archex report status-card . --format json > status-card.json
+          uv run archex report status-card . --format markdown > status-card.md
+          cat status-card.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build per-release compatibility artifact
+        run: |
+          uv run archex report release-artifact . > compatibility-artifact.json
+
+      - name: Upload status/compatibility artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: status-card
+          path: |
+            status-card.json
+            status-card.md
+            compatibility-artifact.json
