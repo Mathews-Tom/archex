@@ -183,6 +183,25 @@ class TestComputeGenerationId:
         )
         assert a != b
 
+    def test_semantic_evidence_providers_change_changes_id(self) -> None:
+        a = compute_generation_id(
+            schema_version="5",
+            commit_hash="abc123",
+            working_tree_signature="clean",
+            file_count=3,
+            chunk_count=10,
+            index_config=IndexConfig(semantic_evidence_providers=[]),
+        )
+        b = compute_generation_id(
+            schema_version="5",
+            commit_hash="abc123",
+            working_tree_signature="clean",
+            file_count=3,
+            chunk_count=10,
+            index_config=IndexConfig(semantic_evidence_providers=["scip"]),
+        )
+        assert a != b
+
     def test_vector_mode_changes_id(self) -> None:
         raw = compute_generation_id(
             schema_version="5",

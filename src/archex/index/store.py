@@ -9,6 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from archex.integrations.semantic.models import SemanticProviderReceipt
 from archex.models import (
     ChunkSurrogate,
     CodeChunk,
@@ -22,6 +23,8 @@ from archex.models import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import TracebackType
+
+_SEMANTIC_PROVIDER_RECEIPTS_KEY = "semantic_provider_receipts"
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,9 @@ CREATE TABLE IF NOT EXISTS edges (
     location TEXT,
     confidence TEXT NOT NULL DEFAULT 'extracted',
     confidence_score REAL NOT NULL DEFAULT 1.0,
-    evidence TEXT NOT NULL DEFAULT '[]'
+    evidence TEXT NOT NULL DEFAULT '[]',
+    provider TEXT,
+    provider_version TEXT
 );
 """
 
@@ -317,8 +322,9 @@ class IndexStore:
     def _insert_edges_no_commit(self, edges: list[Edge]) -> None:
         self._conn.executemany(
             "INSERT INTO edges "
-            "(source, target, kind, location, confidence, confidence_score, evidence) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(source, target, kind, location, confidence, confidence_score, evidence, "
+            "provider, provider_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     e.source,
@@ -328,6 +334,8 @@ class IndexStore:
                     str(e.confidence),
                     e.confidence_score,
                     json.dumps(e.evidence, sort_keys=True),
+                    e.provider,
+                    e.provider_version,
                 )
                 for e in edges
             ],
@@ -787,8 +795,8 @@ class IndexStore:
 
     def get_edges(self) -> list[Edge]:
         cur = self._conn.execute(
-            "SELECT source, target, kind, location, confidence, confidence_score, evidence "
-            "FROM edges"
+            "SELECT source, target, kind, location, confidence, confidence_score, evidence, "
+            "provider, provider_version FROM edges"
         )
         return [
             Edge(
@@ -799,6 +807,8 @@ class IndexStore:
                 confidence=EdgeConfidence(r[4]),
                 confidence_score=float(r[5]),
                 evidence=_decode_edge_evidence(r[6]),
+                provider=r[7],
+                provider_version=r[8],
             )
             for r in cur.fetchall()
         ]
@@ -813,6 +823,25 @@ class IndexStore:
         cur = self._conn.execute("SELECT value FROM metadata WHERE key = ?", (key,))
         row = cur.fetchone()
         return str(row[0]) if row else None
+
+    def set_semantic_provider_receipts(self, receipts: list[SemanticProviderReceipt]) -> None:
+        """Persist the M6 conditional semantic-evidence provider receipts for this build."""
+        self.set_metadata(
+            _SEMANTIC_PROVIDER_RECEIPTS_KEY,
+            json.dumps([r.model_dump(mode="json") for r in receipts], sort_keys=True),
+        )
+
+    def get_semantic_provider_receipts(self) -> list[SemanticProviderReceipt]:
+        """Return the persisted M6 semantic-evidence provider receipts, if any.
+
+        Empty when no semantic provider was configured for this build — a store
+        built before M6 or with ``semantic_evidence_providers`` unset has no
+        receipts, which is a fully expected, honest empty result, not an error.
+        """
+        raw = self.get_metadata(_SEMANTIC_PROVIDER_RECEIPTS_KEY)
+        if not raw:
+            return []
+        return [SemanticProviderReceipt.model_validate(item) for item in json.loads(raw)]
 
     def needs_reindex(self) -> bool:
         """Return True if the store contains chunks without symbol_ids (pre-stable-ID data)."""
@@ -853,12 +882,14 @@ class IndexStore:
                 "ALTER TABLE edges ADD COLUMN confidence_score REAL NOT NULL DEFAULT 1.0"
             ),
             "evidence": "ALTER TABLE edges ADD COLUMN evidence TEXT NOT NULL DEFAULT '[]'",
+            "provider": "ALTER TABLE edges ADD COLUMN provider TEXT",
+            "provider_version": "ALTER TABLE edges ADD COLUMN provider_version TEXT",
         }
         for column, statement in edge_migrations.items():
             if column not in edge_columns:
                 self._conn.execute(statement)
         edge_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(edges)")}
-        if {"confidence", "confidence_score", "evidence"} - edge_columns:
+        if set(edge_migrations) - edge_columns:
             raise RuntimeError("edges table missing confidence columns after migration")
         file_state_columns = {
             row[1] for row in self._conn.execute("PRAGMA table_info(file_states)")

@@ -768,6 +768,17 @@ class TestIndexConfigValidation:
         assert config.quantize_vectors is True
         assert config.quantize_bits == 4
 
+    def test_semantic_evidence_providers_defaults_empty(self) -> None:
+        assert IndexConfig().semantic_evidence_providers == []
+
+    def test_semantic_evidence_providers_accepts_known_names(self) -> None:
+        config = IndexConfig(semantic_evidence_providers=["scip", "lsp"])
+        assert config.semantic_evidence_providers == ["scip", "lsp"]
+
+    def test_semantic_evidence_providers_rejects_unknown_name(self) -> None:
+        with pytest.raises(ValueError, match="unknown entries"):
+            IndexConfig(semantic_evidence_providers=["scip", "bogus"])
+
     def test_quantize_bits_must_be_supported(self) -> None:
         with pytest.raises(ValueError, match="quantize_bits must be one of"):
             IndexConfig(quantize_bits=8)

@@ -8,10 +8,13 @@ from typing import TYPE_CHECKING, Any
 
 import networkx as nx
 
+from archex.integrations.semantic.models import SemanticEdgeKind
 from archex.models import Edge, EdgeConfidence, EdgeKind, ImportStatement, ParsedFile
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from archex.integrations.semantic.models import SemanticEdgeEvidence
 
 _CO_DIRECTORY_CONFIDENCE_SCORE = 0.6
 _CO_DIRECTORY_EVIDENCE = [
@@ -27,6 +30,12 @@ _CO_DIRECTORY_EVIDENCE = [
 _CO_DIRECTORY_DENSE_THRESHOLD = 50
 _CO_DIRECTORY_WINDOW_SIZE = 20
 
+_SEMANTIC_EDGE_KIND: dict[SemanticEdgeKind, EdgeKind] = {
+    SemanticEdgeKind.DEFINITION: EdgeKind.SEMANTIC_DEFINITION,
+    SemanticEdgeKind.REFERENCE: EdgeKind.SEMANTIC_REFERENCE,
+    SemanticEdgeKind.IMPLEMENTATION: EdgeKind.SEMANTIC_IMPLEMENTATION,
+}
+
 
 def _resolved_import_evidence(file_path: str, imported_module: str, line: int) -> list[str]:
     return [f"resolved import {imported_module!r} at {file_path}:{line}"]
@@ -39,6 +48,8 @@ def _edge_attrs(
     confidence: EdgeConfidence = EdgeConfidence.EXTRACTED,
     confidence_score: float = 1.0,
     evidence: list[str] | None = None,
+    provider: str | None = None,
+    provider_version: str | None = None,
 ) -> dict[str, object]:
     return {
         "kind": kind,
@@ -46,6 +57,8 @@ def _edge_attrs(
         "confidence": confidence,
         "confidence_score": confidence_score,
         "evidence": list(evidence or []),
+        "provider": provider,
+        "provider_version": provider_version,
         "traversable": confidence != EdgeConfidence.AMBIGUOUS,
     }
 
@@ -59,6 +72,8 @@ def _edge_from_data(source: object, target: object, data: dict[str, Any]) -> Edg
         confidence=data.get("confidence", EdgeConfidence.EXTRACTED),
         confidence_score=float(data.get("confidence_score", 1.0)),
         evidence=list(data.get("evidence", [])),
+        provider=data.get("provider"),
+        provider_version=data.get("provider_version"),
     )
 
 
@@ -68,6 +83,8 @@ def _ensure_sqlite_edge_confidence_columns(conn: sqlite3.Connection) -> None:
         "confidence": "ALTER TABLE edges ADD COLUMN confidence TEXT DEFAULT 'extracted'",
         "confidence_score": "ALTER TABLE edges ADD COLUMN confidence_score REAL DEFAULT 1.0",
         "evidence": "ALTER TABLE edges ADD COLUMN evidence TEXT DEFAULT '[]'",
+        "provider": "ALTER TABLE edges ADD COLUMN provider TEXT",
+        "provider_version": "ALTER TABLE edges ADD COLUMN provider_version TEXT",
     }
     migrated = False
     for column, statement in edge_migrations.items():
@@ -205,6 +222,58 @@ class DependencyGraph:
 
         return added
 
+    def add_semantic_edges(self, evidence: list[SemanticEdgeEvidence]) -> int:
+        """Add conditional SCIP/LSP semantic edges (M6) to the file graph.
+
+        Only connects source/target file paths that already exist as file
+        nodes — semantic evidence enriches the syntax graph's existing
+        corpus, it never introduces a file the syntax pass didn't already
+        discover. Every added edge carries its provider, provider version,
+        and confidence, and is a distinct EdgeKind from every syntax edge.
+
+        The underlying graph allows at most one edge per (source, target)
+        file pair, so a pair that already has ANY edge — syntax or a prior
+        semantic edge from this same call — is left untouched rather than
+        overwritten; syntax evidence authority is never replaced, and a
+        second semantic relationship between the same two files with the
+        same direction is skipped rather than silently clobbering the
+        first. Returns the number of edges added.
+        """
+        added = 0
+        for item in evidence:
+            source_path = item.source.file_path
+            target_path = item.target.file_path
+            if not self._file_graph.has_node(source_path):  # type: ignore[misc]
+                continue
+            if not self._file_graph.has_node(target_path):  # type: ignore[misc]
+                continue
+            if self._file_graph.has_edge(source_path, target_path):  # type: ignore[misc]
+                continue
+            self._file_graph.add_edge(  # type: ignore[misc]
+                source_path,
+                target_path,
+                **_edge_attrs(
+                    kind=_SEMANTIC_EDGE_KIND[item.kind],
+                    location=(
+                        f"{source_path}:{item.source.line} -> {target_path}:{item.target.line}"
+                    ),
+                    confidence=EdgeConfidence.EXTRACTED,
+                    confidence_score=item.confidence,
+                    evidence=[
+                        f"{item.provider.value} v{item.provider_version} {item.kind.value}: "
+                        f"{source_path}:{item.source.line} -> {target_path}:{item.target.line}"
+                    ],
+                    provider=item.provider.value,
+                    provider_version=item.provider_version,
+                ),
+            )
+            added += 1
+
+        if added > 0:
+            self._invalidate_centrality_caches()
+
+        return added
+
     @classmethod
     def from_edges(cls, edges: list[Edge]) -> DependencyGraph:
         """Reconstruct a file-level DependencyGraph from Edge objects."""
@@ -219,6 +288,8 @@ class DependencyGraph:
                     confidence=edge.confidence,
                     confidence_score=edge.confidence_score,
                     evidence=edge.evidence,
+                    provider=edge.provider,
+                    provider_version=edge.provider_version,
                 ),
             )
         return graph
@@ -273,6 +344,8 @@ class DependencyGraph:
                     confidence=edge.confidence,
                     confidence_score=edge.confidence_score,
                     evidence=edge.evidence,
+                    provider=edge.provider,
+                    provider_version=edge.provider_version,
                 ),
             )
 
@@ -380,7 +453,8 @@ class DependencyGraph:
             cur.execute(
                 "CREATE TABLE IF NOT EXISTS edges "
                 "(source TEXT, target TEXT, kind TEXT, location TEXT, "
-                "confidence TEXT, confidence_score REAL, evidence TEXT)"
+                "confidence TEXT, confidence_score REAL, evidence TEXT, "
+                "provider TEXT, provider_version TEXT)"
             )
             _ensure_sqlite_edge_confidence_columns(conn)
             cur.execute("DELETE FROM files")
@@ -393,8 +467,9 @@ class DependencyGraph:
                 edge_data: dict[str, Any] = data  # type: ignore[assignment]
                 cur.execute(
                     "INSERT INTO edges "
-                    "(source, target, kind, location, confidence, confidence_score, evidence) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "(source, target, kind, location, confidence, confidence_score, evidence, "
+                    "provider, provider_version) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         str(src),
                         str(tgt),
@@ -403,6 +478,8 @@ class DependencyGraph:
                         edge_data.get("confidence", EdgeConfidence.EXTRACTED),
                         float(edge_data.get("confidence_score", 1.0)),
                         json.dumps(edge_data.get("evidence", []), sort_keys=True),
+                        edge_data.get("provider"),
+                        edge_data.get("provider_version"),
                     ),
                 )
 
@@ -420,9 +497,19 @@ class DependencyGraph:
             _ensure_sqlite_edge_confidence_columns(conn)
             for (path,) in cur.execute("SELECT path FROM files"):
                 graph._file_graph.add_node(str(path))  # type: ignore[misc]
-            for src, tgt, kind, location, confidence, confidence_score, evidence in cur.execute(
-                "SELECT source, target, kind, location, confidence, confidence_score, evidence "
-                "FROM edges"
+            for (
+                src,
+                tgt,
+                kind,
+                location,
+                confidence,
+                confidence_score,
+                evidence,
+                provider,
+                provider_version,
+            ) in cur.execute(
+                "SELECT source, target, kind, location, confidence, confidence_score, evidence, "
+                "provider, provider_version FROM edges"
             ):
                 graph._file_graph.add_edge(  # type: ignore[misc]
                     str(src),
@@ -433,6 +520,8 @@ class DependencyGraph:
                         confidence=EdgeConfidence(confidence),
                         confidence_score=float(confidence_score),
                         evidence=json.loads(str(evidence)),
+                        provider=provider,
+                        provider_version=provider_version,
                     ),
                 )
         finally:

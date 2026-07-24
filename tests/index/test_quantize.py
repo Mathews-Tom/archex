@@ -514,6 +514,32 @@ def test_index_config_metadata_tracks_quantization(tmp_path: Path) -> None:
         store.close()
 
 
+def test_index_config_metadata_tracks_semantic_evidence_providers(tmp_path: Path) -> None:
+    from archex.api import (
+        _index_config_metadata_matches,  # pyright: ignore[reportPrivateUsage]
+        _set_index_config_metadata,  # pyright: ignore[reportPrivateUsage]
+    )
+    from archex.index.store import IndexStore
+
+    store = IndexStore(tmp_path / "index.db")
+    try:
+        _set_index_config_metadata(store, IndexConfig(semantic_evidence_providers=[]))
+        assert _index_config_metadata_matches(store, IndexConfig(semantic_evidence_providers=[]))
+        assert not _index_config_metadata_matches(
+            store, IndexConfig(semantic_evidence_providers=["scip"])
+        )
+
+        _set_index_config_metadata(store, IndexConfig(semantic_evidence_providers=["scip"]))
+        assert _index_config_metadata_matches(
+            store, IndexConfig(semantic_evidence_providers=["scip"])
+        )
+        assert not _index_config_metadata_matches(
+            store, IndexConfig(semantic_evidence_providers=[])
+        )
+    finally:
+        store.close()
+
+
 # ---------------------------------------------------------------------------
 # End-to-end quantization pipeline test
 # ---------------------------------------------------------------------------

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from archex.integrations.semantic.models import (
+    ProviderAvailability,
+    SemanticProviderName,
+    SemanticProviderReceipt,
+)
 from archex.models import (
     CompressionLossRisk,
     CompressionMetadata,
@@ -15,6 +20,8 @@ from archex.models import (
     ContextRecommendedAction,
     ContextSkippedCandidate,
     ContextSkippedReason,
+    Edge,
+    EdgeConfidence,
     EdgeKind,
 )
 from archex.receipt import (
@@ -213,3 +220,58 @@ def test_receipt_round_trips_with_compressed_rows() -> None:
     assert restored == receipt
     # A compressed row never flips a complete receipt; completeness is preserved.
     assert restored.context_complete == ContextCompletenessStatus.COMPLETE
+
+
+def test_build_context_receipt_carries_semantic_providers() -> None:
+    bundle = ContextBundle(query="q", token_count=10, token_budget=100)
+    receipts = [
+        SemanticProviderReceipt(
+            provider=SemanticProviderName.SCIP,
+            availability=ProviderAvailability.AVAILABLE,
+            evidence_count=3,
+        )
+    ]
+
+    receipt = build_context_receipt(
+        bundle,
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+        semantic_providers=receipts,
+    )
+
+    assert receipt.semantic_providers == receipts
+
+
+def test_build_context_receipt_defaults_semantic_providers_empty() -> None:
+    bundle = ContextBundle(query="q", token_count=10, token_budget=100)
+    receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
+    assert receipt.semantic_providers == []
+
+
+def test_receipt_edge_from_edge_helper_propagates_provider() -> None:
+    from archex.receipt import _receipt_edge  # pyright: ignore[reportPrivateUsage]
+
+    edge = Edge(
+        source="a.py",
+        target="b.py",
+        kind=EdgeKind.SEMANTIC_DEFINITION,
+        confidence=EdgeConfidence.EXTRACTED,
+        confidence_score=0.9,
+        provider="scip",
+        provider_version="0.5.0",
+    )
+
+    receipt_edge = _receipt_edge(edge)
+
+    assert receipt_edge.provider == "scip"
+    assert receipt_edge.provider_version == "0.5.0"
+
+
+def test_receipt_edge_from_edge_helper_syntax_edge_has_no_provider() -> None:
+    from archex.receipt import _receipt_edge  # pyright: ignore[reportPrivateUsage]
+
+    edge = Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS)
+    receipt_edge = _receipt_edge(edge)
+
+    assert receipt_edge.provider is None
+    assert receipt_edge.provider_version is None
