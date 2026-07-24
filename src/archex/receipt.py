@@ -28,6 +28,7 @@ from archex.scout import ScoutResult, chunk_handle, file_handle, parse_scout_han
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
     from archex.index.store import IndexStore
+    from archex.integrations.docs.models import DocProviderReceipt
     from archex.integrations.history.eligibility import HistoryEligibilityDecision
     from archex.integrations.history.models import (
         ChangeCard,
@@ -91,6 +92,7 @@ def build_context_receipt(
     history_providers: Iterable[HistoryProviderReceipt] = (),
     history_change_cards: Iterable[ChangeCard] = (),
     history_coupling_observations: Iterable[TemporalCouplingObservation] = (),
+    documentation_providers: Iterable[DocProviderReceipt] = (),
 ) -> ContextReceipt:
     returned = _returned_context(bundle)
     skipped_all = list(skipped_candidates)
@@ -155,6 +157,7 @@ def build_context_receipt(
         runtime_providers=list(runtime_providers),
         history_providers=list(history_providers_resolved),
         history_eligibility=history_eligibility,
+        documentation_providers=list(documentation_providers),
         returned_total=len(returned),
         skipped_total=len(skipped_all),
         included_edges_total=len(included_all),

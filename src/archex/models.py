@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, model_validator
 
 from archex.index.quantize import SUPPORTED_BITS
+from archex.integrations.docs.models import DocProviderReceipt  # noqa: TCH001
 from archex.integrations.history.eligibility import HistoryEligibilityDecision  # noqa: TCH001
 from archex.integrations.history.models import HistoryProviderReceipt  # noqa: TCH001
 from archex.integrations.lsap_models import LSAPEnrichment  # noqa: TCH001
@@ -299,6 +300,15 @@ class IndexConfig(BaseModel):
     #: predeclared density/linkage/relevance eligibility policy
     #: (archex.integrations.history.eligibility) before it is ever surfaced.
     history_evidence_providers: list[str] = []
+    #: Conditional local-markdown-documentation-link, ADR, and CODEOWNERS-
+    #: style ownership evidence providers to run at index time (M9). Empty
+    #: by default: no provider runs. Accepted values: "doc_link", "adr",
+    #: "ownership". Kept independent from semantic_evidence_providers/
+    #: runtime_evidence_providers/history_evidence_providers -- every
+    #: conditional evidence channel is separately disableable and
+    #: separately rollback-able. Collected relations are never folded into
+    #: DependencyGraph and are never described as a code dependency.
+    documentation_evidence_providers: list[str] = []
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
@@ -341,6 +351,16 @@ class IndexConfig(BaseModel):
             raise ValueError(
                 "history_evidence_providers has unknown entries: "
                 f"{sorted(unknown_history_providers)}"
+            )
+        unknown_documentation_providers = set(self.documentation_evidence_providers) - {
+            "doc_link",
+            "adr",
+            "ownership",
+        }
+        if unknown_documentation_providers:
+            raise ValueError(
+                "documentation_evidence_providers has unknown entries: "
+                f"{sorted(unknown_documentation_providers)}"
             )
         return self
 
@@ -933,6 +953,7 @@ class ContextReceipt(BaseModel):
     runtime_providers: list[RuntimeProviderReceipt] = []
     history_providers: list[HistoryProviderReceipt] = []
     history_eligibility: HistoryEligibilityDecision | None = None
+    documentation_providers: list[DocProviderReceipt] = []
     returned_total: int = 0
     skipped_total: int = 0
     included_edges_total: int = 0

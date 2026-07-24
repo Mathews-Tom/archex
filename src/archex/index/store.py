@@ -9,6 +9,12 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from archex.integrations.docs.models import (
+    AdrRecord,
+    DocProviderReceipt,
+    DocumentationLink,
+    OwnershipRecord,
+)
 from archex.integrations.history.models import (
     ChangeCard,
     HistoryProviderReceipt,
@@ -43,6 +49,10 @@ _HISTORY_PROVIDER_RECEIPTS_KEY = "history_provider_receipts"
 _HISTORY_CHANGE_CARDS_KEY = "history_change_cards"
 _HISTORY_COUPLING_OBSERVATIONS_KEY = "history_coupling_observations"
 _HISTORY_OPERATOR_RATIONALE_KEY = "history_operator_rationale"
+_DOCUMENTATION_PROVIDER_RECEIPTS_KEY = "documentation_provider_receipts"
+_DOCUMENTATION_LINKS_KEY = "documentation_links"
+_DOCUMENTATION_ADR_RECORDS_KEY = "documentation_adr_records"
+_DOCUMENTATION_OWNERSHIP_RECORDS_KEY = "documentation_ownership_records"
 
 logger = logging.getLogger(__name__)
 
@@ -992,6 +1002,80 @@ class IndexStore:
         if not raw:
             return []
         return [OperatorRationale.model_validate(item) for item in json.loads(raw)]
+
+    def set_documentation_provider_receipts(self, receipts: list[DocProviderReceipt]) -> None:
+        """Persist the M9 conditional documentation-graph provider receipts for this build."""
+        self.set_metadata(
+            _DOCUMENTATION_PROVIDER_RECEIPTS_KEY,
+            json.dumps([r.model_dump(mode="json") for r in receipts], sort_keys=True),
+        )
+
+    def get_documentation_provider_receipts(self) -> list[DocProviderReceipt]:
+        """Return the persisted M9 documentation-graph provider receipts, if any.
+
+        Empty when no documentation provider was configured for this build —
+        a store built before M9 or with ``documentation_evidence_providers``
+        unset has no receipts, which is a fully expected, honest empty
+        result, not an error.
+        """
+        raw = self.get_metadata(_DOCUMENTATION_PROVIDER_RECEIPTS_KEY)
+        if not raw:
+            return []
+        return [DocProviderReceipt.model_validate(item) for item in json.loads(raw)]
+
+    def set_documentation_links(self, links: list[DocumentationLink]) -> None:
+        """Persist the M9 revision-bound markdown documentation links for this build."""
+        self.set_metadata(
+            _DOCUMENTATION_LINKS_KEY,
+            json.dumps([link.model_dump(mode="json") for link in links], sort_keys=True),
+        )
+
+    def get_documentation_links(self) -> list[DocumentationLink]:
+        """Return the persisted M9 documentation links, if any.
+
+        Empty when the doc_link provider was not configured or produced no
+        available evidence for this build.
+        """
+        raw = self.get_metadata(_DOCUMENTATION_LINKS_KEY)
+        if not raw:
+            return []
+        return [DocumentationLink.model_validate(item) for item in json.loads(raw)]
+
+    def set_documentation_adr_records(self, records: list[AdrRecord]) -> None:
+        """Persist the M9 revision-bound architecture-decision-record evidence for this build."""
+        self.set_metadata(
+            _DOCUMENTATION_ADR_RECORDS_KEY,
+            json.dumps([r.model_dump(mode="json") for r in records], sort_keys=True),
+        )
+
+    def get_documentation_adr_records(self) -> list[AdrRecord]:
+        """Return the persisted M9 ADR records, if any.
+
+        Empty when the adr provider was not configured or produced no
+        available evidence for this build.
+        """
+        raw = self.get_metadata(_DOCUMENTATION_ADR_RECORDS_KEY)
+        if not raw:
+            return []
+        return [AdrRecord.model_validate(item) for item in json.loads(raw)]
+
+    def set_documentation_ownership_records(self, records: list[OwnershipRecord]) -> None:
+        """Persist the M9 revision-bound CODEOWNERS-style ownership evidence for this build."""
+        self.set_metadata(
+            _DOCUMENTATION_OWNERSHIP_RECORDS_KEY,
+            json.dumps([r.model_dump(mode="json") for r in records], sort_keys=True),
+        )
+
+    def get_documentation_ownership_records(self) -> list[OwnershipRecord]:
+        """Return the persisted M9 ownership records, if any.
+
+        Empty when the ownership provider was not configured or produced no
+        available evidence for this build.
+        """
+        raw = self.get_metadata(_DOCUMENTATION_OWNERSHIP_RECORDS_KEY)
+        if not raw:
+            return []
+        return [OwnershipRecord.model_validate(item) for item in json.loads(raw)]
 
     def needs_reindex(self) -> bool:
         """Return True if the store contains chunks without symbol_ids (pre-stable-ID data)."""
