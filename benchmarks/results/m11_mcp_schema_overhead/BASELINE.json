@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "milestone": "M11",
+  "measured_at": "2026-07-24",
+  "measured_with": "archex mcp-schema-size --format json",
+  "method": "len(json.dumps({name, description, inputSchema}, sort_keys=True)) per tool; sum for total_chars. 'before' = archex.integrations.mcp state after PR-1 (m11-1-tool-scoping, tool-scoping mechanism, no description changes). 'after' = this PR (m11-2-trimmed-descriptions) after trimming get_impact/explain_target/graph_* descriptions.",
+  "profiles": {
+    "all": {
+      "before": {
+        "tool_count": 18,
+        "total_chars": 14270
+      },
+      "after": {
+        "tool_count": 18,
+        "total_chars": 13907
+      }
+    },
+    "core": {
+      "before": {
+        "tool_count": 13,
+        "total_chars": 10665
+      },
+      "after": {
+        "tool_count": 13,
+        "total_chars": 10435
+      }
+    },
+    "graph": {
+      "before": {
+        "tool_count": 5,
+        "total_chars": 3605
+      },
+      "after": {
+        "tool_count": 5,
+        "total_chars": 3472
+      }
+    }
+  },
+  "per_tool_chars_after": {
+    "analyze_repo": 570,
+    "compare_repos": 718,
+    "context": 2279,
+    "explain_target": 892,
+    "generate_onboarding": 715,
+    "get_file_outline": 433,
+    "get_file_tree": 503,
+    "get_impact": 1118,
+    "get_symbol": 352,
+    "get_symbols_batch": 456,
+    "graph_hubs": 584,
+    "graph_lookup": 676,
+    "graph_neighbors": 812,
+    "graph_path": 826,
+    "graph_stats": 574,
+    "query_repo": 1007,
+    "scout_repo": 703,
+    "search_symbols": 689
+  }
+}
