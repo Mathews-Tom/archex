@@ -5,7 +5,7 @@ Render:
         --format mp4 --output assets/archex-explainer.mp4
 
 Beats: title -> the problem (grep) -> archex pipeline -> client integrations
-       -> measured bars -> stat tiles -> close.
+       -> trust & hardening -> measured bars -> stat tiles -> close.
 """
 
 from __future__ import annotations
@@ -58,6 +58,7 @@ class ArchexExplainer(Scene):
         self._beat_problem()
         self._beat_pipeline()
         self._beat_integrations()
+        self._beat_trust()
         self._beat_bars()
         self._beat_stats()
         self._beat_close()
@@ -292,7 +293,42 @@ class ArchexExplainer(Scene):
 
         self._clear(heading, grid, surfaces, hooks)
 
-    # ---------- beat 5: measured bars ----------
+    # ---------- beat 5: trust & hardening ----------
+    def _beat_trust(self):
+        heading = self._heading("VERIFIED, NOT JUST FAST")
+        self.play(FadeIn(heading), run_time=0.5)
+
+        items = [
+            ("archex setup", "one guided command — index, doctor, clients"),
+            ("verified index generation", "atomic publish, fail-closed on parse errors"),
+            ("hardened by default", "bounded decompression, scheme-checked git URLs"),
+        ]
+        rows = VGroup()
+        for title_text, sub_text in items:
+            dot = RoundedRectangle(
+                corner_radius=0.05,
+                width=0.22,
+                height=0.22,
+                stroke_width=0,
+                fill_color=TEAL,
+                fill_opacity=1,
+            )
+            title = Text(title_text, font_size=28, color=TEXT, weight=BOLD)
+            sub = Text(sub_text, font_size=20, color=MUTED)
+            line = VGroup(title, sub).arrange(DOWN, buff=0.08, aligned_edge=LEFT)
+            row = VGroup(dot, line).arrange(RIGHT, buff=0.3, aligned_edge=UP)
+            rows.add(row)
+        rows.arrange(DOWN, buff=0.45, aligned_edge=LEFT).move_to([0, 0.2, 0])
+
+        self.play(
+            LaggedStart(*[FadeIn(r, shift=RIGHT * 0.2) for r in rows], lag_ratio=0.25),
+            run_time=1.6,
+        )
+        self.wait(2.4)
+
+        self._clear(heading, rows)
+
+    # ---------- beat 6: measured bars ----------
     def _beat_bars(self):
         heading = self._heading("MEASURED · 19-TASK HEAD-TO-HEAD")
         self.play(FadeIn(heading), run_time=0.5)
@@ -350,7 +386,7 @@ class ArchexExplainer(Scene):
 
         self._clear(heading, legend, *all_objs)
 
-    # ---------- beat 6: stat tiles ----------
+    # ---------- beat 7: stat tiles ----------
     def _beat_stats(self):
         heading = self._heading("THE PAYOFF")
         self.play(FadeIn(heading), run_time=0.5)
@@ -384,7 +420,7 @@ class ArchexExplainer(Scene):
 
         self._clear(heading, t1, t2)
 
-    # ---------- beat 7: close ----------
+    # ---------- beat 8: close ----------
     def _beat_close(self):
         traits = Text(
             "local-first · deterministic · no API key · Apache-2.0", font_size=32, color=MUTED
