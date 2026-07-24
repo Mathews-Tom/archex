@@ -1825,11 +1825,10 @@ def _tool_schemas() -> list[dict[str, Any]]:
         {
             "name": "get_impact",
             "description": (
-                "Analyze deterministic blast radius for changed files: affected files, "
-                "modules, public interfaces, test surface, and a risk assessment. Uses "
-                "git diff against a base ref, or an explicit changed-file list. Pass "
-                "'diff' to additionally resolve the diff to touched symbols and classify "
-                "each with a LOW/MEDIUM/HIGH risk tier from deterministic graph signals."
+                "Deterministic blast-radius impact analysis for changed files: affected "
+                "files, modules, public interfaces, test surface, risk assessment. Diffs "
+                "against a base ref or an explicit changed-file list; pass 'diff' for "
+                "per-symbol LOW/MEDIUM/HIGH risk tiers."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1837,24 +1836,22 @@ def _tool_schemas() -> list[dict[str, Any]]:
                     "repo_url": {
                         "type": "string",
                         "description": (
-                            "Local filesystem path of the repository. Git diff mode "
-                            "requires a local checkout."
+                            "Local repository path (git diff mode requires a local checkout)."
                         ),
                     },
                     "base": {
                         "type": "string",
                         "default": "main",
                         "description": (
-                            "Base ref for git diff mode. Ignored when changed_files "
-                            "or diff is provided."
+                            "Base ref for git diff mode; ignored if changed_files or diff is set."
                         ),
                     },
                     "changed_files": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "Explicit changed file paths, bypassing git diff mode. "
-                            "Cannot be combined with diff."
+                            "Explicit changed files, bypassing git diff mode. Mutually "
+                            "exclusive with diff."
                         ),
                     },
                     "format": {
@@ -1866,11 +1863,9 @@ def _tool_schemas() -> list[dict[str, Any]]:
                     "diff": {
                         "type": "string",
                         "description": (
-                            "Enable diff-scoped symbol impact: resolve the diff (this "
-                            "ref vs. the working tree) to touched symbols with a "
-                            "per-symbol risk tier. Adds affected_symbols to the report; "
-                            "output is unchanged when omitted. Cannot be combined with "
-                            "changed_files."
+                            "Resolve the diff (this ref vs. working tree) to touched symbols "
+                            "with a per-symbol risk tier, added as affected_symbols. Mutually "
+                            "exclusive with changed_files."
                         ),
                     },
                 },
@@ -1880,9 +1875,8 @@ def _tool_schemas() -> list[dict[str, Any]]:
         {
             "name": "explain_target",
             "description": (
-                "Explain a file, symbol, or module from indexed structural data: public "
-                "interfaces, internal symbols, imports/imported-by, module context, and "
-                "complexity signals."
+                "Structural explain for a file, symbol, or module: public interfaces, "
+                "internal symbols, imports/imported-by, module context, complexity signals."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1957,8 +1951,8 @@ def _tool_schemas() -> list[dict[str, Any]]:
         {
             "name": "graph_lookup",
             "description": (
-                "Look up graph nodes in an exported architecture graph artifact without "
-                "indexing source files. Exact node IDs and paths win over fuzzy matches."
+                "Look up nodes in an exported graph artifact (no reindexing). Exact "
+                "ID/path matches win over fuzzy ones."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1987,8 +1981,8 @@ def _tool_schemas() -> list[dict[str, Any]]:
         {
             "name": "graph_neighbors",
             "description": (
-                "Return graph neighbors for a node from an exported artifact without "
-                "indexing source files. Edges include kind, confidence, and evidence."
+                "Graph neighbors for a node from an exported artifact (no reindexing). "
+                "Edges carry kind, confidence, evidence."
             ),
             "inputSchema": {
                 "type": "object",
@@ -2023,8 +2017,8 @@ def _tool_schemas() -> list[dict[str, Any]]:
         {
             "name": "graph_path",
             "description": (
-                "Find a shortest structural path between two graph nodes from an exported "
-                "artifact without indexing source files."
+                "Shortest structural path between two nodes in an exported graph "
+                "artifact (no reindexing)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -2056,8 +2050,8 @@ def _tool_schemas() -> list[dict[str, Any]]:
         {
             "name": "graph_stats",
             "description": (
-                "Return deterministic graph stats and hub summaries from an exported "
-                "artifact without indexing source files."
+                "Deterministic graph stats and hub summary from an exported artifact "
+                "(no reindexing)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -2081,10 +2075,7 @@ def _tool_schemas() -> list[dict[str, Any]]:
         },
         {
             "name": "graph_hubs",
-            "description": (
-                "Return high-degree graph hubs from an exported artifact without indexing "
-                "source files."
-            ),
+            "description": ("High-degree hubs from an exported graph artifact (no reindexing)."),
             "inputSchema": {
                 "type": "object",
                 "properties": {
