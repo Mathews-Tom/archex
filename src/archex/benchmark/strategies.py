@@ -1374,6 +1374,27 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
 
+def run_archex_query_semantic(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """archex query with the SCIP semantic-evidence provider enabled (M6 candidate lane).
+
+    Benchmark-only: enables ``IndexConfig.semantic_evidence_providers=["scip"]``
+    on top of the exact ``archex_query`` baseline configuration. Reads a SCIP
+    index from ``<repo_path>/index.scip`` when present; when absent (the
+    common case for most benchmark corpora, which have no pre-built SCIP
+    index), the provider reports UNAVAILABLE and this lane is byte-identical
+    to ``archex_query``. Never the product default.
+    """
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_SEMANTIC,
+        index_config=IndexConfig(vector=False, semantic_evidence_providers=["scip"]),
+        cache=benchmark_cache_enabled(default=False),
+        include_completion=True,
+        measure_freshness=True,
+    )
+
+
 def run_archex_query_profile_fast(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """archex query under the product's ``fast`` retrieval profile (M3 candidate lane).
 
@@ -4309,3 +4330,4 @@ default_strategy_registry.register(
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_PROFILE_BALANCED.value, run_archex_query_profile_balanced
 )
+default_strategy_registry.register(Strategy.ARCHEX_QUERY_SEMANTIC.value, run_archex_query_semantic)

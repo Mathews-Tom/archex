@@ -44,6 +44,7 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_DIVERSITY_PACKED = "archex_query_diversity_packed"
     ARCHEX_QUERY_PROFILE_FAST = "archex_query_profile_fast"
     ARCHEX_QUERY_PROFILE_BALANCED = "archex_query_profile_balanced"
+    ARCHEX_QUERY_SEMANTIC = "archex_query_semantic"
     EXTERNAL_MCP = "external_mcp"
 
 
