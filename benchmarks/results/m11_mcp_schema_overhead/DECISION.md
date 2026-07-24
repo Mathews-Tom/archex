@@ -40,10 +40,11 @@ Per-tool: `get_impact` 1330 -> 1118 (-212, -15.9%), `explain_target` 910
 byte-identical (untouched by this PR).
 
 Raw before/after numbers and the full post-trim per-tool breakdown are
-checked in at `BASELINE.json` in this directory; `test_schema_size.py`
-(added in this PR) asserts the current unscoped total never exceeds the
-recorded `after` value for any of the three profiles, guarding against
-a future PR silently re-bloating a description back past this baseline.
+checked in at `BASELINE.json` in this directory;
+`tests/integrations/test_mcp_schema_size_baseline.py` (added in this
+PR) asserts the current unscoped total never exceeds the recorded
+`after` value for any of the three profiles, guarding against a future
+PR silently re-bloating a description back past this baseline.
 
 ## Decision
 
