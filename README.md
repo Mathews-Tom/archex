@@ -301,6 +301,8 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 | Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
 | Local usage metrics | Calculation rules, privacy boundaries, default-off versus opt-in behavior, export/delete controls, and retention live in [LOCAL_METRICS](docs/LOCAL_METRICS.md). |
 | `archex report status-card` | Opt-in, dimensioned documentation/release status summary: doc-link, ADR, and CODEOWNERS-style ownership evidence (each disabled unless its `documentation_evidence_providers` entry is configured) plus local CHANGELOG/CI-workflow evidence. Every dimension links to immutable local evidence; there is no composite score or letter grade, and the output is never written back into the repository automatically — paste it into your own README by hand if you want to publish it. |
+| `archex report release-artifact` | Per-release compatibility + benchmark evidence bundle: archex's own installed version, supported Python range, report/index schema versions, a pointer to any checked-in benchmark manifest, and an embedded status card, as one read-only JSON document suitable for attaching to a GitHub release. |
+| Read-only CI examples | `.github/workflows/report-diff.yml` and `.github/workflows/status-card.yml` grant only `contents: read`, pin every Action to a full commit SHA (never a floating tag), and upload only their own declared report/status/compatibility outputs — verified by `tests/test_report_ci_workflow.py`. |
 
 ## Measured results
 
@@ -354,6 +356,7 @@ archex report diff --base origin/main --format markdown
 archex report diff --base origin/main --format html > report.html
 archex report delta --base origin/main --format markdown
 archex report status-card --format markdown  # M9, opt-in: dimensioned doc/ADR/ownership + release evidence, disabled unless configured
+archex report release-artifact  # M9: per-release compatibility + benchmark evidence bundle (version, schema versions, status card)
 
 # Benchmarks and gates
 archex benchmark headtohead report --input .archex/headtohead --format markdown
