@@ -41,6 +41,7 @@ from archex.impact import (
     git_diff_hunks,
     resolve_diff_symbols,
 )
+from archex.integrations.history.eligibility import HistoryEligibilityDecision  # noqa: TC001
 from archex.languages import EXTENSION_LANGUAGE_MAP
 from archex.models import ContextCompletenessStatus, ContextFreshness, RepoSource
 from archex.scout import chunk_handle, file_handle, symbol_handle
@@ -48,6 +49,11 @@ from archex.serve.generation import read_generation_id
 
 if TYPE_CHECKING:
     from archex.impact import ImpactReport, SymbolImpact
+    from archex.integrations.history.models import (
+        ChangeCard,
+        HistoryProviderReceipt,
+        TemporalCouplingObservation,
+    )
     from archex.integrations.runtime.models import CoverageFileEvidence, RuntimeProfileEvidence
     from archex.models import CodeChunk
 
@@ -126,6 +132,14 @@ class DiffFileChange(BaseModel):
     old_path: str | None = None
     handle: str
     hunks: list[DiffHunk] = []
+    #: M8: count of collected local-history change cards touching this
+    #: file within the eligibility-cleared window. None when the history
+    #: channel is disabled, unconfigured, or below its declared
+    #: density/linkage/relevance threshold -- never a fabricated zero.
+    history_change_count: int | None = None
+    #: M8: unique issue/PR reference identifiers extracted from those
+    #: commits' own subject lines. Empty unless history is eligible.
+    history_linked_references: list[str] = []
 
 
 class SymbolCandidate(BaseModel):
@@ -226,6 +240,10 @@ class DiffAnalysis(BaseModel):
 
     risk_level: ImpactRiskLevel = ImpactRiskLevel.LOW
     risk_reasons: list[str] = []
+    #: M8: the repository-memory eligibility decision for this diff's own
+    #: changed files, when the history channel was configured. None when
+    #: unconfigured -- distinct from a decision that disabled the channel.
+    history_eligibility: HistoryEligibilityDecision | None = None
 
 
 class AnalysisArtifactV1(BaseModel):
@@ -329,6 +347,9 @@ def build_analysis_artifact(source: str | Path, *, base_ref: str) -> AnalysisArt
         )
         coverage_evidence = store.get_runtime_coverage_evidence()
         profile_evidence = store.get_runtime_profile_evidence()
+        history_change_cards = store.get_history_change_cards()
+        history_coupling_observations = store.get_history_coupling_observations()
+        history_provider_receipts = store.get_history_provider_receipts()
     finally:
         store.close()
 
@@ -343,6 +364,9 @@ def build_analysis_artifact(source: str | Path, *, base_ref: str) -> AnalysisArt
         coverage_evidence=coverage_evidence,
         profile_evidence=profile_evidence,
         source_revision=source_revision,
+        history_change_cards=history_change_cards,
+        history_coupling_observations=history_coupling_observations,
+        history_provider_receipts=history_provider_receipts,
     )
     parser_versions = _parser_versions_for_changes(changes)
     excluded_counts = {"unmapped_changed_files": diff.unsupported_files_total}
@@ -526,6 +550,17 @@ def _symbol_candidate(
     )
 
 
+def _history_summary_for_path(path: str, change_cards: list[ChangeCard]) -> tuple[int, list[str]]:
+    """Return ``(change_count, linked_reference_ids)`` for *path*.
+
+    Never a fabricated zero: callers only attach this when the overall
+    history-eligibility decision enabled the channel for this diff.
+    """
+    matching = [card for card in change_cards if path in card.changed_files]
+    references = sorted({ref.identifier for card in matching for ref in card.linked_references})
+    return len(matching), references
+
+
 def _build_diff_analysis(
     *,
     base_ref: str,
@@ -537,20 +572,55 @@ def _build_diff_analysis(
     coverage_evidence: list[CoverageFileEvidence],
     profile_evidence: list[RuntimeProfileEvidence],
     source_revision: str,
+    history_change_cards: list[ChangeCard],
+    history_coupling_observations: list[TemporalCouplingObservation],
+    history_provider_receipts: list[HistoryProviderReceipt],
 ) -> DiffAnalysis:
-    changed_files = [
-        DiffFileChange(
-            path=change.path,
-            status=change.status,
-            old_path=change.old_path,
-            handle=file_handle(change.path),
-            hunks=[
-                DiffHunk(start_line=start, end_line=end)
-                for start, end in hunks.get(change.path, [])
-            ],
+    history_eligibility: HistoryEligibilityDecision | None = None
+    if history_provider_receipts:
+        from archex.integrations.history.eligibility import evaluate_history_eligibility
+        from archex.integrations.history.models import HistoryEvidenceProviderName
+
+        git_log_receipt = next(
+            (
+                r
+                for r in history_provider_receipts
+                if r.provider == HistoryEvidenceProviderName.GIT_LOG
+            ),
+            None,
         )
-        for change in report.changed_files
-    ]
+        candidate_paths = {change.path for change in report.changed_files}
+        history_eligibility = evaluate_history_eligibility(
+            history_change_cards,
+            history_coupling_observations,
+            candidate_paths,
+            git_log_receipt=git_log_receipt,
+            window_commit_count=git_log_receipt.window_commit_count if git_log_receipt else 0,
+        )
+    history_enabled = history_eligibility is not None and history_eligibility.enabled
+
+    changed_files: list[DiffFileChange] = []
+    for change in report.changed_files:
+        history_change_count: int | None = None
+        history_linked_references: list[str] = []
+        if history_enabled:
+            history_change_count, history_linked_references = _history_summary_for_path(
+                change.path, history_change_cards
+            )
+        changed_files.append(
+            DiffFileChange(
+                path=change.path,
+                status=change.status,
+                old_path=change.old_path,
+                handle=file_handle(change.path),
+                hunks=[
+                    DiffHunk(start_line=start, end_line=end)
+                    for start, end in hunks.get(change.path, [])
+                ],
+                history_change_count=history_change_count,
+                history_linked_references=history_linked_references,
+            )
+        )
     changed_total = len(changed_files)
     changed_files = changed_files[:MAX_CHANGED_FILES]
 
@@ -615,6 +685,7 @@ def _build_diff_analysis(
         unsupported_files_total=unsupported_total,
         risk_level=report.risk.level,
         risk_reasons=report.risk.reasons,
+        history_eligibility=history_eligibility,
     )
 
 
