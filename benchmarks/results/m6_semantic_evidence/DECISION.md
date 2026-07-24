@@ -34,9 +34,11 @@ Self-repo benchmark family (`benchmarks/tasks/*.yaml`, `repo: "."`,
 `category: self`, 24 tasks) — the only family where a SCIP index for the
 corpus under test can plausibly be generated locally without cloning and
 type-checking an external repository. Same token budget, same chunker, same
-cache policy (`cache=False`, fresh cold build per task) as the product
-default `archex_query` strategy; the only variable is
-`semantic_evidence_providers=["scip"]`.
+cache policy as the product default `archex_query` strategy — both lanes
+run with `--warm-cache` (one discarded cache-populating run per strategy,
+then a warm-timed run), required by `archex benchmark gate`'s
+`--max-p95-warm-latency-ms` check; the only variable between the two
+strategies is `semantic_evidence_providers=["scip"]`.
 
 ```
 uv run archex benchmark run --tasks-dir benchmarks/tasks --self-only \
