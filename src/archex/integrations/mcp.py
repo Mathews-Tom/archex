@@ -1462,8 +1462,726 @@ async def _run_mcp_tool(
     raise ValueError(f"Unknown tool: {name!r}")
 
 
-def build_server(runtime: QueryRuntime | None = None) -> Any:
+def _tool_schemas() -> list[dict[str, Any]]:
+    """Full unscoped MCP tool schema definitions (name/description/inputSchema).
+
+    Single source of truth for `build_server`'s `list_tools()` handler, tool-scope
+    filtering (`resolve_tool_scope`), and the `archex mcp-schema-size` measurement
+    command, so scoping and reported schema sizes can never drift from the tools
+    the server actually registers.
+    """
+    return [
+        {
+            "name": "analyze_repo",
+            "description": (
+                "Analyze a code repository and return an architecture profile including "
+                "modules, design patterns, interfaces, dependency graph, and architectural "
+                "decisions. Works with local paths and remote Git URLs."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": (
+                            "Local filesystem path or HTTP(S) Git URL of the repository."
+                        ),
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                        "description": "Output format for the architecture profile.",
+                    },
+                },
+                "required": ["repo_url"],
+            },
+        },
+        {
+            "name": "scout_repo",
+            "description": (
+                "Return a compact structural scout map for a repository question. "
+                "The map contains ranked files, module boundaries, top symbols, graph "
+                "sketches, and stable file/symbol/chunk handles, but no code bodies."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": (
+                            "Local filesystem path or HTTP(S) Git URL of the repository."
+                        ),
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "Natural-language scout question.",
+                    },
+                    "budget": {
+                        "type": "integer",
+                        "default": DEFAULT_SCOUT_TOKEN_BUDGET,
+                        "description": "Hard token cap for the scout map.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                    },
+                },
+                "required": ["repo_url", "question"],
+            },
+        },
+        {
+            "name": "query_repo",
+            "description": (
+                "Retrieve relevant code context from a repository to answer a "
+                "natural-language question. Returns a ranked set of code chunks "
+                "within the specified token budget, suitable for use as LLM context."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": (
+                            "Local filesystem path or HTTP(S) Git URL of the repository."
+                        ),
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": ("Natural-language question to answer from the codebase."),
+                    },
+                    "budget": {
+                        "type": "integer",
+                        "description": (
+                            "Optional explicit token budget override. Omit to use "
+                            "adaptive intent routing with the 8192 product ceiling."
+                        ),
+                    },
+                    "profile": {
+                        "type": "string",
+                        "enum": ["fast", "balanced", "deep"],
+                        "description": (
+                            "Optional named retrieval profile: 'fast' (bm25 only, zero "
+                            "vector/model work), 'balanced' (adds module prefiltering), "
+                            "or 'deep' (adds vector search and reranking). Omit to use "
+                            "the repo's configured retrieval settings unchanged."
+                        ),
+                    },
+                },
+                "required": ["repo_url", "question"],
+            },
+        },
+        {
+            "name": "context",
+            "description": (
+                "Primary agent-facing context retrieval: query, intent, profile, "
+                "filters, budgets, and handles as one contract. Returns a compact "
+                "candidate map, exact fetch handles, selected code, relation paths, "
+                "the route decision, a receipt, and a recommended next action. A "
+                "thin facade over query_repo — query_repo and the other specialized "
+                "tools remain fully supported."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": (
+                            "Local filesystem path or HTTP(S) Git URL of the repository."
+                        ),
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": ("Natural-language question to answer from the codebase."),
+                    },
+                    "intent": {
+                        "type": "string",
+                        "enum": [intent.value for intent in QueryIntent],
+                        "description": (
+                            "Optional: pin the query intent instead of "
+                            "auto-classifying it from the query text. Determines "
+                            "the scoring-weight preset and default token budget."
+                        ),
+                    },
+                    "profile": {
+                        "type": "string",
+                        "enum": [profile.value for profile in RetrievalProfile],
+                        "description": (
+                            "Optional named retrieval profile. Omit to use the "
+                            "repo's configured retrieval settings unchanged."
+                        ),
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": (
+                            "Optional deterministic post-retrieval candidate "
+                            "filters — never changes ranking or adds candidates."
+                        ),
+                        "properties": {
+                            "include_paths": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": (
+                                    "fnmatch glob(s) a candidate's file path must match."
+                                ),
+                            },
+                            "exclude_paths": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": (
+                                    "fnmatch glob(s) that exclude a candidate by file path."
+                                ),
+                            },
+                            "languages": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": ("Restrict returned candidates to these languages."),
+                            },
+                        },
+                    },
+                    "budgets": {
+                        "type": "object",
+                        "description": "Optional token-budget input.",
+                        "properties": {
+                            "token_budget": {
+                                "type": "integer",
+                                "description": (
+                                    "Explicit token budget override. Omit to resolve "
+                                    "from 'intent' or the query's own auto-scaling."
+                                ),
+                            },
+                        },
+                    },
+                    "handles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional exact fetch handle(s) — bypasses broad search "
+                            "and returns exactly these candidates."
+                        ),
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "description": "Output format. Defaults to 'json'.",
+                    },
+                },
+                "required": ["repo_url", "query"],
+            },
+        },
+        {
+            "name": "compare_repos",
+            "description": (
+                "Compare two code repositories across architectural dimensions such as "
+                "API surface, error handling, concurrency model, testing, "
+                "state management, and configuration."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_a": {
+                        "type": "string",
+                        "description": "Local path or HTTP(S) URL of the first repository.",
+                    },
+                    "repo_b": {
+                        "type": "string",
+                        "description": "Local path or HTTP(S) URL of the second repository.",
+                    },
+                    "dimensions": {
+                        "type": "string",
+                        "default": "api_surface,error_handling",
+                        "description": (
+                            "Comma-separated dimensions to compare. "
+                            "Supported: api_surface, error_handling, concurrency, "
+                            "testing, state_management, configuration."
+                        ),
+                    },
+                },
+                "required": ["repo_a", "repo_b"],
+            },
+        },
+        {
+            "name": "get_file_tree",
+            "description": (
+                "Return a hierarchical file tree for a repository, optionally filtered "
+                "by language and depth."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": "Local path or HTTP(S) URL of the repository.",
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "default": 5,
+                        "description": "Maximum directory depth to traverse.",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Filter results to files of this language.",
+                    },
+                },
+                "required": ["repo_url"],
+            },
+        },
+        {
+            "name": "get_file_outline",
+            "description": (
+                "Return a structural outline of a single file — symbols, classes, "
+                "functions, and their locations."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": "Local path or HTTP(S) URL of the repository.",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Relative path of the file within the repository.",
+                    },
+                },
+                "required": ["repo_url", "file_path"],
+            },
+        },
+        {
+            "name": "search_symbols",
+            "description": (
+                "Search for symbols (functions, classes, variables) in a repository "
+                "by name, kind, and/or language."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": "Local path or HTTP(S) URL of the repository.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to match against symbol names.",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Filter by symbol kind (e.g. function, class).",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Filter by programming language.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Maximum number of results to return.",
+                    },
+                },
+                "required": ["repo_url", "query"],
+            },
+        },
+        {
+            "name": "get_symbol",
+            "description": "Retrieve a single symbol by its stable symbol ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": "Local path or HTTP(S) URL of the repository.",
+                    },
+                    "symbol_id": {
+                        "type": "string",
+                        "description": "Stable symbol identifier.",
+                    },
+                },
+                "required": ["repo_url", "symbol_id"],
+            },
+        },
+        {
+            "name": "get_symbols_batch",
+            "description": (
+                "Retrieve multiple symbols by their stable symbol IDs in a single call. "
+                "Maximum 50 IDs per request."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": "Local path or HTTP(S) URL of the repository.",
+                    },
+                    "symbol_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of stable symbol identifiers (max 50).",
+                    },
+                },
+                "required": ["repo_url", "symbol_ids"],
+            },
+        },
+        {
+            "name": "get_impact",
+            "description": (
+                "Analyze deterministic blast radius for changed files: affected files, "
+                "modules, public interfaces, test surface, and a risk assessment. Uses "
+                "git diff against a base ref, or an explicit changed-file list. Pass "
+                "'diff' to additionally resolve the diff to touched symbols and classify "
+                "each with a LOW/MEDIUM/HIGH risk tier from deterministic graph signals."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": (
+                            "Local filesystem path of the repository. Git diff mode "
+                            "requires a local checkout."
+                        ),
+                    },
+                    "base": {
+                        "type": "string",
+                        "default": "main",
+                        "description": (
+                            "Base ref for git diff mode. Ignored when changed_files "
+                            "or diff is provided."
+                        ),
+                    },
+                    "changed_files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Explicit changed file paths, bypassing git diff mode. "
+                            "Cannot be combined with diff."
+                        ),
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                        "description": "Output format for the impact report.",
+                    },
+                    "diff": {
+                        "type": "string",
+                        "description": (
+                            "Enable diff-scoped symbol impact: resolve the diff (this "
+                            "ref vs. the working tree) to touched symbols with a "
+                            "per-symbol risk tier. Adds affected_symbols to the report; "
+                            "output is unchanged when omitted. Cannot be combined with "
+                            "changed_files."
+                        ),
+                    },
+                },
+                "required": ["repo_url"],
+            },
+        },
+        {
+            "name": "explain_target",
+            "description": (
+                "Explain a file, symbol, or module from indexed structural data: public "
+                "interfaces, internal symbols, imports/imported-by, module context, and "
+                "complexity signals."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": (
+                            "Local path or HTTP(S) URL of the repository. Required "
+                            "unless graph_path is given."
+                        ),
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": (
+                            "File path or `path::name#kind` symbol identifier to "
+                            "explain. Mutually exclusive with module_name."
+                        ),
+                    },
+                    "module_name": {
+                        "type": "string",
+                        "description": ("Module path to explain. Mutually exclusive with target."),
+                    },
+                    "graph_path": {
+                        "type": "string",
+                        "description": (
+                            "Read an exported graph artifact instead of indexing repo_url."
+                        ),
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                        "description": "Output format for the explain context.",
+                    },
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "generate_onboarding",
+            "description": (
+                "Generate a deterministic onboarding guide from graph/index data: "
+                "repository overview, architecture modules, entry points, public "
+                "interfaces, recommended reading order, complexity hotspots, test "
+                "surface, and configuration surface. Markdown-only output."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": (
+                            "Local path or HTTP(S) URL of the repository. Required "
+                            "unless graph_path is given."
+                        ),
+                    },
+                    "graph_path": {
+                        "type": "string",
+                        "description": (
+                            "Read an exported graph artifact instead of indexing repo_url."
+                        ),
+                    },
+                    "max_files": {
+                        "type": "integer",
+                        "default": 40,
+                        "description": "Maximum paths per capped section.",
+                    },
+                },
+                "required": [],
+            },
+        },
+        {
+            "name": "graph_lookup",
+            "description": (
+                "Look up graph nodes in an exported architecture graph artifact without "
+                "indexing source files. Exact node IDs and paths win over fuzzy matches."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                    "node": {
+                        "type": "string",
+                        "description": "Node ID, path, label, or query.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                    },
+                    "limit": {"type": "integer", "default": 25},
+                    "hub_degree": {"type": "integer", "default": 50},
+                    "token_budget": {
+                        "type": "integer",
+                        "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                        "description": "Maximum markdown content tokens to return.",
+                    },
+                },
+                "required": ["graph_path", "node"],
+            },
+        },
+        {
+            "name": "graph_neighbors",
+            "description": (
+                "Return graph neighbors for a node from an exported artifact without "
+                "indexing source files. Edges include kind, confidence, and evidence."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                    "node": {
+                        "type": "string",
+                        "description": "Node ID, path, label, or query.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["out", "in", "both"],
+                        "default": "both",
+                    },
+                    "depth": {"type": "integer", "default": 1},
+                    "limit": {"type": "integer", "default": 25},
+                    "hub_degree": {"type": "integer", "default": 50},
+                    "token_budget": {
+                        "type": "integer",
+                        "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                        "description": "Maximum markdown content tokens to return.",
+                    },
+                },
+                "required": ["graph_path", "node"],
+            },
+        },
+        {
+            "name": "graph_path",
+            "description": (
+                "Find a shortest structural path between two graph nodes from an exported "
+                "artifact without indexing source files."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                    "source": {"type": "string", "description": "Source node ID or path."},
+                    "target": {"type": "string", "description": "Target node ID or path."},
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["out", "in", "both"],
+                        "default": "both",
+                    },
+                    "max_edges": {"type": "integer", "default": 100},
+                    "hub_degree": {"type": "integer", "default": 50},
+                    "token_budget": {
+                        "type": "integer",
+                        "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                        "description": "Maximum markdown content tokens to return.",
+                    },
+                },
+                "required": ["graph_path", "source", "target"],
+            },
+        },
+        {
+            "name": "graph_stats",
+            "description": (
+                "Return deterministic graph stats and hub summaries from an exported "
+                "artifact without indexing source files."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                    },
+                    "hub_limit": {"type": "integer", "default": 10},
+                    "hub_degree": {"type": "integer", "default": 50},
+                    "token_budget": {
+                        "type": "integer",
+                        "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                        "description": "Maximum markdown content tokens to return.",
+                    },
+                },
+                "required": ["graph_path"],
+            },
+        },
+        {
+            "name": "graph_hubs",
+            "description": (
+                "Return high-degree graph hubs from an exported artifact without indexing "
+                "source files."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json",
+                    },
+                    "limit": {"type": "integer", "default": 25},
+                    "threshold": {"type": "integer"},
+                    "hub_degree": {"type": "integer", "default": 50},
+                    "token_budget": {
+                        "type": "integer",
+                        "default": DEFAULT_GRAPH_TOKEN_BUDGET,
+                        "description": "Maximum markdown content tokens to return.",
+                    },
+                },
+                "required": ["graph_path"],
+            },
+        },
+    ]
+
+
+#: Every MCP tool name archex registers, in registration order. Derived from
+#: `_tool_schemas()` so it can never drift from the tools `build_server` exposes.
+ALL_TOOL_NAMES: tuple[str, ...] = tuple(schema["name"] for schema in _tool_schemas())
+
+_GRAPH_TOOL_NAMES: frozenset[str] = frozenset(
+    {"graph_lookup", "graph_neighbors", "graph_path", "graph_stats", "graph_hubs"}
+)
+
+#: Named convenience tool-scope profiles for `archex mcp --tools` and
+#: `install-client`/`setup --tool-scope`. "all" (every tool, the unscoped
+#: default) is intentionally absent here -- `resolve_tool_scope` treats it,
+#: `None`, and the empty string as the same "no filtering" case so callers
+#: can test `is None` instead of special-casing a profile name.
+TOOL_SCOPE_PROFILES: dict[str, frozenset[str]] = {
+    "core": frozenset(ALL_TOOL_NAMES) - _GRAPH_TOOL_NAMES,
+    "graph": _GRAPH_TOOL_NAMES,
+}
+
+
+def resolve_tool_scope(spec: str | None) -> frozenset[str] | None:
+    """Resolve a `--tools`/`--tool-scope` spec into a set of tool names.
+
+    `None`, the empty string, or `"all"` mean unscoped -- every registered
+    tool, the current default behavior. Otherwise `spec` is either a named
+    profile from `TOOL_SCOPE_PROFILES` or a comma-separated explicit
+    allowlist of tool names.
+
+    Raises:
+        ValueError: `spec` names a tool that does not exist, so a typo
+            fails fast instead of silently registering zero tools.
+    """
+    if spec is None or spec.strip() in ("", "all"):
+        return None
+    if spec in TOOL_SCOPE_PROFILES:
+        return TOOL_SCOPE_PROFILES[spec]
+    names = frozenset(name.strip() for name in spec.split(",") if name.strip())
+    unknown = names - frozenset(ALL_TOOL_NAMES)
+    if unknown:
+        raise ValueError(
+            f"Unknown MCP tool name(s): {', '.join(sorted(unknown))}. "
+            f"Known tools: {', '.join(ALL_TOOL_NAMES)}"
+        )
+    return names
+
+
+def measure_tool_schema_size(tool_names: frozenset[str] | None = None) -> dict[str, Any]:
+    """Serialized MCP tool-schema size for `tool_names` (`None` means every tool).
+
+    Serializes each tool's `{name, description, inputSchema}` as compact,
+    sort-keyed JSON -- the same shape `list_tools()` advertises -- so the
+    reported byte counts track what a client actually registers.
+    """
+    schemas = _tool_schemas()
+    if tool_names is not None:
+        schemas = [schema for schema in schemas if schema["name"] in tool_names]
+    per_tool_chars = {schema["name"]: len(json.dumps(schema, sort_keys=True)) for schema in schemas}
+    return {
+        "tool_count": len(schemas),
+        "total_chars": sum(per_tool_chars.values()),
+        "per_tool_chars": per_tool_chars,
+    }
+
+
+def build_server(
+    runtime: QueryRuntime | None = None, tool_names: frozenset[str] | None = None
+) -> Any:
     """Build and return a configured MCP Server instance.
+
+    `tool_names`, when given, scopes the tools this server advertises via
+    `list_tools()` to exactly that subset (see `resolve_tool_scope`). Every
+    tool name still dispatches through `call_tool` regardless of scoping --
+    scoping only shrinks the advertised schema surface, it never changes
+    which tool names a client can successfully call.
 
     Raises:
         ImportError: If the `mcp` package is not installed.
@@ -1483,651 +2201,10 @@ def build_server(runtime: QueryRuntime | None = None) -> Any:
 
     @server.list_tools()  # pyright: ignore[reportUnusedFunction]
     async def list_tools() -> list[mcp_types.Tool]:  # pyright: ignore[reportUnusedFunction]
-        return [
-            mcp_types.Tool(
-                name="analyze_repo",
-                description=(
-                    "Analyze a code repository and return an architecture profile including "
-                    "modules, design patterns, interfaces, dependency graph, and architectural "
-                    "decisions. Works with local paths and remote Git URLs."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": (
-                                "Local filesystem path or HTTP(S) Git URL of the repository."
-                            ),
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                            "description": "Output format for the architecture profile.",
-                        },
-                    },
-                    "required": ["repo_url"],
-                },
-            ),
-            mcp_types.Tool(
-                name="scout_repo",
-                description=(
-                    "Return a compact structural scout map for a repository question. "
-                    "The map contains ranked files, module boundaries, top symbols, graph "
-                    "sketches, and stable file/symbol/chunk handles, but no code bodies."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": (
-                                "Local filesystem path or HTTP(S) Git URL of the repository."
-                            ),
-                        },
-                        "question": {
-                            "type": "string",
-                            "description": "Natural-language scout question.",
-                        },
-                        "budget": {
-                            "type": "integer",
-                            "default": DEFAULT_SCOUT_TOKEN_BUDGET,
-                            "description": "Hard token cap for the scout map.",
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                        },
-                    },
-                    "required": ["repo_url", "question"],
-                },
-            ),
-            mcp_types.Tool(
-                name="query_repo",
-                description=(
-                    "Retrieve relevant code context from a repository to answer a "
-                    "natural-language question. Returns a ranked set of code chunks "
-                    "within the specified token budget, suitable for use as LLM context."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": (
-                                "Local filesystem path or HTTP(S) Git URL of the repository."
-                            ),
-                        },
-                        "question": {
-                            "type": "string",
-                            "description": (
-                                "Natural-language question to answer from the codebase."
-                            ),
-                        },
-                        "budget": {
-                            "type": "integer",
-                            "description": (
-                                "Optional explicit token budget override. Omit to use "
-                                "adaptive intent routing with the 8192 product ceiling."
-                            ),
-                        },
-                        "profile": {
-                            "type": "string",
-                            "enum": ["fast", "balanced", "deep"],
-                            "description": (
-                                "Optional named retrieval profile: 'fast' (bm25 only, zero "
-                                "vector/model work), 'balanced' (adds module prefiltering), "
-                                "or 'deep' (adds vector search and reranking). Omit to use "
-                                "the repo's configured retrieval settings unchanged."
-                            ),
-                        },
-                    },
-                    "required": ["repo_url", "question"],
-                },
-            ),
-            mcp_types.Tool(
-                name="context",
-                description=(
-                    "Primary agent-facing context retrieval: query, intent, profile, "
-                    "filters, budgets, and handles as one contract. Returns a compact "
-                    "candidate map, exact fetch handles, selected code, relation paths, "
-                    "the route decision, a receipt, and a recommended next action. A "
-                    "thin facade over query_repo — query_repo and the other specialized "
-                    "tools remain fully supported."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": (
-                                "Local filesystem path or HTTP(S) Git URL of the repository."
-                            ),
-                        },
-                        "query": {
-                            "type": "string",
-                            "description": (
-                                "Natural-language question to answer from the codebase."
-                            ),
-                        },
-                        "intent": {
-                            "type": "string",
-                            "enum": [intent.value for intent in QueryIntent],
-                            "description": (
-                                "Optional: pin the query intent instead of "
-                                "auto-classifying it from the query text. Determines "
-                                "the scoring-weight preset and default token budget."
-                            ),
-                        },
-                        "profile": {
-                            "type": "string",
-                            "enum": [profile.value for profile in RetrievalProfile],
-                            "description": (
-                                "Optional named retrieval profile. Omit to use the "
-                                "repo's configured retrieval settings unchanged."
-                            ),
-                        },
-                        "filters": {
-                            "type": "object",
-                            "description": (
-                                "Optional deterministic post-retrieval candidate "
-                                "filters — never changes ranking or adds candidates."
-                            ),
-                            "properties": {
-                                "include_paths": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": (
-                                        "fnmatch glob(s) a candidate's file path must match."
-                                    ),
-                                },
-                                "exclude_paths": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": (
-                                        "fnmatch glob(s) that exclude a candidate by file path."
-                                    ),
-                                },
-                                "languages": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": (
-                                        "Restrict returned candidates to these languages."
-                                    ),
-                                },
-                            },
-                        },
-                        "budgets": {
-                            "type": "object",
-                            "description": "Optional token-budget input.",
-                            "properties": {
-                                "token_budget": {
-                                    "type": "integer",
-                                    "description": (
-                                        "Explicit token budget override. Omit to resolve "
-                                        "from 'intent' or the query's own auto-scaling."
-                                    ),
-                                },
-                            },
-                        },
-                        "handles": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": (
-                                "Optional exact fetch handle(s) — bypasses broad search "
-                                "and returns exactly these candidates."
-                            ),
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "description": "Output format. Defaults to 'json'.",
-                        },
-                    },
-                    "required": ["repo_url", "query"],
-                },
-            ),
-            mcp_types.Tool(
-                name="compare_repos",
-                description=(
-                    "Compare two code repositories across architectural dimensions such as "
-                    "API surface, error handling, concurrency model, testing, "
-                    "state management, and configuration."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_a": {
-                            "type": "string",
-                            "description": "Local path or HTTP(S) URL of the first repository.",
-                        },
-                        "repo_b": {
-                            "type": "string",
-                            "description": "Local path or HTTP(S) URL of the second repository.",
-                        },
-                        "dimensions": {
-                            "type": "string",
-                            "default": "api_surface,error_handling",
-                            "description": (
-                                "Comma-separated dimensions to compare. "
-                                "Supported: api_surface, error_handling, concurrency, "
-                                "testing, state_management, configuration."
-                            ),
-                        },
-                    },
-                    "required": ["repo_a", "repo_b"],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_file_tree",
-                description=(
-                    "Return a hierarchical file tree for a repository, optionally filtered "
-                    "by language and depth."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": "Local path or HTTP(S) URL of the repository.",
-                        },
-                        "max_depth": {
-                            "type": "integer",
-                            "default": 5,
-                            "description": "Maximum directory depth to traverse.",
-                        },
-                        "language": {
-                            "type": "string",
-                            "description": "Filter results to files of this language.",
-                        },
-                    },
-                    "required": ["repo_url"],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_file_outline",
-                description=(
-                    "Return a structural outline of a single file — symbols, classes, "
-                    "functions, and their locations."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": "Local path or HTTP(S) URL of the repository.",
-                        },
-                        "file_path": {
-                            "type": "string",
-                            "description": "Relative path of the file within the repository.",
-                        },
-                    },
-                    "required": ["repo_url", "file_path"],
-                },
-            ),
-            mcp_types.Tool(
-                name="search_symbols",
-                description=(
-                    "Search for symbols (functions, classes, variables) in a repository "
-                    "by name, kind, and/or language."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": "Local path or HTTP(S) URL of the repository.",
-                        },
-                        "query": {
-                            "type": "string",
-                            "description": "Search query to match against symbol names.",
-                        },
-                        "kind": {
-                            "type": "string",
-                            "description": "Filter by symbol kind (e.g. function, class).",
-                        },
-                        "language": {
-                            "type": "string",
-                            "description": "Filter by programming language.",
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "default": 20,
-                            "description": "Maximum number of results to return.",
-                        },
-                    },
-                    "required": ["repo_url", "query"],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_symbol",
-                description="Retrieve a single symbol by its stable symbol ID.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": "Local path or HTTP(S) URL of the repository.",
-                        },
-                        "symbol_id": {
-                            "type": "string",
-                            "description": "Stable symbol identifier.",
-                        },
-                    },
-                    "required": ["repo_url", "symbol_id"],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_symbols_batch",
-                description=(
-                    "Retrieve multiple symbols by their stable symbol IDs in a single call. "
-                    "Maximum 50 IDs per request."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": "Local path or HTTP(S) URL of the repository.",
-                        },
-                        "symbol_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of stable symbol identifiers (max 50).",
-                        },
-                    },
-                    "required": ["repo_url", "symbol_ids"],
-                },
-            ),
-            mcp_types.Tool(
-                name="get_impact",
-                description=(
-                    "Analyze deterministic blast radius for changed files: affected files, "
-                    "modules, public interfaces, test surface, and a risk assessment. Uses "
-                    "git diff against a base ref, or an explicit changed-file list. Pass "
-                    "'diff' to additionally resolve the diff to touched symbols and classify "
-                    "each with a LOW/MEDIUM/HIGH risk tier from deterministic graph signals."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": (
-                                "Local filesystem path of the repository. Git diff mode "
-                                "requires a local checkout."
-                            ),
-                        },
-                        "base": {
-                            "type": "string",
-                            "default": "main",
-                            "description": (
-                                "Base ref for git diff mode. Ignored when changed_files "
-                                "or diff is provided."
-                            ),
-                        },
-                        "changed_files": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": (
-                                "Explicit changed file paths, bypassing git diff mode. "
-                                "Cannot be combined with diff."
-                            ),
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                            "description": "Output format for the impact report.",
-                        },
-                        "diff": {
-                            "type": "string",
-                            "description": (
-                                "Enable diff-scoped symbol impact: resolve the diff (this "
-                                "ref vs. the working tree) to touched symbols with a "
-                                "per-symbol risk tier. Adds affected_symbols to the report; "
-                                "output is unchanged when omitted. Cannot be combined with "
-                                "changed_files."
-                            ),
-                        },
-                    },
-                    "required": ["repo_url"],
-                },
-            ),
-            mcp_types.Tool(
-                name="explain_target",
-                description=(
-                    "Explain a file, symbol, or module from indexed structural data: public "
-                    "interfaces, internal symbols, imports/imported-by, module context, and "
-                    "complexity signals."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": (
-                                "Local path or HTTP(S) URL of the repository. Required "
-                                "unless graph_path is given."
-                            ),
-                        },
-                        "target": {
-                            "type": "string",
-                            "description": (
-                                "File path or `path::name#kind` symbol identifier to "
-                                "explain. Mutually exclusive with module_name."
-                            ),
-                        },
-                        "module_name": {
-                            "type": "string",
-                            "description": (
-                                "Module path to explain. Mutually exclusive with target."
-                            ),
-                        },
-                        "graph_path": {
-                            "type": "string",
-                            "description": (
-                                "Read an exported graph artifact instead of indexing repo_url."
-                            ),
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                            "description": "Output format for the explain context.",
-                        },
-                    },
-                    "required": [],
-                },
-            ),
-            mcp_types.Tool(
-                name="generate_onboarding",
-                description=(
-                    "Generate a deterministic onboarding guide from graph/index data: "
-                    "repository overview, architecture modules, entry points, public "
-                    "interfaces, recommended reading order, complexity hotspots, test "
-                    "surface, and configuration surface. Markdown-only output."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "repo_url": {
-                            "type": "string",
-                            "description": (
-                                "Local path or HTTP(S) URL of the repository. Required "
-                                "unless graph_path is given."
-                            ),
-                        },
-                        "graph_path": {
-                            "type": "string",
-                            "description": (
-                                "Read an exported graph artifact instead of indexing repo_url."
-                            ),
-                        },
-                        "max_files": {
-                            "type": "integer",
-                            "default": 40,
-                            "description": "Maximum paths per capped section.",
-                        },
-                    },
-                    "required": [],
-                },
-            ),
-            mcp_types.Tool(
-                name="graph_lookup",
-                description=(
-                    "Look up graph nodes in an exported architecture graph artifact without "
-                    "indexing source files. Exact node IDs and paths win over fuzzy matches."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
-                        "node": {
-                            "type": "string",
-                            "description": "Node ID, path, label, or query.",
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                        },
-                        "limit": {"type": "integer", "default": 25},
-                        "hub_degree": {"type": "integer", "default": 50},
-                        "token_budget": {
-                            "type": "integer",
-                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
-                            "description": "Maximum markdown content tokens to return.",
-                        },
-                    },
-                    "required": ["graph_path", "node"],
-                },
-            ),
-            mcp_types.Tool(
-                name="graph_neighbors",
-                description=(
-                    "Return graph neighbors for a node from an exported artifact without "
-                    "indexing source files. Edges include kind, confidence, and evidence."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
-                        "node": {
-                            "type": "string",
-                            "description": "Node ID, path, label, or query.",
-                        },
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                        },
-                        "direction": {
-                            "type": "string",
-                            "enum": ["out", "in", "both"],
-                            "default": "both",
-                        },
-                        "depth": {"type": "integer", "default": 1},
-                        "limit": {"type": "integer", "default": 25},
-                        "hub_degree": {"type": "integer", "default": 50},
-                        "token_budget": {
-                            "type": "integer",
-                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
-                            "description": "Maximum markdown content tokens to return.",
-                        },
-                    },
-                    "required": ["graph_path", "node"],
-                },
-            ),
-            mcp_types.Tool(
-                name="graph_path",
-                description=(
-                    "Find a shortest structural path between two graph nodes from an exported "
-                    "artifact without indexing source files."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
-                        "source": {"type": "string", "description": "Source node ID or path."},
-                        "target": {"type": "string", "description": "Target node ID or path."},
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                        },
-                        "direction": {
-                            "type": "string",
-                            "enum": ["out", "in", "both"],
-                            "default": "both",
-                        },
-                        "max_edges": {"type": "integer", "default": 100},
-                        "hub_degree": {"type": "integer", "default": 50},
-                        "token_budget": {
-                            "type": "integer",
-                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
-                            "description": "Maximum markdown content tokens to return.",
-                        },
-                    },
-                    "required": ["graph_path", "source", "target"],
-                },
-            ),
-            mcp_types.Tool(
-                name="graph_stats",
-                description=(
-                    "Return deterministic graph stats and hub summaries from an exported "
-                    "artifact without indexing source files."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                        },
-                        "hub_limit": {"type": "integer", "default": 10},
-                        "hub_degree": {"type": "integer", "default": 50},
-                        "token_budget": {
-                            "type": "integer",
-                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
-                            "description": "Maximum markdown content tokens to return.",
-                        },
-                    },
-                    "required": ["graph_path"],
-                },
-            ),
-            mcp_types.Tool(
-                name="graph_hubs",
-                description=(
-                    "Return high-degree graph hubs from an exported artifact without indexing "
-                    "source files."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "graph_path": {"type": "string", "description": "Path to archgraph JSON."},
-                        "format": {
-                            "type": "string",
-                            "enum": ["json", "markdown"],
-                            "default": "json",
-                        },
-                        "limit": {"type": "integer", "default": 25},
-                        "threshold": {"type": "integer"},
-                        "hub_degree": {"type": "integer", "default": 50},
-                        "token_budget": {
-                            "type": "integer",
-                            "default": DEFAULT_GRAPH_TOKEN_BUDGET,
-                            "description": "Maximum markdown content tokens to return.",
-                        },
-                    },
-                    "required": ["graph_path"],
-                },
-            ),
-        ]
+        schemas = _tool_schemas()
+        if tool_names is not None:
+            schemas = [schema for schema in schemas if schema["name"] in tool_names]
+        return [mcp_types.Tool(**schema) for schema in schemas]
 
     @server.call_tool()  # pyright: ignore[reportUnusedFunction]
     async def call_tool(  # pyright: ignore[reportUnusedFunction]
@@ -2213,6 +2290,7 @@ async def run_stdio_server(
     watch: bool = False,
     watch_path: str = ".",
     watch_debounce_ms: int = 300,
+    tool_names: frozenset[str] | None = None,
 ) -> None:
     """Run the archex MCP server over stdio."""
     try:
@@ -2230,7 +2308,7 @@ async def run_stdio_server(
     # across every query_repo call so repeat warm queries against the same
     # generation skip re-hydrating from SQLite.
     runtime = QueryRuntime()
-    server = build_server(runtime=runtime)
+    server = build_server(runtime=runtime, tool_names=tool_names)
     try:
         async with stdio_server() as (read_stream, write_stream):
             init_opts = server.create_initialization_options()

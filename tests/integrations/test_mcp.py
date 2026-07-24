@@ -751,7 +751,9 @@ class TestRunStdioServer:
             async def run(self, *args: object, **kwargs: object) -> None:
                 return None
 
-        def fake_build_server(runtime: QueryRuntime | None = None) -> object:
+        def fake_build_server(
+            runtime: QueryRuntime | None = None, tool_names: frozenset[str] | None = None
+        ) -> object:
             captured["runtime"] = runtime
             return FakeServer()
 
@@ -1732,3 +1734,136 @@ class TestHandleContextEndToEnd:
         assert (
             second_envelope["content"][0]["chunk"]["content"] == expected_chunk["chunk"]["content"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Tool-scoping tests (M11)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveToolScope:
+    def test_none_means_unscoped(self) -> None:
+        assert mcp_integration.resolve_tool_scope(None) is None
+
+    def test_empty_string_means_unscoped(self) -> None:
+        assert mcp_integration.resolve_tool_scope("") is None
+        assert mcp_integration.resolve_tool_scope("   ") is None
+
+    def test_all_means_unscoped(self) -> None:
+        assert mcp_integration.resolve_tool_scope("all") is None
+
+    def test_named_profile_core_excludes_graph_tools(self) -> None:
+        scope = mcp_integration.resolve_tool_scope("core")
+        assert scope is not None
+        assert "graph_lookup" not in scope
+        assert "query_repo" in scope
+        assert scope == frozenset(mcp_integration.ALL_TOOL_NAMES) - {
+            "graph_lookup",
+            "graph_neighbors",
+            "graph_path",
+            "graph_stats",
+            "graph_hubs",
+        }
+
+    def test_named_profile_graph_is_exactly_the_five_graph_tools(self) -> None:
+        scope = mcp_integration.resolve_tool_scope("graph")
+        assert scope == {
+            "graph_lookup",
+            "graph_neighbors",
+            "graph_path",
+            "graph_stats",
+            "graph_hubs",
+        }
+
+    def test_explicit_comma_separated_allowlist(self) -> None:
+        scope = mcp_integration.resolve_tool_scope("query_repo, context ,get_impact")
+        assert scope == {"query_repo", "context", "get_impact"}
+
+    def test_unknown_tool_name_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown MCP tool name"):
+            mcp_integration.resolve_tool_scope("query_repo,not_a_real_tool")
+
+
+class TestAllToolNames:
+    @pytest.mark.asyncio
+    async def test_matches_live_list_tools_output(self) -> None:
+        """ALL_TOOL_NAMES must never drift from what list_tools() actually returns."""
+        server = build_server()
+        from mcp import types as mcp_types
+
+        handler = server.request_handlers[mcp_types.ListToolsRequest]
+        result = (await handler(mcp_types.ListToolsRequest(method="tools/list", params=None))).root
+        assert isinstance(result, mcp_types.ListToolsResult)
+        live_names = {t.name for t in result.tools}
+        assert live_names == set(mcp_integration.ALL_TOOL_NAMES)
+
+
+class TestMeasureToolSchemaSize:
+    def test_unscoped_covers_every_tool(self) -> None:
+        report = mcp_integration.measure_tool_schema_size(None)
+        assert report["tool_count"] == len(mcp_integration.ALL_TOOL_NAMES)
+        assert set(report["per_tool_chars"]) == set(mcp_integration.ALL_TOOL_NAMES)
+        assert report["total_chars"] == sum(report["per_tool_chars"].values())
+
+    def test_scoped_is_strictly_smaller_than_unscoped(self) -> None:
+        full = mcp_integration.measure_tool_schema_size(None)
+        scoped = mcp_integration.measure_tool_schema_size(
+            mcp_integration.resolve_tool_scope("core")
+        )
+        assert scoped["tool_count"] < full["tool_count"]
+        assert scoped["total_chars"] < full["total_chars"]
+        assert set(scoped["per_tool_chars"]).issubset(set(full["per_tool_chars"]))
+
+    def test_per_tool_chars_match_individual_serialization(self) -> None:
+        report = mcp_integration.measure_tool_schema_size(frozenset({"get_symbol"}))
+        schema = next(s for s in mcp_integration._tool_schemas() if s["name"] == "get_symbol")  # pyright: ignore[reportPrivateUsage]
+        assert report["per_tool_chars"]["get_symbol"] == len(json.dumps(schema, sort_keys=True))
+
+
+class TestBuildServerToolScoping:
+    @pytest.mark.asyncio
+    async def test_list_tools_scoped_is_strict_subset_of_unscoped(self) -> None:
+        from mcp import types as mcp_types
+
+        full_server = build_server()
+        full_handler = full_server.request_handlers[mcp_types.ListToolsRequest]
+        full_result = (
+            await full_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
+        ).root
+        assert isinstance(full_result, mcp_types.ListToolsResult)
+        full_names = {t.name for t in full_result.tools}
+
+        scoped_server = build_server(tool_names=frozenset({"query_repo", "context"}))
+        scoped_handler = scoped_server.request_handlers[mcp_types.ListToolsRequest]
+        scoped_result = (
+            await scoped_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
+        ).root
+        assert isinstance(scoped_result, mcp_types.ListToolsResult)
+        scoped_names = {t.name for t in scoped_result.tools}
+
+        assert scoped_names == {"query_repo", "context"}
+        assert scoped_names < full_names
+
+    @pytest.mark.asyncio
+    async def test_call_tool_dispatch_unaffected_by_scoping(self) -> None:
+        """A tool name outside the advertised scope still dispatches and
+        returns unchanged results -- scoping only shrinks list_tools()."""
+        from mcp import types as mcp_types
+
+        with patch(
+            "archex.integrations.mcp.handle_analyze_repo", return_value='{"repo": {}}'
+        ) as mock_handle:
+            server = build_server(tool_names=frozenset({"query_repo"}))
+            handler = server.request_handlers[mcp_types.CallToolRequest]
+            req = mcp_types.CallToolRequest(
+                method="tools/call",
+                params=mcp_types.CallToolRequestParams(
+                    name="analyze_repo",
+                    arguments={"repo_url": "/fake/repo"},
+                ),
+            )
+            server_result = await handler(req)
+            result = server_result.root
+            assert isinstance(result, mcp_types.CallToolResult)
+            assert not result.isError
+            mock_handle.assert_called_once()

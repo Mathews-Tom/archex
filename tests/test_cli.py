@@ -822,6 +822,7 @@ class TestMcpCmd:
         mock_run_stdio = MagicMock()
         mock_mcp_module = MagicMock()
         mock_mcp_module.run_stdio_server = mock_run_stdio
+        mock_mcp_module.resolve_tool_scope = MagicMock(return_value=None)
 
         runner = CliRunner()
         with (
@@ -830,7 +831,9 @@ class TestMcpCmd:
         ):
             result = runner.invoke(cli, ["mcp"])
         assert result.exit_code == 0, result.output
-        mock_run_stdio.assert_called_once_with(watch=False, watch_path=".", watch_debounce_ms=300)
+        mock_run_stdio.assert_called_once_with(
+            watch=False, watch_path=".", watch_debounce_ms=300, tool_names=None
+        )
         mock_asyncio_run.assert_called_once_with(mock_run_stdio.return_value)
 
     def test_mcp_watch_options_pass_to_server(self) -> None:
@@ -839,6 +842,7 @@ class TestMcpCmd:
         mock_run_stdio = MagicMock()
         mock_mcp_module = MagicMock()
         mock_mcp_module.run_stdio_server = mock_run_stdio
+        mock_mcp_module.resolve_tool_scope = MagicMock(return_value=None)
 
         runner = CliRunner()
         with (
@@ -851,7 +855,9 @@ class TestMcpCmd:
             )
 
         assert result.exit_code == 0, result.output
-        mock_run_stdio.assert_called_once_with(watch=True, watch_path="src", watch_debounce_ms=50)
+        mock_run_stdio.assert_called_once_with(
+            watch=True, watch_path="src", watch_debounce_ms=50, tool_names=None
+        )
         mock_asyncio_run.assert_called_once_with(mock_run_stdio.return_value)
 
 
