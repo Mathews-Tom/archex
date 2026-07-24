@@ -130,6 +130,7 @@ if TYPE_CHECKING:
 
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
+    from archex.integrations.docs.models import DocProviderReceipt
     from archex.integrations.history.models import (
         ChangeCard,
         HistoryProviderReceipt,
@@ -175,7 +176,10 @@ def _index_config_metadata_matches(store: IndexStore, index_config: IndexConfig)
     if stored_runtime_providers != ",".join(index_config.runtime_evidence_providers):
         return False
     stored_history_providers = store.get_metadata("history_evidence_providers") or ""
-    return stored_history_providers == ",".join(index_config.history_evidence_providers)
+    if stored_history_providers != ",".join(index_config.history_evidence_providers):
+        return False
+    stored_documentation_providers = store.get_metadata("documentation_evidence_providers") or ""
+    return stored_documentation_providers == ",".join(index_config.documentation_evidence_providers)
 
 
 def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> None:
@@ -191,6 +195,10 @@ def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> 
     )
     store.set_metadata(
         "history_evidence_providers", ",".join(index_config.history_evidence_providers)
+    )
+    store.set_metadata(
+        "documentation_evidence_providers",
+        ",".join(index_config.documentation_evidence_providers),
     )
 
 
@@ -311,6 +319,26 @@ def _full_index(
                 store.set_history_coupling_observations(history_coupling_observations)
                 store.set_history_operator_rationale(history_rationale)
                 store.set_history_provider_receipts(history_receipts)
+            if effective_index_config.documentation_evidence_providers:
+                from archex.index.documentation_evidence import collect_documentation_evidence
+
+                documentation_revision = (
+                    cloned_head or cache.git_head(source.local_path) or source.commit or ""
+                )
+                (
+                    documentation_links,
+                    documentation_adr_records,
+                    documentation_ownership_records,
+                    documentation_receipts,
+                ) = collect_documentation_evidence(
+                    repo_path,
+                    effective_index_config.documentation_evidence_providers,
+                    expected_revision=documentation_revision,
+                )
+                store.set_documentation_links(documentation_links)
+                store.set_documentation_adr_records(documentation_adr_records)
+                store.set_documentation_ownership_records(documentation_ownership_records)
+                store.set_documentation_provider_receipts(documentation_receipts)
             edges = graph.file_edges()
             store.replace_file_states(compute_file_states(repo_path, files))
             store.insert_edges(edges)
@@ -1583,6 +1611,7 @@ def _refresh_receipt(
     history_providers: list[HistoryProviderReceipt] | None = None,
     history_change_cards: list[ChangeCard] | None = None,
     history_coupling_observations: list[TemporalCouplingObservation] | None = None,
+    documentation_providers: list[DocProviderReceipt] | None = None,
 ) -> None:
     skipped = list(bundle.receipt.skipped_candidates) if bundle.receipt is not None else []
     if freshness != ContextFreshness.CLEAN:
@@ -1606,6 +1635,11 @@ def _refresh_receipt(
         if history_providers is not None
         else (bundle.receipt.history_providers if bundle.receipt is not None else [])
     )
+    resolved_documentation_providers = (
+        documentation_providers
+        if documentation_providers is not None
+        else (bundle.receipt.documentation_providers if bundle.receipt is not None else [])
+    )
     bundle.receipt = build_context_receipt(
         bundle,
         index_revision=index_revision,
@@ -1618,6 +1652,7 @@ def _refresh_receipt(
         history_providers=resolved_history_providers,
         history_change_cards=history_change_cards or [],
         history_coupling_observations=history_coupling_observations or [],
+        documentation_providers=resolved_documentation_providers,
     )
 
 
@@ -1640,6 +1675,7 @@ def _finalize_context_bundle(
     history_providers: list[HistoryProviderReceipt] | None = None,
     history_change_cards: list[ChangeCard] | None = None,
     history_coupling_observations: list[TemporalCouplingObservation] | None = None,
+    documentation_providers: list[DocProviderReceipt] | None = None,
 ) -> ContextBundle:
     _attach_vector_metadata(bundle, index_config)
     _attach_index_metadata(
@@ -1680,6 +1716,7 @@ def _finalize_context_bundle(
         history_providers=history_providers,
         history_change_cards=history_change_cards,
         history_coupling_observations=history_coupling_observations,
+        documentation_providers=documentation_providers,
     )
     return bundle
 
@@ -2232,6 +2269,7 @@ def query(
                     history_providers=search_store.get_history_provider_receipts(),
                     history_change_cards=search_store.get_history_change_cards(),
                     history_coupling_observations=search_store.get_history_coupling_observations(),
+                    documentation_providers=search_store.get_documentation_provider_receipts(),
                 )
             finally:
                 store.close()
@@ -2390,6 +2428,27 @@ def query(
                 store.set_history_coupling_observations(history_coupling_observations)
                 store.set_history_operator_rationale(history_rationale)
                 store.set_history_provider_receipts(history_receipts)
+            documentation_receipts: list[DocProviderReceipt] = []
+            if index_config.documentation_evidence_providers:
+                from archex.index.documentation_evidence import collect_documentation_evidence
+
+                documentation_revision = (
+                    cloned_head or cache.git_head(source.local_path) or source.commit or ""
+                )
+                (
+                    documentation_links,
+                    documentation_adr_records,
+                    documentation_ownership_records,
+                    documentation_receipts,
+                ) = collect_documentation_evidence(
+                    repo_path,
+                    index_config.documentation_evidence_providers,
+                    expected_revision=documentation_revision,
+                )
+                store.set_documentation_links(documentation_links)
+                store.set_documentation_adr_records(documentation_adr_records)
+                store.set_documentation_ownership_records(documentation_ownership_records)
+                store.set_documentation_provider_receipts(documentation_receipts)
             edges = graph.file_edges()
             from archex.index.delta import compute_file_states
 
@@ -2533,6 +2592,7 @@ def query(
                     history_providers=history_receipts,
                     history_change_cards=history_change_cards,
                     history_coupling_observations=history_coupling_observations,
+                    documentation_providers=documentation_receipts,
                 )
                 return pt
 
@@ -2686,6 +2746,7 @@ def query(
             history_providers=history_receipts,
             history_change_cards=history_change_cards,
             history_coupling_observations=history_coupling_observations,
+            documentation_providers=documentation_receipts,
         )
     finally:
         cleanup()
