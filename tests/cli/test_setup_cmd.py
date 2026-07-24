@@ -155,3 +155,51 @@ def test_setup_yes_with_clients_appends_agent_guidance(
     assert updated.startswith(original_content)
     assert "<!-- archex:mcp-guidance start -->" in updated
     assert updated != original_content
+
+
+def test_setup_yes_with_clients_and_tool_scope_writes_scoped_codex_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init", str(repo)])
+    (repo / "hello.py").write_text("print('hello')")
+    codex_config = repo / ".codex" / "config.toml"
+    codex_config.parent.mkdir()
+    codex_config.write_text("", encoding="utf-8")
+    monkeypatch.setattr(setup_cmd, "mcp_runtime_available", _mcp_runtime_available_stub)
+
+    result = CliRunner().invoke(
+        cli, ["setup", str(repo), "--yes", "--clients", "--tool-scope", "core"]
+    )
+
+    assert result.exit_code == 0
+    written = codex_config.read_text(encoding="utf-8")
+    assert 'args = ["mcp", "--tools", "core"]' in written
+
+
+def test_setup_unknown_tool_scope_fails_cleanly_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: setup --tool-scope must validate up front like
+    install-client/mcp do, not let resolve_tool_scope's ValueError escape
+    uncaught from deep inside build_discovered_install_plans."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init", str(repo)])
+    (repo / "hello.py").write_text("print('hello')")
+    codex_config = repo / ".codex" / "config.toml"
+    codex_config.parent.mkdir()
+    codex_config.write_text("", encoding="utf-8")
+    monkeypatch.setattr(setup_cmd, "mcp_runtime_available", _mcp_runtime_available_stub)
+
+    result = CliRunner().invoke(
+        cli, ["setup", str(repo), "--yes", "--clients", "--tool-scope", "not_a_real_tool"]
+    )
+
+    assert result.exit_code != 0
+    assert "Unknown MCP tool name" in result.output
+    assert "Traceback" not in result.output
+    assert codex_config.read_text(encoding="utf-8") == ""

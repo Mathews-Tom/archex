@@ -20,6 +20,7 @@ from archex.cli.index_cmd import index_cmd
 from archex.cli.init_cmd import init_cmd
 from archex.cli.install_client_cmd import install_client_cmd
 from archex.cli.mcp_cmd import mcp_cmd
+from archex.cli.mcp_schema_size_cmd import mcp_schema_size_cmd
 from archex.cli.metrics_cmd import metrics_cmd
 from archex.cli.onboard_cmd import onboard_cmd
 from archex.cli.outline_cmd import outline_cmd
@@ -55,6 +56,7 @@ cli.add_command(reset_cmd)
 cli.add_command(doctor_cmd)
 cli.add_command(dogfood_cmd)
 cli.add_command(mcp_cmd)
+cli.add_command(mcp_schema_size_cmd)
 cli.add_command(metrics_cmd)
 cli.add_command(tree_cmd)
 cli.add_command(outline_cmd)

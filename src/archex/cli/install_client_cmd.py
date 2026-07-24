@@ -87,6 +87,18 @@ def _is_interactive() -> bool:
     default=False,
     help="Install client config even if the archex mcp runtime is missing.",
 )
+@click.option(
+    "--tool-scope",
+    default=None,
+    help=(
+        "Scope the tools the registered `archex mcp` server advertises: "
+        "'all' (default, every tool), a named profile ('core' excludes "
+        "the graph_* cluster, 'graph' is only the graph_* cluster), or a "
+        "comma-separated explicit tool-name allowlist. Written into the "
+        "client config as `archex mcp --tools <value>`; omit for the "
+        "existing unscoped `archex mcp` behavior."
+    ),
+)
 def install_client_cmd(
     client_or_source: str | None,
     source_opt: str | None,
@@ -98,6 +110,7 @@ def install_client_cmd(
     allow_missing_mcp: bool,
     all_detected: bool,
     yes: bool,
+    tool_scope: str | None,
 ) -> None:
     """Install MCP client configuration for archex (preview with --dry-run)."""
     if hooks and remove_hooks:
@@ -151,7 +164,7 @@ def install_client_cmd(
             )
 
             discovered = discover_clients(source)
-            plans = build_discovered_install_plans(discovered, source)
+            plans = build_discovered_install_plans(discovered, source, tool_scope=tool_scope)
             if dry_run:
                 click.echo(render_multiple_install_preview(plans), nl=False)
                 if agent_file is not None:
@@ -198,7 +211,7 @@ def install_client_cmd(
                 click.echo("\nNo configured clients found.")
                 return
 
-            plans = build_discovered_install_plans(discovered, source)
+            plans = build_discovered_install_plans(discovered, source, tool_scope=tool_scope)
             click.echo(
                 f"\nInstall archex MCP registration for {len(plans)} detected clients? [y/N] ",
                 nl=False,
@@ -256,6 +269,7 @@ def install_client_cmd(
             cast("ClientName", client),
             source,
             scope=cast("ClientScope | None", scope),
+            tool_scope=tool_scope,
         )
         if dry_run:
             click.echo(render_client_install_preview(plan), nl=False)

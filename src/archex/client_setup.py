@@ -11,6 +11,7 @@ from typing import Literal, cast
 
 from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.hook import HOOK_MATCHER
+from archex.integrations.mcp import resolve_tool_scope
 
 ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
 ClientScope = Literal["project", "user"]
@@ -167,12 +168,15 @@ def discover_clients(source: str | Path | None = None) -> list[DiscoveredClient]
 def build_discovered_install_plans(
     discovered: list[DiscoveredClient],
     source: str | Path | None = None,
+    tool_scope: str | None = None,
 ) -> list[ClientInstallPlan]:
     plans: list[ClientInstallPlan] = []
     for d in discovered:
         if d.is_installed:
             s = source if d.scope == "project" else None
-            plans.append(build_client_install_plan(d.client, s, scope=d.scope))
+            plans.append(
+                build_client_install_plan(d.client, s, scope=d.scope, tool_scope=tool_scope)
+            )
     return plans
 
 
@@ -198,13 +202,14 @@ def build_client_install_plan(
     source: str | Path | None = None,
     *,
     scope: ClientScope | None = None,
+    tool_scope: str | None = None,
 ) -> ClientInstallPlan:
     selected_scope = _resolve_scope(client, source, scope)
     if client in _USER_ONLY_CLIENTS and selected_scope != "user":
         raise ValueError(f"{client} client config supports only --scope user")
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
     target_path = _target_path(client, repo_root, selected_scope)
-    content = _render_content(client)
+    content = _render_content(client, tool_scope)
     return ClientInstallPlan(
         client=client,
         scope=selected_scope,
@@ -1420,16 +1425,31 @@ def _target_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Pat
     raise ValueError(f"unsupported client: {client}")
 
 
-def _render_content(client: ClientName) -> str:
+def _mcp_args(tool_scope: str | None) -> list[str]:
+    """CLI args for the `archex mcp` server command.
+
+    `None` preserves the existing unscoped `["mcp"]` args exactly (backward
+    compatible with every config archex has ever written). A non-`None`
+    scope is validated via `resolve_tool_scope` before being embedded --
+    an unknown tool name in `tool_scope` fails at install time, not
+    silently inside a client's own MCP server subprocess.
+    """
+    if tool_scope is None or resolve_tool_scope(tool_scope) is None:
+        return ["mcp"]
+    return ["mcp", "--tools", tool_scope]
+
+
+def _render_content(client: ClientName, tool_scope: str | None = None) -> str:
+    args = _mcp_args(tool_scope)
     if client == "codex":
-        return '[mcp_servers.archex]\ncommand = "archex"\nargs = ["mcp"]\n'
+        return f'[mcp_servers.archex]\ncommand = "archex"\nargs = {json.dumps(args)}\n'
     if client == "opencode":
         payload = {
             "$schema": _OPENCODE_SCHEMA,
             "mcp": {
                 "archex": {
                     "type": "local",
-                    "command": ["archex", "mcp"],
+                    "command": ["archex", *args],
                     "enabled": True,
                 }
             },
@@ -1440,7 +1460,7 @@ def _render_content(client: ClientName) -> str:
             "mcpServers": {
                 "archex": {
                     "command": "archex",
-                    "args": ["mcp"],
+                    "args": args,
                 }
             }
         }
@@ -1451,7 +1471,7 @@ def _render_content(client: ClientName) -> str:
             "mcpServers": {
                 "archex": {
                     "command": "archex",
-                    "args": ["mcp"],
+                    "args": args,
                 }
             },
         }
@@ -1460,7 +1480,7 @@ def _render_content(client: ClientName) -> str:
         "mcpServers": {
             "archex": {
                 "command": "archex",
-                "args": ["mcp"],
+                "args": args,
             }
         }
     }
