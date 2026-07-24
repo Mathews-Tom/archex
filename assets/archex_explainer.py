@@ -281,17 +281,21 @@ class ArchexExplainer(Scene):
             run_time=1.6,
         )
 
-        surfaces = Text("17 MCP tools · CLI · Python API", font_size=28, color=MUTED).move_to(
-            [0, -1.3, 0]
+        surfaces = Text("19 MCP tools · CLI · Python API", font_size=28, color=MUTED).move_to(
+            [0, -1.2, 0]
         )
+        scoped = Text(
+            "scope to core/graph profiles — cut MCP schema cost", font_size=22, color=SKY
+        ).move_to([0, -1.75, 0])
         hooks = Text(
             "opt-in hooks augment grep/glob — never blocking", font_size=24, color=TEAL
-        ).move_to([0, -2.1, 0])
+        ).move_to([0, -2.5, 0])
         self.play(FadeIn(surfaces), run_time=0.6)
+        self.play(FadeIn(scoped), run_time=0.6)
         self.play(FadeIn(hooks), run_time=0.6)
         self.wait(2.2)
 
-        self._clear(heading, grid, surfaces, hooks)
+        self._clear(heading, grid, surfaces, scoped, hooks)
 
     # ---------- beat 5: trust & hardening ----------
     def _beat_trust(self):
