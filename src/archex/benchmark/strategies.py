@@ -1419,6 +1419,31 @@ def run_archex_query_runtime_evidence(task: BenchmarkTask, repo_path: Path) -> B
     )
 
 
+def run_archex_query_history_evidence(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """archex query with the git_log repository-memory evidence provider enabled (M8 lane).
+
+    Benchmark-only: enables ``IndexConfig.history_evidence_providers=["git_log"]``
+    on top of the exact ``archex_query`` baseline configuration. Collects
+    local commit history live from ``repo_path``'s own ``.git`` directory --
+    never an external tool dependency -- bound to a 200-commit window
+    ending at the corpus's resolved revision. Surfacing is further gated by
+    the density/linkage/relevance eligibility policy
+    (``archex.integrations.history.eligibility``); when the collected
+    window does not clear those thresholds for a given task's candidate
+    files, this lane is byte-identical to ``archex_query``. Never the
+    product default.
+    """
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_HISTORY_EVIDENCE,
+        index_config=IndexConfig(vector=False, history_evidence_providers=["git_log"]),
+        cache=benchmark_cache_enabled(default=False),
+        include_completion=True,
+        measure_freshness=True,
+    )
+
+
 def run_archex_query_profile_fast(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """archex query under the product's ``fast`` retrieval profile (M3 candidate lane).
 
@@ -4357,4 +4382,7 @@ default_strategy_registry.register(
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_SEMANTIC.value, run_archex_query_semantic)
 default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_RUNTIME_EVIDENCE.value, run_archex_query_runtime_evidence
+)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_HISTORY_EVIDENCE.value, run_archex_query_history_evidence
 )
