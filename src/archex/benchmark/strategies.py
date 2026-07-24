@@ -1395,6 +1395,30 @@ def run_archex_query_semantic(task: BenchmarkTask, repo_path: Path) -> Benchmark
     )
 
 
+def run_archex_query_runtime_evidence(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """archex query with runtime/coverage evidence providers enabled (M7 candidate lane).
+
+    Benchmark-only: enables ``IndexConfig.runtime_evidence_providers=
+    ["coverage", "runtime_profile"]`` on top of the exact ``archex_query``
+    baseline configuration. Reads previously collected, revision-bound
+    evidence from ``<repo_path>/.archex/runtime-evidence/{coverage,profile}/``
+    when present; when absent, or when its declared revision does not match
+    the corpus under test, the providers report UNAVAILABLE/STALE and this
+    lane is byte-identical to ``archex_query``. Never the product default.
+    """
+    return _run_query_strategy(
+        task,
+        repo_path,
+        strategy=Strategy.ARCHEX_QUERY_RUNTIME_EVIDENCE,
+        index_config=IndexConfig(
+            vector=False, runtime_evidence_providers=["coverage", "runtime_profile"]
+        ),
+        cache=benchmark_cache_enabled(default=False),
+        include_completion=True,
+        measure_freshness=True,
+    )
+
+
 def run_archex_query_profile_fast(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """archex query under the product's ``fast`` retrieval profile (M3 candidate lane).
 
@@ -4331,3 +4355,6 @@ default_strategy_registry.register(
     Strategy.ARCHEX_QUERY_PROFILE_BALANCED.value, run_archex_query_profile_balanced
 )
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_SEMANTIC.value, run_archex_query_semantic)
+default_strategy_registry.register(
+    Strategy.ARCHEX_QUERY_RUNTIME_EVIDENCE.value, run_archex_query_runtime_evidence
+)
