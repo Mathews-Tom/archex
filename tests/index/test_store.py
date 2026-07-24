@@ -1170,3 +1170,91 @@ class TestSemanticProviderReceipts:
         )
         store.set_semantic_provider_receipts([])
         assert store.get_semantic_provider_receipts() == []
+
+
+class TestRuntimeProviderReceipts:
+    def test_empty_when_unset(self, store: IndexStore) -> None:
+        assert store.get_runtime_provider_receipts() == []
+        assert store.get_runtime_coverage_evidence() == []
+        assert store.get_runtime_profile_evidence() == []
+
+    def test_round_trips_receipts(self, store: IndexStore) -> None:
+        from archex.integrations.runtime.models import (
+            ProviderAvailability,
+            RuntimeEvidenceProviderName,
+            RuntimeProviderReceipt,
+        )
+
+        receipts = [
+            RuntimeProviderReceipt(
+                provider=RuntimeEvidenceProviderName.COVERAGE,
+                availability=ProviderAvailability.AVAILABLE,
+                tool_name="coverage.py",
+                tool_version="7.6.0",
+                expected_revision="abc123",
+                observed_revision="abc123",
+                records_collected=2,
+                collected_at="2026-01-01T00:00:00+00:00",
+            ),
+            RuntimeProviderReceipt(
+                provider=RuntimeEvidenceProviderName.RUNTIME_PROFILE,
+                availability=ProviderAvailability.UNAVAILABLE,
+                reason="no runtime-profile evidence found",
+                expected_revision="abc123",
+                collected_at="2026-01-01T00:00:00+00:00",
+            ),
+        ]
+        store.set_runtime_provider_receipts(receipts)
+        assert store.get_runtime_provider_receipts() == receipts
+
+    def test_round_trips_coverage_evidence(self, store: IndexStore) -> None:
+        from archex.integrations.runtime.models import CoverageFileEvidence, CoverageLineRecord
+
+        evidence = [
+            CoverageFileEvidence(
+                file_path="a.py",
+                lines=[CoverageLineRecord(line=1, hits=3), CoverageLineRecord(line=2, hits=0)],
+                line_rate=0.5,
+                revision="abc123",
+            )
+        ]
+        store.set_runtime_coverage_evidence(evidence)
+        assert store.get_runtime_coverage_evidence() == evidence
+
+    def test_round_trips_profile_evidence(self, store: IndexStore) -> None:
+        from archex.integrations.runtime.models import RuntimeProfileEvidence, RuntimeStackSample
+
+        evidence = [
+            RuntimeProfileEvidence(
+                samples=[RuntimeStackSample(frames=("a.py:f",), sample_count=4)],
+                total_samples=4,
+                revision="abc123",
+            )
+        ]
+        store.set_runtime_profile_evidence(evidence)
+        assert store.get_runtime_profile_evidence() == evidence
+
+    def test_overwrites_prior_receipts_and_evidence(self, store: IndexStore) -> None:
+        from archex.integrations.runtime.models import (
+            CoverageFileEvidence,
+            ProviderAvailability,
+            RuntimeEvidenceProviderName,
+            RuntimeProviderReceipt,
+        )
+
+        store.set_runtime_provider_receipts(
+            [
+                RuntimeProviderReceipt(
+                    provider=RuntimeEvidenceProviderName.COVERAGE,
+                    availability=ProviderAvailability.UNAVAILABLE,
+                    reason="no evidence",
+                )
+            ]
+        )
+        store.set_runtime_coverage_evidence(
+            [CoverageFileEvidence(file_path="a.py", line_rate=1.0, revision="abc123")]
+        )
+        store.set_runtime_provider_receipts([])
+        store.set_runtime_coverage_evidence([])
+        assert store.get_runtime_provider_receipts() == []
+        assert store.get_runtime_coverage_evidence() == []

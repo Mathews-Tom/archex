@@ -28,6 +28,7 @@ from archex.scout import ScoutResult, chunk_handle, file_handle, parse_scout_han
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
     from archex.index.store import IndexStore
+    from archex.integrations.runtime.models import RuntimeProviderReceipt
     from archex.integrations.semantic.models import SemanticProviderReceipt
     from archex.models import ContextBundle
 
@@ -80,6 +81,7 @@ def build_context_receipt(
     omitted_edges: Iterable[ContextReceiptEdge] = (),
     skipped_candidates: Iterable[ContextSkippedCandidate] = (),
     semantic_providers: Iterable[SemanticProviderReceipt] = (),
+    runtime_providers: Iterable[RuntimeProviderReceipt] = (),
 ) -> ContextReceipt:
     returned = _returned_context(bundle)
     skipped_all = list(skipped_candidates)
@@ -117,6 +119,7 @@ def build_context_receipt(
         omitted_edges=omitted,
         skipped_candidates=skipped,
         semantic_providers=list(semantic_providers),
+        runtime_providers=list(runtime_providers),
         returned_total=len(returned),
         skipped_total=len(skipped_all),
         included_edges_total=len(included_all),

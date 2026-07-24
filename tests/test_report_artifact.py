@@ -226,3 +226,95 @@ def test_source_revision_matches_git_head(impact_diff_repo: Path) -> None:
 
     assert artifact.source_revision == head
     assert artifact.diff.base_resolved_sha == head
+
+
+def test_symbol_candidate_carries_runtime_evidence_when_available(
+    impact_diff_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M7: a symbol candidate reports runtime-profile provenance when the
+    runtime_profile provider is enabled and its evidence covers the
+    symbol's file and qualified name.
+    """
+    import json
+
+    _edit_hub(impact_diff_repo)
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=impact_diff_repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+    # First build discovers shared_helper's exact qualified_name without guessing.
+    baseline = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")
+    shared_helper = next(
+        c for c in baseline.diff.symbol_candidates if c.symbol_name == "shared_helper"
+    )
+    assert shared_helper.runtime_sample_count is None
+
+    evidence_dir = impact_diff_repo / ".archex" / "runtime-evidence" / "profile"
+    evidence_dir.mkdir(parents=True)
+    (evidence_dir / "manifest.json").write_text(json.dumps({"revision": head, "tool": "cProfile"}))
+    label = shared_helper.qualified_name or shared_helper.symbol_name
+    frame = f"{shared_helper.file_path}:{label}"
+    (evidence_dir / "profile.folded").write_text(f"{frame} 7\n")
+
+    from archex.config import load_index_config as original_load_index_config
+    from archex.models import IndexConfig, RepoSource
+
+    def _patched_load_index_config(source: RepoSource) -> IndexConfig:
+        config = original_load_index_config(source)
+        return config.model_copy(update={"runtime_evidence_providers": ["runtime_profile"]})
+
+    monkeypatch.setattr("archex.report.artifact.load_index_config", _patched_load_index_config)
+    artifact = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")
+
+    enriched = next(c for c in artifact.diff.symbol_candidates if c.symbol_name == "shared_helper")
+    assert enriched.runtime_sample_count == 7
+    assert enriched.runtime_revision == head
+    assert enriched.runtime_stale is False
+
+
+def test_coverage_for_path_reports_match_and_staleness() -> None:
+    from archex.integrations.runtime.models import CoverageFileEvidence
+    from archex.report.artifact import _coverage_for_path  # pyright: ignore[reportPrivateUsage]
+
+    records = [CoverageFileEvidence(file_path="a.py", line_rate=0.5, revision="rev-a")]
+
+    rate, revision, stale = _coverage_for_path("a.py", records, "rev-a")
+    assert (rate, revision, stale) == (0.5, "rev-a", False)
+
+    rate, revision, stale = _coverage_for_path("a.py", records, "rev-b")
+    assert (rate, revision, stale) == (0.5, "rev-a", True)
+
+    rate, revision, stale = _coverage_for_path("missing.py", records, "rev-a")
+    assert (rate, revision, stale) == (None, None, False)
+
+
+def test_runtime_sample_count_for_symbol_matches_file_and_qualified_name() -> None:
+    from archex.integrations.runtime.models import RuntimeProfileEvidence, RuntimeStackSample
+    from archex.report.artifact import (
+        _runtime_sample_count_for_symbol,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    records = [
+        RuntimeProfileEvidence(
+            samples=[
+                RuntimeStackSample(frames=("a.py:outer", "a.py:inner"), sample_count=3),
+                RuntimeStackSample(frames=("a.py:inner",), sample_count=2),
+                RuntimeStackSample(frames=("b.py:other",), sample_count=9),
+            ],
+            total_samples=14,
+            revision="rev-a",
+        )
+    ]
+
+    count, revision, stale = _runtime_sample_count_for_symbol("a.py", "inner", records, "rev-a")
+    assert (count, revision, stale) == (5, "rev-a", False)
+
+    count, revision, stale = _runtime_sample_count_for_symbol("a.py", "inner", records, "rev-b")
+    assert (count, revision, stale) == (5, "rev-a", True)
+
+    count, revision, stale = _runtime_sample_count_for_symbol("c.py", None, records, "rev-a")
+    assert (count, revision, stale) == (None, None, False)
