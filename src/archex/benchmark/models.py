@@ -46,6 +46,7 @@ class Strategy(StrEnum):
     ARCHEX_QUERY_PROFILE_BALANCED = "archex_query_profile_balanced"
     ARCHEX_QUERY_SEMANTIC = "archex_query_semantic"
     ARCHEX_QUERY_RUNTIME_EVIDENCE = "archex_query_runtime_evidence"
+    ARCHEX_QUERY_HISTORY_EVIDENCE = "archex_query_history_evidence"
     EXTERNAL_MCP = "external_mcp"
 
 
