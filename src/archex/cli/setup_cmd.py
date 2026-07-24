@@ -20,6 +20,7 @@ from archex.client_setup import (
     write_hook_install_plan,
 )
 from archex.doctor import mcp_runtime_available
+from archex.integrations.mcp import resolve_tool_scope
 from archex.metrics.policy import resolve_metrics_policy, set_metrics_enabled, set_trace_enabled
 from archex.project import init_project
 from archex.status import inspect_project_status
@@ -105,7 +106,11 @@ def apply_init_index(
 
 
 def apply_clients_guidance(
-    source: Path, preflight: PreflightState, dry_run: bool, clients_flag: bool | None
+    source: Path,
+    preflight: PreflightState,
+    dry_run: bool,
+    clients_flag: bool | None,
+    tool_scope: str | None = None,
 ) -> dict[str, list[dict[str, str | bool]]]:
     """Apply MCP client registration and agent guidance.
 
@@ -125,7 +130,7 @@ def apply_clients_guidance(
     else:
         should_configure_clients = True
         clients = discover_clients(source)
-        plans = build_discovered_install_plans(clients, source)
+        plans = build_discovered_install_plans(clients, source, tool_scope=tool_scope)
         if not plans:
             actions.append({"type": "client_install", "status": "skipped_no_clients"})
         else:
@@ -248,6 +253,16 @@ def print_final_summary(
     default="text",
     help="Output format.",
 )
+@click.option(
+    "--tool-scope",
+    default=None,
+    help=(
+        "Scope the tools any registered `archex mcp` server advertises: "
+        "'all' (default, every tool), a named profile ('core' excludes "
+        "the graph_* cluster, 'graph' is only the graph_* cluster), or a "
+        "comma-separated explicit tool-name allowlist."
+    ),
+)
 def setup_cmd(
     source: Path,
     dry_run: bool,
@@ -256,8 +271,14 @@ def setup_cmd(
     metrics: bool | None,
     hooks: bool,
     format_: Literal["text", "json"],
+    tool_scope: str | None,
 ) -> None:
     """Guided onboarding wizard."""
+    if tool_scope is not None:
+        try:
+            resolve_tool_scope(tool_scope)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
     preflight = run_preflight(source)
 
     if (
@@ -286,7 +307,7 @@ def setup_cmd(
             "preflight": asdict(preflight),
             "planned_actions": actions,
             "clients_guidance": apply_clients_guidance(
-                source, preflight, dry_run=True, clients_flag=clients
+                source, preflight, dry_run=True, clients_flag=clients, tool_scope=tool_scope
             )["clients_guidance"],
             "metrics_hooks": apply_metrics_hooks(
                 source, preflight, dry_run=True, metrics_flag=metrics, hooks_flag=hooks
@@ -313,9 +334,9 @@ def setup_cmd(
             click.echo("- Index is fresh (skipped)")
 
         click.echo("--- Clients & Agent Guidance ---")
-        cg_actions = apply_clients_guidance(source, preflight, dry_run=True, clients_flag=clients)[
-            "clients_guidance"
-        ]
+        cg_actions = apply_clients_guidance(
+            source, preflight, dry_run=True, clients_flag=clients, tool_scope=tool_scope
+        )["clients_guidance"]
         for action in cg_actions:
             name = action.get("client") or action.get("file") or action["type"]
             click.echo(f"- {name}: {action['status']}")
@@ -331,7 +352,9 @@ def setup_cmd(
     if yes:
         click.echo("--- Executing Setup ---")
         results = apply_init_index(source, preflight, dry_run=False)
-        cg_results = apply_clients_guidance(source, preflight, dry_run=False, clients_flag=clients)
+        cg_results = apply_clients_guidance(
+            source, preflight, dry_run=False, clients_flag=clients, tool_scope=tool_scope
+        )
         mh_results = apply_metrics_hooks(
             source, preflight, dry_run=False, metrics_flag=metrics, hooks_flag=hooks
         )
@@ -397,20 +420,25 @@ def setup_cmd(
     # Clients (MCP) — registers the full 18-tool surface (context, query,
     # scout, graph inspection, impact analysis, etc.). Every tool's schema
     # is resent on every turn regardless of use, so this is worth it when
-    # you want that full surface, not just grep/glob augmentation.
+    # you want that full surface, not just grep/glob augmentation. Pass
+    # --tool-scope (e.g. 'core', 'graph', or an explicit tool-name
+    # allowlist) to register a narrower surface and cut that per-turn cost.
     do_clients = clients
     if do_clients is None and preflight.discovered_clients and preflight.mcp_runtime_available:
         click.echo(
             "\nMCP registers all 18 archex tools with your client (context, query, scout, "
             "graph inspection, impact analysis, and more) — the richest surface, at the cost "
-            "of resending every tool's schema on every turn."
+            "of resending every tool's schema on every turn. Use --tool-scope to register "
+            "fewer tools instead."
         )
         do_clients = click.confirm(
             f"Configure {len(preflight.discovered_clients)} discovered MCP clients?",
             default=True,
         )
 
-    cg_results = apply_clients_guidance(source, preflight, dry_run=False, clients_flag=do_clients)
+    cg_results = apply_clients_guidance(
+        source, preflight, dry_run=False, clients_flag=do_clients, tool_scope=tool_scope
+    )
     results["clients_guidance"].extend(cg_results["clients_guidance"])
 
     # Metrics

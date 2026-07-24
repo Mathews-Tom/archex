@@ -562,3 +562,52 @@ def test_install_client_discovers_agent_files(
 
     content = agent_file.read_text(encoding="utf-8")
     assert "<!-- archex:mcp-guidance start -->" in content
+
+
+# ---------------------------------------------------------------------------
+# --tool-scope tests (M11)
+# ---------------------------------------------------------------------------
+
+
+def test_install_client_tool_scope_default_omits_tools_arg(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    result = CliRunner().invoke(cli, ["install-client", "claude-code", str(repo), "--dry-run"])
+    assert result.exit_code == 0
+    assert '"args": [\n        "mcp"\n      ]' in result.output.replace("\r\n", "\n")
+
+
+def test_install_client_tool_scope_writes_tools_arg(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "claude-code", str(repo), "--tool-scope", "core"],
+    )
+    assert result.exit_code == 0
+    payload = json.loads((repo / ".mcp.json").read_text(encoding="utf-8"))
+    assert payload["mcpServers"]["archex"]["args"] == ["mcp", "--tools", "core"]
+
+
+def test_install_client_tool_scope_codex_toml_embeds_tools_arg(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "codex", str(repo), "--tool-scope", "graph"],
+    )
+    assert result.exit_code == 0
+    content = (repo / ".codex" / "config.toml").read_text(encoding="utf-8")
+    assert 'args = ["mcp", "--tools", "graph"]' in content
+
+
+def test_install_client_tool_scope_unknown_tool_name_fails_cleanly(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    result = CliRunner().invoke(
+        cli,
+        ["install-client", "claude-code", str(repo), "--dry-run", "--tool-scope", "not_a_tool"],
+    )
+    assert result.exit_code != 0
+    assert "Unknown MCP tool name" in result.output
+    assert not (repo / ".mcp.json").exists()
