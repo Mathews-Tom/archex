@@ -1,0 +1,64 @@
+"""Conditional semantic-evidence collection (M6): dispatch configured SCIP/LSP providers.
+
+Zero-cost when ``IndexConfig.semantic_evidence_providers`` is empty (the
+default): no provider module is imported, no provider runs, and the syntax
+graph is completely unaffected. Enabling a provider by name runs it and
+folds every non-``AVAILABLE`` outcome into an explicit receipt rather than a
+silent gap.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from archex.integrations.semantic.lsp_provider import LspEvidenceProvider
+from archex.integrations.semantic.scip_provider import ScipEvidenceProvider
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from archex.integrations.semantic.models import (
+        SemanticEdgeEvidence,
+        SemanticProviderReceipt,
+    )
+    from archex.integrations.semantic.provider import SemanticEvidenceProvider
+    from archex.models import IndexConfig, ParsedFile
+
+
+def _default_provider(name: str) -> SemanticEvidenceProvider:
+    if name == "scip":
+        return ScipEvidenceProvider()
+    if name == "lsp":
+        return LspEvidenceProvider()
+    # Unreachable via IndexConfig, whose validator restricts values to
+    # _KNOWN_PROVIDERS; guarded here for direct callers of this function.
+    raise ValueError(f"unknown semantic evidence provider: {name!r}")
+
+
+def collect_semantic_evidence(
+    parsed_files: list[ParsedFile],
+    repo_root: Path,
+    index_config: IndexConfig,
+    *,
+    providers: dict[str, SemanticEvidenceProvider] | None = None,
+) -> tuple[list[SemanticEdgeEvidence], list[SemanticProviderReceipt]]:
+    """Run every provider named in ``index_config.semantic_evidence_providers``.
+
+    Returns ``([], [])`` immediately when no provider is configured — the
+    default path adds no cost and touches no optional dependency. ``providers``
+    lets a caller inject an already-configured provider (for example an
+    ``LspEvidenceProvider`` bound to a live ``lsp_client.Client``); entries not
+    supplied fall back to a stock provider constructed with default settings.
+    """
+    if not index_config.semantic_evidence_providers:
+        return [], []
+
+    resolved = providers or {}
+    evidence: list[SemanticEdgeEvidence] = []
+    receipts: list[SemanticProviderReceipt] = []
+    for name in index_config.semantic_evidence_providers:
+        provider = resolved.get(name) or _default_provider(name)
+        item_evidence, receipt = provider.collect(parsed_files, repo_root)
+        evidence.extend(item_evidence)
+        receipts.append(receipt)
+    return evidence, receipts

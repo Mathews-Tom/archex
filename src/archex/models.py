@@ -10,6 +10,7 @@ from pydantic import BaseModel, model_validator
 
 from archex.index.quantize import SUPPORTED_BITS
 from archex.integrations.lsap_models import LSAPEnrichment  # noqa: TCH001
+from archex.integrations.semantic.models import SemanticProviderReceipt  # noqa: TCH001
 
 # ---------------------------------------------------------------------------
 # Enumerations
@@ -42,6 +43,12 @@ class EdgeKind(StrEnum):
     USES_TYPE = "uses_type"
     EXPORTS = "exports"
     CO_DIRECTORY = "co_directory"
+    # Conditional, provider-sourced semantic evidence (M6) — kept distinct
+    # from the syntax kinds above. Only ever added when an explicitly
+    # enabled SCIP/LSP provider produced them; never a Tree-sitter output.
+    SEMANTIC_DEFINITION = "semantic_definition"
+    SEMANTIC_REFERENCE = "semantic_reference"
+    SEMANTIC_IMPLEMENTATION = "semantic_implementation"
 
 
 class EdgeConfidence(StrEnum):
@@ -268,6 +275,11 @@ class IndexConfig(BaseModel):
     #: outweighed the intended recall gain) — see
     #: benchmarks/results/m17_identifier_bm25/DECISION.md.
     identifier_fragment_tokenization: bool = False
+    #: Conditional SCIP/LSP semantic-evidence providers to run at index time
+    #: (M6). Empty by default: no provider runs, no bytes of the syntax
+    #: graph change, matching the plan's "no automatic provider promotion"
+    #: requirement. Accepted values: "scip", "lsp".
+    semantic_evidence_providers: list[str] = []
 
     @model_validator(mode="after")
     def _validate_index_config(self) -> IndexConfig:
@@ -287,6 +299,11 @@ class IndexConfig(BaseModel):
             raise ValueError("rerank_candidate_limit must be at least 1")
         if self.quantize_bits not in SUPPORTED_BITS:
             raise ValueError(f"quantize_bits must be one of {SUPPORTED_BITS}")
+        unknown_providers = set(self.semantic_evidence_providers) - {"scip", "lsp"}
+        if unknown_providers:
+            raise ValueError(
+                f"semantic_evidence_providers has unknown entries: {sorted(unknown_providers)}"
+            )
         return self
 
 
@@ -502,6 +519,11 @@ class Edge(BaseModel):
     confidence: EdgeConfidence = EdgeConfidence.EXTRACTED
     confidence_score: float = 1.0
     evidence: list[str] = []
+    #: Conditional semantic-evidence provenance (M6). None for every syntax
+    #: edge; set to "scip"/"lsp" only on edges a SemanticEvidenceProvider
+    #: produced, so semantic and syntax evidence are always distinguishable.
+    provider: str | None = None
+    provider_version: str | None = None
 
     @model_validator(mode="after")
     def _validate_confidence_score(self) -> Edge:
@@ -835,6 +857,8 @@ class ContextReceiptEdge(BaseModel):
     confidence: EdgeConfidence | None = None
     confidence_score: float | None = None
     evidence: list[str] = []
+    provider: str | None = None
+    provider_version: str | None = None
     reason: ContextOmittedEdgeReason | None = None
 
     @model_validator(mode="after")
@@ -867,6 +891,7 @@ class ContextReceipt(BaseModel):
     included_edges: list[ContextReceiptEdge] = []
     omitted_edges: list[ContextReceiptEdge] = []
     skipped_candidates: list[ContextSkippedCandidate] = []
+    semantic_providers: list[SemanticProviderReceipt] = []
     returned_total: int = 0
     skipped_total: int = 0
     included_edges_total: int = 0

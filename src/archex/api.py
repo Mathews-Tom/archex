@@ -130,6 +130,7 @@ if TYPE_CHECKING:
 
     from archex.index.embeddings.base import Embedder
     from archex.index.rerank import CrossEncoderReranker
+    from archex.integrations.semantic.models import SemanticProviderReceipt
     from archex.models import ComparisonResult
     from archex.serve.runtime import QueryRuntime
 
@@ -244,6 +245,14 @@ def _full_index(
             )
             if chunk_surrogates:
                 store.insert_chunk_surrogates(chunk_surrogates)
+            if effective_index_config.semantic_evidence_providers:
+                from archex.index.semantic_evidence import collect_semantic_evidence
+
+                semantic_edges, semantic_receipts = collect_semantic_evidence(
+                    parsed_files, repo_path, effective_index_config
+                )
+                graph.add_semantic_edges(semantic_edges)
+                store.set_semantic_provider_receipts(semantic_receipts)
             edges = graph.file_edges()
             store.replace_file_states(compute_file_states(repo_path, files))
             store.insert_edges(edges)
@@ -1511,6 +1520,7 @@ def _refresh_receipt(
     index_revision: str,
     freshness: ContextFreshness,
     metadata_timing: PipelineTiming | None,
+    semantic_providers: list[SemanticProviderReceipt] | None = None,
 ) -> None:
     skipped = list(bundle.receipt.skipped_candidates) if bundle.receipt is not None else []
     if freshness != ContextFreshness.CLEAN:
@@ -1519,6 +1529,11 @@ def _refresh_receipt(
         skipped.append(unsupported_grammar_skipped_candidate(metadata_timing.parse_failure_count))
     included_edges = list(bundle.receipt.included_edges) if bundle.receipt is not None else []
     omitted_edges = list(bundle.receipt.omitted_edges) if bundle.receipt is not None else []
+    resolved_semantic_providers = (
+        semantic_providers
+        if semantic_providers is not None
+        else (bundle.receipt.semantic_providers if bundle.receipt is not None else [])
+    )
     bundle.receipt = build_context_receipt(
         bundle,
         index_revision=index_revision,
@@ -1526,6 +1541,7 @@ def _refresh_receipt(
         included_edges=included_edges,
         omitted_edges=omitted_edges,
         skipped_candidates=skipped,
+        semantic_providers=resolved_semantic_providers,
     )
 
 
@@ -1543,6 +1559,7 @@ def _finalize_context_bundle(
     index_revision: str,
     freshness: ContextFreshness,
     post_search_at: float | None = None,
+    semantic_providers: list[SemanticProviderReceipt] | None = None,
 ) -> ContextBundle:
     _attach_vector_metadata(bundle, index_config)
     _attach_index_metadata(
@@ -1578,6 +1595,7 @@ def _finalize_context_bundle(
         index_revision=index_revision,
         freshness=freshness,
         metadata_timing=metadata_timing,
+        semantic_providers=semantic_providers,
     )
     return bundle
 
@@ -2236,6 +2254,15 @@ def query(
             store.insert_chunks(all_chunks)
             if chunk_surrogates:
                 store.insert_chunk_surrogates(chunk_surrogates)
+            semantic_receipts: list[SemanticProviderReceipt] = []
+            if index_config.semantic_evidence_providers:
+                from archex.index.semantic_evidence import collect_semantic_evidence
+
+                semantic_edges, semantic_receipts = collect_semantic_evidence(
+                    parsed_files, repo_path, index_config
+                )
+                graph.add_semantic_edges(semantic_edges)
+                store.set_semantic_provider_receipts(semantic_receipts)
             edges = graph.file_edges()
             from archex.index.delta import compute_file_states
 
@@ -2522,6 +2549,7 @@ def query(
             index_revision=index_revision,
             freshness=_freshness_for_query(refresh),
             post_search_at=t_post_search_miss,
+            semantic_providers=semantic_receipts,
         )
     finally:
         cleanup()
