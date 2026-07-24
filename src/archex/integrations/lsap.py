@@ -10,6 +10,7 @@ from archex.exceptions import LSAPError
 from archex.integrations.lsap_models import (
     DefinitionLocation,
     HoverInfo,
+    ImplementationLocation,
     LSAPEnrichment,
     ReferenceLocation,
 )
@@ -30,6 +31,12 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
+
+
+def lsap_available() -> bool:
+    """Return True when the optional ``lsp-client`` package is importable."""
+    return _lsap_available
+
 
 # Keywords indicating data-store interaction in hover content.
 _DATASTORE_INDICATORS = frozenset(
@@ -114,6 +121,25 @@ class LSAPEnrichedLookup:
             result[0] if isinstance(result, list) else result,
         )
         return DefinitionLocation(
+            file_path=str(entry.get("uri", "")),
+            line=int(entry.get("range", {}).get("start", {}).get("line", 0)),
+            character=int(entry.get("range", {}).get("start", {}).get("character", 0)),
+            context_line=str(entry.get("context", "")),
+        )
+
+    async def get_implementation(
+        self, file_path: str, line: int, character: int = 0
+    ) -> ImplementationLocation | None:
+        """Return the implementation location for a position."""
+        result = await self._client.request_implementation(file_path, line, character)
+        if not result:
+            return None
+        # LSP may return a list; take the first entry.
+        entry: dict[str, Any] = cast(
+            "dict[str, Any]",
+            result[0] if isinstance(result, list) else result,
+        )
+        return ImplementationLocation(
             file_path=str(entry.get("uri", "")),
             line=int(entry.get("range", {}).get("start", {}).get("line", 0)),
             character=int(entry.get("range", {}).get("start", {}).get("character", 0)),

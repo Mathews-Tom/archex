@@ -31,6 +31,15 @@ class DefinitionLocation(BaseModel):
     context_line: str = ""
 
 
+class ImplementationLocation(BaseModel):
+    """A single implementation location returned by LSP implementation request."""
+
+    file_path: str
+    line: int
+    character: int = 0
+    context_line: str = ""
+
+
 class LSAPEnrichment(BaseModel):
     """Aggregated LSP enrichment data attached to a SymbolSource."""
 
