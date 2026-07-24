@@ -1,42 +1,36 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "milestone": "M11",
   "measured_at": "2026-07-24",
   "measured_with": "archex mcp-schema-size --format json",
-  "method": "len(json.dumps({name, description, inputSchema}, sort_keys=True)) per tool; sum for total_chars. 'before' = archex.integrations.mcp state after PR-1 (m11-1-tool-scoping, tool-scoping mechanism, no description changes). 'after' = this PR (m11-2-trimmed-descriptions) after trimming get_impact/explain_target/graph_* descriptions.",
-  "profiles": {
-    "all": {
-      "before": {
-        "tool_count": 18,
-        "total_chars": 14270
-      },
-      "after": {
-        "tool_count": 18,
-        "total_chars": 13907
-      }
+  "method": "len(json.dumps({name, description, inputSchema}, sort_keys=True)) per tool; sum for total_chars. Recorded once per PR in the M11 stack (PR-1 tool-scoping mechanism, PR-2 trimmed descriptions, PR-3 consolidated graph_query) so the artifact tells the full before/after story, not just the final state.",
+  "pre_m11_unscoped_baseline": {
+    "note": "The 'all' scope before any M11 PR landed -- the number the M11 objective's own grounding cites (~24K chars for a since-superseded 17-tool count; this repo's tip already had an 18th tool, 'context', from the M10 milestone, so 18/14270 is this repo's real starting point).",
+    "tool_count": 18,
+    "total_chars": 14270
+  },
+  "stages": {
+    "pr1_tool_scoping": {
+      "note": "Tool-scoping mechanism only (resolve_tool_scope, build_server(tool_names=...), --tools/--tool-scope CLI). No description text changed, so 'all' is byte-identical to pre_m11_unscoped_baseline.",
+      "all": { "tool_count": 18, "total_chars": 14270 },
+      "core": { "tool_count": 13, "total_chars": 10665 },
+      "graph": { "tool_count": 5, "total_chars": 3605 }
     },
-    "core": {
-      "before": {
-        "tool_count": 13,
-        "total_chars": 10665
-      },
-      "after": {
-        "tool_count": 13,
-        "total_chars": 10435
-      }
+    "pr2_trimmed_descriptions": {
+      "note": "Trimmed get_impact/explain_target/graph_* descriptions. No tool added or removed.",
+      "all": { "tool_count": 18, "total_chars": 13907 },
+      "core": { "tool_count": 13, "total_chars": 10435 },
+      "graph": { "tool_count": 5, "total_chars": 3472 }
     },
-    "graph": {
-      "before": {
-        "tool_count": 5,
-        "total_chars": 3605
-      },
-      "after": {
-        "tool_count": 5,
-        "total_chars": 3472
-      }
+    "pr3_graph_query": {
+      "note": "Added the consolidated graph_query dispatch tool. The five original graph_* tools stay registered unchanged (M11 constraint: no removal within this milestone), so 'all' necessarily grows by graph_query's own schema size (a real new capability, SemVer feat). 'core' -- everything except the five raw graph_* tools -- picks graph_query up automatically (it is not one of the five names TOOL_SCOPE_PROFILES excludes), so a client scoped to 'core' gets full graph capability through one tool instead of five, and its total (12130) is still BELOW the original pre-M11 unscoped baseline (14270) -- a real 15.0% reduction for a properly-scoped client, which is the M11 objective's actual target ('a client that only needs a subset ... is not charged for the full surface').",
+      "all": { "tool_count": 19, "total_chars": 15602 },
+      "core": { "tool_count": 14, "total_chars": 12130 },
+      "graph": { "tool_count": 5, "total_chars": 3472 },
+      "graph_query": { "tool_count": 1, "total_chars": 1695 }
     }
   },
-  "per_tool_chars_after": {
+  "per_tool_chars_final": {
     "analyze_repo": 570,
     "compare_repos": 718,
     "context": 2279,
@@ -51,6 +45,7 @@
     "graph_lookup": 676,
     "graph_neighbors": 812,
     "graph_path": 826,
+    "graph_query": 1695,
     "graph_stats": 574,
     "query_repo": 1007,
     "scout_repo": 703,
