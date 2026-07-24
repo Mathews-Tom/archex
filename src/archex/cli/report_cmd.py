@@ -6,6 +6,7 @@ import click
 
 from archex.exceptions import ArchexError
 from archex.report.artifact import ReportArtifactError, build_analysis_artifact
+from archex.report.status_card import StatusCardError, build_status_card
 
 
 @click.group("report")
@@ -69,3 +70,35 @@ def delta_cmd(source: str, base: str, output_format: str) -> None:
         click.echo(delta.to_markdown(), nl=False)
         return
     click.echo(delta.to_json())
+
+
+@report_cmd.command("status-card")
+@click.argument("source", required=False, default=".")
+@click.option(
+    "--format",
+    "output_format",
+    default="markdown",
+    type=click.Choice(["json", "markdown"]),
+    help="Output format.",
+)
+def status_card_cmd(source: str, output_format: str) -> None:
+    """Build and render the dimensioned, evidence-linked documentation/release status card.
+
+    Every dimension is UNKNOWN unless its corresponding provider is
+    configured on the index (documentation_evidence_providers). Never
+    computes a composite score or letter grade, and never writes the
+    result back into SOURCE -- pipe the output into your own README by
+    hand when you want to publish it.
+    """
+    try:
+        card = build_status_card(source)
+    except (ArchexError, StatusCardError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if output_format == "json":
+        click.echo(card.to_json())
+        return
+
+    from archex.report.render_status_card import render_status_card_markdown
+
+    click.echo(render_status_card_markdown(card), nl=False)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from archex.integrations.docs.models import DocEvidenceProviderName, DocProviderReceipt
+from archex.integrations.docs.models import ProviderAvailability as DocProviderAvailability
 from archex.integrations.history.eligibility import evaluate_history_eligibility
 from archex.integrations.history.models import (
     ChangeCard,
@@ -316,6 +318,32 @@ def test_build_context_receipt_defaults_history_providers_empty_and_no_eligibili
     receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
     assert receipt.history_providers == []
     assert receipt.history_eligibility is None
+
+
+def test_build_context_receipt_carries_documentation_providers() -> None:
+    bundle = ContextBundle(query="q", token_count=10, token_budget=100)
+    receipts = [
+        DocProviderReceipt(
+            provider=DocEvidenceProviderName.DOC_LINK,
+            availability=DocProviderAvailability.AVAILABLE,
+            records_collected=3,
+        )
+    ]
+
+    receipt = build_context_receipt(
+        bundle,
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+        documentation_providers=receipts,
+    )
+
+    assert receipt.documentation_providers == receipts
+
+
+def test_build_context_receipt_defaults_documentation_providers_empty() -> None:
+    bundle = ContextBundle(query="q", token_count=10, token_budget=100)
+    receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
+    assert receipt.documentation_providers == []
 
 
 def _bundle_with_chunk(file_path: str) -> ContextBundle:
