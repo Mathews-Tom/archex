@@ -28,6 +28,7 @@ from archex.scout import ScoutResult, chunk_handle, file_handle, parse_scout_han
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
     from archex.index.store import IndexStore
+    from archex.integrations.semantic.models import SemanticProviderReceipt
     from archex.models import ContextBundle
 
 _MAX_RECEIPT_SKIPPED = 20
@@ -78,6 +79,7 @@ def build_context_receipt(
     included_edges: Iterable[ContextReceiptEdge] = (),
     omitted_edges: Iterable[ContextReceiptEdge] = (),
     skipped_candidates: Iterable[ContextSkippedCandidate] = (),
+    semantic_providers: Iterable[SemanticProviderReceipt] = (),
 ) -> ContextReceipt:
     returned = _returned_context(bundle)
     skipped_all = list(skipped_candidates)
@@ -114,6 +116,7 @@ def build_context_receipt(
         included_edges=included,
         omitted_edges=omitted,
         skipped_candidates=skipped,
+        semantic_providers=list(semantic_providers),
         returned_total=len(returned),
         skipped_total=len(skipped_all),
         included_edges_total=len(included_all),
@@ -332,6 +335,8 @@ def _receipt_edge(edge: Edge) -> ContextReceiptEdge:
         confidence=edge.confidence,
         confidence_score=edge.confidence_score,
         evidence=edge.evidence,
+        provider=edge.provider,
+        provider_version=edge.provider_version,
     )
 
 

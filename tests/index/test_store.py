@@ -338,6 +338,32 @@ def test_edge_confidence_round_trip(store: IndexStore) -> None:
     assert stored.evidence == ["same symbol stem", "test path targets source path"]
 
 
+def test_edge_provider_round_trip(store: IndexStore) -> None:
+    edge = Edge(
+        source="a.py",
+        target="b.py",
+        kind=EdgeKind.SEMANTIC_DEFINITION,
+        confidence=EdgeConfidence.EXTRACTED,
+        confidence_score=0.95,
+        provider="scip",
+        provider_version="0.5.0",
+    )
+
+    store.insert_edges([edge])
+    [stored] = store.get_edges()
+
+    assert stored.kind == EdgeKind.SEMANTIC_DEFINITION
+    assert stored.provider == "scip"
+    assert stored.provider_version == "0.5.0"
+
+
+def test_syntax_edge_has_no_provider(store: IndexStore) -> None:
+    store.insert_edges([Edge(source="a.py", target="b.py", kind=EdgeKind.IMPORTS)])
+    [stored] = store.get_edges()
+    assert stored.provider is None
+    assert stored.provider_version is None
+
+
 def test_empty_store_returns_empty_lists(store: IndexStore) -> None:
     assert store.get_chunks() == []
     assert store.get_edges() == []
@@ -447,7 +473,7 @@ def test_fresh_store_has_schema_version(store: IndexStore) -> None:
 def test_fresh_store_has_edge_confidence_columns(store: IndexStore) -> None:
     columns = {row[1] for row in store.conn.execute("PRAGMA table_info(edges)")}
 
-    assert {"confidence", "confidence_score", "evidence"} <= columns
+    assert {"confidence", "confidence_score", "evidence", "provider", "provider_version"} <= columns
 
 
 def test_migrated_store_with_null_symbol_ids_needs_reindex(tmp_path: Path) -> None:
@@ -531,6 +557,8 @@ def test_old_edges_migrate_with_confidence_defaults(tmp_path: Path) -> None:
     assert edge.confidence == EdgeConfidence.EXTRACTED
     assert edge.confidence_score == 1.0
     assert edge.evidence == []
+    assert edge.provider is None
+    assert edge.provider_version is None
 
 
 def test_clear_reindex_flag(tmp_path: Path) -> None:
@@ -1089,3 +1117,56 @@ class TestCorruptedDatabase:
 
         with pytest.raises(sqlite3.DatabaseError):
             IndexStore(bad_db)
+
+
+class TestSemanticProviderReceipts:
+    def test_empty_when_unset(self, store: IndexStore) -> None:
+        assert store.get_semantic_provider_receipts() == []
+
+    def test_round_trips_receipts(self, store: IndexStore) -> None:
+        from archex.integrations.semantic.models import (
+            ProviderAvailability,
+            SemanticProviderName,
+            SemanticProviderReceipt,
+        )
+
+        receipts = [
+            SemanticProviderReceipt(
+                provider=SemanticProviderName.SCIP,
+                availability=ProviderAvailability.AVAILABLE,
+                tool_name="scip-python",
+                tool_version="0.5.0",
+                files_attempted=3,
+                files_succeeded=2,
+                evidence_count=5,
+                collected_at="2026-01-01T00:00:00+00:00",
+            ),
+            SemanticProviderReceipt(
+                provider=SemanticProviderName.LSP,
+                availability=ProviderAvailability.UNAVAILABLE,
+                reason="no LSP client configured",
+                collected_at="2026-01-01T00:00:00+00:00",
+            ),
+        ]
+        store.set_semantic_provider_receipts(receipts)
+        stored = store.get_semantic_provider_receipts()
+        assert stored == receipts
+
+    def test_overwrites_prior_receipts(self, store: IndexStore) -> None:
+        from archex.integrations.semantic.models import (
+            ProviderAvailability,
+            SemanticProviderName,
+            SemanticProviderReceipt,
+        )
+
+        store.set_semantic_provider_receipts(
+            [
+                SemanticProviderReceipt(
+                    provider=SemanticProviderName.SCIP,
+                    availability=ProviderAvailability.UNAVAILABLE,
+                    reason="no index",
+                )
+            ]
+        )
+        store.set_semantic_provider_receipts([])
+        assert store.get_semantic_provider_receipts() == []

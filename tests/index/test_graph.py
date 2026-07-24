@@ -4,6 +4,12 @@ from typing import TYPE_CHECKING
 
 from archex import languages
 from archex.index.graph import DependencyGraph
+from archex.integrations.semantic.models import (
+    SemanticEdgeEvidence,
+    SemanticEdgeKind,
+    SemanticEvidenceLocation,
+    SemanticProviderName,
+)
 from archex.languages import LanguageSupport, get_language_tier
 from archex.models import (
     Edge,
@@ -536,3 +542,101 @@ class TestCoDirectoryEdges:
         assert added > 0
         assert added <= max_windowed
         assert added < full_pairwise // 10
+
+
+class TestAddSemanticEdges:
+    def _base_graph(self) -> DependencyGraph:
+        return DependencyGraph.from_parsed_files(_make_parsed_files(), _make_import_map())
+
+    def _evidence(
+        self, *, source_path: str = "models.py", target_path: str = "utils.py"
+    ) -> list[SemanticEdgeEvidence]:
+        return [
+            SemanticEdgeEvidence(
+                provider=SemanticProviderName.SCIP,
+                provider_version="0.5.0",
+                kind=SemanticEdgeKind.DEFINITION,
+                source=SemanticEvidenceLocation(file_path=source_path, line=3, character=1),
+                target=SemanticEvidenceLocation(file_path=target_path, line=10, character=0),
+                confidence=0.92,
+            )
+        ]
+
+    def test_adds_edge_between_existing_files(self) -> None:
+        graph = self._base_graph()
+        added = graph.add_semantic_edges(self._evidence())
+        assert added == 1
+        assert graph.file_edge_count == 2  # 1 import edge + 1 semantic edge
+
+    def test_edge_kind_is_semantic_and_distinct_from_syntax(self) -> None:
+        graph = self._base_graph()
+        graph.add_semantic_edges(self._evidence())
+        semantic_edges = [e for e in graph.file_edges() if e.kind == EdgeKind.SEMANTIC_DEFINITION]
+        assert len(semantic_edges) == 1
+        assert semantic_edges[0].provider == "scip"
+        assert semantic_edges[0].provider_version == "0.5.0"
+        assert semantic_edges[0].confidence_score == 0.92
+        syntax_edges = [e for e in graph.file_edges() if e.kind == EdgeKind.IMPORTS]
+        assert all(e.provider is None for e in syntax_edges)
+
+    def test_skips_edge_when_source_node_missing(self) -> None:
+        graph = self._base_graph()
+        added = graph.add_semantic_edges(self._evidence(source_path="unknown.py"))
+        assert added == 0
+        assert graph.file_edge_count == 1  # unchanged: only the import edge
+
+    def test_skips_edge_when_target_node_missing(self) -> None:
+        graph = self._base_graph()
+        added = graph.add_semantic_edges(self._evidence(target_path="unknown.py"))
+        assert added == 0
+        assert graph.file_edge_count == 1
+
+    def test_does_not_overwrite_existing_syntax_edge(self) -> None:
+        graph = self._base_graph()
+        # main.py -> models.py already has an IMPORTS edge from _make_import_map().
+        added = graph.add_semantic_edges(
+            self._evidence(source_path="main.py", target_path="models.py")
+        )
+        assert added == 0
+        [existing] = [
+            e for e in graph.file_edges() if e.source == "main.py" and e.target == "models.py"
+        ]
+        assert existing.kind == EdgeKind.IMPORTS
+        assert existing.provider is None
+
+    def test_empty_evidence_adds_nothing(self) -> None:
+        graph = self._base_graph()
+        assert graph.add_semantic_edges([]) == 0
+        assert graph.file_edge_count == 1
+
+    def test_invalidates_centrality_cache(self) -> None:
+        graph = self._base_graph()
+        graph.structural_centrality()
+        assert graph._centrality_cache is not None  # pyright: ignore[reportPrivateUsage]
+        graph.add_semantic_edges(self._evidence())
+        assert graph._centrality_cache is None  # pyright: ignore[reportPrivateUsage]
+
+    def test_reference_and_implementation_kinds_map_distinctly(self) -> None:
+        graph = self._base_graph()
+        evidence = [
+            SemanticEdgeEvidence(
+                provider=SemanticProviderName.LSP,
+                provider_version="lsp-client",
+                kind=SemanticEdgeKind.REFERENCE,
+                source=SemanticEvidenceLocation(file_path="models.py", line=1, character=0),
+                target=SemanticEvidenceLocation(file_path="utils.py", line=2, character=0),
+                confidence=0.8,
+            ),
+            SemanticEdgeEvidence(
+                provider=SemanticProviderName.LSP,
+                provider_version="lsp-client",
+                kind=SemanticEdgeKind.IMPLEMENTATION,
+                source=SemanticEvidenceLocation(file_path="utils.py", line=1, character=0),
+                target=SemanticEvidenceLocation(file_path="models.py", line=2, character=0),
+                confidence=0.8,
+            ),
+        ]
+        graph.add_semantic_edges(evidence)
+        kinds = {e.kind for e in graph.file_edges()}
+        assert EdgeKind.SEMANTIC_REFERENCE in kinds
+        assert EdgeKind.SEMANTIC_IMPLEMENTATION in kinds
