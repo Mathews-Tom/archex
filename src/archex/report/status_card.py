@@ -48,8 +48,10 @@ STATUS_CARD_SCHEMA_VERSION = "1.0.0"
 MAX_DIMENSION_EVIDENCE = 10
 
 #: Conventional read-only CI workflow locations checked for the "Release &
-#: CI evidence" dimension, in order. Presence is evidence of a pinned,
-#: read-only example existing -- never a claim about its current run state.
+#: CI evidence" dimension, in order. Presence is reported as evidence of a
+#: CI workflow example existing at that path -- this dimension does not
+#: itself parse the file to verify pinning or permissions, and never
+#: claims its current run state.
 _CI_WORKFLOW_CANDIDATES = (".github/workflows/report-diff.yml",)
 
 _CHANGELOG_VERSION_PATTERN = re.compile(r"^## \[([^\]]+)\](?:\s*-\s*(.+))?$", re.MULTILINE)
@@ -259,7 +261,7 @@ def _release_dimension(repo_root: Path) -> StatusDimension:
         return _unknown_dimension(
             "Release & CI evidence",
             "release",
-            "no released CHANGELOG.md entry and no pinned read-only CI workflow found",
+            "no released CHANGELOG.md entry and no CI workflow example found",
         )
     evidence: list[StatusDimensionEvidence] = []
     detail_parts: list[str] = []
@@ -271,11 +273,13 @@ def _release_dimension(repo_root: Path) -> StatusDimension:
             StatusDimensionEvidence(description=f"CHANGELOG entry {label}", location="CHANGELOG.md")
         )
     if ci_workflow is not None:
-        detail_parts.append("a pinned read-only CI workflow is present")
+        # Reports presence only -- this dimension does not itself parse the
+        # workflow's pin/permission content, so it never claims "pinned" or
+        # "read-only" as a fact it did not check. That specific property is
+        # independently verified by tests/test_report_ci_workflow.py.
+        detail_parts.append("a CI workflow example is present")
         evidence.append(
-            StatusDimensionEvidence(
-                description="pinned read-only CI workflow", location=ci_workflow
-            )
+            StatusDimensionEvidence(description="CI workflow example", location=ci_workflow)
         )
     return StatusDimension(
         name="Release & CI evidence",

@@ -78,7 +78,19 @@ class TestStatusCardHasNoCompositeField:
     call site can construct or emit a composite rating even by accident.
     """
 
-    _BANNED_SUBSTRINGS = ("score", "grade", "health", "rating", "rank")
+    _BANNED_SUBSTRINGS = (
+        "score",
+        "grade",
+        "health",
+        "rating",
+        "rank",
+        "tier",
+        "level",
+        "verdict",
+        "overall",
+        "aggregate",
+        "composite",
+    )
 
     def test_status_card_fields_have_no_banned_names(self) -> None:
         for field_name in StatusCard.model_fields:
@@ -87,6 +99,11 @@ class TestStatusCardHasNoCompositeField:
 
     def test_status_dimension_fields_have_no_banned_names(self) -> None:
         for field_name in StatusDimension.model_fields:
+            lowered = field_name.lower()
+            assert not any(banned in lowered for banned in self._BANNED_SUBSTRINGS), field_name
+
+    def test_status_dimension_evidence_fields_have_no_banned_names(self) -> None:
+        for field_name in StatusDimensionEvidence.model_fields:
             lowered = field_name.lower()
             assert not any(banned in lowered for banned in self._BANNED_SUBSTRINGS), field_name
 
