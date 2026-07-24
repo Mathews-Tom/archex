@@ -36,7 +36,13 @@ try:
     from archex.integrations.semantic import scip_pb2
 
     _scip_runtime_available = True
-except ImportError:
+except Exception:
+    # Not just ImportError: importing the generated scip_pb2 module runs
+    # google.protobuf's runtime-version check, which raises a plain
+    # Exception subclass (VersionError) when an incompatible protobuf
+    # package is installed. Ordinary unavailability must never raise past
+    # this guard, so any failure here — missing or incompatible — degrades
+    # to UNAVAILABLE rather than crashing the caller.
     _scip_runtime_available = False
     scip_pb2 = None  # type: ignore[assignment]
 
@@ -109,8 +115,19 @@ class ScipEvidenceProvider:
     def name(self) -> SemanticProviderName:
         return SemanticProviderName.SCIP
 
-    def _resolved_index_path(self, repo_root: Path) -> Path:
-        return repo_root / self._index_path
+    def _resolved_index_path(self, repo_root: Path) -> Path | None:
+        """Resolve index_path under repo_root, or None if it would escape.
+
+        index_path is configuration, not untrusted network input, but
+        resolving symlinks/`..` before trusting it keeps a misconfigured or
+        malicious relative path from reading an arbitrary file outside the
+        repository under analysis.
+        """
+        candidate = (repo_root / self._index_path).resolve()
+        resolved_root = repo_root.resolve()
+        if candidate != resolved_root and resolved_root not in candidate.parents:
+            return None
+        return candidate
 
     def probe(self, repo_root: Path) -> SemanticProviderReceipt:
         if not _scip_runtime_available:
@@ -121,6 +138,13 @@ class ScipEvidenceProvider:
                 collected_at=_now_iso(),
             )
         index_file = self._resolved_index_path(repo_root)
+        if index_file is None:
+            return SemanticProviderReceipt(
+                provider=self.name,
+                availability=ProviderAvailability.UNAVAILABLE,
+                reason=f"index_path {self._index_path!r} resolves outside the repository root",
+                collected_at=_now_iso(),
+            )
         if not index_file.is_file():
             return SemanticProviderReceipt(
                 provider=self.name,
@@ -149,6 +173,7 @@ class ScipEvidenceProvider:
             return [], probe_receipt
 
         index_file = self._resolved_index_path(repo_root)
+        assert index_file is not None  # narrowed by probe() returning AVAILABLE
         index = scip_pb2.Index()  # type: ignore[union-attr]
         try:
             index.ParseFromString(index_file.read_bytes())
@@ -246,7 +271,9 @@ class ScipEvidenceProvider:
                 ):
                     succeeded_files.add(usage.file_path)
                     succeeded_files.add(definition.file_path)
-                if _emit(SemanticEdgeKind.REFERENCE, definition, usage):
+                if usage.file_path != definition.file_path and _emit(
+                    SemanticEdgeKind.REFERENCE, definition, usage
+                ):
                     succeeded_files.add(usage.file_path)
                     succeeded_files.add(definition.file_path)
 

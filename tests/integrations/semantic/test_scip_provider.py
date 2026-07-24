@@ -91,6 +91,17 @@ class TestProbe:
         assert receipt.availability == ProviderAvailability.UNAVAILABLE
         assert "empty" in receipt.reason
 
+    def test_unavailable_when_index_path_escapes_repo_root(self, tmp_path: Path) -> None:
+        outside = tmp_path.parent / "outside.scip"
+        outside.write_bytes(b"not empty")
+        try:
+            provider = ScipEvidenceProvider(index_path="../outside.scip")
+            receipt = provider.probe(tmp_path)
+            assert receipt.availability == ProviderAvailability.UNAVAILABLE
+            assert "outside the repository root" in receipt.reason
+        finally:
+            outside.unlink(missing_ok=True)
+
     def test_available_when_index_present(self, tmp_path: Path) -> None:
         _write_index(tmp_path / "index.scip")
         provider = ScipEvidenceProvider(index_path="index.scip")

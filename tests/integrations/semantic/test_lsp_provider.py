@@ -116,6 +116,32 @@ class TestCollect:
             assert e.provider == SemanticProviderName.LSP
             assert 0.0 < e.confidence <= 1.0
 
+    def test_queries_zero_based_line_from_one_based_symbol(self, tmp_path: Path) -> None:
+        # Symbol.start_line is 1-based (3); the LSP query and recorded source
+        # location must both be 0-based (2), matching LSP/SCIP convention.
+        client = _mock_client()
+        provider = LspEvidenceProvider(client=client)
+        evidence, _receipt = provider.collect(_parsed_files(), tmp_path)
+        assert evidence == []
+        client.request_definition.assert_awaited_once_with("a.py", 2, 0)
+        client.request_references.assert_awaited_once_with("a.py", 2, 0)
+        client.request_implementation.assert_awaited_once_with("a.py", 2, 0)
+
+    def test_normalizes_file_uri_response_to_repo_relative_path(self, tmp_path: Path) -> None:
+        target = tmp_path / "sub" / "b.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("x = 1\n")
+        client = _mock_client(
+            definition={
+                "uri": target.as_uri(),
+                "range": {"start": {"line": 0, "character": 0}},
+            },
+        )
+        provider = LspEvidenceProvider(client=client)
+        evidence, _receipt = provider.collect(_parsed_files(), tmp_path)
+        [edge] = evidence
+        assert edge.target.file_path == "sub/b.py"
+
     def test_same_file_results_are_dropped(self, tmp_path: Path) -> None:
         client = _mock_client(
             definition={"uri": "a.py", "range": {"start": {"line": 0, "character": 0}}},
@@ -132,7 +158,22 @@ class TestCollect:
         provider = LspEvidenceProvider(client=client)
         evidence, receipt = provider.collect(_parsed_files(), tmp_path)
         assert evidence == []
-        assert receipt.availability == ProviderAvailability.AVAILABLE
+        # The definition call failed but references/implementation still ran
+        # (not raised, not silently AVAILABLE): the receipt downgrades to
+        # PARTIAL with the failure count in the reason.
+        assert receipt.availability == ProviderAvailability.PARTIAL
+        assert "1/3 LSP lookups failed" in receipt.reason
+
+    def test_all_lookups_failing_is_unavailable_not_silent(self, tmp_path: Path) -> None:
+        client = _mock_client()
+        client.request_definition = AsyncMock(side_effect=RuntimeError("boom"))
+        client.request_references = AsyncMock(side_effect=RuntimeError("boom"))
+        client.request_implementation = AsyncMock(side_effect=RuntimeError("boom"))
+        provider = LspEvidenceProvider(client=client)
+        evidence, receipt = provider.collect(_parsed_files(), tmp_path)
+        assert evidence == []
+        assert receipt.availability == ProviderAvailability.UNAVAILABLE
+        assert "all 3 LSP lookups failed" in receipt.reason
 
     def test_symbol_cap_marks_partial(self, tmp_path: Path) -> None:
         many_symbols = [
