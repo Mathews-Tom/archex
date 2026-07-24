@@ -790,6 +790,17 @@ class TestIndexConfigValidation:
         with pytest.raises(ValueError, match="unknown entries"):
             IndexConfig(runtime_evidence_providers=["coverage", "bogus"])
 
+    def test_history_evidence_providers_defaults_empty(self) -> None:
+        assert IndexConfig().history_evidence_providers == []
+
+    def test_history_evidence_providers_accepts_known_names(self) -> None:
+        config = IndexConfig(history_evidence_providers=["git_log", "operator_rationale"])
+        assert config.history_evidence_providers == ["git_log", "operator_rationale"]
+
+    def test_history_evidence_providers_rejects_unknown_name(self) -> None:
+        with pytest.raises(ValueError, match="unknown entries"):
+            IndexConfig(history_evidence_providers=["git_log", "bogus"])
+
     def test_quantize_bits_must_be_supported(self) -> None:
         with pytest.raises(ValueError, match="quantize_bits must be one of"):
             IndexConfig(quantize_bits=8)

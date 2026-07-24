@@ -318,3 +318,77 @@ def test_runtime_sample_count_for_symbol_matches_file_and_qualified_name() -> No
 
     count, revision, stale = _runtime_sample_count_for_symbol("c.py", None, records, "rev-a")
     assert (count, revision, stale) == (None, None, False)
+
+
+def test_history_disabled_by_default_with_sparse_real_repo(
+    impact_diff_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M8: a real (but commit-sparse) repo enables the git_log provider and
+    successfully collects real evidence (AVAILABLE receipt), but the
+    eligibility policy disables exposure because density is far below
+    threshold -- proving sparse-history results carry no hidden change.
+    """
+    _edit_hub(impact_diff_repo)
+
+    from archex.config import load_index_config as original_load_index_config
+    from archex.models import IndexConfig, RepoSource
+
+    def _patched_load_index_config(source: RepoSource) -> IndexConfig:
+        config = original_load_index_config(source)
+        return config.model_copy(update={"history_evidence_providers": ["git_log"]})
+
+    monkeypatch.setattr("archex.report.artifact.load_index_config", _patched_load_index_config)
+    artifact = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")
+
+    assert artifact.diff.history_eligibility is not None
+    assert artifact.diff.history_eligibility.enabled is False
+    for change in artifact.diff.changed_files:
+        assert change.history_change_count is None
+        assert change.history_linked_references == []
+
+
+def test_history_eligibility_absent_when_channel_unconfigured(impact_diff_repo: Path) -> None:
+    _edit_hub(impact_diff_repo)
+    artifact = build_analysis_artifact(impact_diff_repo, base_ref="HEAD")
+    assert artifact.diff.history_eligibility is None
+
+
+def test_history_summary_for_path_counts_matching_cards_and_references() -> None:
+    from archex.integrations.history.models import ChangeCard, LinkedReference
+    from archex.report.artifact import (
+        _history_summary_for_path,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    cards = [
+        ChangeCard(
+            commit_sha="c1",
+            commit_subject="s",
+            committed_at="t",
+            changed_files=["a.py", "b.py"],
+            linked_references=[LinkedReference(raw_text="#1", identifier="1")],
+            revision="rev",
+        ),
+        ChangeCard(
+            commit_sha="c2",
+            commit_subject="s",
+            committed_at="t",
+            changed_files=["a.py"],
+            linked_references=[LinkedReference(raw_text="#2", identifier="2")],
+            revision="rev",
+        ),
+        ChangeCard(
+            commit_sha="c3",
+            commit_subject="s",
+            committed_at="t",
+            changed_files=["b.py"],
+            revision="rev",
+        ),
+    ]
+
+    count, references = _history_summary_for_path("a.py", cards)
+    assert count == 2
+    assert references == ["1", "2"]
+
+    count, references = _history_summary_for_path("missing.py", cards)
+    assert count == 0
+    assert references == []

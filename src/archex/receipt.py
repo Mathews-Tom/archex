@@ -28,6 +28,12 @@ from archex.scout import ScoutResult, chunk_handle, file_handle, parse_scout_han
 if TYPE_CHECKING:
     from archex.index.graph import DependencyGraph
     from archex.index.store import IndexStore
+    from archex.integrations.history.eligibility import HistoryEligibilityDecision
+    from archex.integrations.history.models import (
+        ChangeCard,
+        HistoryProviderReceipt,
+        TemporalCouplingObservation,
+    )
     from archex.integrations.runtime.models import RuntimeProviderReceipt
     from archex.integrations.semantic.models import SemanticProviderReceipt
     from archex.models import ContextBundle
@@ -82,6 +88,9 @@ def build_context_receipt(
     skipped_candidates: Iterable[ContextSkippedCandidate] = (),
     semantic_providers: Iterable[SemanticProviderReceipt] = (),
     runtime_providers: Iterable[RuntimeProviderReceipt] = (),
+    history_providers: Iterable[HistoryProviderReceipt] = (),
+    history_change_cards: Iterable[ChangeCard] = (),
+    history_coupling_observations: Iterable[TemporalCouplingObservation] = (),
 ) -> ContextReceipt:
     returned = _returned_context(bundle)
     skipped_all = list(skipped_candidates)
@@ -101,6 +110,30 @@ def build_context_receipt(
         included_all,
         key=lambda item: (item.source, item.target, item.kind.value),
     )[:_MAX_RECEIPT_INCLUDED_EDGES]
+    history_providers_resolved = list(history_providers)
+    history_change_cards_resolved = list(history_change_cards)
+    history_coupling_resolved = list(history_coupling_observations)
+    history_eligibility: HistoryEligibilityDecision | None = None
+    if history_providers_resolved:
+        from archex.integrations.history.eligibility import evaluate_history_eligibility
+        from archex.integrations.history.models import HistoryEvidenceProviderName
+
+        git_log_receipt = next(
+            (
+                r
+                for r in history_providers_resolved
+                if r.provider == HistoryEvidenceProviderName.GIT_LOG
+            ),
+            None,
+        )
+        candidate_file_paths = {item.file_path for item in returned}
+        history_eligibility = evaluate_history_eligibility(
+            history_change_cards_resolved,
+            history_coupling_resolved,
+            candidate_file_paths,
+            git_log_receipt=git_log_receipt,
+            window_commit_count=git_log_receipt.window_commit_count if git_log_receipt else 0,
+        )
     return ContextReceipt(
         query=bundle.query,
         expanded_query=bundle.retrieval_metadata.expanded_query,
@@ -120,6 +153,8 @@ def build_context_receipt(
         skipped_candidates=skipped,
         semantic_providers=list(semantic_providers),
         runtime_providers=list(runtime_providers),
+        history_providers=list(history_providers_resolved),
+        history_eligibility=history_eligibility,
         returned_total=len(returned),
         skipped_total=len(skipped_all),
         included_edges_total=len(included_all),

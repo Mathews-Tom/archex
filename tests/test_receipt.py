@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from archex.integrations.history.eligibility import evaluate_history_eligibility
+from archex.integrations.history.models import (
+    ChangeCard,
+    HistoryEvidenceProviderName,
+    HistoryProviderReceipt,
+)
+from archex.integrations.history.models import ProviderAvailability as HistoryProviderAvailability
 from archex.integrations.runtime.models import (
     ProviderAvailability as RuntimeProviderAvailability,
 )
@@ -13,6 +20,7 @@ from archex.integrations.semantic.models import (
     SemanticProviderReceipt,
 )
 from archex.models import (
+    CodeChunk,
     CompressionLossRisk,
     CompressionMetadata,
     CompressionMode,
@@ -30,6 +38,7 @@ from archex.models import (
     Edge,
     EdgeConfidence,
     EdgeKind,
+    RankedChunk,
 )
 from archex.receipt import (
     build_context_receipt,
@@ -279,6 +288,92 @@ def test_build_context_receipt_defaults_runtime_providers_empty() -> None:
     bundle = ContextBundle(query="q", token_count=10, token_budget=100)
     receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
     assert receipt.runtime_providers == []
+
+
+def test_build_context_receipt_carries_history_providers() -> None:
+    bundle = ContextBundle(query="q", token_count=10, token_budget=100)
+    receipts = [
+        HistoryProviderReceipt(
+            provider=HistoryEvidenceProviderName.GIT_LOG,
+            availability=HistoryProviderAvailability.AVAILABLE,
+            window_commit_count=5,
+            records_collected=5,
+        )
+    ]
+
+    receipt = build_context_receipt(
+        bundle,
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+        history_providers=receipts,
+    )
+
+    assert receipt.history_providers == receipts
+
+
+def test_build_context_receipt_defaults_history_providers_empty_and_no_eligibility() -> None:
+    bundle = ContextBundle(query="q", token_count=10, token_budget=100)
+    receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
+    assert receipt.history_providers == []
+    assert receipt.history_eligibility is None
+
+
+def _bundle_with_chunk(file_path: str) -> ContextBundle:
+    chunk = CodeChunk(
+        id="c1",
+        content="x = 1",
+        file_path=file_path,
+        start_line=1,
+        end_line=1,
+        language="python",
+    )
+    return ContextBundle(
+        query="q",
+        token_count=10,
+        token_budget=100,
+        chunks=[RankedChunk(chunk=chunk, final_score=1.0)],
+    )
+
+
+def test_build_context_receipt_computes_history_eligibility_when_providers_present() -> None:
+    bundle = _bundle_with_chunk("a.py")
+    git_log_receipt = HistoryProviderReceipt(
+        provider=HistoryEvidenceProviderName.GIT_LOG,
+        availability=HistoryProviderAvailability.AVAILABLE,
+        window_commit_count=2,
+        records_collected=2,
+    )
+    cards = [
+        ChangeCard(
+            commit_sha="c1",
+            commit_subject="s",
+            committed_at="t",
+            changed_files=["a.py"],
+            revision="rev",
+        ),
+        ChangeCard(
+            commit_sha="c2",
+            commit_subject="s",
+            committed_at="t",
+            changed_files=["a.py"],
+            revision="rev",
+        ),
+    ]
+
+    receipt = build_context_receipt(
+        bundle,
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+        history_providers=[git_log_receipt],
+        history_change_cards=cards,
+    )
+
+    assert receipt.history_eligibility is not None
+    expected = evaluate_history_eligibility(
+        cards, [], {"a.py"}, git_log_receipt=git_log_receipt, window_commit_count=2
+    )
+    assert receipt.history_eligibility.enabled == expected.enabled
+    assert receipt.history_eligibility.density_score == expected.density_score
 
 
 def test_receipt_edge_from_edge_helper_propagates_provider() -> None:

@@ -1258,3 +1258,114 @@ class TestRuntimeProviderReceipts:
         store.set_runtime_coverage_evidence([])
         assert store.get_runtime_provider_receipts() == []
         assert store.get_runtime_coverage_evidence() == []
+
+
+class TestHistoryProviderReceipts:
+    def test_empty_when_unset(self, store: IndexStore) -> None:
+        assert store.get_history_provider_receipts() == []
+        assert store.get_history_change_cards() == []
+        assert store.get_history_coupling_observations() == []
+        assert store.get_history_operator_rationale() == []
+
+    def test_round_trips_receipts(self, store: IndexStore) -> None:
+        from archex.integrations.history.models import (
+            HistoryEvidenceProviderName,
+            HistoryProviderReceipt,
+            ProviderAvailability,
+        )
+
+        receipts = [
+            HistoryProviderReceipt(
+                provider=HistoryEvidenceProviderName.GIT_LOG,
+                availability=ProviderAvailability.AVAILABLE,
+                expected_revision="abc123",
+                observed_revision="abc123",
+                window_commit_count=10,
+                records_collected=12,
+                collected_at="2026-01-01T00:00:00+00:00",
+            ),
+            HistoryProviderReceipt(
+                provider=HistoryEvidenceProviderName.OPERATOR_RATIONALE,
+                availability=ProviderAvailability.UNAVAILABLE,
+                reason="no operator rationale found",
+                collected_at="2026-01-01T00:00:00+00:00",
+            ),
+        ]
+        store.set_history_provider_receipts(receipts)
+        assert store.get_history_provider_receipts() == receipts
+
+    def test_round_trips_change_cards(self, store: IndexStore) -> None:
+        from archex.integrations.history.models import ChangeCard
+
+        cards = [
+            ChangeCard(
+                commit_sha="abc",
+                commit_subject="fix bug",
+                committed_at="2026-01-01T00:00:00+00:00",
+                changed_files=["a.py"],
+                revision="abc123",
+            )
+        ]
+        store.set_history_change_cards(cards)
+        assert store.get_history_change_cards() == cards
+
+    def test_round_trips_coupling_observations(self, store: IndexStore) -> None:
+        from archex.integrations.history.models import TemporalCouplingObservation
+
+        observations = [
+            TemporalCouplingObservation(
+                file_a="a.py",
+                file_b="b.py",
+                co_change_count=3,
+                window_commit_count=10,
+                revision="abc123",
+            )
+        ]
+        store.set_history_coupling_observations(observations)
+        assert store.get_history_coupling_observations() == observations
+
+    def test_round_trips_operator_rationale(self, store: IndexStore) -> None:
+        from archex.integrations.history.models import OperatorRationale
+
+        entries = [
+            OperatorRationale(
+                target_path="a.py",
+                rationale="chosen for legacy compatibility",
+                recorded_at="2026-01-01T00:00:00+00:00",
+                revision="abc123",
+            )
+        ]
+        store.set_history_operator_rationale(entries)
+        assert store.get_history_operator_rationale() == entries
+
+    def test_overwrites_prior_receipts_and_evidence(self, store: IndexStore) -> None:
+        from archex.integrations.history.models import (
+            ChangeCard,
+            HistoryEvidenceProviderName,
+            HistoryProviderReceipt,
+            ProviderAvailability,
+        )
+
+        store.set_history_provider_receipts(
+            [
+                HistoryProviderReceipt(
+                    provider=HistoryEvidenceProviderName.GIT_LOG,
+                    availability=ProviderAvailability.UNAVAILABLE,
+                    reason="not a git repo",
+                )
+            ]
+        )
+        store.set_history_change_cards(
+            [
+                ChangeCard(
+                    commit_sha="abc",
+                    commit_subject="s",
+                    committed_at="t",
+                    revision="abc123",
+                )
+            ]
+        )
+        store.set_history_provider_receipts([])
+        store.set_history_change_cards([])
+        assert store.get_history_provider_receipts() == []
+        assert store.get_history_change_cards() == []
