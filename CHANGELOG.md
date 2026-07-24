@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **M6 (disabled by default — see `benchmarks/results/m6_semantic_evidence/DECISION.md`): conditional compiler-grade semantic evidence infrastructure.** Added `archex.integrations.semantic`: a `SemanticEvidenceProvider` contract (`probe()`/`collect()`) with `ScipEvidenceProvider` (reads a pre-built [SCIP](https://github.com/sourcegraph/scip) index, new `archex[scip]` extra) and `LspEvidenceProvider` (reuses the existing `archex[lsap]` LSP wrapper against a caller-supplied client) implementations. `DependencyGraph.add_semantic_edges()` folds evidence into the file graph as new `EdgeKind.SEMANTIC_DEFINITION`/`SEMANTIC_REFERENCE`/`SEMANTIC_IMPLEMENTATION` edges — structurally distinct from every syntax kind, provider/version/confidence-stamped, never overwriting existing evidence — gated entirely behind the new `IndexConfig.semantic_evidence_providers: list[str] = []` flag (empty by default: zero behavioral change). Unavailable/stale/partial providers produce an explicit `SemanticProviderReceipt` (surfaced via `IndexStore.get_semantic_provider_receipts()` and `ContextReceipt.semantic_providers`) rather than a fallback edge. The gated `archex_query_semantic` benchmark lane shows zero measured improvement over `archex_query` on the self-repo corpus (no pre-built SCIP index was available to activate the provider in the measured environment — an external-tool limitation, not an implementation gap; see the decision doc), so the provider stays disabled by default pending a future measurement with real SCIP/LSP evidence available.
+
 ## [0.23.0] - 2026-07-24
 
 ### Added
