@@ -88,11 +88,12 @@ The metrics ledger tracks these token views per event:
    - The token count for the indexed repository when archex already has that number
      cheaply. Context only, never a savings number.
 
-The two savings numbers each name their baseline:
+The two savings numbers each name their baseline, and only one of them is the headline:
 
-- Savings vs full-file paste — compression versus dumping every returned file in full.
-- Savings vs realistic targeted read — the conservative number, versus how code is
-  actually pulled (matched ranges plus a little context).
+- **Headline — savings vs realistic targeted read.** The conservative number, versus how
+  code is actually pulled: matched ranges plus a little context. Quote this one.
+- **Secondary — savings vs full-file paste.** Compression versus dumping every returned
+  file in full. Systematically larger, and it models a strategy no competent agent uses.
 
 The formulas are:
 
@@ -122,8 +123,16 @@ whole_repo_tokens_avoided = 1,302,860 - 6,132 = 1,296,728     (context only, not
 ```
 
 Interpretation:
-- `savings_pct` (vs full-file paste) is compression versus a naive full-file paste.
-- `savings_pct_vs_targeted_read` is the realistic, conservative number.
+- `savings_pct_vs_targeted_read` is **the headline**: the realistic, conservative number,
+  and the only savings figure to quote without qualification.
+- `savings_pct` (vs full-file paste) is compression versus a naive full-file paste. It is
+  secondary and systematically larger, because nothing an agent does resembles pasting
+  every returned file in full. A representative single-`query` ledger row from this
+  repository reports 14.9% versus targeted read against 90.1% versus full-file paste.
+- `savings_pct_vs_targeted_read` is null where the event carries no line spans. `query`
+  records it; `scout`'s file-only results do not, and `archex metrics summary` sums a
+  null as 0, so a scout-only ledger renders `Savings vs targeted: 0.0%`. That is an
+  absent baseline, not a measured zero — read the `Targeted-read tokens: 0` line above it.
 - `whole_repo_tokens_avoided` is an upper-bound/context metric, never the headline.
 - A defensible cross-tool number (vs grep / read) is not produced in-process; it is
   available only via the offline benchmark harness — see "Cross-tool efficiency" below.
@@ -302,7 +311,9 @@ warning. A reindex repopulates the per-file totals.
 - returned token total
 - full-file (raw-equivalent) token total
 - targeted-read token total
-- savings vs full-file paste (compression) and savings vs realistic targeted read
+- savings vs realistic targeted read (the headline) and savings vs full-file paste
+  (compression, secondary); a `0.0%` targeted-read line next to a `0` targeted-read
+  token total means the events in the window carried no line spans, not zero savings
 - whole-repo avoided tokens, demoted below the savings lines and labeled an
   upper-bound/context number, not savings
 - a per-surface event split (`cli` / `mcp` / `python_api`)
