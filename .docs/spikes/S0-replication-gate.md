@@ -114,4 +114,20 @@ No change to retrieval logic, prompt construction, generation settings, or the m
 
 ## Post-hoc changes
 
-None. Any entry added below is dated, states the affected field and the reason, and marks every number it touches as exploratory.
+Each entry is dated, states the affected field and the reason, and marks every number it touches as exploratory.
+
+### 2026-07-27 — the primary metric named the wrong function
+
+**Affected field:** Primary metric.
+
+**What happened.** The pre-registration named "RLCoder's own comparison … in `utils/eval_metric.py`, after the Python one-statement truncation in `utils/eval_utils.py`", measured from `exact_match_idx.jsonl`. That is the harness's *strict* exact match. It is not the quantity RLCoder's Table II reports. The harness prints two numbers per cell, `strict(canonical)`, and the second — `utils/eval_repoeval.py`'s `compute_EM`, which truncates the prediction to the number of ground-truth lines and then compares — is the published one. The control arm makes this unambiguous: its canonical value is 41.63 against a reported 39.31, while its strict value is 18.44.
+
+**Resolution.** Gate A is decided on the paper's own canonical metric, because reproducing a paper means reproducing the paper's quantity. The pre-registered strict metric is reported alongside in `benchmarks/evidence/s0-rlcoder-replication.json`, and it fails the same band. Nothing else moves: the band stays `[+2.88, +6.88]`, the clustering unit stays the repository, the resample count and seed stay as fixed, and no task is excluded.
+
+**Exploratory label.** The canonical figures are the pre-registered comparison applied to the correctly named quantity; the strict figures are the literal pre-registered quantity. Because the choice between them was settled after data existed, treat any *preference* between the two as exploratory. The verdict does not depend on it — both fail.
+
+### 2026-07-27 — silent metric failure in the released harness
+
+**Affected field:** none. Recorded as a finding about the upstream harness, not a change to this pre-registration.
+
+`utils/eval_metric.py` scores through an `mp.Pool`. Its workers never inherit the module-global tree-sitter `parser` under a spawn start method, `postprocess_code_lines` raises, a bare `except` returns the untruncated completion, and the strict exact match collapses. Measured on the control arm: **0.50** as the harness printed it, against **18.44** when the same function is recomputed in a single process with the parser intact. The canonical metric is unaffected, because `compute_EM` re-truncates independently. This is why the strict metric is recomputed rather than read from `exact_match_idx.jsonl`.

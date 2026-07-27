@@ -1,0 +1,19 @@
+{
+  "replication_version": 1,
+  "spike_id": "S0",
+  "preregistration": ".docs/spikes/S0-replication-gate.md",
+  "preregistration_commit": "557c5683e5a2622e0a96370a379365c8498d1dc4",
+  "generated_at": "2026-07-27T11:20:00+00:00",
+  "hardware": "n/a - the arm was never executed",
+  "arms": [
+    {
+      "arm_id": "cast-repoeval-recall-at-5-gist-base",
+      "evidence_class": "replication",
+      "paper": "arXiv:2506.15655 (cAST, Findings of EMNLP 2025)",
+      "paper_cell": "Table 5, RepoEval, GIST-base, Recall@5: fixed-size 70.7 vs cAST 75.0, reported delta +4.3 points",
+      "metric": "recall_at_5_delta_points",
+      "verdict": "unrunnable",
+      "rationale": "The paper's reference setup is not released, so there is no configuration to reproduce. Three grounds, each verified directly against the artifact on 2026-07-27. (1) github.com/yilinjz/astchunk at 82029ada releases the chunker only: the repository tree contains no file matching eval, metric, score, repoeval, or coderag, so there is no evaluation harness, no corpus construction, and no implementation of the Appendix A.2 score mapping on which every reported retrieval number depends. Appendix A.2 describes that mapping in three sentences and never names the aggregation function used to fold AST-chunk line scores back onto baseline chunks. (2) Issues #3, #7, and #8 on that repository each ask for the evaluation script and all three remain open; the maintainer's reply on #3 points at CodeRAG-Bench and CrossCodeEval but pins neither the metric, the query construction, nor the mapping. (3) Separately reported at astchunk issue #8: on CodeRAG-Bench's released RepoEval corpus every 50-line window overlapping the target span is marked relevant, giving about 15.3 relevant windows per query, which bounds trec_eval recall.5 near 0.486 and places the reported 0.707 and 0.750 above the ceiling of the metric the reference harness computes. That third ground is a report filed by this project rather than an independent recomputation here, and the arm's disposition does not depend on it. An unrunnable arm is neither a pass nor a fail and never counts toward a Gate A pass. If the maintainers publish the evaluation and mapping code, the arm becomes runnable and requires its own pre-registration."
+    }
+  ]
+}
