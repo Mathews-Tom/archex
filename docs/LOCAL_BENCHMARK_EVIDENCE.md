@@ -60,8 +60,14 @@ that path's own fixed ranking and charges every unit it consumes until required-
 reaches the target. For the naive path the ranking is lexical grep relevance and the units
 are whole grep-hit files (`full_file`) or the merged `+/-K` windows around the hits in a
 file (`grep_window`). There is no triage step: the modelled agent never looks at a grep hit,
-judges it irrelevant, and skips reading it, and it never stops early. It pays in full for
-every false positive that lexical relevance ranked ahead of a required file.
+judges it irrelevant, and skips reading it. It pays in full for every false positive that
+lexical relevance ranked ahead of a required file.
+
+One modelling choice runs the other way and is worth stating plainly: the walk stops at the
+unit that completes the required set (`cross_tool.py:208`), which is an oracle stop a
+genuinely blind reader could not perform, since it does not know the required set. That
+makes the modelled naive cost a *floor* on blind-read cost, so it works against archex's
+number rather than for it.
 
 That makes the baseline a **blind-read lower bound on a naive strategy**, not a model of
 competent agent behavior. A real agent greps, reads the returned line numbers, and opens one
@@ -73,13 +79,14 @@ Two further conditions apply to every figure derived from the artifact:
 - The reduction is conditioned on archex reaching the target recall. Tasks where archex
   misses are excluded rather than scored at unequal recall, so the number measures how much
   cheaper archex localizes *when it succeeds*.
-- The self-repo corpus is withdrawn from every quoted figure; its comparisons remain in the
-  artifact and are not deleted.
+- The self-repo corpus is withdrawn from every currently published figure; its comparisons
+  remain in the artifact and are not deleted.
 
 ### Measured units-read distribution
 
 How naive the baseline is, is measurable: `units_consumed` on each `PathTokensAtRecall`
-records how many units that path read before reaching the target recall. Over the 52
+records how many units that path read to reach the target recall, counting the unit that
+reached it (and every unit, when the target is never reached). Over the 52
 comparable tasks in the checked-in artifact (both paths at 100% required-file recall), the
 naive agent's distribution is:
 
@@ -95,8 +102,8 @@ archex over the same 52 tasks reads a median of 3.0 units (mean 3.1, max 8).
 
 Two things follow. First, the mean of 18.0 against a median of 5.5 is a long right tail, and
 that tail is almost entirely self-repo: the withdrawn corpus supplies the 164-unit maximum
-and a median 5.4× the external one. Second, on the external corpora the naive agent reads a
-median of 3 units against archex's 3 — the token advantage there comes from unit *size*
-(whole files or merged windows versus targeted chunks), not from the naive agent
-flailing. `units_consumed` is per-path and identical across the `full_file` and
-`grep_window` models, which differ only in what a unit costs.
+and a median 10.8× the external-corpora one (32.5 against 3.0). Second, on the external
+corpora the naive agent reads a median of 3 units against archex's 3 — the token advantage
+there comes from unit *size* (whole files or merged windows versus targeted chunks), not
+from the naive agent flailing. `units_consumed` is per-path and identical across the
+`full_file` and `grep_window` models, which differ only in what a unit costs.

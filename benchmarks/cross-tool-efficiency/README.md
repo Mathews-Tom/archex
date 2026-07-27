@@ -13,13 +13,13 @@ uv run archex benchmark cross-tool --tasks-dir benchmarks/tasks \
 
 `tokens_at_recall` (`src/archex/benchmark/cross_tool.py`) walks a path's retrieval units in that path's own fixed ranking and charges every unit consumed until required-file recall reaches the target. For the naive path the ranking is lexical grep relevance and the units are whole grep-hit files (`full_file`) or the merged `+/-K` windows around a file's hits (`grep_window`).
 
-The modelled agent is **blind**: it never inspects a grep hit, judges it irrelevant, and skips reading it, and it never stops early. It pays in full for every false positive that lexical relevance ranked ahead of a required file.
+The modelled agent is **blind**: it never inspects a grep hit, judges it irrelevant, and skips reading it. It pays in full for every false positive that lexical relevance ranked ahead of a required file. One modelling choice runs the other way: the walk stops at the unit that completes the required set (`cross_tool.py:208`) — an oracle stop a genuinely blind reader could not perform — so the modelled naive cost is a floor on blind-read cost.
 
 That is a legitimate lower bound on a naive strategy. It is not how a competent agent behaves — a real agent greps, reads the returned line numbers, and opens one or two ranges. Every reduction derived from this artifact is therefore an upper bound on the advantage over a grep/read workflow.
 
 ## Measured units-read distribution
 
-`units_consumed` on each `PathTokensAtRecall` records how many units a path read before reaching the target recall. Over the 52 comparable tasks in this artifact, the naive agent reads:
+`units_consumed` on each `PathTokensAtRecall` records how many units a path read to reach the target recall, counting the unit that reached it (and every unit, when the target is never reached). Over the 52 comparable tasks in this artifact, the naive agent reads:
 
 | Scope | Comparable tasks | Median units read | Mean | Max |
 | --- | ---: | ---: | ---: | ---: |
@@ -33,6 +33,6 @@ archex reads a median of 3.0 units (mean 3.1, max 8) over the same tasks. The lo
 
 ## Published scope
 
-The `self` corpus is withdrawn from every quoted figure. Its 16 comparable tasks remain in the artifact and are not deleted, but they are not published: archex's own generic keywords (`index`, `query`, `config`) match across its entire source, so the reduction there measures keyword density rather than archex.
+The `self` corpus is withdrawn from every currently published figure. Its 16 comparable tasks remain in the artifact and are not deleted, but they are not published: archex's own generic keywords (`index`, `query`, `config`) match across its entire source, so the reduction there measures keyword density rather than archex.
 
-Published figures come from `external-comprehension` and `external-localization` only, and each names the naive grep/read agent as its baseline. See [`docs/LOCAL_METRICS.md`](../../docs/LOCAL_METRICS.md) for the per-corpus table and [`docs/LOCAL_BENCHMARK_EVIDENCE.md`](../../docs/LOCAL_BENCHMARK_EVIDENCE.md) for the full baseline semantics.
+Published figures come from `external-comprehension` and `external-localization` only, and each names the naive grep/read agent as its baseline. See [`docs/LOCAL_METRICS.md`](../../docs/LOCAL_METRICS.md) for the per-corpus table and [`docs/LOCAL_BENCHMARK_EVIDENCE.md`](../../docs/LOCAL_BENCHMARK_EVIDENCE.md#cross-tool-efficiency-baseline-semantics) for the full baseline semantics.
