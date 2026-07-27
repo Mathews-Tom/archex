@@ -48,7 +48,7 @@ from archex.benchmark.models import (  # noqa: TC001 — Pydantic needs at runti
     BenchmarkResult,
     RepoSizeClass,
     Strategy,
-    TaskCompletionResult,
+    completion_outcome_score,
 )
 
 if TYPE_CHECKING:
@@ -143,18 +143,8 @@ def _percentile(values: list[float], quantile: float) -> float | None:
 
 
 def _completion_outcomes(results: list[BenchmarkResult]) -> list[float]:
-    outcomes: list[float] = []
-    for result in results:
-        outcome = (
-            result.bundle_only_success
-            if result.bundle_only_success is not None
-            else result.task_completion_result
-        )
-        if outcome is TaskCompletionResult.PASS:
-            outcomes.append(1.0)
-        elif outcome is TaskCompletionResult.FAIL:
-            outcomes.append(0.0)
-    return outcomes
+    scores = (completion_outcome_score(result) for result in results)
+    return [score for score in scores if score is not None]
 
 
 class ScorecardRow(BaseModel):
