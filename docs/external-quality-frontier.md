@@ -39,14 +39,16 @@ Command: `ARCHEX_M3_SELF_ONLY=1 bash scripts/m3_frontier_pipeline.sh`. Source re
 
 ### Scorecard (single slice on this scope: language=python, size=large, intent=self, family=comprehension)
 
-| Lane | Recall | F1 | MRR | Zero-Recall | Dup. Rate | Tok. Eff. | Cold p50 (ms) | Downstream Success |
+| Lane | Recall | F1 | MRR | Zero-Recall | Dup. Rate | Tok. Eff. | Cold p50 (ms) | Required-File Completeness |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | default (`archex_query`) | 0.892 | 0.618 | 0.979 | 0 | 0.677 | 0.771 | 4282 | 0.625 |
 | fast (`archex_query_profile_fast`) | 0.892 | 0.618 | 0.979 | 0 | 0.677 | 0.771 | 4163 | 0.625 |
 | balanced (`archex_query_profile_balanced`) | 0.892 | 0.618 | 0.979 | 0 | 0.677 | 0.772 | 4186 | 0.625 |
 | cAST (`archex_query`, `--chunker cast`) | 0.823 | 0.574 | 0.979 | 0 | 0.635 | 0.729 | 5281 | 0.458 |
 
-Every retrieval-quality metric (recall/F1/MRR) is bit-identical between default and both profiles on this scope: `fast`/`balanced` only change vector/rerank/module-prefilter usage, and this repository's self-tasks never exercise those paths under the default configuration either, so the profiles produce the same BM25 ranking with a marginally lower cold p50 (safe to run, no measured downstream success or recall cost here). cAST recall/F1/downstream-success are all measurably lower on this scope, consistent with the source analysis's caveat that "a controlled 2026 study found function-only chunks off the cost-quality frontier" — a real, non-cherry-picked signal against promoting cAST as a default, at least at this scope.
+Every retrieval-quality metric (recall/F1/MRR) is bit-identical between default and both profiles on this scope: `fast`/`balanced` only change vector/rerank/module-prefilter usage, and this repository's self-tasks never exercise those paths under the default configuration either, so the profiles produce the same BM25 ranking with a marginally lower cold p50 (safe to run, no measured required-file-completeness or recall cost here). cAST recall/F1/required-file-completeness are all measurably lower on this scope, consistent with the source analysis's caveat that "a controlled 2026 study found function-only chunks off the cost-quality frontier" — a real, non-cherry-picked signal against promoting cAST as a default, at least at this scope.
+
+The last column is required-file completeness, not downstream task success: it is the fraction of tasks whose required files were all present in the returned bundle, a function of required-file recall with no model in the loop. Its values are unchanged; only the label is corrected.
 
 ### Promotion gate: fast/balanced vs. default (same-run control)
 
@@ -71,8 +73,8 @@ uv run archex benchmark gate --input .archex/m3-frontier/cast --tasks-dir benchm
 
 **NO-GO for automatic default promotion of any candidate**, on the evidence produced so far:
 
-- `fast`/`balanced`: no measured recall/F1/MRR/downstream-success regression, but no genuine warm-latency evidence exists yet (methodology gap above) and the M3 promotion rule requires staying inside profile p95 budgets with *evidence*, not by default.
-- cAST: measurable recall/F1/downstream-success regression on this scope; already excluded by the absolute-threshold gate.
+- `fast`/`balanced`: no measured recall/F1/MRR/required-file-completeness regression, but no genuine warm-latency evidence exists yet (methodology gap above) and the M3 promotion rule requires staying inside profile p95 budgets with *evidence*, not by default.
+- cAST: measurable recall/F1/required-file-completeness regression on this scope; already excluded by the absolute-threshold gate.
 - symbolic-rerank: not run (only-if-defined; not exercised in this delivery).
 - Full pinned-external and sealed-holdout corpus scope: not yet executed (see reproduction commands above).
 
