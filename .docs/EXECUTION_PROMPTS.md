@@ -123,7 +123,7 @@ DONE: design verdict with evidence; when authorized, a reviewed stack with a rel
 /goal Deliver milestone R3 (S0 external replication gate) from DEVELOPMENT_PLAN.md as a reviewed stack of PRs.
 
 CONTEXT: DEVELOPMENT_PLAN.md §6 Section B R3 + .docs/strategic-reassessment/03-SPIKES.md S0 and 00-DIAGNOSIS.md §2. Preconditions: R1 merged. Repo: as above.
-OBJECTIVE: Establish whether this harness can reproduce any result anyone else has published. Success contract: .docs/spikes/S0-replication-gate.md pre-registered and merged before the first run; a reproduction harness under benchmarks/replication/cast/ pinned to cAST's (arXiv:2506.15655) own dataset, baseline chunker, retriever, and metric, run in the paper's own reference setup and NOT inside archex's pipeline; a second arm reproducing RLCoder (arXiv:2407.19487) on CrossCodeEval if cAST is ambiguous; benchmarks/evidence/s0-cast-replication.json recording the reproduced delta with its interval; GATE-A.md stating in one line whether the reproduced delta falls inside the paper's reported interval.
+OBJECTIVE: Establish whether this harness can reproduce any result anyone else has published. Success contract: .docs/spikes/S0-replication-gate.md pre-registered and merged before the first run, fixing the target cell and the equivalence band in advance; a reproduction harness under benchmarks/replication/ pinned to RLCoder's (arXiv:2407.19487) own dataset, retriever, generator, and metric, run in the paper's own reference setup and NOT inside archex's pipeline; the cAST (arXiv:2506.15655) arm recorded with whatever disposition its released artifact supports; benchmarks/evidence/s0-rlcoder-replication.json recording the reproduced delta with a bootstrap interval and benchmarks/evidence/s0-cast-replication.json recording the cAST arm; GATE-A.md stating in one line whether the reproduced delta falls inside the pre-registered equivalence band around the paper's reported point estimate.
 RELEASE TRAIN: target=unversioned; included milestones=R3; preparation trigger=n/a; required artifacts=none; release verification=n/a; publication=not requested.
 
 PRE-IMPLEMENTATION DESIGN GATE:
@@ -135,18 +135,19 @@ PRE-IMPLEMENTATION DESIGN GATE:
 6. If a mismatch exists, update both authoritative artifacts for R3 and every affected future milestone, append the revision ID, and report `DESIGN GO — PLAN REVISION: <entry IDs>`.
 7. If validity cannot be established, report `DESIGN NO-GO — REASON: <evidence>` and stop.
 
-SPECIFIC GATE CHECK: confirm cAST's artifact is still fetchable and its reported interval is still as cited. If not, promote the RLCoder arm to primary and record the swap as a plan revision. An unrunnable gate is `DESIGN NO-GO`, never a pass.
+SPECIFIC GATE CHECK: confirm each paper's artifact is still fetchable and its cited figure is still as reported. Neither paper publishes an interval, so the gate compares against a pre-registered equivalence band. An arm whose reference setup is not released is recorded as unrunnable, never scored as a pass; a gate with no runnable arm is `DESIGN NO-GO`.
 
 RECONCILIATION RULE: A material revision opens `docs(plan): reconcile R3 design` as a docs-only prerequisite PR, reviewed, green, and externally merged before any code PR.
 
 PLANNED STACK:
 0. Conditional prerequisite `docs(plan): reconcile R3 design`.
 1. PR-1 `docs(spikes): pre-register S0 replication gate` — scope: .docs/spikes/S0-replication-gate.md only; commits: pre-registration; gate: MUST merge before any run — commit order is the proof
-2. PR-2 `test(replication): reproduce cAST in its own reference setup` (on PR-1) — scope: benchmarks/replication/cast/; commits: pinned harness, run recording; verification: the recorded command reruns to the same figure
-3. PR-3 `docs(gate): record Gate A verdict` (on PR-2) — scope: benchmarks/evidence/s0-cast-replication.json, GATE-A.md; commits: evidence artifact, verdict; verification: `uv run archex benchmark validate --kind evidence --input benchmarks/evidence/s0-cast-replication.json` exits 0
+2. PR-2 `feat(benchmark): validate external replication artifacts` (on PR-1) — scope: the `--kind replication` validator plus its tests; verification: the validator rejects an artifact missing any pin, class label, or verdict field
+3. PR-3 `test(replication): reproduce RLCoder in its own reference setup` (on PR-2) — scope: benchmarks/replication/; commits: pinned harness, run recording; verification: the recorded command reruns to the same figure
+4. PR-4 `docs(gate): record Gate A verdict` (on PR-3) — scope: benchmarks/evidence/s0-rlcoder-replication.json, benchmarks/evidence/s0-cast-replication.json, GATE-A.md; commits: evidence artifacts, verdict; verification: `uv run archex benchmark validate --kind replication --input <artifact>` exits 0 for both
 
 CONSTRAINTS: run the mechanism in the PAPER's setup, never inside archex's pipeline; change no archex retrieval code; label every arm `replication` class; do not soften the gate if the reproduction misses.
-VERIFICATION (must pass): `uv run archex benchmark validate --kind evidence --input benchmarks/evidence/s0-cast-replication.json` exits 0; the reproduction command recorded in GATE-A.md reruns to the same figure; the full local gate is green.
+VERIFICATION (must pass): `uv run archex benchmark validate --kind replication --input benchmarks/evidence/s0-rlcoder-replication.json` and the same command over benchmarks/evidence/s0-cast-replication.json both exit 0; the reproduction command recorded in GATE-A.md reruns to the same figure; the full local gate is green.
 REVIEW:
 Per PR:
 - Scope matches its purpose; the pre-registration merged before the run; behavior is meaningfully tested.
@@ -160,7 +161,7 @@ Whole stack:
 FINAL VERDICTS:
 - Report the design verdict before the merge verdict.
 - Then report exactly one merge verdict: `GO — RELEASE: unversioned — RELEASE PREP: not-required` or `NO-GO — RELEASE: unversioned — REASON: <blocking gate>`.
-- Additionally report the Gate A outcome verbatim: `GATE A PASS — <paper>, reproduced delta <x> within reported interval <y>` or `GATE A FAIL — no published win reproduced in its own setup`.
+- Additionally report the Gate A outcome verbatim: `GATE A PASS — <paper>, reproduced delta <x> within pre-registered band <y>` or `GATE A FAIL — no published win reproduced in its own setup`.
 - A Gate A FAIL stops all research work: R7-R16 are cancelled, the program reduces to Section A + Section C outputs plus a root-cause engineering effort. This is pre-declared and not renegotiable.
 DONE: design verdict, the reviewed stack, the merge verdict, and the Gate A outcome with evidence.
 ```
