@@ -163,14 +163,18 @@ grades the benchmark task set per corpus (localization graded separately, never 
 comprehension). At 100% required-file recall, on the tasks where archex itself fully
 localizes the required files, the token reduction versus the naive agent is:
 
-| Corpus | Naive model | Comparable tasks | archex tokens | naive tokens | Token reduction |
+| Corpus | Naive model | Comparable tasks | archex tokens | naive tokens | Token reduction vs the naive agent |
 | --- | --- | ---: | ---: | ---: | ---: |
-| self | full_file | 16 / 24 | 9,484 | 4,416,681 | 99.8% |
-| self | grep_window | 16 / 24 | 9,484 | 2,626,845 | 99.6% |
 | external-comprehension | full_file | 16 / 19 | 22,681 | 783,725 | 97.1% |
 | external-comprehension | grep_window | 16 / 19 | 22,681 | 492,119 | 95.4% |
 | external-localization | full_file | 20 / 21 | 13,247 | 469,836 | 97.2% |
 | external-localization | grep_window | 20 / 21 | 13,247 | 408,410 | 96.8% |
+
+**The self-repo corpus is withdrawn from this table and from every quoted figure.** Its 16
+comparable tasks are still in the artifact and are not deleted, but they are not published:
+archex's own generic keywords (`index`, `query`, `config`) match across its entire source,
+so the naive agent reads a median of 32.5 units per task there against 3.0 on the external
+corpora. The resulting per-corpus reduction measures that keyword density, not archex.
 
 "Comparable tasks" counts only tasks where both paths reach 100% required-file recall; every
 token figure sums over exactly that set, so no figure compares unequal recall. The reduction
@@ -179,8 +183,11 @@ archex localizes when it succeeds, not that archex always succeeds. In this arti
 naive grep/read path reaches full recall on every comparable task, and all 12 excluded tasks
 (of 64: 8 self, 3 external-comprehension, 1 external-localization) are archex recall misses —
 cases where archex did not return all required files within its token budget (archex recall
-0.0–0.8 there), excluded rather than scored at unequal recall. Regenerate the artifact from a
-clean run (do not hand-edit metric values):
+0.0–0.8 there), excluded rather than scored at unequal recall. The naive agent is a blind
+reader with no triage step between `grep` and `read`, so it is a lower bound on a naive
+strategy rather than a model of competent agent behavior.
+
+Regenerate the artifact from a clean run (do not hand-edit metric values):
 
 ```bash
 uv run archex benchmark cross-tool --tasks-dir benchmarks/tasks \
