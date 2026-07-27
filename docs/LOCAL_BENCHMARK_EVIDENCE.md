@@ -73,5 +73,30 @@ Two further conditions apply to every figure derived from the artifact:
 - The reduction is conditioned on archex reaching the target recall. Tasks where archex
   misses are excluded rather than scored at unequal recall, so the number measures how much
   cheaper archex localizes *when it succeeds*.
-- The self-repo corpus is withdrawn from every quoted figure (see below); its comparisons
-  remain in the artifact and are not deleted.
+- The self-repo corpus is withdrawn from every quoted figure; its comparisons remain in the
+  artifact and are not deleted.
+
+### Measured units-read distribution
+
+How naive the baseline is, is measurable: `units_consumed` on each `PathTokensAtRecall`
+records how many units that path read before reaching the target recall. Over the 52
+comparable tasks in the checked-in artifact (both paths at 100% required-file recall), the
+naive agent's distribution is:
+
+| Scope | Comparable tasks | Median units read | Mean | Max |
+| --- | ---: | ---: | ---: | ---: |
+| All comparable tasks | 52 | 5.5 | 18.0 | 164 |
+| self (withdrawn) | 16 | 32.5 | 48.4 | 164 |
+| external-comprehension | 16 | 6.0 | 6.5 | 18 |
+| external-localization | 20 | 1.0 | 2.8 | 16 |
+| external corpora combined | 36 | 3.0 | 4.4 | 18 |
+
+archex over the same 52 tasks reads a median of 3.0 units (mean 3.1, max 8).
+
+Two things follow. First, the mean of 18.0 against a median of 5.5 is a long right tail, and
+that tail is almost entirely self-repo: the withdrawn corpus supplies the 164-unit maximum
+and a median 5.4× the external one. Second, on the external corpora the naive agent reads a
+median of 3 units against archex's 3 — the token advantage there comes from unit *size*
+(whole files or merged windows versus targeted chunks), not from the naive agent
+flailing. `units_consumed` is per-path and identical across the `full_file` and
+`grep_window` models, which differ only in what a unit costs.
