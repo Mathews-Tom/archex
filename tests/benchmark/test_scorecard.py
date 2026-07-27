@@ -290,6 +290,16 @@ class TestM3ScorecardArtifact:
         assert "## By Task Family" in markdown
         assert "n/a" in markdown  # warm latency unmeasured for this fixture
 
+    def test_markdown_column_names_the_required_file_completeness_metric(self) -> None:
+        tasks_by_id = {"t1": _task(task_id="t1")}
+        reports = [_report("t1", [_result("t1")])]
+        artifact = build_m3_scorecard_artifact(
+            reports, tasks_by_id, _manifest(), strategy=Strategy.ARCHEX_QUERY
+        )
+        markdown = format_m3_scorecard_markdown(artifact)
+        assert "| Required-File Completeness |" in markdown
+        assert "Downstream Success" not in markdown
+
 
 class TestScorecardCliCommand:
     def _patch_evidence(
