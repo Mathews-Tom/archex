@@ -84,6 +84,10 @@ from archex.benchmark.readiness import (
     format_readiness_json,
     format_readiness_markdown,
 )
+from archex.benchmark.replication import (
+    ReplicationEvidenceError,
+    validate_replication_artifact,
+)
 from archex.benchmark.reporter import (
     format_baseline_comparison,
     format_bucketed_summary,
@@ -794,15 +798,18 @@ def scorecard_cmd(
 )
 @click.option(
     "--input",
-    "input_dir",
+    "input_path",
     default=None,
-    type=click.Path(file_okay=False, dir_okay=True),
-    help="Evidence directory to validate when --kind evidence is selected.",
+    type=click.Path(file_okay=True, dir_okay=True),
+    help=(
+        "Evidence directory to validate with --kind evidence, "
+        "or replication artifact file to validate with --kind replication."
+    ),
 )
 @click.option(
     "--kind",
     default="tasks",
-    type=click.Choice(["tasks", "arch", "delta", "all", "evidence"]),
+    type=click.Choice(["tasks", "arch", "delta", "all", "evidence", "replication"]),
     show_default=True,
     help="Task definition or evidence family to validate.",
 )
@@ -810,17 +817,30 @@ def validate_cmd(
     tasks_dir: str,
     arch_tasks_dir: str,
     delta_tasks_dir: str,
-    input_dir: str | None,
+    input_path: str | None,
     kind: str,
 ) -> None:
     """Validate benchmark task definitions."""
     repo_root = Path.cwd()
-    if kind == "evidence":
-        if input_dir is None:
-            raise click.ClickException("--input is required when --kind evidence is selected")
+    target: Path | None = None
+    if kind in {"evidence", "replication"}:
+        if input_path is None:
+            raise click.ClickException(f"--input is required when --kind {kind} is selected")
+        target = Path(input_path)
+
+    if kind == "replication" and target is not None:
+        try:
+            artifact = validate_replication_artifact(target)
+        except ReplicationEvidenceError as exc:
+            raise click.ClickException(str(exc)) from exc
+        verdicts = ", ".join(f"{arm.arm_id}={arm.verdict.value}" for arm in artifact.arms)
+        click.echo(f"Valid replication evidence: {len(artifact.arms)} arm(s) [{verdicts}].")
+        return
+
+    if kind == "evidence" and target is not None:
         try:
             manifest = validate_evidence_directory(
-                Path(input_dir),
+                target,
                 Path(tasks_dir),
                 expected_source_sha=source_revision(repo_root),
             )
