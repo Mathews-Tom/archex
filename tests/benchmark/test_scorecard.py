@@ -200,16 +200,16 @@ class TestAggregation:
         rows = build_family_scorecard(reports, tasks_by_id, strategy=Strategy.ARCHEX_QUERY)
         assert rows[0].cold_p50_latency_ms == pytest.approx(42.0)  # pyright: ignore[reportUnknownMemberType]
 
-    def test_downstream_success_rate_from_task_completion(self) -> None:
+    def test_required_file_completeness_rate_from_task_completion(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1"), "t2": _task(task_id="t2")}
         reports = [
             _report("t1", [_result("t1", task_completion_result=TaskCompletionResult.PASS)]),
             _report("t2", [_result("t2", task_completion_result=TaskCompletionResult.FAIL)]),
         ]
         rows = build_family_scorecard(reports, tasks_by_id, strategy=Strategy.ARCHEX_QUERY)
-        assert rows[0].downstream_success_rate == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
+        assert rows[0].required_file_completeness_rate == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
 
-    def test_downstream_success_rate_prefers_bundle_only_success(self) -> None:
+    def test_required_file_completeness_rate_prefers_bundle_only_success(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1")}
         reports = [
             _report(
@@ -224,15 +224,15 @@ class TestAggregation:
             )
         ]
         rows = build_family_scorecard(reports, tasks_by_id, strategy=Strategy.ARCHEX_QUERY)
-        assert rows[0].downstream_success_rate == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
+        assert rows[0].required_file_completeness_rate == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
 
-    def test_downstream_success_rate_none_when_all_unknown(self) -> None:
+    def test_required_file_completeness_rate_none_when_all_unknown(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1")}
         reports = [
             _report("t1", [_result("t1", task_completion_result=TaskCompletionResult.UNKNOWN)])
         ]
         rows = build_family_scorecard(reports, tasks_by_id, strategy=Strategy.ARCHEX_QUERY)
-        assert rows[0].downstream_success_rate is None
+        assert rows[0].required_file_completeness_rate is None
 
     def test_ignores_reports_missing_the_requested_strategy(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1")}

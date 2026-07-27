@@ -183,7 +183,22 @@ class ScorecardRow(BaseModel):
     mean_tool_calls: float
     mean_post_bundle_search_turns: float | None
     mean_receipt_accuracy: float | None
-    downstream_success_rate: float | None
+    required_file_completeness_rate: float | None
+    """Fraction of tasks whose required files were all present in the returned bundle.
+
+    This is a function of required-file recall and nothing else: each task contributes
+    ``1.0`` when no required file was missing and ``0.0`` otherwise
+    (``completion_result_from_missing``). **No model is in the loop** — archex never
+    calls one to decide whether a task was solved, so this measures retrieval
+    completeness, never downstream task success.
+
+    The single exception is the opt-in ``benchmark bundle-eval`` lane, where an
+    operator-supplied external evaluator command may report ``bundle_only_success``;
+    that value takes precedence for the tasks it covers. archex neither provides nor
+    calls that evaluator.
+
+    ``None`` when every task in the slice reported ``UNKNOWN``.
+    """
 
 
 def _build_row(
@@ -243,7 +258,7 @@ def _build_row(
         mean_tool_calls=_mean([float(result.tool_calls) for result in results]),
         mean_post_bundle_search_turns=_mean_optional(search_turns),
         mean_receipt_accuracy=_mean_optional(receipt_scores),
-        downstream_success_rate=_mean_optional(completion_outcomes),
+        required_file_completeness_rate=_mean_optional(completion_outcomes),
     )
 
 
@@ -382,7 +397,7 @@ def _format_rows_table(rows: list[ScorecardRow]) -> list[str]:
         return ["_No tasks in this dimension._"]
     lines = [
         "| Value | Tasks | Recall | F1 | MRR | Zero-Recall | Dup. Rate "
-        "| Tok. Eff. | Warm p50 | Warm p95 | Cold p50 | Downstream Success |",
+        "| Tok. Eff. | Warm p50 | Warm p95 | Cold p50 | Required-File Completeness |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
@@ -394,7 +409,7 @@ def _format_rows_table(rows: list[ScorecardRow]) -> list[str]:
             f"| {_format_optional(row.warm_p50_latency_ms, precision=0)} "
             f"| {_format_optional(row.warm_p95_latency_ms, precision=0)} "
             f"| {_format_optional(row.cold_p50_latency_ms, precision=0)} "
-            f"| {_format_optional(row.downstream_success_rate)} |"
+            f"| {_format_optional(row.required_file_completeness_rate)} |"
         )
     return lines
 
