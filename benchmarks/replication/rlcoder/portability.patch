@@ -1,0 +1,236 @@
+diff --git a/device.py b/device.py
+new file mode 100644
+index 0000000..8acea61
+--- /dev/null
++++ b/device.py
+@@ -0,0 +1,37 @@
++"""Single device selection point for a CUDA-free reproduction run.
++
++Added by the archex S0 replication harness. Selection order is CUDA, then MPS,
++then CPU, and RLCODER_DEVICE overrides it. Nothing here touches retrieval,
++prompt construction, generation settings, or the metric.
++"""
++
++import os
++
++import torch
++
++
++def resolve_device():
++    override = os.environ.get("RLCODER_DEVICE")
++    if override:
++        return torch.device(override)
++    if torch.cuda.is_available():
++        return torch.device("cuda")
++    if torch.backends.mps.is_available():
++        return torch.device("mps")
++    return torch.device("cpu")
++
++
++DEVICE = resolve_device()
++
++
++def to_device(tensor):
++    return tensor.to(DEVICE)
++
++
++def place(model):
++    """Place a model on the selected device without DataParallel.
++
++    DataParallel shards a batch across several GPUs. On a single device it is a
++    no-op wrapper that only changes attribute paths, so it is dropped here.
++    """
++    return model.to(DEVICE)
+diff --git a/generator.py b/generator.py
+index dacf83f..cd72120 100644
+--- a/generator.py
++++ b/generator.py
+@@ -6,6 +6,7 @@ from tqdm import tqdm
+ import numpy as np
+ from utils.eval_utils import is_identifier
+ import re
++from device import place, to_device
+ 
+ class CustomDataset(Dataset):
+     """
+@@ -98,7 +99,7 @@ class Model(nn.Module):
+                 weights = torch.tensor([
+                     first_token_weight if i < 1 else id_weight if is_identifier(token, lang) and any(c.isalpha() or c.isdigit() or c == '_' for c in token) else 1
+                     for i, token in enumerate(label_tokens)
+-                ], dtype=torch.float).cuda()
++                ], dtype=torch.float).to(loss.device)
+ 
+                 loss = loss * weights  
+ 
+@@ -126,7 +127,7 @@ class Generator:
+ 
+         if not args.disable_generator:
+             self.model = Model(args.generator_model_path, self.tokenizer)
+-            self.model = torch.nn.DataParallel(self.model).cuda()
++            self.model = place(self.model)
+             self.model.eval()
+ 
+         self.args = args
+@@ -150,7 +151,7 @@ class Generator:
+         pbar = tqdm(dataloader, disable=not self.args.enable_tqdm)
+         with torch.no_grad():
+             for batch in pbar:
+-                inputs, labels = [x.cuda() for x in batch]
++                inputs, labels = [to_device(x) for x in batch]
+                 loss_per_label = self.model(inputs, labels, lang=examples[0].language, weighted_keywords=self.args.weighted_keywords)
+                 losses.extend(loss_per_label.tolist())
+                 current_ppl = np.exp(np.mean(losses))
+@@ -182,7 +183,7 @@ class Generator:
+         pbar = tqdm(dataloader, disable=not self.args.enable_tqdm, desc="Generating")
+         with torch.no_grad():
+             for batch in pbar:
+-                generated_codes.append(self.model(batch.cuda()))
++                generated_codes.append(self.model(to_device(batch)))
+         generated_codes = torch.cat(generated_codes,0)
+         return  [self.tokenizer.decode(generated_id, skip_special_tokens=True) for generated_id in generated_codes]
+ 
+diff --git a/main.py b/main.py
+index 14e5f33..ff068bc 100644
+--- a/main.py
++++ b/main.py
+@@ -20,6 +20,7 @@ from prettytable import PrettyTable
+ import copy
+ 
+ import logging
++from device import DEVICE, to_device
+ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s - %(message)s', datefmt='%m/%d/%Y %H:%M:%S', level=logging.INFO)
+ logger = logging.getLogger(__name__)
+ logger.setLevel(logging.INFO)
+@@ -31,9 +32,10 @@ def set_random_seed(seed=123):
+     random.seed(seed)
+     np.random.seed(seed)
+     torch.manual_seed(seed)
+-    torch.cuda.manual_seed(seed)
+-    torch.cuda.manual_seed_all(seed)
+-    torch.backends.cudnn.deterministic = True
++    if torch.cuda.is_available():
++        torch.cuda.manual_seed(seed)
++        torch.cuda.manual_seed_all(seed)
++        torch.backends.cudnn.deterministic = True
+ 
+ set_random_seed()
+ 
+@@ -115,28 +117,35 @@ class CustomDataset(Dataset):
+         candidate_tokens_id = [tokenize(str(x), self.tokenizer, self.max_candidate_length, False) for x in self.candidates[idx]]
+         return torch.tensor(query_tokens_id, dtype=torch.long), torch.tensor(candidate_tokens_id, dtype=torch.long), torch.tensor(self.labels[idx], dtype=torch.long)
+ 
++EVAL_SPLITS = {
++    "cceval_python": ("cceval", "python"),
++    "cceval_java": ("cceval", "java"),
++    "repoeval_line": ("repoeval", "line_level"),
++    "repoeval_api": ("repoeval", "api_level"),
++    "repoeval_func": ("repoeval", "func_level"),
++}
++
++
+ def run(args):
+-    cceval_python_examples = load_test_dataset(args, "cceval", "python")
+-    cceval_java_examples = load_test_dataset(args, "cceval", "java")
+-    # codereval_python_examples = load_test_dataset(args, "codereval", "python")
+-    # codereval_java_examples = load_test_dataset(args, "codereval", "java")
+-    repoeval_line_examples = load_test_dataset(args, "repoeval", "line_level")
+-    repoeval_api_examples = load_test_dataset(args, "repoeval", "api_level")
+-    # repoeval_func_examples = load_test_dataset(args, "repoeval", "func_level")
+-
+-    training_raw_data, eval_raw_data = load_train_and_valid_dataset()
+-    eval_all_examples = construct_dataset(eval_raw_data, 100 if args.debug else 1000)
+-
+-    all_eval_examples = {
+-        "github_eval": eval_all_examples,
+-        "cceval_python": cceval_python_examples,
+-        "cceval_java": cceval_java_examples,
+-        # "codereval_python": codereval_python_examples,
+-        # "codereval_java": codereval_java_examples,
+-        "repoeval_line": repoeval_line_examples,
+-        "repoeval_api": repoeval_api_examples,
+-        # "repoeval_func": repoeval_func_examples,
+-    }
++    # Load only the splits under evaluation. The released code loads every test
++    # split plus both training Parquets before reaching the eval branch, which
++    # costs tens of gigabytes of download for a run that touches one split.
++    selected = ([name.strip() for name in args.eval_datasets.split(",") if name.strip()]
++                if args.eval_datasets else list(EVAL_SPLITS))
++    unknown = [name for name in selected if name not in EVAL_SPLITS]
++    if unknown:
++        raise SystemExit(f"unknown --eval_datasets entries: {unknown}; known: {sorted(EVAL_SPLITS)}")
++
++    all_eval_examples = {}
++    for name in selected:
++        dataset, language = EVAL_SPLITS[name]
++        all_eval_examples[name] = load_test_dataset(args, dataset, language)
++
++    if not args.eval:
++        training_raw_data, eval_raw_data = load_train_and_valid_dataset()
++        all_eval_examples["github_eval"] = construct_dataset(
++            eval_raw_data, 100 if args.debug else 1000
++        )
+ 
+ 
+     global generator
+@@ -332,7 +341,7 @@ def run(args):
+ 
+             for inner_epoch in range(args.inner_epoch):
+                 for batch in dataloader:
+-                    source_ids, doc_ids, labels = [x.cuda() for x in batch]
++                    source_ids, doc_ids, labels = [to_device(x) for x in batch]
+                     queries_embeddings = retriever(source_ids)
+                     doc_texts_embeddings = retriever(doc_ids.view(-1, doc_ids.shape[-1])).view(source_ids.shape[0], args.sample_number, -1)
+                     logits = torch.einsum("ab,acb->ac", queries_embeddings, doc_texts_embeddings)*20
+@@ -509,12 +518,15 @@ if __name__ == "__main__":
+     parser.add_argument("--sample_number", default=10, type=int, help="Number of samples")
+     parser.add_argument("--data_per_epoch", default=2000, type=int, help="Amount of data per epoch")
+     parser.add_argument("--lr", default=5e-5, type=float, help="Learning rate")
++    parser.add_argument("--eval_datasets", default=None, type=str,
++                        help="Comma-separated evaluation splits to load; defaults to all.")
+ 
+ 
+-    print("Number of GPUs:", torch.cuda.device_count())
++    print("Device:", DEVICE, "| CUDA devices:", torch.cuda.device_count())
+ 
+     args = parser.parse_args()
+-    args.generator_batch_size = args.generator_batch_size_per_gpu * torch.cuda.device_count()
+-    args.retriever_batch_size = args.retriever_batch_size_per_gpu * torch.cuda.device_count()
++    device_count = max(torch.cuda.device_count(), 1)
++    args.generator_batch_size = args.generator_batch_size_per_gpu * device_count
++    args.retriever_batch_size = args.retriever_batch_size_per_gpu * device_count
+ 
+     run(args)
+diff --git a/retriever.py b/retriever.py
+index 78c2d36..e6ac825 100644
+--- a/retriever.py
++++ b/retriever.py
+@@ -4,6 +4,7 @@ from transformers import AutoTokenizer, AutoModel
+ from torch.utils.data import DataLoader, Dataset
+ from tqdm import tqdm
+ from datasets import CodeBlock
++from device import place, to_device
+ 
+ 
+ def tokenize(text, tokenizer, max_length, is_query, extracted_import=''):
+@@ -71,7 +72,7 @@ class Retriever(nn.Module):
+         self.args = args
+         if self.args.disable_retriever is False:
+             self.model = AutoModel.from_pretrained(args.retriever_model_path)
+-            self.model = torch.nn.DataParallel(self.model).cuda()
++            self.model = place(self.model)
+             self.model.eval()
+ 
+     def forward(self, source_ids):
+@@ -105,10 +106,10 @@ class Retriever(nn.Module):
+         code_embeddings = []
+         with torch.no_grad():
+             for batch in query_dataloader:
+-                batch = batch.cuda()
++                batch = to_device(batch)
+                 query_embeddings.append(self.forward(batch))
+             for batch in code_dataloader:
+-                batch = batch.cuda()
++                batch = to_device(batch)
+                 code_embeddings.append(self.forward(batch))
+         query_embeddings = torch.cat(query_embeddings, dim=0)
+         code_embeddings = torch.cat(code_embeddings, dim=0)

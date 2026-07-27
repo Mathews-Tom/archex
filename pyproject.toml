@@ -102,10 +102,17 @@ include = ["src/archex", "tests"]
 # Generated approval-test state is not repository source and is not type-checked.
 # scip_pb2.py is protoc-generated code (regenerate via scip.proto in the same directory),
 # not hand-authored source, and is not type-checked.
+# benchmarks/replication/ holds standalone operator scripts that drive an external paper's
+# harness. They deliberately target that harness's pinned dependency versions (tree_sitter
+# 0.20.4's Parser.set_language and Language.build_library, both removed in the 0.23+ this
+# project pins) and import the harness itself, which does not exist in a checkout, so strict
+# checking here reports intentional version-mismatch errors. Their use of
+# archex.benchmark.replication{,_analysis} is covered by tests/benchmark/test_s0_replication_artifacts.py.
 exclude = [
     "tests/fixtures/",
     ".venv/",
     "assets/",
+    "benchmarks/replication/",
     ".approval_tests_temp/",
     "src/archex/integrations/semantic/scip_pb2.py",
 ]
