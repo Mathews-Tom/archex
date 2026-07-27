@@ -186,16 +186,23 @@ class ScorecardRow(BaseModel):
     required_file_completeness_rate: float | None
     """Fraction of tasks whose required files were all present in the returned bundle.
 
-    This is a function of required-file recall and nothing else: each task contributes
-    ``1.0`` when no required file was missing and ``0.0`` otherwise
-    (``completion_result_from_missing``). **No model is in the loop** — archex never
-    calls one to decide whether a task was solved, so this measures retrieval
-    completeness, never downstream task success.
+    On every default path this is a function of required-file recall and nothing else:
+    each task contributes ``1.0`` when no required file was missing and ``0.0``
+    otherwise (``completion_result_from_missing``). **No model is in the loop** —
+    archex never calls one to decide whether a task was solved, so this measures
+    retrieval completeness, never downstream task success.
 
-    The single exception is the opt-in ``benchmark bundle-eval`` lane, where an
-    operator-supplied external evaluator command may report ``bundle_only_success``;
-    that value takes precedence for the tasks it covers. archex neither provides nor
-    calls that evaluator.
+    The one exception is the opt-in ``benchmark bundle-eval`` lane. When a result
+    carries a non-null ``bundle_only_success``, ``_completion_outcomes`` prefers it over
+    required-file completeness, and that value is answer correctness rather than file
+    completeness — a task with perfect required-file recall contributes ``0.0`` if the
+    bundle-only answer was wrong. It has two possible producers: the operator's
+    evaluator command may set ``bundle_only_success`` directly, or, when it omits the
+    field, archex derives it by exact string comparison of the evaluator's ``answer``
+    against the task's ``expected_answer``
+    (``archex.benchmark.bundle_eval._with_expected_answer_success``). archex ships no
+    evaluator and makes no hosted or network call for that lane; it invokes only the
+    local command the operator supplies.
 
     ``None`` when every task in the slice reported ``UNKNOWN``.
     """
