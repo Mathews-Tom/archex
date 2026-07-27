@@ -187,9 +187,9 @@ def render_summary_text(payload: dict[str, Any]) -> str:
         f"Returned tokens:        {totals['tokens_returned']}",
         f"Full-file tokens:       {totals['tokens_raw_equivalent']}",
         f"Targeted-read tokens:   {totals['tokens_targeted_read']}",
-        f"Savings vs full-file:   {totals['savings_pct']:.1f}% (vs full-file paste)",
         f"Savings vs targeted:    "
-        f"{totals['savings_pct_vs_targeted_read']:.1f}% (vs realistic targeted read)",
+        f"{totals['savings_pct_vs_targeted_read']:.1f}% (headline, vs realistic targeted read)",
+        f"Savings vs full-file:   {totals['savings_pct']:.1f}% (compression, vs full-file paste)",
         f"Whole-repo avoided:     {totals['whole_repo_tokens_avoided']} (upper bound, not savings)",
     ]
     if payload["health_warning"]:

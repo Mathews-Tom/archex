@@ -321,9 +321,10 @@ warning. A reindex repopulates the per-file totals.
 - returned token total
 - full-file (raw-equivalent) token total
 - targeted-read token total
-- savings vs realistic targeted read (the headline) and savings vs full-file paste
-  (compression, secondary); a `0.0%` targeted-read line next to a `0` targeted-read
-  token total means the events in the window carried no line spans, not zero savings
+- savings vs realistic targeted read, printed first and labeled `headline`, then savings vs
+  full-file paste, labeled `compression`; a `0.0%` targeted-read line next to a `0`
+  targeted-read token total means the events in the window carried no line spans, not zero
+  savings
 - whole-repo avoided tokens, demoted below the savings lines and labeled an
   upper-bound/context number, not savings
 - a per-surface event split (`cli` / `mcp` / `python_api`)

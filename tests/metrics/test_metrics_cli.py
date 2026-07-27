@@ -30,8 +30,8 @@ def test_bare_metrics_prints_current_repo_summary(
         result = runner.invoke(cli, ["metrics"])
 
     assert result.exit_code == 0, result.output
-    assert "Savings vs full-file:   90.0% (vs full-file paste)" in result.output
-    assert "Savings vs targeted:    0.0% (vs realistic targeted read)" in result.output
+    assert "Savings vs targeted:    0.0% (headline, vs realistic targeted read)" in result.output
+    assert "Savings vs full-file:   90.0% (compression, vs full-file paste)" in result.output
     assert "Whole-repo avoided:     990 (upper bound, not savings)" in result.output
     assert "Recording:              on" in result.output
     assert "Trace:                  off" in result.output
@@ -66,14 +66,16 @@ def test_metrics_summary_shows_both_baselines_and_demotes_whole_repo(
     payload = runner.invoke(cli, ["metrics", "summary", str(repo_root), "--format", "json"])
 
     assert text.exit_code == 0, text.output
-    assert "Savings vs full-file:   90.0% (vs full-file paste)" in text.output
-    assert "Savings vs targeted:    75.0% (vs realistic targeted read)" in text.output
+    assert "Savings vs targeted:    75.0% (headline, vs realistic targeted read)" in text.output
+    assert "Savings vs full-file:   90.0% (compression, vs full-file paste)" in text.output
     assert "Whole-repo avoided:     990 (upper bound, not savings)" in text.output
-    # The whole-repo line is demoted below the savings lines.
+    # The headline (targeted-read) savings line leads; full-file compression follows; the
+    # whole-repo upper bound is demoted below both.
     lines = text.output.splitlines()
-    savings_idx = next(i for i, ln in enumerate(lines) if ln.startswith("Savings vs targeted:"))
+    targeted_idx = next(i for i, ln in enumerate(lines) if ln.startswith("Savings vs targeted:"))
+    full_file_idx = next(i for i, ln in enumerate(lines) if ln.startswith("Savings vs full-file:"))
     whole_idx = next(i for i, ln in enumerate(lines) if ln.startswith("Whole-repo avoided:"))
-    assert whole_idx > savings_idx
+    assert targeted_idx < full_file_idx < whole_idx
 
     totals = json.loads(payload.output)["totals"]
     assert totals["savings_pct"] == 90.0
