@@ -214,6 +214,7 @@ __marimo__/
 .opencode/
 
 # Developer workspace; tracked reassessment contracts are explicit exceptions.
+!.docs/
 .docs/*
 !.docs/DEVELOPMENT_PLAN.md
 !.docs/EXECUTION_PROMPTS.md
