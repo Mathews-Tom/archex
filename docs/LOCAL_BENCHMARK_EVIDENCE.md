@@ -46,3 +46,32 @@ uv run archex benchmark gate --input <evidence-dir> --promotion-strategy <candid
 ```
 
 The promotion gate hard-fails every absolute row for the named candidate, including the product token-efficiency floor. It separately rejects required-file, region, or line-recall regressions against the control. The control remains an informational comparator for absolute quality, so its existing failures neither block a candidate nor become a promoted baseline.
+
+## Cross-tool efficiency baseline semantics
+
+`archex benchmark cross-tool` and its checked-in reference artifact
+[`benchmarks/cross-tool-efficiency/cross-tool-comparison.json`](../benchmarks/cross-tool-efficiency/cross-tool-comparison.json)
+report a token reduction against a naive grep/read agent. Read that number with the
+baseline's semantics in hand, because the baseline is deliberately naive and the reduction
+is a property of the baseline as much as of archex.
+
+`tokens_at_recall` (`src/archex/benchmark/cross_tool.py`) walks a path's retrieval units in
+that path's own fixed ranking and charges every unit it consumes until required-file recall
+reaches the target. For the naive path the ranking is lexical grep relevance and the units
+are whole grep-hit files (`full_file`) or the merged `+/-K` windows around the hits in a
+file (`grep_window`). There is no triage step: the modelled agent never looks at a grep hit,
+judges it irrelevant, and skips reading it, and it never stops early. It pays in full for
+every false positive that lexical relevance ranked ahead of a required file.
+
+That makes the baseline a **blind-read lower bound on a naive strategy**, not a model of
+competent agent behavior. A real agent greps, reads the returned line numbers, and opens one
+or two ranges. The published reduction is therefore an upper bound on the advantage over a
+grep/read workflow, and it says nothing about the advantage over an agent that triages.
+
+Two further conditions apply to every figure derived from the artifact:
+
+- The reduction is conditioned on archex reaching the target recall. Tasks where archex
+  misses are excluded rather than scored at unequal recall, so the number measures how much
+  cheaper archex localizes *when it succeeds*.
+- The self-repo corpus is withdrawn from every quoted figure (see below); its comparisons
+  remain in the artifact and are not deleted.
