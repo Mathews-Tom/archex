@@ -267,7 +267,7 @@ class TestM3ScorecardArtifact:
         artifact = build_m3_scorecard_artifact(
             reports, tasks_by_id, _manifest(), strategy=Strategy.ARCHEX_QUERY
         )
-        assert artifact.artifact_version == 1
+        assert artifact.artifact_version == 2
         assert len(artifact.language_scorecard) == 1
         assert len(artifact.family_scorecard) == 1
 
@@ -275,7 +275,7 @@ class TestM3ScorecardArtifact:
         save_m3_scorecard_artifact(path, artifact)
         loaded = load_m3_scorecard_artifact(path)
         assert loaded == artifact
-        assert json.loads(path.read_text())["artifact_version"] == 1
+        assert json.loads(path.read_text())["artifact_version"] == 2
 
     def test_markdown_renders_every_dimension_and_handles_missing_data(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1")}
@@ -308,7 +308,8 @@ class TestM3ScorecardArtifact:
         )
         markdown = format_m3_scorecard_markdown(artifact)
         # The column's meaning must travel with the rendered table, not live only in
-        # the source docstring, or a published scorecard reasserts downstream success.
+        # the source docstring, or a published scorecard reasserts a task-outcome claim
+        # the metric cannot support.
         assert "a function of required-file recall, with no model in" in markdown
         assert "`bundle_only_success`" in markdown
 
@@ -376,7 +377,7 @@ class TestScorecardCliCommand:
         )
         assert result.exit_code == 0
         payload = json.loads(result.output)
-        assert payload["artifact_version"] == 1
+        assert payload["artifact_version"] == 2
         assert artifact_path.exists()
         assert json.loads(artifact_path.read_text())["strategy"] == "archex_query"
 

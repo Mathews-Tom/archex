@@ -346,9 +346,14 @@ def build_family_scorecard(
 
 
 class M3ScorecardArtifact(BaseModel):
-    """Raw M3 slice-provenance artifact: one strategy's scorecards across every dimension."""
+    """Raw M3 slice-provenance artifact: one strategy's scorecards across every dimension.
 
-    artifact_version: Literal[1] = 1
+    ``artifact_version`` is ``2`` since ``ScorecardRow``'s completion field was renamed
+    to ``required_file_completeness_rate``. A version-1 artifact fails to load loudly
+    (pydantic reports the renamed field as missing); regenerate it rather than editing it.
+    """
+
+    artifact_version: Literal[2] = 2
     manifest: BenchmarkEvidenceManifest
     strategy: Strategy
     language_scorecard: list[ScorecardRow]
