@@ -49,9 +49,9 @@ That is the core idea behind archex's context reduction story. The goal is not t
 
 Structure is not the whole story. Comments, configuration, and dynamic runtime behavior still matter. That is why archex returns a context bundle assembled from code chunks, type definitions, dependency evidence, and metadata, rather than pretending syntax alone can answer every question.
 
-## Token Efficiency: Measured, Not Claimed
+## Token Efficiency
 
-Every archex tool response includes a `_meta` block reporting exactly how many tokens were saved compared to raw file access.
+Every archex tool response includes a `_meta` block reporting how many tokens were saved compared to raw file access. The worked examples below are illustrative sketches of that comparison, not measurements: each one states a plausible whole-file read cost and the archex cost for the same task, and every percentage is savings **against reading the file(s) in full**. That full-file baseline is a compression figure, not the conservative one — the realistic counterfactual is a targeted read of the matched line ranges plus a little context, against which savings are far smaller. See [Local Metrics](LOCAL_METRICS.md) for both baselines, the formulas, and the number to quote.
 
 ### Symbol Lookup
 
@@ -63,7 +63,7 @@ Task: Retrieve the ConnectionPool class implementation
 Without archex:  Open _pool.py                → 3,200 tokens
 With archex:     get_symbol("...::Pool#class") →   340 tokens
 
-Savings: 89%
+Savings vs reading the file in full: 89%
 ```
 
 ### File Understanding
@@ -76,7 +76,7 @@ Task: Understand what src/auth.py contains
 Without archex:  Read entire file        → 4,800 tokens
 With archex:     get_file_outline(file)  →   180 tokens (signatures + hierarchy only)
 
-Savings: 96%
+Savings vs reading the file in full: 96%
 ```
 
 ### Subsystem Understanding
@@ -97,10 +97,10 @@ With archex:     query("./repo", "How does auth work?", token_budget=8000) → 7
                  permission checker, config, 3 type definitions
                  Total: 7,600 tokens, 1 call, complete context
 
-Savings: 83%
+Savings vs reading all eight files in full: 83%
 ```
 
-The 83% number is real, not theoretical. It accounts for the structural metadata archex includes (file map, module context, type definitions, dependency summary) that makes the agent's response more accurate on the first try.
+This sketch accounts for the structural metadata archex includes (file map, module context, type definitions, dependency summary) that makes the agent's response more accurate on the first try. It is an illustration of the mechanism, not a measured result; the measured cross-tool figures live in [Local Metrics](LOCAL_METRICS.md#cross-tool-efficiency-offline-benchmark).
 
 ### Repository Navigation
 
@@ -112,7 +112,7 @@ Task: Understand the structure of a 500-file repository
 Without archex:  Read directory listing + skim files → 200,000+ tokens
 With archex:     get_file_tree(repo)                 →   2,000 tokens
 
-Savings: 99%
+Savings vs reading the listing and skimming files: 99%
 ```
 
 ---
