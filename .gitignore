@@ -213,8 +213,12 @@ __marimo__/
 .gemini
 .opencode/
 
-# Developer workspace
-.docs/
+# Developer workspace; tracked reassessment contracts are explicit exceptions.
+.docs/*
+!.docs/DEVELOPMENT_PLAN.md
+!.docs/EXECUTION_PROMPTS.md
+!.docs/spikes/
+!.docs/spikes/**
 .archex/*
 !.archex/baselines/
 !.archex/baselines/**
