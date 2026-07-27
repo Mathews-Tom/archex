@@ -170,11 +170,14 @@ localizes the required files, the token reduction versus the naive agent is:
 | external-localization | full_file | 20 / 21 | 13,247 | 469,836 | 97.2% |
 | external-localization | grep_window | 20 / 21 | 13,247 | 408,410 | 96.8% |
 
-**The self-repo corpus is withdrawn from this table and from every quoted figure.** Its 16
-comparable tasks are still in the artifact and are not deleted, but they are not published:
-archex's own generic keywords (`index`, `query`, `config`) match across its entire source,
-so the naive agent reads a median of 32.5 units per task there against 3.0 on the external
-corpora. The resulting per-corpus reduction measures that keyword density, not archex.
+**The self-repo corpus is withdrawn from this table and from every currently published
+figure.** Its 16 comparable tasks are still in the artifact and are not deleted, but they are
+no longer published: archex's own generic keywords (`index`, `query`, `config`) match across
+its entire source, so the naive agent reads a median of 32.5 units per task there against 3.0
+on the external corpora. The resulting per-corpus reduction measures that keyword density,
+not archex. Shipped changelog entries are historical records and are not rewritten, so the
+`0.15.0` entry still quotes the self-inclusive 95.4%–99.8% range as published at the time;
+this table supersedes it.
 
 "Comparable tasks" counts only tasks where both paths reach 100% required-file recall; every
 token figure sums over exactly that set, so no figure compares unequal recall. The reduction
