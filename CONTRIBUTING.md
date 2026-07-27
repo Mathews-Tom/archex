@@ -58,7 +58,7 @@ Until Gate A passes on R3's external replication verdict, contributors must not:
 - add a new language tier; or
 - add a new MCP tool.
 
-The unstarted forward milestones from the prior plan — M2, M3, M4, M5, and M10 — are **SUSPENDED — pending strategic-reassessment Gate A**. Do not resume them. The governing contract and the recorded lift condition are in tracked `.docs/DEVELOPMENT_PLAN.md` §3 (Gate A) and §6 (R3).
+The unstarted forward milestones from the prior plan — M2, M3, M4, M5, and M10 — are **SUSPENDED — pending strategic-reassessment Gate A**. Do not resume them. The local strategic-reassessment record is `.docs/strategic-reassessment/`; the governing contract and recorded lift condition are in tracked `.docs/DEVELOPMENT_PLAN.md` §3 (Gate A) and §6 (R3).
 
 R5, MCP retrieval-gated tool disclosure, is the sole carve-out before Gate A. It may change how existing MCP tools are exposed, but must not add or remove a tool capability or change tool behavior.
 
