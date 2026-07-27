@@ -300,6 +300,18 @@ class TestM3ScorecardArtifact:
         assert "| Required-File Completeness |" in markdown
         assert "Downstream Success" not in markdown
 
+    def test_markdown_carries_the_completeness_definition_with_the_table(self) -> None:
+        tasks_by_id = {"t1": _task(task_id="t1")}
+        reports = [_report("t1", [_result("t1")])]
+        artifact = build_m3_scorecard_artifact(
+            reports, tasks_by_id, _manifest(), strategy=Strategy.ARCHEX_QUERY
+        )
+        markdown = format_m3_scorecard_markdown(artifact)
+        # The column's meaning must travel with the rendered table, not live only in
+        # the source docstring, or a published scorecard reasserts downstream success.
+        assert "a function of required-file recall, with no model in" in markdown
+        assert "`bundle_only_success`" in markdown
+
 
 class TestScorecardCliCommand:
     def _patch_evidence(

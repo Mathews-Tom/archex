@@ -399,6 +399,16 @@ def _format_optional(value: float | None, *, precision: int = 3) -> str:
     return "n/a" if value is None else f"{value:.{precision}f}"
 
 
+#: Rendered under every scorecard so the column's meaning travels with the table.
+_COMPLETENESS_NOTE = (
+    "> **Required-File Completeness** is the fraction of tasks whose required files were all",
+    "> present in the returned bundle — a function of required-file recall, with no model in",
+    "> the loop. In the opt-in `benchmark bundle-eval` lane a non-null `bundle_only_success`",
+    "> takes precedence for the tasks it covers, and there the value is answer correctness",
+    "> rather than file completeness.",
+)
+
+
 def _format_rows_table(rows: list[ScorecardRow]) -> list[str]:
     if not rows:
         return ["_No tasks in this dimension._"]
@@ -441,4 +451,5 @@ def format_m3_scorecard_markdown(artifact: M3ScorecardArtifact) -> str:
         lines.append("")
         lines.extend(_format_rows_table(rows))
         lines.append("")
+    lines.extend(_COMPLETENESS_NOTE)
     return "\n".join(lines)
