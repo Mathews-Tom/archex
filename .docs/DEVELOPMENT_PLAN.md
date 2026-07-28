@@ -78,7 +78,7 @@ graph TD
   R15 --> R16
 ```
 
-Gate A sits on R3's verdict and blocks R7. Gate B sits on R10's verdict and blocks R12–R15. Gate C is R16.
+Gate A sat on R3's verdict and blocked R7. **It failed on 2026-07-28** (`GATE-A.md`), so R7–R16 are cancelled and Gates B and C never come into play. The graph above is the plan as designed; §8 records what remains.
 
 ## 4. Release Trains
 
@@ -157,15 +157,15 @@ A milestone in the `unversioned` set that later proves user-visible moves to a t
 
 | Field | Value |
 | --- | --- |
-| Objective | Quantify exactly how much the existing corpus can detect, so later effect sizes and equivalence margins are grounded rather than assumed. |
-| In / Out of scope | In: leakage scoring, clustering statistics, held-out leak measurement, power simulation, utility-derived MWG/NIM/EQM. Out: fixing the corpus; deleting tasks; changing retrieval. |
-| Depends on | `R1` |
+| Objective | Quantify exactly how much any corpus this project can assemble is able to detect. Originally framed as grounding R9's margins; **re-scoped 2026-07-28 after Gate A** — R9 is cancelled, and R4's question is now the program's disposition question: R3 measured a +2.8125 delta carrying a 5.8-point cluster interval on an *external* corpus with 8 clean balanced clusters, so whether archex's own corpus can resolve a literature-sized effect is the direct explanation for 25 uninterpretable nulls. |
+| In / Out of scope | In: leakage scoring, clustering statistics, held-out leak measurement, power simulation, and a calibration of that simulation against R3's RepoEval corpus. Out: fixing the corpus; deleting tasks; changing retrieval; deriving MWG/NIM/EQM, which existed to feed cancelled R9. |
+| Depends on | `R1`, and `R3`'s measured interval as a calibration input |
 | Target release | `unversioned` |
-| Deliverables | A leakage score for all 66 `benchmarks/tasks/*.yaml` (gold symbol or path appearing verbatim in `question` or `keywords`; 8 of 21 already confirmed in the `loc_*` family); ICC over repo clusters with the items-per-cluster distribution and largest-cluster share (known: 24/64 self-repo = 37.5%); an empirical held-out leak measurement for `benchmarks/held_out.txt` (note `archex_project_status` and `archex_query_pipeline` are self-repo-cluster members that also appear in the tuning set); a power simulation over the measured cluster-size distribution reporting how many **independent repos** make a utility-derived EQM reachable; separately derived MWG, NIM, and EQM per candidate primary metric with EQM strictly positive; `benchmarks/evidence/s2-corpus-validity.json`. |
-| Acceptance | Every one of the six deliverables is present in the artifact. EQM is strictly positive and derived from utility, never from observed SD. The report states plainly, for each candidate primary metric, whether any realistic corpus size makes its EQM reachable. |
-| Verification | `uv run archex benchmark validate --kind evidence --input benchmarks/evidence/s2-corpus-validity.json` exits 0; the audit script reruns deterministically to the same figures; full gate green. |
-| Design reevaluation | Re-count the corpus before auditing — task count has changed across milestones. Dependents: R9, R10 — R9's analysis plan consumes these margins directly. |
-| Risks & rollback | Risk: the simulation shows no reachable EQM for the chosen primary metric. That is a **finding**, and it retires that metric before R9 rather than after R10. Rollback: revert; measurement only. |
+| Deliverables | A leakage score for every `benchmarks/tasks/*.yaml` (gold symbol or path appearing verbatim in `question` or `keywords`; 8 of 21 previously confirmed in the `loc_*` family — re-count, do not assume); ICC over repo clusters with the items-per-cluster distribution and largest-cluster share (previously 24/64 self-repo = 37.5% — re-count); an empirical held-out leak measurement for `benchmarks/held_out.txt` (note `archex_project_status` and `archex_query_pipeline` are self-repo-cluster members that also appear in the tuning set); a power simulation over the measured cluster-size distribution reporting the minimum detectable effect at the current N and how many **independent repositories** would be needed to resolve an effect the size R3 targeted (+4.88 points); the same simulation applied to R3's 8-cluster RepoEval structure and checked against its measured interval width, as a validation point rather than a projection; `benchmarks/evidence/s2-corpus-validity.json`. |
+| Acceptance | Every deliverable is present in the artifact. The simulation is validated against R3's measured interval before any projection about archex's corpus is believed. The report states plainly, and in one line, whether any realistic number of independent repositories makes a literature-sized effect detectable here. A negative answer is the expected and acceptable outcome. |
+| Verification | `uv run archex benchmark validate --kind replication --input benchmarks/evidence/s2-corpus-validity.json` is **not** applicable — this is an internal measurement, not a replication. R4 names its own validator at its design gate per §7's evidence-artifact rule; the audit script must rerun deterministically to the same figures; full gate green. |
+| Design reevaluation | Re-count the corpus before auditing; task counts have changed across milestones and the previously quoted 66 and 64 disagree. Resolve §7's evidence-artifact defect for this milestone's artifact shape. Dependents: none surviving — R9 and R10 are cancelled, so R4's output feeds the disposition decision and the root-cause effort, not a downstream analysis plan. |
+| Risks & rollback | Risk: the simulation shows no reachable N for any candidate metric. That is the **finding**, not a failure, and it is the strongest available evidence about what this program can and cannot conclude. Rollback: revert; measurement only. |
 | Est. PRs | 3 |
 
 ### Section C — Zero-research-risk product wins
@@ -195,16 +195,16 @@ Both run in parallel with Section B and ship regardless of Gate A.
 | In / Out of scope | In: measuring prefix-cache hit rate and cost across repeated multi-turn sessions for deterministic ordering, perturbed ordering, and a non-deterministic ANN baseline. Out: changing archex's ordering; any claim about retrieval quality. |
 | Depends on | `R1` |
 | Target release | `unversioned` |
-| Deliverables | `.docs/spikes/S7-determinism-economics.md` pre-registered and merged before any run; a measurement harness; `benchmarks/evidence/s7-determinism-economics.json` reporting cache-hit rate and $/resolved-task per arm against published multipliers; a `DECISION.md`. |
+| Deliverables | `benchmarks/preregistrations/S7-determinism-economics.md` pre-registered and merged before any run; a measurement harness; `benchmarks/evidence/s7-determinism-economics.json` reporting cache-hit rate and $/resolved-task per arm against published multipliers; a `DECISION.md`. |
 | Acceptance | All three arms measured on the same sessions. The report states cache-hit rate and cost delta with a cluster-bootstrapped interval. If the measured cost delta is under 5%, the decision document says so and explicitly retires the economic framing, keeping determinism as a reproducibility property only. |
 | Verification | `uv run archex benchmark validate --kind evidence --input benchmarks/evidence/s7-determinism-economics.json` exits 0; full gate green. |
 | Design reevaluation | Confirm the pricing multipliers cited in `01-LITERATURE-POSITION.md` §G6 are still current at run time; a stale multiplier invalidates the dollar figure but not the hit-rate figure. Dependents: R16. |
 | Risks & rollback | Risk: a null (<5% delta). Pre-declared as an acceptable, reportable outcome, not a failure. Rollback: revert. |
 | Est. PRs | 2 |
 
-### Section D — The instrument
+### Section D — The instrument `CANCELLED — GATE A FAIL`
 
-All of Section D is authorized only by a Gate A pass.
+**Cancelled 2026-07-28 by Gate A.** All of Section D was authorized only by a Gate A pass. Gate A failed: the RLCoder arm reproduced +2.8125 EM points against a pre-registered band of `[+2.88, +6.88]` and the cAST arm was unrunnable. See `GATE-A.md`. R7–R11 are cancelled and are retained below as a record of what was planned, not as work to be started. Reviving any of them requires a *new* pre-registered replication attempt that passes on its own terms, not an amendment to R3.
 
 #### R7 — Real-agent execution harness
 
@@ -283,9 +283,9 @@ All of Section D is authorized only by a Gate A pass.
 | Risks & rollback | Risk: extraction breaks `archex`'s own benchmark CLI. Mitigation: extract additively, then remove, in separate PRs. Rollback: revert the removal PR only. |
 | Est. PRs | 4 |
 
-### Section E — Payload
+### Section E — Payload `CANCELLED — GATE A FAIL`
 
-Ordered by cost-to-value. R12 first: it reuses R10's harness wholesale and both outcomes publish.
+**Cancelled 2026-07-28 by Gate A.** R12–R15 each consumed R10's harness, which Section D was to build. Retained below as a record of what was planned. Ordering note, now historical: R12 was to run first because it reused R10 wholesale and both outcomes published.
 
 #### R12 — S6 long context versus retrieval, matched, on code
 
@@ -347,7 +347,9 @@ Ordered by cost-to-value. R12 first: it reuses R10's harness wholesale and both 
 | Risks & rollback | Risk: the unreachable stratum is under 10%, giving the mechanism no addressable surface. Pre-declared: stop before implementing; the sizing report is the deliverable. Rollback: revert; the default path is untouched. |
 | Est. PRs | 4 |
 
-### Section F — Publication and disposition
+### Section F — Publication and disposition `CANCELLED — GATE A FAIL`
+
+**Cancelled 2026-07-28 by Gate A.** R16 depended on R11–R15, all cancelled, so it cannot be assembled as specified and is retained below as a record. What remains publishable is narrower and different in kind: the negative replication result itself, plus the two findings R3 produced about the state of code-RAG evaluation — a released peer-reviewed harness that silently mis-scores under a spawn start method, and a published paper whose reported metric exceeds the ceiling of the metric its own reference harness computes. Whether that constitutes a paper is decided after R4 reports, not here.
 
 #### R16 — Public artifact release and Gate C disposition
 
@@ -370,7 +372,7 @@ Ordered by cost-to-value. R12 first: it reuses R10's harness wholesale and both 
 
 **Evidence classing (applies to R3, R13, R14, R15).** Every arm is labelled `replication`, `adaptation`, or `original`. An adaptation-class null licenses only "as implemented here, on this corpus, it did not clear a cost-justified bar" — never a refutation of the literature. R3 is the program's replication anchor; no null anywhere claims more than adaptation class until R3 passes.
 
-**Pre-registration (applies to R3, R6, R10, R12, R13, R14, R15).** Every spike pre-registration is a tracked file under `.docs/spikes/`, merges before its first run, and uses commit order as proof. A metric, margin, or hypothesis added after data exists is labelled post-hoc in every table.
+**Pre-registration (applies to R3, R6, R10, R12–R15; only R3 and R6 survive Gate A).** Every spike pre-registration is a tracked file that merges before its first run and uses commit order as proof. A metric, margin, or hypothesis added after data exists is labelled post-hoc in every table. **New pre-registrations live in `benchmarks/preregistrations/`** — `.docs/` is ignored by the global excludes file, so a pre-registration written there is silently untrackable and the commit-order proof cannot exist. R3's `.docs/spikes/S0-replication-gate.md` stays at its historical path: it is tracked, closed, and referenced by `GATE-A.md`, both evidence artifacts, and their guard test.
 
 **Evidence-artifact validation (applies to R3, R4, R6, R10, R12–R15).** `archex benchmark validate --kind evidence` validates an evidence *directory* carrying a `manifest.json`, archex task IDs, and archex strategy names; it rejects a file path outright. A milestone whose deliverable is a single artifact under `benchmarks/evidence/*.json` therefore cannot be verified by that command and must name a validator that accepts its artifact. R3 adds `--kind replication` for external-reproduction artifacts. Every milestone above whose §6 verification names `--kind evidence` over a `.json` file inherits this defect and resolves it at its own design gate, either by emitting a conforming directory or by naming a validator for its shape.
 
@@ -384,25 +386,36 @@ Ordered by cost-to-value. R12 first: it reuses R10's harness wholesale and both 
 
 ## 8. Critical Path
 
+**Realized 2026-07-28.** R1, R2, and R3 are complete. Gate A failed, so the critical path below is what remains, not what was originally planned. The cancelled path is preserved in the second table for the record.
+
 | Order | Milestone | Gate | Blocking reason |
 | --- | --- | --- | --- |
-| 1 | R1 | — | Pre-registration substrate must exist before any spike |
-| 2 | R3 | **Gate A** | Replication anchor; a fail cancels R7–R16 |
-| 3 | R4 | — | Supplies the margins R9 consumes; runs parallel to R3 |
-| 4 | R7 | — | First model in the loop |
-| 5 | R8 | — | External labels replace self-authored ones |
-| 6 | R9 | — | Analysis must be fixed before results exist |
-| 7 | R10 | **Gate B** | The program's central measurement |
-| 8 | R12 | — | Cheapest payload; reuses R10 wholesale; both outcomes publish |
-| 9 | R13 ∥ R14 | — | Highest-payoff research result ∥ product line P2 |
-| 10 | R16 | **Gate C** | Terminal |
-
-Off the critical path, running in parallel: R2 (after R1), R5 and R6 (after R1), R11 (after R10), R15 (after R10, conditional on its sizing query).
+| 1 | R1 | — | Complete |
+| 2 | R3 | **Gate A — FAILED** | Complete; verdict in `GATE-A.md`, not renegotiable |
+| 3 | R2 | — | Complete |
+| 4 | **R4** | — | Next. Re-scoped by Gate A: it no longer supplies R9's margins, it answers whether any corpus this project can assemble could detect a literature-sized effect at all. That answer decides the program's disposition. |
+| 5 | R5 ∥ R6 | — | Section C; ship regardless of Gate A. Together with R2 they complete the `claims-and-cost` train. |
+| 6 | Root-cause effort | — | Mandated by the Gate A fail clause; scope is set after R4 reports, since R4 supplies the resolution figure the root-cause question turns on. |
 
 ```mermaid
 graph LR
-  R1 --> R3 --> R7 --> R8 --> R9 --> R10 --> R12 --> R13 --> R16
-  R4 --> R7
+  R1 --> R2
+  R1 --> R3
+  R1 --> R4
+  R1 --> R5
+  R1 --> R6
+  R3 -->|Gate A FAIL| R4
+  R4 --> RC[Root-cause effort]
+  R2 --> T[claims-and-cost train]
+  R5 --> T
+```
+
+Cancelled by Gate A, retained for the record:
+
+```mermaid
+graph LR
+  R7 --> R8 --> R9 --> R10 --> R12 --> R13 --> R16
   R10 --> R14 --> R16
-  R12 --> R16
+  R10 --> R11
+  R10 --> R15
 ```
