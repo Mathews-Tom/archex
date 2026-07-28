@@ -2,35 +2,30 @@
 
 ## Decision
 
-**Keep the economic framing for the frozen S7 session fixture. Do not change archex retrieval ordering or claim retrieval-quality improvement.**
+**Retire the economic framing. Determinism remains a reproducibility property only. Archex retrieval ordering is unchanged.**
 
-The pre-registered 5% SESOI was exceeded for both comparators, so the pre-declared retirement rule does not apply:
+The frozen fixture's rendered prefixes contain fewer than the 512-token minimum for Claude Opus 5 prompt caching. The pricing model therefore classifies every prefix as uncached. All three arms have a 0.00% cache-hit rate and the same modeled input cost per resolved task: $0.00151000. Each deterministic-versus-comparator cost reduction is 0.00% with a 95% repository-cluster bootstrap interval of [0.00%, 0.00%].
 
-| Arm | Cache-hit rate, 95% repository-cluster interval | Input cost / resolved task, 95% repository-cluster interval |
-| --- | ---: | ---: |
-| Deterministic ordering | 66.67% [66.67%, 66.67%] | $0.00095846 [$0.00071594, $0.00144350] |
-| Perturbed ordering | 33.26% [20.94%, 45.13%] | $0.00136863 [$0.00110406, $0.00189775] |
-| Seeded ANN-ordering comparator | 20.92% [16.59%, 29.17%] | $0.00152004 [$0.00118025, $0.00219963] |
-
-Relative to the comparators, deterministic ordering reduced modeled input cost by 29.97% [23.94%, 35.15%] against perturbed ordering and 36.95% [34.38%, 39.34%] against the seeded ANN-ordering comparator.
+This fires the pre-registered kill criterion: each comparator is below the +5% SESOI. The null is acceptable and is not a retrieval-quality result.
 
 ## Evidence boundary
 
-`benchmarks/evidence/s7-determinism-economics.json` records input-side prefix-cache accounting for eight frozen, repeated multi-turn coding sessions across four repository clusters. It uses byte-identical rendered prefixes and `cl100k_base` token counts. It does not call a hosted model, observe a provider cache ledger, alter archex's ordering, or evaluate retrieval quality. The ANN comparator is seeded for reproducibility while representing unstable per-turn context ordering; it is not a claim about any vendor ANN implementation.
+The artifact records eight frozen, repeated three-turn sessions in four repository clusters. Each session deliberately repeats the same selected context order over its turns; the deterministic arm's counterfactual cache hit rate would therefore be at its two-of-three-turn ceiling if every prefix were cacheable. It is not cacheable under the recorded provider rule, so the degenerate zero cache-hit and cost-reduction intervals are construction plus eligibility facts, not an estimate of production spend.
 
-The dollar figures use the recorded public `claude-opus-5` input schedule: $5.00 per million base input tokens, 1.25x five-minute cache writes, and 0.1x cache reads. They are pricing-model estimates, not billed usage. The pricing source was rechecked at run time: <https://platform.claude.com/docs/en/about-claude/pricing>.
+The harness stores the canonical rendered prefix strings, SHA-256 prefix identities, session-fixture digest, exact command, token-counting method, pricing URL, and pricing retrieval timestamp. `cl100k_base` is a proxy rather than Claude Opus 5's tokenizer; Claude documents that its newer tokenizer can produce approximately 30% more tokens for the same text. That mismatch affects absolute dollar estimates but not the zero cost-reduction result because every arm uses identical input-token accounting.
+
+The price ledger uses the recorded Claude Opus 5 schedule: $5.00 per million base input tokens, 1.25x five-minute cache writes, 0.1x cache reads, and the 512-token minimum cacheable prefix. Pricing source retrieved at `2026-07-28T21:53:33Z`: <https://platform.claude.com/docs/en/about-claude/pricing>. Cache eligibility source: <https://platform.claude.com/docs/en/build-with-claude/prompt-caching>.
 
 ## Reproduction
 
-Start from a clean checkout at source revision `2224d0d41c293702d6450a182899f48576252e2d` after pre-registration commit `0c8c8483aab09c8b4d9e6c4e2f80408de7e2ed6e` is reachable:
+Use a clean checkout at source revision `3a88f6af349a0f6d64399e261b2f643d24b4f530`:
 
 ```text
-uv run archex benchmark determinism-economics --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 0c8c8483aab09c8b4d9e6c4e2f80408de7e2ed6e
+uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics/sessions.json --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 501636abb09cbcf6edee5783305af6bcb313606a --pricing-retrieved-at 2026-07-28T21:53:33Z --resamples 10000 --seed 20260729
+uv run archex benchmark validate --kind determinism-economics --input benchmarks/evidence/s7-determinism-economics.json
 uv run archex benchmark validate --kind evidence --input benchmarks/evidence/s7-determinism-economics.json
 ```
 
-The evidence fixes the session-fixture digest, pricing schedule, 10,000 repository-cluster bootstrap resamples, and seed `20260729`. Reproducing the command produces the same values except `generated_at`.
-
 ## Limits and next action
 
-Treat this as proof that stable context order materially changes the modeled prefix-cache ledger for the frozen fixture. Do not extrapolate it to production spend until a real model-backed run records provider-reported cache tokens under an explicitly pinned model and TTL. Archex's default ordering remains unchanged.
+Do not extrapolate this fixture-only null to a deployment. A future study needs real model-backed cache usage and cache-eligible context lengths, pre-registered before data generation. No retrieval-quality claim follows from this study.

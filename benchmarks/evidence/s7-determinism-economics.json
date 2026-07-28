@@ -2,18 +2,22 @@
   "evidence_version": 1,
   "spike_id": "S7",
   "preregistration": "benchmarks/preregistrations/S7-determinism-economics.md",
-  "preregistration_commit": "0c8c8483aab09c8b4d9e6c4e2f80408de7e2ed6e",
-  "source_revision": "2224d0d41c293702d6450a182899f48576252e2d",
+  "preregistration_commit": "501636abb09cbcf6edee5783305af6bcb313606a",
+  "source_revision": "3a88f6af349a0f6d64399e261b2f643d24b4f530",
+  "session_fixture": "benchmarks/determinism_economics/sessions.json",
   "session_fixture_sha256": "c01f2ba787cbb46f2dd585881d95e5ce131ae103b508816c688087d915c31cef",
-  "generated_at": "2026-07-28T21:22:54Z",
+  "measurement_command": "uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics/sessions.json --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 501636abb09cbcf6edee5783305af6bcb313606a --pricing-retrieved-at 2026-07-28T21:53:33Z --resamples 10000 --seed 20260729",
+  "generated_at": "2026-07-28T21:53:44Z",
   "tokenizer": "cl100k_base",
   "pricing": {
     "model": "claude-opus-5",
     "base_input_usd_per_million": 5.0,
     "cache_write_multiplier": 1.25,
     "cache_read_multiplier": 0.1,
+    "minimum_cacheable_tokens": 512,
     "cache_ttl": "5m",
-    "source_url": "https://platform.claude.com/docs/en/about-claude/pricing"
+    "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "retrieved_at": "2026-07-28T21:53:33Z"
   },
   "arms": [
     {
@@ -23,97 +27,177 @@
           "session_id": "archex-index-01",
           "repository": "Mathews-Tom/archex",
           "resolved": true,
-          "cacheable_tokens": 165,
-          "cache_read_tokens": 110,
-          "cache_write_tokens": 55,
-          "uncached_input_tokens": 65,
-          "input_cost_usd": 0.00072375
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 230,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n"
+          ],
+          "prefix_sha256": [
+            "1095aca56d4a86ee01eccb0d3c9028ad23f9b150ad7efe25279b2fda4d65f249",
+            "1095aca56d4a86ee01eccb0d3c9028ad23f9b150ad7efe25279b2fda4d65f249",
+            "1095aca56d4a86ee01eccb0d3c9028ad23f9b150ad7efe25279b2fda4d65f249"
+          ],
+          "input_cost_usd": 0.00115
         },
         {
           "session_id": "archex-query-02",
           "repository": "Mathews-Tom/archex",
           "resolved": true,
-          "cacheable_tokens": 162,
-          "cache_read_tokens": 108,
-          "cache_write_tokens": 54,
-          "uncached_input_tokens": 69,
-          "input_cost_usd": 0.0007365
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 231,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n"
+          ],
+          "prefix_sha256": [
+            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e",
+            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e",
+            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e"
+          ],
+          "input_cost_usd": 0.001155
         },
         {
           "session_id": "enginery-stage-03",
           "repository": "Mathews-Tom/Enginery",
           "resolved": true,
-          "cacheable_tokens": 165,
-          "cache_read_tokens": 110,
-          "cache_write_tokens": 55,
-          "uncached_input_tokens": 76,
-          "input_cost_usd": 0.00077875
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 241,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n"
+          ],
+          "prefix_sha256": [
+            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e",
+            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e",
+            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e"
+          ],
+          "input_cost_usd": 0.001205
         },
         {
           "session_id": "enginery-release-04",
           "repository": "Mathews-Tom/Enginery",
           "resolved": false,
-          "cacheable_tokens": 153,
-          "cache_read_tokens": 102,
-          "cache_write_tokens": 51,
-          "uncached_input_tokens": 61,
-          "input_cost_usd": 0.00067475
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 214,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\n"
+          ],
+          "prefix_sha256": [
+            "dec277eb466837cb4a4039be40fa0683a7683fd225f6c3542b8759fea9a21ac6",
+            "dec277eb466837cb4a4039be40fa0683a7683fd225f6c3542b8759fea9a21ac6",
+            "dec277eb466837cb4a4039be40fa0683a7683fd225f6c3542b8759fea9a21ac6"
+          ],
+          "input_cost_usd": 0.00107
         },
         {
           "session_id": "kosha-memory-05",
           "repository": "Mathews-Tom/Kosha",
           "resolved": true,
-          "cacheable_tokens": 159,
-          "cache_read_tokens": 106,
-          "cache_write_tokens": 53,
-          "uncached_input_tokens": 69,
-          "input_cost_usd": 0.00072925
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 228,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\n"
+          ],
+          "prefix_sha256": [
+            "379127018f44576ae17ef1bb23d51e3ccc3e9b1ef56319204946ba33d816a57e",
+            "379127018f44576ae17ef1bb23d51e3ccc3e9b1ef56319204946ba33d816a57e",
+            "379127018f44576ae17ef1bb23d51e3ccc3e9b1ef56319204946ba33d816a57e"
+          ],
+          "input_cost_usd": 0.00114
         },
         {
           "session_id": "kosha-policy-06",
           "repository": "Mathews-Tom/Kosha",
           "resolved": true,
-          "cacheable_tokens": 159,
-          "cache_read_tokens": 106,
-          "cache_write_tokens": 53,
-          "uncached_input_tokens": 58,
-          "input_cost_usd": 0.00067425
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 217,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\n"
+          ],
+          "prefix_sha256": [
+            "683266a4b5bc8f2cd7b0911fcc0fba8e4437c0431bf7bd9aacfeacff6400a53e",
+            "683266a4b5bc8f2cd7b0911fcc0fba8e4437c0431bf7bd9aacfeacff6400a53e",
+            "683266a4b5bc8f2cd7b0911fcc0fba8e4437c0431bf7bd9aacfeacff6400a53e"
+          ],
+          "input_cost_usd": 0.001085
         },
         {
           "session_id": "searchat-store-07",
           "repository": "Mathews-Tom/searchat",
           "resolved": true,
-          "cacheable_tokens": 168,
-          "cache_read_tokens": 112,
-          "cache_write_tokens": 56,
-          "uncached_input_tokens": 70,
-          "input_cost_usd": 0.000756
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 238,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n"
+          ],
+          "prefix_sha256": [
+            "5ad9dfcecb306cabf67525fb83112bbeb9e46d44a55744a8314c51855576a082",
+            "5ad9dfcecb306cabf67525fb83112bbeb9e46d44a55744a8314c51855576a082",
+            "5ad9dfcecb306cabf67525fb83112bbeb9e46d44a55744a8314c51855576a082"
+          ],
+          "input_cost_usd": 0.00119
         },
         {
           "session_id": "searchat-api-08",
           "repository": "Mathews-Tom/searchat",
           "resolved": false,
-          "cacheable_tokens": 150,
-          "cache_read_tokens": 100,
-          "cache_write_tokens": 50,
-          "uncached_input_tokens": 63,
-          "input_cost_usd": 0.0006775
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 213,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\n"
+          ],
+          "prefix_sha256": [
+            "6d11c7f616a966815a2c9fd8ecb8be1541f9d21d731678f0afd093b6a151a6cc",
+            "6d11c7f616a966815a2c9fd8ecb8be1541f9d21d731678f0afd093b6a151a6cc",
+            "6d11c7f616a966815a2c9fd8ecb8be1541f9d21d731678f0afd093b6a151a6cc"
+          ],
+          "input_cost_usd": 0.001065
         }
       ],
-      "cache_hit_rate": 0.6666666666666666,
+      "cache_hit_rate": 0.0,
       "cache_hit_rate_interval": {
-        "point_estimate": 0.6666666666666666,
-        "low": 0.6666666666666666,
-        "high": 0.6666666666666666,
+        "point_estimate": 0.0,
+        "low": 0.0,
+        "high": 0.0,
         "resamples": 10000,
         "seed": 20260729,
         "confidence": 0.95
       },
-      "input_cost_usd_per_resolved_task": 0.0009584583333333333,
+      "input_cost_usd_per_resolved_task": 0.0015099999999999998,
       "input_cost_usd_per_resolved_task_interval": {
-        "point_estimate": 0.0009584583333333333,
-        "low": 0.0007159375,
-        "high": 0.0014435000000000001,
+        "point_estimate": 0.0015099999999999998,
+        "low": 0.0011324999999999998,
+        "high": 0.002265,
         "resamples": 10000,
         "seed": 20260730,
         "confidence": 0.95
@@ -126,97 +210,177 @@
           "session_id": "archex-index-01",
           "repository": "Mathews-Tom/archex",
           "resolved": true,
-          "cacheable_tokens": 165,
+          "cacheable_tokens": 0,
           "cache_read_tokens": 0,
-          "cache_write_tokens": 165,
-          "uncached_input_tokens": 65,
-          "input_cost_usd": 0.00135625
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 230,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n"
+          ],
+          "prefix_sha256": [
+            "77faef4df09f925cb7cb74c922ee814678f3c15e5b3182eac6dd691e45aab653",
+            "db7eeaa927843b29402e371e12c80dc6872243ba3aad0323632421335319286e",
+            "1095aca56d4a86ee01eccb0d3c9028ad23f9b150ad7efe25279b2fda4d65f249"
+          ],
+          "input_cost_usd": 0.00115
         },
         {
           "session_id": "archex-query-02",
           "repository": "Mathews-Tom/archex",
           "resolved": true,
-          "cacheable_tokens": 162,
-          "cache_read_tokens": 54,
-          "cache_write_tokens": 108,
-          "uncached_input_tokens": 69,
-          "input_cost_usd": 0.001047
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 231,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\n"
+          ],
+          "prefix_sha256": [
+            "b8d16d6041eb8739e07b0a4f917d6e0ee641e0f74c933165c38c0aff505ff023",
+            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e",
+            "b8d16d6041eb8739e07b0a4f917d6e0ee641e0f74c933165c38c0aff505ff023"
+          ],
+          "input_cost_usd": 0.001155
         },
         {
           "session_id": "enginery-stage-03",
           "repository": "Mathews-Tom/Enginery",
           "resolved": true,
-          "cacheable_tokens": 165,
-          "cache_read_tokens": 110,
-          "cache_write_tokens": 55,
-          "uncached_input_tokens": 76,
-          "input_cost_usd": 0.00077875
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 241,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n"
+          ],
+          "prefix_sha256": [
+            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e",
+            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e",
+            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e"
+          ],
+          "input_cost_usd": 0.001205
         },
         {
           "session_id": "enginery-release-04",
           "repository": "Mathews-Tom/Enginery",
           "resolved": false,
-          "cacheable_tokens": 153,
+          "cacheable_tokens": 0,
           "cache_read_tokens": 0,
-          "cache_write_tokens": 153,
-          "uncached_input_tokens": 61,
-          "input_cost_usd": 0.00126125
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 214,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\n"
+          ],
+          "prefix_sha256": [
+            "dec277eb466837cb4a4039be40fa0683a7683fd225f6c3542b8759fea9a21ac6",
+            "7f33e43c270174ca36be13b18a652a7871bfdbf71e87cc8852c0d4247437f6f9",
+            "df1021312bc166a46a59086d101b90cce6cb3addf1afd773503d59942ebcd7df"
+          ],
+          "input_cost_usd": 0.00107
         },
         {
           "session_id": "kosha-memory-05",
           "repository": "Mathews-Tom/Kosha",
           "resolved": true,
-          "cacheable_tokens": 159,
-          "cache_read_tokens": 53,
-          "cache_write_tokens": 106,
-          "uncached_input_tokens": 69,
-          "input_cost_usd": 0.001034
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 228,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\n"
+          ],
+          "prefix_sha256": [
+            "fa9be6d6db78606b4723b68d089788d2b695a41336a1ccdd8dee1b810e54fe04",
+            "fa9be6d6db78606b4723b68d089788d2b695a41336a1ccdd8dee1b810e54fe04",
+            "518474f431c349b6d6bb7c5ef8c95517988a874041100f16db0eafd9f47de986"
+          ],
+          "input_cost_usd": 0.00114
         },
         {
           "session_id": "kosha-policy-06",
           "repository": "Mathews-Tom/Kosha",
           "resolved": true,
-          "cacheable_tokens": 159,
-          "cache_read_tokens": 53,
-          "cache_write_tokens": 106,
-          "uncached_input_tokens": 58,
-          "input_cost_usd": 0.000979
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 217,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\n"
+          ],
+          "prefix_sha256": [
+            "1e362e136d5b9c19ac93fa7d99e0e6904d6e729051355cfcabf36143d52e90a1",
+            "a5fd8047ac7afbc344474658aa3915a31eb9690ebe601fa22922b89bada8807e",
+            "1e362e136d5b9c19ac93fa7d99e0e6904d6e729051355cfcabf36143d52e90a1"
+          ],
+          "input_cost_usd": 0.001085
         },
         {
           "session_id": "searchat-store-07",
           "repository": "Mathews-Tom/searchat",
           "resolved": true,
-          "cacheable_tokens": 168,
-          "cache_read_tokens": 56,
-          "cache_write_tokens": 112,
-          "uncached_input_tokens": 70,
-          "input_cost_usd": 0.001078
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 238,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\n"
+          ],
+          "prefix_sha256": [
+            "5ad9dfcecb306cabf67525fb83112bbeb9e46d44a55744a8314c51855576a082",
+            "5ad9dfcecb306cabf67525fb83112bbeb9e46d44a55744a8314c51855576a082",
+            "169b303c94367cc316a585ae65b8f80b613adc5b950ea6f58f29a74dbee8eef5"
+          ],
+          "input_cost_usd": 0.00119
         },
         {
           "session_id": "searchat-api-08",
           "repository": "Mathews-Tom/searchat",
           "resolved": false,
-          "cacheable_tokens": 150,
-          "cache_read_tokens": 100,
-          "cache_write_tokens": 50,
-          "uncached_input_tokens": 63,
-          "input_cost_usd": 0.0006775
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 213,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\n"
+          ],
+          "prefix_sha256": [
+            "f8043978a0765f8e7d14c50a782325df69b38a1af67d87fc58afc3444577955d",
+            "f8043978a0765f8e7d14c50a782325df69b38a1af67d87fc58afc3444577955d",
+            "f8043978a0765f8e7d14c50a782325df69b38a1af67d87fc58afc3444577955d"
+          ],
+          "input_cost_usd": 0.001065
         }
       ],
-      "cache_hit_rate": 0.3325526932084309,
+      "cache_hit_rate": 0.0,
       "cache_hit_rate_interval": {
-        "point_estimate": 0.3325526932084309,
-        "low": 0.20939183987682833,
-        "high": 0.45125786163522014,
+        "point_estimate": 0.0,
+        "low": 0.0,
+        "high": 0.0,
         "resamples": 10000,
         "seed": 20260739,
         "confidence": 0.95
       },
-      "input_cost_usd_per_resolved_task": 0.001368625,
+      "input_cost_usd_per_resolved_task": 0.0015099999999999998,
       "input_cost_usd_per_resolved_task_interval": {
-        "point_estimate": 0.001368625,
-        "low": 0.0011040625,
-        "high": 0.0018977500000000001,
+        "point_estimate": 0.0015099999999999998,
+        "low": 0.0011324999999999998,
+        "high": 0.002265,
         "resamples": 10000,
         "seed": 20260740,
         "confidence": 0.95
@@ -229,97 +393,177 @@
           "session_id": "archex-index-01",
           "repository": "Mathews-Tom/archex",
           "resolved": true,
-          "cacheable_tokens": 165,
+          "cacheable_tokens": 0,
           "cache_read_tokens": 0,
-          "cache_write_tokens": 165,
-          "uncached_input_tokens": 65,
-          "input_cost_usd": 0.00135625
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 230,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/store.py: manifest records the published generation identity.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\n"
+          ],
+          "prefix_sha256": [
+            "8d6ed7c73b7e79b56729afd0a800255573a4409bdc0db4e97bb65d58cead6174",
+            "1095aca56d4a86ee01eccb0d3c9028ad23f9b150ad7efe25279b2fda4d65f249",
+            "db7eeaa927843b29402e371e12c80dc6872243ba3aad0323632421335319286e"
+          ],
+          "input_cost_usd": 0.00115
         },
         {
           "session_id": "archex-query-02",
           "repository": "Mathews-Tom/archex",
           "resolved": true,
-          "cacheable_tokens": 162,
-          "cache_read_tokens": 54,
-          "cache_write_tokens": 108,
-          "uncached_input_tokens": 69,
-          "input_cost_usd": 0.001047
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 231,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n"
+          ],
+          "prefix_sha256": [
+            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e",
+            "739d40029873d69bee1c0a2f497594f869f931ebe4b8513b0a10d6b004ec3905",
+            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e"
+          ],
+          "input_cost_usd": 0.001155
         },
         {
           "session_id": "enginery-stage-03",
           "repository": "Mathews-Tom/Enginery",
           "resolved": true,
-          "cacheable_tokens": 165,
-          "cache_read_tokens": 55,
-          "cache_write_tokens": 110,
-          "uncached_input_tokens": 76,
-          "input_cost_usd": 0.001095
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 241,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_stage.py: a cancelled run cannot advance.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n"
+          ],
+          "prefix_sha256": [
+            "b291c8139e207057f78e4b74316593628cf57692d8395b4fed136a8ff4f4d6aa",
+            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e",
+            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e"
+          ],
+          "input_cost_usd": 0.001205
         },
         {
           "session_id": "enginery-release-04",
           "repository": "Mathews-Tom/Enginery",
           "resolved": false,
-          "cacheable_tokens": 153,
+          "cacheable_tokens": 0,
           "cache_read_tokens": 0,
-          "cache_write_tokens": 153,
-          "uncached_input_tokens": 61,
-          "input_cost_usd": 0.00126125
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 214,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\n"
+          ],
+          "prefix_sha256": [
+            "4da7831109e31aa3a88d484ff9b629d0a4a65845b2e5152b404878f887911656",
+            "dec277eb466837cb4a4039be40fa0683a7683fd225f6c3542b8759fea9a21ac6",
+            "95e98f18df8ecfcacd4ebd3a7712e2d626d1ca78afb1b53d776de82b09ed393a"
+          ],
+          "input_cost_usd": 0.00107
         },
         {
           "session_id": "kosha-memory-05",
           "repository": "Mathews-Tom/Kosha",
           "resolved": true,
-          "cacheable_tokens": 159,
+          "cacheable_tokens": 0,
           "cache_read_tokens": 0,
-          "cache_write_tokens": 159,
-          "uncached_input_tokens": 69,
-          "input_cost_usd": 0.00133875
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 228,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\n"
+          ],
+          "prefix_sha256": [
+            "fa9be6d6db78606b4723b68d089788d2b695a41336a1ccdd8dee1b810e54fe04",
+            "abca92b5f336a4c80e3b42f6749ad27b5d1ac471b566b35baa7080254d79a4ab",
+            "379127018f44576ae17ef1bb23d51e3ccc3e9b1ef56319204946ba33d816a57e"
+          ],
+          "input_cost_usd": 0.00114
         },
         {
           "session_id": "kosha-policy-06",
           "repository": "Mathews-Tom/Kosha",
           "resolved": true,
-          "cacheable_tokens": 159,
-          "cache_read_tokens": 53,
-          "cache_write_tokens": 106,
-          "uncached_input_tokens": 58,
-          "input_cost_usd": 0.000979
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 217,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\n"
+          ],
+          "prefix_sha256": [
+            "1e362e136d5b9c19ac93fa7d99e0e6904d6e729051355cfcabf36143d52e90a1",
+            "1e362e136d5b9c19ac93fa7d99e0e6904d6e729051355cfcabf36143d52e90a1",
+            "a5fd8047ac7afbc344474658aa3915a31eb9690ebe601fa22922b89bada8807e"
+          ],
+          "input_cost_usd": 0.001085
         },
         {
           "session_id": "searchat-store-07",
           "repository": "Mathews-Tom/searchat",
           "resolved": true,
-          "cacheable_tokens": 168,
-          "cache_read_tokens": 56,
-          "cache_write_tokens": 112,
-          "uncached_input_tokens": 70,
-          "input_cost_usd": 0.001078
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 238,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n"
+          ],
+          "prefix_sha256": [
+            "da21529e55a8a704ad22bd69a94055d22f5f98f2c842eb7e1ee69ce1f60d02d9",
+            "9ccec3330b5f3de41e1af54de7513dac28baea23cdbbabcb6f488468271c218b",
+            "9ccec3330b5f3de41e1af54de7513dac28baea23cdbbabcb6f488468271c218b"
+          ],
+          "input_cost_usd": 0.00119
         },
         {
           "session_id": "searchat-api-08",
           "repository": "Mathews-Tom/searchat",
           "resolved": false,
-          "cacheable_tokens": 150,
-          "cache_read_tokens": 50,
-          "cache_write_tokens": 100,
-          "uncached_input_tokens": 63,
-          "input_cost_usd": 0.000965
+          "cacheable_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "uncached_input_tokens": 213,
+          "rendered_prefixes": [
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\n"
+          ],
+          "prefix_sha256": [
+            "c273599ae5a47f745b409f4fb6dc63196e1ef83f123b555e1ebc81c770a7cc4c",
+            "e6d2144bfc0f0c263dc2435e82643536cbc62d55609b83cd3b736323597e5bd9",
+            "e6d2144bfc0f0c263dc2435e82643536cbc62d55609b83cd3b736323597e5bd9"
+          ],
+          "input_cost_usd": 0.001065
         }
       ],
-      "cache_hit_rate": 0.20921155347384857,
+      "cache_hit_rate": 0.0,
       "cache_hit_rate_interval": {
-        "point_estimate": 0.20921155347384857,
-        "low": 0.16589147286821707,
-        "high": 0.2916666666666667,
+        "point_estimate": 0.0,
+        "low": 0.0,
+        "high": 0.0,
         "resamples": 10000,
         "seed": 20260749,
         "confidence": 0.95
       },
-      "input_cost_usd_per_resolved_task": 0.0015200416666666667,
+      "input_cost_usd_per_resolved_task": 0.0015099999999999998,
       "input_cost_usd_per_resolved_task_interval": {
-        "point_estimate": 0.0015200416666666667,
-        "low": 0.00118025,
-        "high": 0.002199625,
+        "point_estimate": 0.0015099999999999998,
+        "low": 0.0011324999999999998,
+        "high": 0.002265,
         "resamples": 10000,
         "seed": 20260750,
         "confidence": 0.95
@@ -329,18 +573,18 @@
   "intervals": [
     {
       "comparator": "perturbed",
-      "point_estimate_percent": 29.969251377599175,
-      "low_percent": 23.936240284547488,
-      "high_percent": 35.15425983583357,
+      "point_estimate_percent": 0.0,
+      "low_percent": 0.0,
+      "high_percent": 0.0,
       "resamples": 10000,
       "seed": 20260729,
       "confidence": 0.95
     },
     {
       "comparator": "ann_baseline",
-      "point_estimate_percent": 36.94525917600943,
-      "low_percent": 34.37517758708871,
-      "high_percent": 39.3401821647956,
+      "point_estimate_percent": 0.0,
+      "low_percent": 0.0,
+      "high_percent": 0.0,
       "resamples": 10000,
       "seed": 20260729,
       "confidence": 0.95

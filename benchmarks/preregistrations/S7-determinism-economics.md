@@ -67,4 +67,4 @@ uv run archex benchmark validate --kind determinism-economics --input benchmarks
 
 ## Post-hoc changes
 
-None. Any later change records its timestamp, reason, affected field, and why the affected analysis is exploratory.
+- **2026-07-28T21:53:33Z — cache eligibility and evidence-command correction.** The original pre-registration omitted Claude Opus 5's 512-token minimum cacheable prefix and named command surfaces that were not implemented. The implemented run records that eligibility floor, canonical prefixes and hashes, pricing retrieval timestamp, exact command, and a `determinism-economics` validator kind. The frozen arms, session fixture, pricing multipliers, TTL, SESOI, and kill criterion remain unchanged. This completed run is exploratory with respect to the corrected cache ledger because the eligibility correction occurred after the first data-generating run; its null result retires the economic framing rather than supporting a positive economic claim.
