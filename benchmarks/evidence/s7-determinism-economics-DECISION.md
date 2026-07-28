@@ -14,14 +14,14 @@ The artifact records eight frozen, repeated three-turn sessions in four reposito
 
 The harness stores the canonical rendered prefix strings, SHA-256 prefix identities, session-fixture digest, exact command, token-counting method, pricing URL, and pricing retrieval timestamp. `cl100k_base` is a proxy rather than Claude Opus 5's tokenizer; Claude documents that its newer tokenizer can produce approximately 30% more tokens for the same text. That mismatch affects absolute dollar estimates but not the zero cost-reduction result because every arm uses identical input-token accounting.
 
-The price ledger uses the recorded Claude Opus 5 schedule: $5.00 per million base input tokens, 1.25x five-minute cache writes, 0.1x cache reads, and the 512-token minimum cacheable prefix. Pricing source retrieved at `2026-07-28T21:53:33Z`: <https://platform.claude.com/docs/en/about-claude/pricing>. Cache eligibility source: <https://platform.claude.com/docs/en/build-with-claude/prompt-caching>.
+The price ledger uses the recorded Claude Opus 5 schedule: $5.00 per million base input tokens, 1.25x five-minute cache writes, 0.1x cache reads, and the 512-token minimum cacheable prefix. Pricing source retrieved at `2026-07-28T22:19:00Z`: <https://platform.claude.com/docs/en/about-claude/pricing>. Cache eligibility source: <https://platform.claude.com/docs/en/build-with-claude/prompt-caching>.
 
 ## Reproduction
 
-Use a clean checkout at source revision `3a88f6af349a0f6d64399e261b2f643d24b4f530`:
+Run from the repository root in a clean checkout at source revision `f1f1671873189c881bf29fe945547a0fb7e8af8c`:
 
 ```text
-uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics/sessions.json --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 501636abb09cbcf6edee5783305af6bcb313606a --pricing-retrieved-at 2026-07-28T21:53:33Z --resamples 10000 --seed 20260729
+uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics/sessions.json --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 501636abb09cbcf6edee5783305af6bcb313606a --pricing-retrieved-at 2026-07-28T22:19:00Z --resamples 10000 --seed 20260729
 uv run archex benchmark validate --kind determinism-economics --input benchmarks/evidence/s7-determinism-economics.json
 uv run archex benchmark validate --kind evidence --input benchmarks/evidence/s7-determinism-economics.json
 ```

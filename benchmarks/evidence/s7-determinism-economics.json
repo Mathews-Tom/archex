@@ -2,12 +2,12 @@
   "evidence_version": 1,
   "spike_id": "S7",
   "preregistration": "benchmarks/preregistrations/S7-determinism-economics.md",
-  "preregistration_commit": "0c8c8483aab09cb8d49de6c4e2f8048e1f020ed6",
-  "source_revision": "b73ba365be43bf73ad566e96161bb8e045faa843",
+  "preregistration_commit": "501636abb09cbcf6edee5783305af6bcb313606a",
+  "source_revision": "f1f1671873189c881bf29fe945547a0fb7e8af8c",
   "session_fixture": "benchmarks/determinism_economics/sessions.json",
   "session_fixture_sha256": "c01f2ba787cbb46f2dd585881d95e5ce131ae103b508816c688087d915c31cef",
-  "measurement_command": "uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics/sessions.json --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 0c8c8483aab09cb8d49de6c4e2f8048e1f020ed6 --pricing-retrieved-at 2026-07-28T22:05:00Z --resamples 10000 --seed 20260729",
-  "generated_at": "2026-07-28T22:05:01Z",
+  "measurement_command": "uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics/sessions.json --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 501636abb09cbcf6edee5783305af6bcb313606a --pricing-retrieved-at 2026-07-28T22:19:00Z --resamples 10000 --seed 20260729",
+  "generated_at": "2026-07-28T22:19:01Z",
   "tokenizer": "cl100k_base",
   "pricing": {
     "model": "claude-opus-5",
@@ -17,7 +17,7 @@
     "minimum_cacheable_tokens": 512,
     "cache_ttl": "5m",
     "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-    "retrieved_at": "2026-07-28T22:05:00Z"
+    "retrieved_at": "2026-07-28T22:19:00Z"
   },
   "arms": [
     {
@@ -215,14 +215,14 @@
           "cache_write_tokens": 0,
           "uncached_input_tokens": 230,
           "rendered_prefixes": [
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n"
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\n"
           ],
           "prefix_sha256": [
-            "77faef4df09f925cb7cb74c922ee814678f3c15e5b3182eac6dd691e45aab653",
             "db7eeaa927843b29402e371e12c80dc6872243ba3aad0323632421335319286e",
-            "1095aca56d4a86ee01eccb0d3c9028ad23f9b150ad7efe25279b2fda4d65f249"
+            "77faef4df09f925cb7cb74c922ee814678f3c15e5b3182eac6dd691e45aab653",
+            "db7eeaa927843b29402e371e12c80dc6872243ba3aad0323632421335319286e"
           ],
           "input_cost_usd": 0.00115
         },
@@ -235,13 +235,13 @@
           "cache_write_tokens": 0,
           "uncached_input_tokens": 231,
           "rendered_prefixes": [
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\n"
           ],
           "prefix_sha256": [
-            "b8d16d6041eb8739e07b0a4f917d6e0ee641e0f74c933165c38c0aff505ff023",
-            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e",
+            "d45da64c7c388ae1505f345c32cc2c5efab4540f158cc0333d92014fba75bc96",
+            "d45da64c7c388ae1505f345c32cc2c5efab4540f158cc0333d92014fba75bc96",
             "b8d16d6041eb8739e07b0a4f917d6e0ee641e0f74c933165c38c0aff505ff023"
           ],
           "input_cost_usd": 0.001155
@@ -255,14 +255,14 @@
           "cache_write_tokens": 0,
           "uncached_input_tokens": 241,
           "rendered_prefixes": [
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n"
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_stage.py: a cancelled run cannot advance.\n\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\n"
           ],
           "prefix_sha256": [
-            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e",
-            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e",
-            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e"
+            "a933cd1fc9adc16bd8deccb1fad36086ebf0051c70018c231e550a4e8216577c",
+            "dc165128d2c6fab35693c1eeb819b7580a6df9839a6861172de42b8dd37a39b2",
+            "a933cd1fc9adc16bd8deccb1fad36086ebf0051c70018c231e550a4e8216577c"
           ],
           "input_cost_usd": 0.001205
         },
@@ -275,14 +275,14 @@
           "cache_write_tokens": 0,
           "uncached_input_tokens": 214,
           "rendered_prefixes": [
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\n"
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\n"
           ],
           "prefix_sha256": [
-            "dec277eb466837cb4a4039be40fa0683a7683fd225f6c3542b8759fea9a21ac6",
             "7f33e43c270174ca36be13b18a652a7871bfdbf71e87cc8852c0d4247437f6f9",
-            "df1021312bc166a46a59086d101b90cce6cb3addf1afd773503d59942ebcd7df"
+            "df1021312bc166a46a59086d101b90cce6cb3addf1afd773503d59942ebcd7df",
+            "7f33e43c270174ca36be13b18a652a7871bfdbf71e87cc8852c0d4247437f6f9"
           ],
           "input_cost_usd": 0.00107
         },
@@ -295,14 +295,14 @@
           "cache_write_tokens": 0,
           "uncached_input_tokens": 228,
           "rendered_prefixes": [
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\n"
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n"
           ],
           "prefix_sha256": [
-            "fa9be6d6db78606b4723b68d089788d2b695a41336a1ccdd8dee1b810e54fe04",
-            "fa9be6d6db78606b4723b68d089788d2b695a41336a1ccdd8dee1b810e54fe04",
-            "518474f431c349b6d6bb7c5ef8c95517988a874041100f16db0eafd9f47de986"
+            "518474f431c349b6d6bb7c5ef8c95517988a874041100f16db0eafd9f47de986",
+            "518474f431c349b6d6bb7c5ef8c95517988a874041100f16db0eafd9f47de986",
+            "fa9be6d6db78606b4723b68d089788d2b695a41336a1ccdd8dee1b810e54fe04"
           ],
           "input_cost_usd": 0.00114
         },
@@ -315,14 +315,14 @@
           "cache_write_tokens": 0,
           "uncached_input_tokens": 217,
           "rendered_prefixes": [
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\n"
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_policy.py: expired content is unavailable to recall.\n\nsrc/kosha/policy.py: apply retention rules before writing a facet.\n\nsrc/kosha/vault.py: soft deletion retains audit provenance.\n\n"
           ],
           "prefix_sha256": [
-            "1e362e136d5b9c19ac93fa7d99e0e6904d6e729051355cfcabf36143d52e90a1",
             "a5fd8047ac7afbc344474658aa3915a31eb9690ebe601fa22922b89bada8807e",
-            "1e362e136d5b9c19ac93fa7d99e0e6904d6e729051355cfcabf36143d52e90a1"
+            "a5fd8047ac7afbc344474658aa3915a31eb9690ebe601fa22922b89bada8807e",
+            "a5fd8047ac7afbc344474658aa3915a31eb9690ebe601fa22922b89bada8807e"
           ],
           "input_cost_usd": 0.001085
         },
@@ -335,13 +335,13 @@
           "cache_write_tokens": 0,
           "uncached_input_tokens": 238,
           "rendered_prefixes": [
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_compact.py: verify replacement only after the compact copy succeeds.\n\nsrc/searchat/storage.py: copy live records into a compact DuckDB database.\n\nsrc/searchat/doctor.py: report live blocks separately from file size.\n\n"
           ],
           "prefix_sha256": [
-            "5ad9dfcecb306cabf67525fb83112bbeb9e46d44a55744a8314c51855576a082",
-            "5ad9dfcecb306cabf67525fb83112bbeb9e46d44a55744a8314c51855576a082",
+            "3e6595a666a5670561373badf79ef7340b1a3834b17f578a00a6ead700c0ca94",
+            "3e6595a666a5670561373badf79ef7340b1a3834b17f578a00a6ead700c0ca94",
             "169b303c94367cc316a585ae65b8f80b613adc5b950ea6f58f29a74dbee8eef5"
           ],
           "input_cost_usd": 0.00119
@@ -356,12 +356,12 @@
           "uncached_input_tokens": 213,
           "rendered_prefixes": [
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/searchat/dashboard.py: render report-only disk measurements.\n\ntests/test_api.py: mutable maintenance actions are absent from diagnostics.\n\nsrc/searchat/api.py: diagnostics endpoint opens a read-only database connection.\n\n"
           ],
           "prefix_sha256": [
             "f8043978a0765f8e7d14c50a782325df69b38a1af67d87fc58afc3444577955d",
-            "f8043978a0765f8e7d14c50a782325df69b38a1af67d87fc58afc3444577955d",
+            "e6d2144bfc0f0c263dc2435e82643536cbc62d55609b83cd3b736323597e5bd9",
             "f8043978a0765f8e7d14c50a782325df69b38a1af67d87fc58afc3444577955d"
           ],
           "input_cost_usd": 0.001065
@@ -399,12 +399,12 @@
           "uncached_input_tokens": 230,
           "rendered_prefixes": [
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/store.py: manifest records the published generation identity.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/store.py: manifest records the published generation identity.\n\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_indexer.py: interrupted generation leaves the previous manifest readable.\n\nsrc/archex/indexer.py: publish a staging generation only after every store is complete.\n\nsrc/archex/store.py: manifest records the published generation identity.\n\n"
           ],
           "prefix_sha256": [
             "8d6ed7c73b7e79b56729afd0a800255573a4409bdc0db4e97bb65d58cead6174",
-            "1095aca56d4a86ee01eccb0d3c9028ad23f9b150ad7efe25279b2fda4d65f249",
+            "77faef4df09f925cb7cb74c922ee814678f3c15e5b3182eac6dd691e45aab653",
             "db7eeaa927843b29402e371e12c80dc6872243ba3aad0323632421335319286e"
           ],
           "input_cost_usd": 0.00115
@@ -418,14 +418,14 @@
           "cache_write_tokens": 0,
           "uncached_input_tokens": 231,
           "rendered_prefixes": [
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\n"
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/archex/context.py: pack chunks within the requested token budget.\n\nsrc/archex/reporting.py: attach token metadata to the returned response.\n\nsrc/archex/query.py: score lexical and graph candidates before context packing.\n\n"
           ],
           "prefix_sha256": [
-            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e",
+            "d45da64c7c388ae1505f345c32cc2c5efab4540f158cc0333d92014fba75bc96",
             "739d40029873d69bee1c0a2f497594f869f931ebe4b8513b0a10d6b004ec3905",
-            "e9c8ceda3c8d23dec9f17a18a352baa1c2df93a191e57f8d5c516cfb2c44989e"
+            "d45da64c7c388ae1505f345c32cc2c5efab4540f158cc0333d92014fba75bc96"
           ],
           "input_cost_usd": 0.001155
         },
@@ -439,13 +439,13 @@
           "uncached_input_tokens": 241,
           "rendered_prefixes": [
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_stage.py: a cancelled run cannot advance.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\n"
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/policy.py: merge policy records an explicit human-review decision.\n\ntests/test_stage.py: a cancelled run cannot advance.\n\nsrc/enginery/stage.py: inspect state before dispatching the next transition.\n\n"
           ],
           "prefix_sha256": [
             "b291c8139e207057f78e4b74316593628cf57692d8395b4fed136a8ff4f4d6aa",
-            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e",
-            "42a9f6f398a2f5ba1dc822624c6e610e603221cd23234a01d004952e78fa0e6e"
+            "a933cd1fc9adc16bd8deccb1fad36086ebf0051c70018c231e550a4e8216577c",
+            "a933cd1fc9adc16bd8deccb1fad36086ebf0051c70018c231e550a4e8216577c"
           ],
           "input_cost_usd": 0.001205
         },
@@ -459,12 +459,12 @@
           "uncached_input_tokens": 214,
           "rendered_prefixes": [
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\n",
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/release.py: publish records each destination receipt.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/enginery/release.py: publish records each destination receipt.\n\ntests/test_release.py: missing receipt fails the run loudly.\n\nsrc/enginery/verify.py: verify package installation from the published artifact.\n\n"
           ],
           "prefix_sha256": [
             "4da7831109e31aa3a88d484ff9b629d0a4a65845b2e5152b404878f887911656",
-            "dec277eb466837cb4a4039be40fa0683a7683fd225f6c3542b8759fea9a21ac6",
+            "df1021312bc166a46a59086d101b90cce6cb3addf1afd773503d59942ebcd7df",
             "95e98f18df8ecfcacd4ebd3a7712e2d626d1ca78afb1b53d776de82b09ed393a"
           ],
           "input_cost_usd": 0.00107
@@ -480,12 +480,12 @@
           "rendered_prefixes": [
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n",
             "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\n",
-            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\n"
+            "SYSTEM\nUse the selected code context.\n\nCONTEXT\nsrc/kosha/store.py: preserve the canonical facet identity.\n\ntests/test_routing.py: duplicate requests reuse the recorded facet.\n\nsrc/kosha/routing.py: route a request through the deduplication threshold.\n\n"
           ],
           "prefix_sha256": [
             "fa9be6d6db78606b4723b68d089788d2b695a41336a1ccdd8dee1b810e54fe04",
             "abca92b5f336a4c80e3b42f6749ad27b5d1ac471b566b35baa7080254d79a4ab",
-            "379127018f44576ae17ef1bb23d51e3ccc3e9b1ef56319204946ba33d816a57e"
+            "518474f431c349b6d6bb7c5ef8c95517988a874041100f16db0eafd9f47de986"
           ],
           "input_cost_usd": 0.00114
         },
