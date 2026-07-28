@@ -1,6 +1,6 @@
 # Spike Pre-registration Template
 
-Copy this file to `.docs/spikes/<spike-id>.md`. Complete every required field and commit the file before the first data-generating run. Do not revise a pre-registration after data exists; record a new, explicitly post-hoc document instead.
+Copy this file to `benchmarks/preregistrations/<spike-id>.md`. Complete every required field and commit the file before the first data-generating run. Do not revise a pre-registration after data exists; record a new, explicitly post-hoc document instead.
 
 ## Study identity
 
