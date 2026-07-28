@@ -88,11 +88,12 @@ The metrics ledger tracks these token views per event:
    - The token count for the indexed repository when archex already has that number
      cheaply. Context only, never a savings number.
 
-The two savings numbers each name their baseline:
+The two savings numbers each name their baseline, and only one of them is the headline:
 
-- Savings vs full-file paste — compression versus dumping every returned file in full.
-- Savings vs realistic targeted read — the conservative number, versus how code is
-  actually pulled (matched ranges plus a little context).
+- **Headline — savings vs realistic targeted read.** The conservative number, versus how
+  code is actually pulled: matched ranges plus a little context. Quote this one.
+- **Secondary — savings vs full-file paste.** Compression versus dumping every returned
+  file in full. Systematically larger, and it models a strategy no competent agent uses.
 
 The formulas are:
 
@@ -122,8 +123,16 @@ whole_repo_tokens_avoided = 1,302,860 - 6,132 = 1,296,728     (context only, not
 ```
 
 Interpretation:
-- `savings_pct` (vs full-file paste) is compression versus a naive full-file paste.
-- `savings_pct_vs_targeted_read` is the realistic, conservative number.
+- `savings_pct_vs_targeted_read` is **the headline**: the realistic, conservative number,
+  and the only savings figure to quote without qualification.
+- `savings_pct` (vs full-file paste) is compression versus a naive full-file paste. It is
+  secondary and systematically larger, because nothing an agent does resembles pasting
+  every returned file in full. A representative single-`query` ledger row from this
+  repository reports 14.9% versus targeted read against 90.1% versus full-file paste.
+- `savings_pct_vs_targeted_read` is null where the event carries no line spans. `query`
+  records it; `scout`'s file-only results do not, and `archex metrics summary` sums a
+  null as 0, so a scout-only ledger renders `Savings vs targeted: 0.0%`. That is an
+  absent baseline, not a measured zero — read the `Targeted-read tokens: 0` line above it.
 - `whole_repo_tokens_avoided` is an upper-bound/context metric, never the headline.
 - A defensible cross-tool number (vs grep / read) is not produced in-process; it is
   available only via the offline benchmark harness — see "Cross-tool efficiency" below.
@@ -154,14 +163,21 @@ grades the benchmark task set per corpus (localization graded separately, never 
 comprehension). At 100% required-file recall, on the tasks where archex itself fully
 localizes the required files, the token reduction versus the naive agent is:
 
-| Corpus | Naive model | Comparable tasks | archex tokens | naive tokens | Token reduction |
+| Corpus | Naive model | Comparable tasks | archex tokens | naive tokens | Token reduction vs the naive agent |
 | --- | --- | ---: | ---: | ---: | ---: |
-| self | full_file | 16 / 24 | 9,484 | 4,416,681 | 99.8% |
-| self | grep_window | 16 / 24 | 9,484 | 2,626,845 | 99.6% |
 | external-comprehension | full_file | 16 / 19 | 22,681 | 783,725 | 97.1% |
 | external-comprehension | grep_window | 16 / 19 | 22,681 | 492,119 | 95.4% |
 | external-localization | full_file | 20 / 21 | 13,247 | 469,836 | 97.2% |
 | external-localization | grep_window | 20 / 21 | 13,247 | 408,410 | 96.8% |
+
+**The self-repo corpus is withdrawn from this table and from every currently published
+figure.** Its 16 comparable tasks are still in the artifact and are not deleted, but they are
+no longer published: archex's own generic keywords (`index`, `query`, `config`) match across
+its entire source, so the naive agent reads a median of 32.5 units per task there against 3.0
+on the external corpora. The resulting per-corpus reduction measures that keyword density,
+not archex. Shipped changelog entries are historical records and are not rewritten, so the
+`0.15.0` entry still quotes the self-inclusive 95.4%–99.8% range as published at the time;
+this table supersedes it.
 
 "Comparable tasks" counts only tasks where both paths reach 100% required-file recall; every
 token figure sums over exactly that set, so no figure compares unequal recall. The reduction
@@ -170,8 +186,11 @@ archex localizes when it succeeds, not that archex always succeeds. In this arti
 naive grep/read path reaches full recall on every comparable task, and all 12 excluded tasks
 (of 64: 8 self, 3 external-comprehension, 1 external-localization) are archex recall misses —
 cases where archex did not return all required files within its token budget (archex recall
-0.0–0.8 there), excluded rather than scored at unequal recall. Regenerate the artifact from a
-clean run (do not hand-edit metric values):
+0.0–0.8 there), excluded rather than scored at unequal recall. The naive agent is a blind
+reader with no triage step between `grep` and `read`, so it is a lower bound on a naive
+strategy rather than a model of competent agent behavior.
+
+Regenerate the artifact from a clean run (do not hand-edit metric values):
 
 ```bash
 uv run archex benchmark cross-tool --tasks-dir benchmarks/tasks \
@@ -302,7 +321,10 @@ warning. A reindex repopulates the per-file totals.
 - returned token total
 - full-file (raw-equivalent) token total
 - targeted-read token total
-- savings vs full-file paste (compression) and savings vs realistic targeted read
+- savings vs realistic targeted read, printed first and labeled `headline`, then savings vs
+  full-file paste, labeled `compression`; a `0.0%` targeted-read line next to a `0`
+  targeted-read token total means the events in the window carried no line spans, not zero
+  savings
 - whole-repo avoided tokens, demoted below the savings lines and labeled an
   upper-bound/context number, not savings
 - a per-surface event split (`cli` / `mcp` / `python_api`)
