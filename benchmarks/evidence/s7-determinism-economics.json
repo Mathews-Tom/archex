@@ -2,12 +2,12 @@
   "evidence_version": 1,
   "spike_id": "S7",
   "preregistration": "benchmarks/preregistrations/S7-determinism-economics.md",
-  "preregistration_commit": "501636abb09cbcf6edee5783305af6bcb313606a",
-  "source_revision": "3a88f6af349a0f6d64399e261b2f643d24b4f530",
+  "preregistration_commit": "0c8c8483aab09cb8d49de6c4e2f8048e1f020ed6",
+  "source_revision": "b73ba365be43bf73ad566e96161bb8e045faa843",
   "session_fixture": "benchmarks/determinism_economics/sessions.json",
   "session_fixture_sha256": "c01f2ba787cbb46f2dd585881d95e5ce131ae103b508816c688087d915c31cef",
-  "measurement_command": "uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics/sessions.json --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 501636abb09cbcf6edee5783305af6bcb313606a --pricing-retrieved-at 2026-07-28T21:53:33Z --resamples 10000 --seed 20260729",
-  "generated_at": "2026-07-28T21:53:44Z",
+  "measurement_command": "uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics/sessions.json --output benchmarks/evidence/s7-determinism-economics.json --preregistration-commit 0c8c8483aab09cb8d49de6c4e2f8048e1f020ed6 --pricing-retrieved-at 2026-07-28T22:05:00Z --resamples 10000 --seed 20260729",
+  "generated_at": "2026-07-28T22:05:01Z",
   "tokenizer": "cl100k_base",
   "pricing": {
     "model": "claude-opus-5",
@@ -17,7 +17,7 @@
     "minimum_cacheable_tokens": 512,
     "cache_ttl": "5m",
     "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-    "retrieved_at": "2026-07-28T21:53:33Z"
+    "retrieved_at": "2026-07-28T22:05:00Z"
   },
   "arms": [
     {
