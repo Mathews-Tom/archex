@@ -111,6 +111,7 @@ def apply_clients_guidance(
     dry_run: bool,
     clients_flag: bool | None,
     tool_scope: str | None = None,
+    disclosure: bool = True,
 ) -> dict[str, list[dict[str, str | bool]]]:
     """Apply MCP client registration and agent guidance.
 
@@ -130,7 +131,9 @@ def apply_clients_guidance(
     else:
         should_configure_clients = True
         clients = discover_clients(source)
-        plans = build_discovered_install_plans(clients, source, tool_scope=tool_scope)
+        plans = build_discovered_install_plans(
+            clients, source, tool_scope=tool_scope, disclosure=disclosure
+        )
         if not plans:
             actions.append({"type": "client_install", "status": "skipped_no_clients"})
         else:
@@ -263,6 +266,19 @@ def print_final_summary(
         "comma-separated explicit tool-name allowlist."
     ),
 )
+@click.option(
+    "--no-disclosure",
+    "no_disclosure",
+    is_flag=True,
+    default=False,
+    help=(
+        "Write configs that advertise every tool from the first list_tools() "
+        "instead of gating on retrieval. The compatibility path for a client "
+        "that cannot re-fetch its tool list after "
+        "notifications/tools/list_changed: it pays the full per-turn schema "
+        "cost but never waits to see a tool."
+    ),
+)
 def setup_cmd(
     source: Path,
     dry_run: bool,
@@ -272,6 +288,7 @@ def setup_cmd(
     hooks: bool,
     format_: Literal["text", "json"],
     tool_scope: str | None,
+    no_disclosure: bool,
 ) -> None:
     """Guided onboarding wizard."""
     if tool_scope is not None:
@@ -307,7 +324,12 @@ def setup_cmd(
             "preflight": asdict(preflight),
             "planned_actions": actions,
             "clients_guidance": apply_clients_guidance(
-                source, preflight, dry_run=True, clients_flag=clients, tool_scope=tool_scope
+                source,
+                preflight,
+                dry_run=True,
+                clients_flag=clients,
+                tool_scope=tool_scope,
+                disclosure=not no_disclosure,
             )["clients_guidance"],
             "metrics_hooks": apply_metrics_hooks(
                 source, preflight, dry_run=True, metrics_flag=metrics, hooks_flag=hooks
@@ -335,7 +357,12 @@ def setup_cmd(
 
         click.echo("--- Clients & Agent Guidance ---")
         cg_actions = apply_clients_guidance(
-            source, preflight, dry_run=True, clients_flag=clients, tool_scope=tool_scope
+            source,
+            preflight,
+            dry_run=True,
+            clients_flag=clients,
+            tool_scope=tool_scope,
+            disclosure=not no_disclosure,
         )["clients_guidance"]
         for action in cg_actions:
             name = action.get("client") or action.get("file") or action["type"]
@@ -353,7 +380,12 @@ def setup_cmd(
         click.echo("--- Executing Setup ---")
         results = apply_init_index(source, preflight, dry_run=False)
         cg_results = apply_clients_guidance(
-            source, preflight, dry_run=False, clients_flag=clients, tool_scope=tool_scope
+            source,
+            preflight,
+            dry_run=False,
+            clients_flag=clients,
+            tool_scope=tool_scope,
+            disclosure=not no_disclosure,
         )
         mh_results = apply_metrics_hooks(
             source, preflight, dry_run=False, metrics_flag=metrics, hooks_flag=hooks
@@ -440,7 +472,12 @@ def setup_cmd(
         )
 
     cg_results = apply_clients_guidance(
-        source, preflight, dry_run=False, clients_flag=do_clients, tool_scope=tool_scope
+        source,
+        preflight,
+        dry_run=False,
+        clients_flag=do_clients,
+        tool_scope=tool_scope,
+        disclosure=not no_disclosure,
     )
     results["clients_guidance"].extend(cg_results["clients_guidance"])
 
