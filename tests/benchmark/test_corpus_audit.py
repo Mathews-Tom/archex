@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pytest
@@ -10,6 +11,8 @@ from archex.benchmark.corpus_audit import (
     CorpusAuditError,
     audit_held_out,
     describe_clusters,
+    detection_bracket,
+    estimate_effect_heterogeneity,
     minimum_detectable_effect,
     score_corpus_leakage,
     score_task_leakage,
@@ -110,11 +113,25 @@ class TestClustering:
         tasks = [_task("a", repo="."), _task("b", repo="."), _task("c", repo="x/y")]
         assert describe_clusters(tasks).self_repo_share == pytest.approx(2 / 3)  # pyright: ignore[reportUnknownMemberType]
 
+    def test_the_design_effect_uses_the_size_weighted_mean_not_the_arithmetic_one(self) -> None:
+        """One large cluster dominates the design effect in proportion to its size."""
+        tasks = [_task(f"big{i}", repo="big") for i in range(24)] + [
+            _task(f"small{i}", repo=f"r{i}") for i in range(4)
+        ]
+        report = describe_clusters(tasks)
+        # 28 tasks: one cluster of 24 and four of 1. Arithmetic mean is 5.6;
+        # size-weighted is (576 + 4) / 28 = 20.714.
+        assert report.weighted_mean_cluster_size == pytest.approx(580 / 28)  # pyright: ignore[reportUnknownMemberType]
+        arithmetic_would_give = 28 / (1 + (5.6 - 1) * 0.3)
+        assert report.effective_sample_size(0.3) < arithmetic_would_give / 2
+
     def test_effective_sample_size_shrinks_as_icc_rises(self) -> None:
         """The design effect is the whole reason task count overstates the corpus."""
         tasks = [_task(f"t{i}", repo=f"r{i // 4}") for i in range(64)]
         report = describe_clusters(tasks)
         assert report.effective_sample_size(0.0) == pytest.approx(64.0)  # pyright: ignore[reportUnknownMemberType]
+        # Equal clusters make the weighted and arithmetic means coincide, so at
+        # ICC 1 each of the 16 clusters contributes one usable observation.
         assert report.effective_sample_size(1.0) == pytest.approx(16.0)  # pyright: ignore[reportUnknownMemberType]
         assert report.effective_sample_size(0.3) < report.effective_sample_size(0.1)
 
@@ -178,8 +195,8 @@ class TestPower:
             "resamples": 80,
             "seed": 7,
         }
-        first = simulate_power([10] * 6, **kwargs)
-        second = simulate_power([10] * 6, **kwargs)
+        first = simulate_power([10] * 8, **kwargs)
+        second = simulate_power([10] * 8, **kwargs)
         assert (first.power, first.mean_ci_width) == (second.power, second.mean_ci_width)
 
     def test_more_clusters_narrow_the_interval(self) -> None:
@@ -204,7 +221,7 @@ class TestPower:
         assert narrow.mean_ci_width < wide.mean_ci_width
 
     def test_a_single_cluster_cannot_be_simulated(self) -> None:
-        with pytest.raises(CorpusAuditError, match="at least two clusters"):
+        with pytest.raises(CorpusAuditError, match="at least 8 are required"):
             simulate_power(
                 [10],
                 effect_points=5.0,
@@ -218,7 +235,7 @@ class TestPower:
     def test_no_reachable_effect_returns_none_rather_than_raising(self) -> None:
         """ "Undetectable at any searched effect" is an answer, not an error."""
         detectable, curve = minimum_detectable_effect(
-            [2] * 3,
+            [2] * 16,
             base_rate=0.5,
             cluster_sd=0.08,
             target_power=0.99,
@@ -242,3 +259,191 @@ class TestPower:
             seed=2,
         )
         assert detectable == 30.0
+
+
+class TestDetectorRegressions:
+    """Each test here kills a mutant that survived the first review."""
+
+    def test_a_snake_case_symbol_quoted_verbatim_is_a_strong_leak(self) -> None:
+        """The matcher once normalised the surface but not the needle, so no
+        snake_case or dotted gold symbol could ever match -- silently clearing
+        the exact identifier class the strong tier exists to catch."""
+        task = _task(
+            question="How does default_adapter_registry resolve adapters?",
+            symbols=["default_adapter_registry"],
+        )
+        assert [(s.kind, s.value) for s in score_task_leakage(task)] == [
+            ("symbol", "default_adapter_registry")
+        ]
+
+    def test_a_dotted_symbol_quoted_verbatim_is_a_strong_leak(self) -> None:
+        task = _task(question="Where does Client.send dispatch?", symbols=["Client.send"])
+        assert [s.kind for s in score_task_leakage(task)] == ["symbol"]
+
+    def test_an_underscored_symbol_does_not_match_the_bare_word(self) -> None:
+        """The fix for the above must not readmit `_merge` matching "merge"."""
+        assert (
+            score_task_leakage(_task(question="How does session merge?", symbols=["_merge"])) == ()
+        )
+
+    def test_an_underscored_symbol_does_not_match_the_words_split_apart(self) -> None:
+        task = _task(question="How does the runtime block on a future?", symbols=["block_on"])
+        assert score_task_leakage(task) == ()
+
+    def test_a_generic_symbol_lands_in_the_weak_tier_rather_than_vanishing(self) -> None:
+        """`Config` was dropped outright, so it appeared in no tier at all."""
+        task = _task(question="How is config resolved?", symbols=["Config"], keywords=["config"])
+        assert {s.kind for s in score_task_leakage(task)} == {"symbol_word"}
+
+    def test_a_symbol_equal_to_the_repository_name_is_never_a_leak(self) -> None:
+        task = _task(repo=".", question="How does archex index?", symbols=["archex"])
+        assert score_task_leakage(task) == ()
+
+    def test_a_saturating_effect_is_refused_rather_than_silently_clamped(self) -> None:
+        """Clamping made every effect above the ceiling produce identical data,
+        so the power curve plateaued below 1.0 and an MDE was read off it."""
+        with pytest.raises(CorpusAuditError, match="saturates the treatment arm"):
+            simulate_power(
+                [10] * 8,
+                effect_points=30.0,
+                base_rate=0.85,
+                cluster_sd=0.05,
+                simulations=5,
+                resamples=20,
+                seed=1,
+            )
+
+    def test_power_is_invariant_to_cluster_order(self) -> None:
+        """Cluster sizes arrived in alphabetical-repo-name order, which made the
+        published figure depend on how repositories happened to be named."""
+        sizes = [24, 4, 3, 2, 2, 2, 2, 2]
+        kwargs: dict[str, Any] = {
+            "effect_points": 20.0,
+            "base_rate": 0.5,
+            "cluster_sd": 0.08,
+            "simulations": 60,
+            "resamples": 120,
+            "seed": 4,
+        }
+        assert (
+            simulate_power(sizes, **kwargs).power
+            == simulate_power(list(reversed(sizes)), **kwargs).power
+        )
+
+    def test_resamples_and_simulations_are_independent_knobs(self) -> None:
+        """A single interleaved RNG stream made a +/-1 change to resamples
+        reshuffle every later simulation, so neighbouring values disagreed."""
+        base: dict[str, Any] = {
+            "effect_points": 20.0,
+            "base_rate": 0.5,
+            "cluster_sd": 0.08,
+            "simulations": 200,
+            "seed": 4,
+        }
+        powers = [simulate_power([4] * 16, resamples=n, **base).power for n in (399, 400, 401)]
+        # The interval is itself a Monte Carlo estimate, so neighbouring resample
+        # counts may differ slightly. What must not happen -- and did, when one
+        # interleaved stream fed every simulation -- is a wholesale reshuffle.
+        assert max(powers) - min(powers) < 0.05
+
+    def test_a_two_sided_interval_detects_a_negative_effect(self) -> None:
+        """A one-sided detection rule would silently miss regressions."""
+        result = simulate_power(
+            [200] * 8,
+            effect_points=-30.0,
+            base_rate=0.5,
+            cluster_sd=0.05,
+            simulations=40,
+            resamples=120,
+            seed=2,
+        )
+        assert result.power > 0.9
+
+    def test_the_interval_width_matches_the_analytic_two_proportion_width(self) -> None:
+        """Pins the interval at 95%: a 90% interval would be about 16% narrower."""
+        n = 1600
+        result = simulate_power(
+            [200] * 8,
+            effect_points=0.0,
+            base_rate=0.5,
+            cluster_sd=0.0,
+            simulations=60,
+            resamples=400,
+            seed=5,
+        )
+        analytic = 2 * 1.96 * 100 * math.sqrt(2 * 0.25 / n)
+        assert result.mean_ci_width == pytest.approx(analytic, rel=0.15)  # pyright: ignore[reportUnknownMemberType]
+
+    def test_power_reports_its_own_monte_carlo_error(self) -> None:
+        result = simulate_power(
+            [4] * 16,
+            effect_points=25.0,
+            base_rate=0.5,
+            cluster_sd=0.08,
+            simulations=100,
+            resamples=100,
+            seed=6,
+        )
+        assert 0.0 < result.monte_carlo_se < 0.06
+        assert result.clears(0.0) is True
+        assert result.clears(0.99) is False
+
+    def test_a_bracket_reports_a_range_when_the_grid_straddles_the_target(self) -> None:
+        _, curve = minimum_detectable_effect(
+            [4] * 16,
+            base_rate=0.5,
+            cluster_sd=0.08,
+            target_power=0.8,
+            candidates=[10.0, 25.0, 30.0],
+            simulations=200,
+            resamples=200,
+            seed=20260728,
+        )
+        described = detection_bracket(curve, target_power=0.8).describe()
+        assert "points" in described
+
+    def test_heterogeneity_estimate_removes_within_cluster_noise(self) -> None:
+        """Raw per-cluster spread is mostly sampling noise, not heterogeneity."""
+        deltas = [2.5, 2.0, -3.5, 12.0, 3.5, -1.0, 4.5, 2.5]
+        assert (
+            estimate_effect_heterogeneity(deltas, tasks_per_cluster=200, base_rate=0.41625) == 0.0
+        )
+        # The same spread over far more tasks per cluster cannot be noise.
+        assert estimate_effect_heterogeneity(deltas, tasks_per_cluster=100000, base_rate=0.5) > 4.0
+
+    def test_effect_heterogeneity_makes_clusters_matter(self) -> None:
+        """Without it, repository count cannot be the binding constraint."""
+        kwargs: dict[str, Any] = {
+            "effect_points": 10.0,
+            "base_rate": 0.5,
+            "cluster_sd": 0.05,
+            "simulations": 60,
+            "resamples": 150,
+            "seed": 8,
+        }
+        homogeneous = simulate_power([50] * 8, effect_sd=0.0, **kwargs)
+        heterogeneous = simulate_power([50] * 8, effect_sd=8.0, **kwargs)
+        assert heterogeneous.mean_ci_width > homogeneous.mean_ci_width
+
+    def test_too_few_clusters_is_refused(self) -> None:
+        """Below eight clusters the percentile bootstrap narrows artificially and
+        reports higher power for a worse design."""
+        with pytest.raises(CorpusAuditError, match="at least 8 are required"):
+            simulate_power(
+                [32] * 2,
+                effect_points=5.0,
+                base_rate=0.5,
+                cluster_sd=0.05,
+                simulations=10,
+                resamples=50,
+                seed=1,
+            )
+
+    def test_by_family_counts_tasks_not_signals(self) -> None:
+        task = _task(
+            question="How do PythonAdapter and AdapterRegistry interact?",
+            symbols=["PythonAdapter", "AdapterRegistry"],
+        )
+        report = score_corpus_leakage([task])
+        assert sum(report.by_family.values()) == 1
+        assert report.by_kind["symbol"] == 2

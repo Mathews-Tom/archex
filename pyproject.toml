@@ -97,7 +97,7 @@ ignore = ["TC003"]
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
-include = ["src/archex", "tests"]
+include = ["src/archex", "tests", "benchmarks/corpus_audit"]
 # assets/archex_explainer.py depends on optional Manim rendering packages and is validated by render smoke when edited.
 # Generated approval-test state is not repository source and is not type-checked.
 # scip_pb2.py is protoc-generated code (regenerate via scip.proto in the same directory),

@@ -19,6 +19,7 @@ Three questions, in order of how badly a wrong answer misleads everything else:
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 from collections.abc import Sequence
@@ -141,19 +142,31 @@ class ClusterReport:
     def self_repo_share(self) -> float:
         return self.self_repo_tasks / self.total_tasks
 
+    @property
+    def weighted_mean_cluster_size(self) -> float:
+        """``sum(m^2) / sum(m)``, the cluster size the design effect depends on.
+
+        Not the arithmetic mean. With unequal clusters the design effect is
+        driven by the *size-weighted* mean, because a large cluster contributes
+        its correlated observations in proportion to its own size. This corpus
+        makes the difference stark: sizes of 24 and fifteen clusters of 2 to 4
+        give an arithmetic mean of 4.0 but a weighted mean of 10.8, so using the
+        arithmetic mean would overstate the usable sample size by about twofold.
+        """
+        return sum(size * size for size in self.cluster_sizes.values()) / self.total_tasks
+
     def effective_sample_size(self, icc: float) -> float:
         """Design-effect-corrected N.
 
         With clustered observations the usable sample size is
-        ``N / (1 + (m - 1) * ICC)`` for average cluster size ``m``. At ICC 0 the
-        clusters carry no shared signal and N is unchanged; at ICC 1 every
-        cluster collapses to a single observation.
+        ``N / (1 + (m_A - 1) * ICC)`` where ``m_A`` is the size-weighted mean
+        cluster size. At ICC 0 the clusters carry no shared signal and N is
+        unchanged; at ICC 1 each cluster contributes about one observation.
         """
         if not 0.0 <= icc <= 1.0:
             msg = f"icc must lie in [0, 1], got {icc}"
             raise CorpusAuditError(msg)
-        mean_size = self.total_tasks / self.cluster_count
-        design_effect = 1.0 + (mean_size - 1.0) * icc
+        design_effect = 1.0 + (self.weighted_mean_cluster_size - 1.0) * icc
         return self.total_tasks / design_effect
 
 
@@ -174,7 +187,20 @@ class HeldOutReport:
 
 
 def _normalise(text: str) -> str:
+    """Collapse punctuation to spaces, for matching prose against prose."""
     return re.sub(r"[^a-z0-9]+", " ", text.lower())
+
+
+def _raw(text: str) -> str:
+    """Lowercase while preserving `_` and `.`, for matching identifiers literally.
+
+    Both surfaces are needed. Matching only the normalised form lets `_merge`
+    match the ordinary word "merge" and `block_on` match "block on", which
+    readmits the false-positive class the tiering exists to keep out. Matching
+    only the raw form loses nothing real, so the raw form is what an identifier
+    is tested against.
+    """
+    return re.sub(r"[^a-z0-9_.]+", " ", text.lower())
 
 
 def _stem_of_path(path: str, *, exclude: frozenset[str]) -> str | None:
@@ -199,7 +225,7 @@ def _repo_tokens(repo: str) -> frozenset[str]:
     return frozenset(part.lower() for part in re.split(r"[/_-]", repo) if part)
 
 
-def _symbol_kind(symbol: str) -> str:
+def _symbol_kind(symbol: str) -> str:  # noqa: D401
     """Separate identifier-shaped symbols from gold symbols that are plain words.
 
     `PythonAdapter` and `default_adapter_registry` cannot appear in a question by
@@ -209,6 +235,11 @@ def _symbol_kind(symbol: str) -> str:
     ambiguity. They are reported as `symbol_word` and excluded from the strong
     tier without being hidden.
     """
+    if symbol.lower() in _GENERIC_TOKENS:
+        # Generic words are reported in the weak tier rather than dropped, so the
+        # count stays auditable. `_GENERIC_TOKENS` still drops path stems, where
+        # a generic word carries no information at all.
+        return "symbol_word"
     if _IDENTIFIER_SHAPED.search(symbol) or len(symbol) >= _MIN_WORD_SYMBOL_LENGTH:
         return "symbol"
     return "symbol_word"
@@ -223,8 +254,16 @@ def _is_distinctive(token: str) -> bool:
 
 
 def _contains_token(haystack: str, token: str) -> bool:
-    """Whole-token containment, so `parse` does not match `parsed`."""
-    return re.search(rf"\b{re.escape(token.lower())}\b", haystack) is not None
+    """Whole-token containment of *token* in an already-lowercased *haystack*.
+
+    Boundaries are checked against alphanumerics, underscore, and dot, so
+    `merge` does not match inside `_merge` and `parse` does not match `parsed`.
+    """
+    needle = token.lower().strip()
+    if not needle:
+        return False
+    pattern = rf"(?<![a-z0-9_.]){re.escape(needle)}(?![a-z0-9_.])"
+    return re.search(pattern, haystack) is not None
 
 
 def score_task_leakage(task: BenchmarkTask) -> tuple[LeakSignal, ...]:
@@ -234,17 +273,21 @@ def score_task_leakage(task: BenchmarkTask) -> tuple[LeakSignal, ...]:
     symbol match is scored on the raw symbol; a path match is scored on its
     distinctive fragments, since no question quotes a full path.
     """
-    surfaces = {
+    keywords = " ".join(task.keywords)
+    # Identifiers are matched literally against a surface that keeps `_` and `.`;
+    # path stems are prose-like and matched against the normalised surface.
+    raw_surfaces = {"question": _raw(task.question), "keywords": _raw(keywords)}
+    prose_surfaces = {
         "question": _normalise(task.question),
-        "keywords": _normalise(" ".join(task.keywords)),
+        "keywords": _normalise(keywords),
     }
     exclude = _repo_tokens(task.repo)
     signals: list[LeakSignal] = []
     for symbol in task.expected_symbols:
-        if not _is_distinctive(symbol) or symbol.lower() in exclude:
+        if symbol.lower() in exclude or len(symbol) < _MIN_TOKEN_LENGTH:
             continue
         kind = _symbol_kind(symbol)
-        for surface, text in surfaces.items():
+        for surface, text in raw_surfaces.items():
             if _contains_token(text, symbol):
                 signals.append(
                     LeakSignal(task_id=task.task_id, kind=kind, value=symbol, surface=surface)
@@ -254,7 +297,7 @@ def score_task_leakage(task: BenchmarkTask) -> tuple[LeakSignal, ...]:
         stem = _stem_of_path(path, exclude=exclude)
         if stem is None:
             continue
-        for surface, text in surfaces.items():
+        for surface, text in prose_surfaces.items():
             if (stem, surface) in seen_stems:
                 continue
             if _contains_token(text, stem):
@@ -346,12 +389,32 @@ class PowerResult:
     simulations: int
     seed: int
 
+    @property
+    def monte_carlo_se(self) -> float:
+        """Standard error of the power estimate itself.
+
+        Reported because a power estimate read against a 0.80 target is only
+        meaningful if its own noise is small against the distance to that target.
+        """
+        return math.sqrt(max(0.0, self.power * (1.0 - self.power)) / self.simulations)
+
+    def clears(self, target_power: float) -> bool:
+        """Whether power clears *target* by more than two of its own standard errors."""
+        return self.power - 2.0 * self.monte_carlo_se >= target_power
+
 
 def _cluster_probabilities(
     sizes: Sequence[int], base_rate: float, cluster_sd: float, rng: random.Random
 ) -> list[float]:
     """Per-cluster success rates, dispersed to induce between-cluster variance."""
     return [min(0.99, max(0.01, rng.gauss(base_rate, cluster_sd))) for _ in sizes]
+
+
+#: Below this many clusters the percentile bootstrap cannot approximate 95%
+#: coverage: with k clusters there are only k**k distinct resamples, and the
+#: interval collapses, reporting *higher* power for a worse design. Projections
+#: below this threshold are refused rather than quietly reported.
+MIN_VALID_CLUSTERS = 8
 
 
 def simulate_power(
@@ -363,6 +426,7 @@ def simulate_power(
     simulations: int,
     resamples: int,
     seed: int,
+    effect_sd: float = 0.0,
 ) -> PowerResult:
     """Estimate power to detect *effect_points* on a given cluster structure.
 
@@ -370,9 +434,19 @@ def simulate_power(
     rate from ``Normal(base_rate, cluster_sd)``, which is what makes observations
     within a repository correlated. Every task in that cluster then draws a
     control outcome at the cluster rate and a treatment outcome at the cluster
-    rate plus the effect. The paired delta is the difference of the two pooled
-    means, and inference is the same cluster bootstrap over repositories that R3
-    used, so a power figure here is comparable to an interval measured there.
+    rate plus that cluster's effect. The paired delta is the difference of the two
+    pooled means, and inference is the same cluster bootstrap over repositories
+    that R3 used, so a power figure here is comparable to an interval measured
+    there.
+
+    ``effect_sd`` is the **between-cluster standard deviation of the treatment
+    effect**, and it is the only parameter under which the number of
+    repositories -- as opposed to the number of tasks -- limits power. At
+    ``effect_sd=0`` every repository responds identically, the shared cluster
+    rate cancels in the paired delta, and power is governed by total task count.
+    Do not set it above what data supports: estimated from R3's eight measured
+    per-repository deltas it is indistinguishable from zero, because their spread
+    is smaller than the within-repository sampling noise at 200 tasks each.
 
     Power is the fraction of simulations whose 95% cluster-bootstrap interval
     excludes zero -- the same rule the pre-registered Gate A decision applied.
@@ -380,23 +454,46 @@ def simulate_power(
     if not cluster_sizes:
         msg = "cannot simulate power over zero clusters"
         raise CorpusAuditError(msg)
-    if len(cluster_sizes) < 2:
-        msg = f"a cluster bootstrap needs at least two clusters, got {len(cluster_sizes)}"
+    if len(cluster_sizes) < MIN_VALID_CLUSTERS:
+        msg = (
+            f"a percentile cluster bootstrap cannot hold 95% coverage with "
+            f"{len(cluster_sizes)} clusters; at least {MIN_VALID_CLUSTERS} are required, "
+            "because below that the interval narrows artificially and reports higher "
+            "power for a worse design"
+        )
+        raise CorpusAuditError(msg)
+    if effect_sd < 0.0:
+        msg = f"effect_sd must be non-negative, got {effect_sd}"
         raise CorpusAuditError(msg)
     if simulations < 1 or resamples < 1:
         msg = f"simulations and resamples must be positive, got {simulations} and {resamples}"
         raise CorpusAuditError(msg)
 
-    rng = random.Random(seed)
+    if base_rate + effect_points / PERCENT > 1.0:
+        msg = (
+            f"base rate {base_rate} plus effect {effect_points} points saturates the "
+            "treatment arm; every task would succeed and the result is not a power "
+            "calculation"
+        )
+        raise CorpusAuditError(msg)
+
+    # Descending, so the estimator does not depend on the alphabetical order of
+    # repository names, which is what `describe_clusters` happens to return.
+    ordered = tuple(sorted(cluster_sizes, reverse=True))
     effect = effect_points / PERCENT
     detected = 0
     widths: list[float] = []
 
-    for _ in range(simulations):
-        rates = _cluster_probabilities(cluster_sizes, base_rate, cluster_sd, rng)
+    for index in range(simulations):
+        # One stream per simulation, so `simulations` and `resamples` are
+        # independent knobs. Sharing a single interleaved stream made a +/-1
+        # change to `resamples` reshuffle every later simulation.
+        rng = random.Random(f"{seed}:{index}")  # noqa: S311
+        rates = _cluster_probabilities(ordered, base_rate, cluster_sd, rng)
         per_cluster: list[tuple[int, int, int]] = []
-        for size, rate in zip(cluster_sizes, rates, strict=True):
-            treated_rate = min(1.0, max(0.0, rate + effect))
+        for size, rate in zip(ordered, rates, strict=True):
+            cluster_effect = effect if effect_sd == 0.0 else rng.gauss(effect, effect_sd / PERCENT)
+            treated_rate = min(1.0, max(0.0, rate + cluster_effect))
             control_hits = sum(1 for _ in range(size) if rng.random() < rate)
             treatment_hits = sum(1 for _ in range(size) if rng.random() < treated_rate)
             per_cluster.append((size, control_hits, treatment_hits))
@@ -433,6 +530,7 @@ def minimum_detectable_effect(
     simulations: int,
     resamples: int,
     seed: int,
+    effect_sd: float = 0.0,
 ) -> tuple[float | None, tuple[PowerResult, ...]]:
     """Smallest candidate effect reaching *target_power*, or None if none does.
 
@@ -452,13 +550,59 @@ def minimum_detectable_effect(
             simulations=simulations,
             resamples=resamples,
             seed=seed,
+            effect_sd=effect_sd,
         )
         for effect in sorted(candidates)
     )
     for result in curve:
-        if result.power >= target_power:
+        if result.clears(target_power):
             return result.effect_points, curve
     return None, curve
+
+
+@dataclass(frozen=True, slots=True)
+class DetectionBracket:
+    """The smallest and largest candidate effects consistent with *target_power*.
+
+    A single "minimum detectable effect" is a false precision when the estimator's
+    own noise is comparable to the grid spacing: the smallest effect whose power
+    clears the target by two standard errors, and the largest that has not yet
+    clearly cleared it, bracket the honest answer.
+    """
+
+    lower: float | None
+    upper: float | None
+    target_power: float
+
+    def describe(self) -> str:
+        if self.lower is None:
+            return f"no searched effect reaches {self.target_power:.0%} power"
+        if self.upper is None or self.upper >= self.lower:
+            return f"{self.lower:g} points"
+        return f"between {self.upper:g} and {self.lower:g} points"
+
+
+def detection_bracket(curve: Sequence[PowerResult], *, target_power: float) -> DetectionBracket:
+    """Bracket the detectable effect, accounting for Monte Carlo noise."""
+    lower = next((item.effect_points for item in curve if item.clears(target_power)), None)
+    upper = next(
+        (
+            item.effect_points
+            for item in reversed(list(curve))
+            if lower is not None and item.effect_points < lower and item.power < target_power
+        ),
+        None,
+    )
+    return DetectionBracket(lower=lower, upper=upper, target_power=target_power)
+
+
+def _as_float(block: dict[str, object], key: str) -> float:
+    """Read a numeric field, refusing anything that is not a real number."""
+    value = block.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        msg = f"expected a number for {key!r}, got {value!r}"
+        raise ValueError(msg)
+    return float(value)
 
 
 class CorpusAuditArtifact(BaseModel):
@@ -482,22 +626,82 @@ class CorpusAuditArtifact(BaseModel):
 
     @model_validator(mode="after")
     def _validate_calibration(self) -> CorpusAuditArtifact:
-        """A power projection is worthless until its simulator is validated.
+        """Recompute the calibration rather than trusting its conclusion field.
 
         R4's whole claim is a projection from a simulation, so the artifact may
         not omit the check of that simulation against a real measured interval,
-        and may not record a check it failed.
+        may not record a check it failed, and may not assert a verdict its own
+        recorded numbers contradict. Checking only ``within_tolerance`` would
+        validate the one field a miscomputing producer would still set to true.
         """
-        for key in ("reference", "measured_ci_width", "simulated_ci_width", "within_tolerance"):
+        required = ("reference", "measured_ci_width", "simulated_ci_width", "within_tolerance")
+        for key in required:
             if key not in self.calibration:
                 msg = f"calibration must record {key!r}"
                 raise ValueError(msg)
-        if self.calibration["within_tolerance"] is not True:
+        measured = _as_float(self.calibration, "measured_ci_width")
+        simulated = _as_float(self.calibration, "simulated_ci_width")
+        tolerance = _as_float(self.calibration, "tolerance")
+        if measured <= 0.0:
+            msg = f"calibration measured_ci_width must be positive, got {measured}"
+            raise ValueError(msg)
+        implied = abs(simulated - measured) / measured <= tolerance
+        if self.calibration["within_tolerance"] is not implied:
+            msg = (
+                f"calibration records within_tolerance="
+                f"{self.calibration['within_tolerance']!r}, but a simulated width of "
+                f"{simulated} against a measured {measured} at tolerance {tolerance} "
+                f"implies {implied!r}"
+            )
+            raise ValueError(msg)
+        if not implied:
             msg = (
                 "calibration did not reproduce the reference interval, so no power "
                 "projection in this artifact may be trusted"
             )
             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_internal_consistency(self) -> CorpusAuditArtifact:
+        """Cross-check the blocks against each other and against total_tasks."""
+        raw_sizes = self.clustering.get("cluster_sizes")
+        if not isinstance(raw_sizes, dict) or not raw_sizes:
+            msg = "clustering must record a non-empty cluster_sizes mapping"
+            raise ValueError(msg)
+        sizes: dict[str, int] = {str(key): int(value) for key, value in raw_sizes.items()}  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
+        counted = sum(sizes.values())
+        if counted != self.total_tasks:
+            msg = (
+                f"cluster sizes sum to {counted} but total_tasks is {self.total_tasks}; "
+                "the audit and the corpus it reports on disagree"
+            )
+            raise ValueError(msg)
+        recorded_clusters = self.clustering.get("cluster_count")
+        if isinstance(recorded_clusters, int) and recorded_clusters != len(sizes):
+            msg = f"cluster_count {recorded_clusters} does not match {len(sizes)} cluster sizes"
+            raise ValueError(msg)
+        for key in ("symbol_leak_rate", "any_leak_rate"):
+            rate = _as_float(self.leakage, key)
+            if not 0.0 <= rate <= 1.0:
+                msg = f"leakage {key} must lie in [0, 1], got {rate}"
+                raise ValueError(msg)
+        for field_name, ids_key, rate_key in (
+            ("symbol", "symbol_leaked_tasks", "symbol_leak_rate"),
+            ("any", "any_leaked_tasks", "any_leak_rate"),
+        ):
+            raw_ids = self.leakage.get(ids_key)
+            if not isinstance(raw_ids, list):
+                msg = f"leakage must record {ids_key} as a list"
+                raise ValueError(msg)
+            ids: list[str] = [str(item) for item in raw_ids]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+            expected = round(len(ids) / self.total_tasks, 4)
+            if abs(_as_float(self.leakage, rate_key) - expected) > 1e-6:
+                msg = (
+                    f"leakage {rate_key} does not match its own {field_name}-tier task "
+                    f"list: {len(ids)}/{self.total_tasks} implies {expected}"
+                )
+                raise ValueError(msg)
         return self
 
 
@@ -516,3 +720,28 @@ def validate_corpus_audit_artifact(path: Path) -> CorpusAuditArtifact:
     except ValidationError as exc:
         msg = f"Corpus audit artifact failed validation: {path}: {exc}"
         raise CorpusAuditError(msg) from exc
+
+
+def estimate_effect_heterogeneity(
+    per_cluster_deltas: Sequence[float], *, tasks_per_cluster: int, base_rate: float
+) -> float:
+    """Between-cluster effect SD, with within-cluster sampling noise removed.
+
+    The raw spread of measured per-repository deltas is *not* heterogeneity: most
+    or all of it can be binomial noise from finitely many tasks per repository.
+    Subtracting the expected within-cluster variance is what separates the two,
+    and the result is floored at zero because a negative variance estimate means
+    the data show no heterogeneity at all rather than a negative amount of it.
+    """
+    if len(per_cluster_deltas) < 2:
+        msg = f"need at least two clusters to estimate heterogeneity, got {len(per_cluster_deltas)}"
+        raise CorpusAuditError(msg)
+    if tasks_per_cluster < 1:
+        msg = f"tasks_per_cluster must be positive, got {tasks_per_cluster}"
+        raise CorpusAuditError(msg)
+    mean = sum(per_cluster_deltas) / len(per_cluster_deltas)
+    observed_variance = sum((value - mean) ** 2 for value in per_cluster_deltas) / (
+        len(per_cluster_deltas) - 1
+    )
+    within_variance = 2.0 * base_rate * (1.0 - base_rate) / tasks_per_cluster * PERCENT * PERCENT
+    return math.sqrt(max(0.0, observed_variance - within_variance))
