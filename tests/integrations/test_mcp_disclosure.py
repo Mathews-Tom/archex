@@ -8,6 +8,7 @@ is the property that lets the default change safely.
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -316,3 +317,92 @@ class TestGateThroughARealSession:
             after = {t.name for t in (await client.list_tools()).tools}
             assert before == after == set(TOOL_SCOPE_PROFILES["graph"])
             assert notifications == [], "a pointless tools/list round trip"
+
+
+class TestClientCompatibilityPath:
+    """`install-client --no-disclosure` is the documented path for a client that
+    cannot re-fetch its tool list.
+
+    Asserted through the rendered client config rather than the arg builder, so
+    these pin what actually lands on disk.
+    """
+
+    @staticmethod
+    def _args(tool_scope: str | None = None, *, disclosure: bool = True) -> list[str]:
+        from archex.client_setup import build_client_install_plan
+
+        plan = build_client_install_plan(
+            "claude-code",
+            ".",
+            scope="project",
+            tool_scope=tool_scope,
+            disclosure=disclosure,
+        )
+        content: dict[str, Any] = json.loads(plan.content)
+        return content["mcpServers"]["archex"]["args"]
+
+    def test_the_default_config_is_byte_identical_to_the_pre_r5_one(self) -> None:
+        """Existing installs must not churn, so the default stays implicit."""
+        assert self._args() == ["mcp"]
+
+    def test_the_compatibility_path_writes_the_opt_out(self) -> None:
+        assert self._args(disclosure=False) == ["mcp", "--no-disclosure"]
+
+    def test_a_scope_and_the_compatibility_path_compose(self) -> None:
+        assert self._args("core", disclosure=False) == [
+            "mcp",
+            "--tools",
+            "core",
+            "--no-disclosure",
+        ]
+
+    def test_a_scope_alone_is_unchanged_by_r5(self) -> None:
+        assert self._args("core") == ["mcp", "--tools", "core"]
+
+    def test_setup_offers_the_same_opt_out_as_install_client(self) -> None:
+        """`setup` is the primary onboarding command and the docs promise the flag.
+
+        Without this, `--no-disclosure` existed only on `install-client` while
+        `apply_clients_guidance`'s `disclosure` parameter sat unreachable.
+        """
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        result = CliRunner().invoke(cli, ["setup", "--help"])
+        assert result.exit_code == 0
+        assert "--no-disclosure" in result.output
+
+    def test_setups_opt_out_reaches_the_rendered_config(self) -> None:
+        """A flag that parses but never reaches the plan builder is dead code."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+        from archex.cli.setup_cmd import run_preflight
+
+        if not run_preflight(Path(".")).mcp_runtime_available:
+            pytest.skip("client planning is skipped when the mcp runtime is unavailable")
+
+        seen: list[bool] = []
+        real = None
+
+        def spy(*args: Any, **kwargs: Any) -> Any:
+            seen.append(bool(kwargs["disclosure"]))
+            assert real is not None
+            return real(*args, **kwargs)
+
+        import archex.cli.setup_cmd as setup_mod
+
+        real = setup_mod.build_discovered_install_plans
+        with patch.object(setup_mod, "build_discovered_install_plans", side_effect=spy):
+            runner = CliRunner()
+            runner.invoke(cli, ["setup", ".", "--dry-run", "--clients", "--format", "json"])
+            runner.invoke(
+                cli,
+                ["setup", ".", "--dry-run", "--clients", "--no-disclosure", "--format", "json"],
+            )
+
+        assert seen == [True, False], "the flag never reached the plan builder"

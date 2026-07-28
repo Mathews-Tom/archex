@@ -99,6 +99,19 @@ def _is_interactive() -> bool:
         "existing unscoped `archex mcp` behavior."
     ),
 )
+@click.option(
+    "--no-disclosure",
+    "no_disclosure",
+    is_flag=True,
+    default=False,
+    help=(
+        "Write a config that advertises every tool from the first list_tools() "
+        "instead of gating on retrieval. The compatibility path for a client "
+        "that cannot re-fetch its tool list after "
+        "notifications/tools/list_changed: it pays the full per-turn schema "
+        "cost but never waits to see a tool."
+    ),
+)
 def install_client_cmd(
     client_or_source: str | None,
     source_opt: str | None,
@@ -111,6 +124,7 @@ def install_client_cmd(
     all_detected: bool,
     yes: bool,
     tool_scope: str | None,
+    no_disclosure: bool,
 ) -> None:
     """Install MCP client configuration for archex (preview with --dry-run)."""
     if hooks and remove_hooks:
@@ -164,7 +178,9 @@ def install_client_cmd(
             )
 
             discovered = discover_clients(source)
-            plans = build_discovered_install_plans(discovered, source, tool_scope=tool_scope)
+            plans = build_discovered_install_plans(
+                discovered, source, tool_scope=tool_scope, disclosure=not no_disclosure
+            )
             if dry_run:
                 click.echo(render_multiple_install_preview(plans), nl=False)
                 if agent_file is not None:
@@ -211,7 +227,9 @@ def install_client_cmd(
                 click.echo("\nNo configured clients found.")
                 return
 
-            plans = build_discovered_install_plans(discovered, source, tool_scope=tool_scope)
+            plans = build_discovered_install_plans(
+                discovered, source, tool_scope=tool_scope, disclosure=not no_disclosure
+            )
             click.echo(
                 f"\nInstall archex MCP registration for {len(plans)} detected clients? [y/N] ",
                 nl=False,
@@ -270,6 +288,7 @@ def install_client_cmd(
             source,
             scope=cast("ClientScope | None", scope),
             tool_scope=tool_scope,
+            disclosure=not no_disclosure,
         )
         if dry_run:
             click.echo(render_client_install_preview(plan), nl=False)

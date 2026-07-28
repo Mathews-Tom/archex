@@ -169,13 +169,16 @@ def build_discovered_install_plans(
     discovered: list[DiscoveredClient],
     source: str | Path | None = None,
     tool_scope: str | None = None,
+    disclosure: bool = True,
 ) -> list[ClientInstallPlan]:
     plans: list[ClientInstallPlan] = []
     for d in discovered:
         if d.is_installed:
             s = source if d.scope == "project" else None
             plans.append(
-                build_client_install_plan(d.client, s, scope=d.scope, tool_scope=tool_scope)
+                build_client_install_plan(
+                    d.client, s, scope=d.scope, tool_scope=tool_scope, disclosure=disclosure
+                )
             )
     return plans
 
@@ -203,13 +206,14 @@ def build_client_install_plan(
     *,
     scope: ClientScope | None = None,
     tool_scope: str | None = None,
+    disclosure: bool = True,
 ) -> ClientInstallPlan:
     selected_scope = _resolve_scope(client, source, scope)
     if client in _USER_ONLY_CLIENTS and selected_scope != "user":
         raise ValueError(f"{client} client config supports only --scope user")
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
     target_path = _target_path(client, repo_root, selected_scope)
-    content = _render_content(client, tool_scope)
+    content = _render_content(client, tool_scope, disclosure=disclosure)
     return ClientInstallPlan(
         client=client,
         scope=selected_scope,
@@ -1425,7 +1429,7 @@ def _target_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Pat
     raise ValueError(f"unsupported client: {client}")
 
 
-def _mcp_args(tool_scope: str | None) -> list[str]:
+def _mcp_args(tool_scope: str | None, *, disclosure: bool = True) -> list[str]:
     """CLI args for the `archex mcp` server command.
 
     `None` preserves the existing unscoped `["mcp"]` args exactly (backward
@@ -1433,14 +1437,25 @@ def _mcp_args(tool_scope: str | None) -> list[str]:
     scope is validated via `resolve_tool_scope` before being embedded --
     an unknown tool name in `tool_scope` fails at install time, not
     silently inside a client's own MCP server subprocess.
+
+    `disclosure=False` writes `--no-disclosure`, which is the compatibility
+    path for a client that cannot re-fetch its tool list: it pays the full
+    schema cost every turn but sees every tool from the first `list_tools()`.
+    The default is left implicit rather than written as `--disclosure`, so
+    configs stay byte-identical to the ones archex already wrote.
     """
-    if tool_scope is None or resolve_tool_scope(tool_scope) is None:
-        return ["mcp"]
-    return ["mcp", "--tools", tool_scope]
+    args = ["mcp"]
+    if tool_scope is not None and resolve_tool_scope(tool_scope) is not None:
+        args += ["--tools", tool_scope]
+    if not disclosure:
+        args.append("--no-disclosure")
+    return args
 
 
-def _render_content(client: ClientName, tool_scope: str | None = None) -> str:
-    args = _mcp_args(tool_scope)
+def _render_content(
+    client: ClientName, tool_scope: str | None = None, *, disclosure: bool = True
+) -> str:
+    args = _mcp_args(tool_scope, disclosure=disclosure)
     if client == "codex":
         return f'[mcp_servers.archex]\ncommand = "archex"\nargs = {json.dumps(args)}\n'
     if client == "opencode":
