@@ -23,6 +23,10 @@ from archex.benchmark.baseline import (
 )
 from archex.benchmark.bundle_eval import BundleOnlyEvaluatorError, run_bundle_only_eval_all
 from archex.benchmark.competitive import format_competitive_markdown, load_compression_results
+from archex.benchmark.corpus_audit import (
+    CorpusAuditError,
+    validate_corpus_audit_artifact,
+)
 from archex.benchmark.cross_tool import NaiveBaselineModel, run_cross_tool
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.evidence import (
@@ -809,7 +813,7 @@ def scorecard_cmd(
 @click.option(
     "--kind",
     default="tasks",
-    type=click.Choice(["tasks", "arch", "delta", "all", "evidence", "replication"]),
+    type=click.Choice(["tasks", "arch", "delta", "all", "evidence", "replication", "corpus-audit"]),
     show_default=True,
     help="Task definition or evidence family to validate.",
 )
@@ -823,10 +827,21 @@ def validate_cmd(
     """Validate benchmark task definitions."""
     repo_root = Path.cwd()
     target: Path | None = None
-    if kind in {"evidence", "replication"}:
+    if kind in {"evidence", "replication", "corpus-audit"}:
         if input_path is None:
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
+
+    if kind == "corpus-audit" and target is not None:
+        try:
+            audit = validate_corpus_audit_artifact(target)
+        except CorpusAuditError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Valid corpus audit: {audit.total_tasks} task(s), "
+            f"milestone {audit.milestone}, verdict recorded."
+        )
+        return
 
     if kind == "replication" and target is not None:
         try:
