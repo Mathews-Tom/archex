@@ -1,0 +1,90 @@
+{
+  "acceptance": {
+    "bar_tokens": 1000,
+    "default_scope": "disclosure",
+    "measured_tokens": 765,
+    "met": true,
+    "reduction_vs_all_pct": 80.2
+  },
+  "baseline_correction": {
+    "measured_tokens": 3859,
+    "note": "The plan's objective cited ~6000 tokens. Measured at R5's design gate the full surface is 19 tools / 15602 chars / 3859 tokens. M11's BASELINE.json records the pre-M11 unscoped surface at 14270 chars, so no point in this repo's history approached 6000. Corrected in the plan by R5-DG-001.",
+    "plan_stated_tokens": 6000
+  },
+  "measured_at": "2026-07-28",
+  "measured_with": "archex mcp-schema-size --tools <scope> --format json",
+  "method": "len() and cl100k_base token count of json.dumps({name,description,inputSchema}, sort_keys=True) per tool, summed. The same shape list_tools() advertises, so the counts track what a client actually registers.",
+  "milestone": "R5",
+  "schema_version": 1,
+  "scopes": {
+    "all": {
+      "per_tool_tokens": {
+        "analyze_repo": 128,
+        "compare_repos": 161,
+        "context": 534,
+        "explain_target": 210,
+        "generate_onboarding": 155,
+        "get_file_outline": 107,
+        "get_file_tree": 121,
+        "get_impact": 267,
+        "get_symbol": 90,
+        "get_symbols_batch": 116,
+        "graph_hubs": 160,
+        "graph_lookup": 184,
+        "graph_neighbors": 227,
+        "graph_path": 226,
+        "graph_query": 442,
+        "graph_stats": 154,
+        "query_repo": 231,
+        "scout_repo": 173,
+        "search_symbols": 173
+      },
+      "tool_count": 19,
+      "total_chars": 15602,
+      "total_tokens": 3859
+    },
+    "core": {
+      "per_tool_tokens": {
+        "analyze_repo": 128,
+        "compare_repos": 161,
+        "context": 534,
+        "explain_target": 210,
+        "generate_onboarding": 155,
+        "get_file_outline": 107,
+        "get_file_tree": 121,
+        "get_impact": 267,
+        "get_symbol": 90,
+        "get_symbols_batch": 116,
+        "graph_query": 442,
+        "query_repo": 231,
+        "scout_repo": 173,
+        "search_symbols": 173
+      },
+      "tool_count": 14,
+      "total_chars": 12130,
+      "total_tokens": 2908
+    },
+    "disclosure": {
+      "per_tool_tokens": {
+        "context": 534,
+        "query_repo": 231
+      },
+      "tool_count": 2,
+      "total_chars": 3286,
+      "total_tokens": 765
+    },
+    "graph": {
+      "per_tool_tokens": {
+        "graph_hubs": 160,
+        "graph_lookup": 184,
+        "graph_neighbors": 227,
+        "graph_path": 226,
+        "graph_stats": 154
+      },
+      "tool_count": 5,
+      "total_chars": 3472,
+      "total_tokens": 951
+    }
+  },
+  "source_revision": "6c6ee0d2b9d7a4a6cf6562f927cf7e9017e07175"
+}
