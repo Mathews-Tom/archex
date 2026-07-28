@@ -1,0 +1,391 @@
+{
+  "corpus_audit_version": 1,
+  "milestone": "R4",
+  "generated_at": "2026-07-28T15:53:50.902445+00:00",
+  "source_revision": "ad06dd27162dbdacc9281012c11260a89ea4b2a8",
+  "tasks_dir": "benchmarks/tasks",
+  "task_manifest_digest": "c9b6eb53901a572372131cb0d748af5ba487686ee6604f9baa40bcea09ae5721",
+  "total_tasks": 64,
+  "leakage": {
+    "symbol_leaked_tasks": [
+      "archex_adapter_registry",
+      "archex_vector_cache_lifecycle",
+      "loc_click_param_process",
+      "loc_fastapi_jsonable_encoder",
+      "loc_fastapi_solve_dependencies",
+      "loc_gin_context_next",
+      "loc_gin_tree_route",
+      "loc_httpx_pool_transport",
+      "loc_mini_redis_command_from_frame",
+      "loc_requests_redirect_auth",
+      "loc_tokio_current_thread_block_on",
+      "routing_mixed_cache",
+      "routing_mixed_chunker",
+      "routing_pl_intent",
+      "routing_pl_large",
+      "routing_pl_path_symbol",
+      "routing_pl_scoring",
+      "routing_pl_tight",
+      "routing_trace_api"
+    ],
+    "symbol_leak_rate": 0.2969,
+    "any_leaked_tasks": [
+      "archex_adapter_registry",
+      "archex_benchmark_gate_lifecycle",
+      "archex_delta_index_lifecycle",
+      "archex_delta_indexing",
+      "archex_graph_expansion",
+      "archex_mcp_query_lifecycle",
+      "archex_pattern_detection",
+      "archex_project_config_resolution",
+      "archex_project_index",
+      "archex_project_init",
+      "archex_project_reset",
+      "archex_project_status",
+      "archex_query_cache_lifecycle",
+      "archex_query_pipeline",
+      "archex_vector_cache_lifecycle",
+      "celery_task_dispatch",
+      "click_decorators",
+      "django_middleware",
+      "django_orm_queries",
+      "express_middleware",
+      "flask_blueprints",
+      "gin_routing",
+      "loc_celery_task_retry",
+      "loc_click_param_process",
+      "loc_django_queryset_filter",
+      "loc_express_error_middleware",
+      "loc_fastapi_jsonable_encoder",
+      "loc_fastapi_solve_dependencies",
+      "loc_flask_blueprint_register",
+      "loc_gin_context_next",
+      "loc_gin_tree_route",
+      "loc_httpx_pool_transport",
+      "loc_mini_redis_command_from_frame",
+      "loc_requests_adapter_send",
+      "loc_requests_redirect_auth",
+      "loc_sqlalchemy_session_merge",
+      "loc_tokio_current_thread_block_on",
+      "mini_redis_async",
+      "pytest_fixtures",
+      "requests_sessions",
+      "routing_mixed_cache",
+      "routing_mixed_chunker",
+      "routing_pl_intent",
+      "routing_pl_large",
+      "routing_pl_path_symbol",
+      "routing_pl_scoring",
+      "routing_pl_tight",
+      "routing_trace_api",
+      "sqlalchemy_sessions"
+    ],
+    "any_leak_rate": 0.7656,
+    "signals_by_kind": {
+      "symbol": 25,
+      "path_stem": 64,
+      "symbol_word": 17
+    },
+    "leaked_tasks_by_family": {
+      "comprehension": 34,
+      "localization": 15
+    },
+    "tiers": "symbol = an identifier-shaped gold symbol quoted in the query; symbol_word = a gold symbol that is also the ordinary word for the thing asked about, excluded from the headline; path_stem = a gold file's stem quoted in the query, weakest tier"
+  },
+  "clustering": {
+    "cluster_count": 16,
+    "cluster_sizes": {
+      ".": 24,
+      "celery/celery": 2,
+      "django/django": 4,
+      "encode/httpx": 3,
+      "expressjs/express": 3,
+      "facebook/react": 2,
+      "gin-gonic/gin": 4,
+      "pallets/click": 2,
+      "pallets/flask": 3,
+      "psf/requests": 3,
+      "pydantic/pydantic": 2,
+      "pytest-dev/pytest": 2,
+      "sqlalchemy/sqlalchemy": 2,
+      "tiangolo/fastapi": 4,
+      "tokio-rs/mini-redis": 2,
+      "tokio-rs/tokio": 2
+    },
+    "largest_cluster": ".",
+    "largest_cluster_share": 0.375,
+    "self_repo_share": 0.375,
+    "weighted_mean_cluster_size": 10.8125,
+    "effective_sample_size": {
+      "0.0": 64.0,
+      "0.1": 32.3,
+      "0.3": 16.23,
+      "0.5": 10.84,
+      "0.8": 7.23
+    }
+  },
+  "held_out": {
+    "declared": [
+      "archex_project_status",
+      "archex_query_pipeline",
+      "fastapi_dependency_injection",
+      "react_hooks",
+      "rust_tokio_runtime"
+    ],
+    "also_in_task_corpus": [
+      "archex_project_status",
+      "archex_query_pipeline",
+      "fastapi_dependency_injection",
+      "react_hooks",
+      "rust_tokio_runtime"
+    ],
+    "leak_rate": 1.0,
+    "enforced_by_code": false,
+    "note": "No code under src/ or .github/ consumes held_out.txt, so the declaration has no runtime effect. tests/benchmark/test_generalization.py asserts every held-out ID is also a top-level task, making the overlap a requirement rather than a defect it would catch."
+  },
+  "power": {
+    "seed": 20260728,
+    "simulations": 4000,
+    "resamples": 400,
+    "cluster_sd": 0.08,
+    "target_power": 0.8,
+    "minimum_detectable_effect_points": {
+      "base_rate_0.5": 30.0,
+      "base_rate_0.85": null
+    },
+    "detection_bracket": {
+      "base_rate_0.5": "between 25 and 30 points",
+      "base_rate_0.85": "no searched effect reaches 80% power"
+    },
+    "power_curves": {
+      "base_rate_0.5": [
+        {
+          "effect_points": 1.0,
+          "power": 0.0707,
+          "monte_carlo_se": 0.0041,
+          "mean_ci_width": 34.133
+        },
+        {
+          "effect_points": 2.0,
+          "power": 0.077,
+          "monte_carlo_se": 0.0042,
+          "mean_ci_width": 34.1358
+        },
+        {
+          "effect_points": 3.0,
+          "power": 0.0858,
+          "monte_carlo_se": 0.0044,
+          "mean_ci_width": 34.1252
+        },
+        {
+          "effect_points": 4.88,
+          "power": 0.108,
+          "monte_carlo_se": 0.0049,
+          "mean_ci_width": 34.0439
+        },
+        {
+          "effect_points": 7.5,
+          "power": 0.1585,
+          "monte_carlo_se": 0.0058,
+          "mean_ci_width": 33.9525
+        },
+        {
+          "effect_points": 10.0,
+          "power": 0.22,
+          "monte_carlo_se": 0.0065,
+          "mean_ci_width": 33.8348
+        },
+        {
+          "effect_points": 15.0,
+          "power": 0.3912,
+          "monte_carlo_se": 0.0077,
+          "mean_ci_width": 33.408
+        },
+        {
+          "effect_points": 20.0,
+          "power": 0.5965,
+          "monte_carlo_se": 0.0078,
+          "mean_ci_width": 32.7208
+        },
+        {
+          "effect_points": 25.0,
+          "power": 0.7887,
+          "monte_carlo_se": 0.0065,
+          "mean_ci_width": 31.9148
+        },
+        {
+          "effect_points": 30.0,
+          "power": 0.915,
+          "monte_carlo_se": 0.0044,
+          "mean_ci_width": 30.8787
+        },
+        {
+          "effect_points": 40.0,
+          "power": 0.9965,
+          "monte_carlo_se": 0.0009,
+          "mean_ci_width": 28.1915
+        },
+        {
+          "effect_points": 50.0,
+          "power": 1.0,
+          "monte_carlo_se": 0.0,
+          "mean_ci_width": 26.2362
+        }
+      ],
+      "base_rate_0.85": [
+        {
+          "effect_points": 1.0,
+          "power": 0.0722,
+          "monte_carlo_se": 0.0041,
+          "mean_ci_width": 23.5334
+        },
+        {
+          "effect_points": 2.0,
+          "power": 0.0828,
+          "monte_carlo_se": 0.0044,
+          "mean_ci_width": 23.1697
+        },
+        {
+          "effect_points": 3.0,
+          "power": 0.101,
+          "monte_carlo_se": 0.0048,
+          "mean_ci_width": 22.8214
+        },
+        {
+          "effect_points": 4.88,
+          "power": 0.146,
+          "monte_carlo_se": 0.0056,
+          "mean_ci_width": 22.1364
+        },
+        {
+          "effect_points": 7.5,
+          "power": 0.2517,
+          "monte_carlo_se": 0.0069,
+          "mean_ci_width": 21.2455
+        },
+        {
+          "effect_points": 10.0,
+          "power": 0.3912,
+          "monte_carlo_se": 0.0077,
+          "mean_ci_width": 20.4735
+        },
+        {
+          "effect_points": 15.0,
+          "power": 0.6635,
+          "monte_carlo_se": 0.0075,
+          "mean_ci_width": 19.371
+        }
+      ]
+    },
+    "literature_effect_points": 4.88,
+    "tasks_needed": 2048,
+    "effect_sd_estimated_from_r3": 0.0,
+    "effect_sd_note": "Between-cluster SD of the treatment effect, estimated from R3's eight measured per-repository deltas with within-cluster binomial noise removed. It floors at zero: the observed spread is smaller than the sampling noise at 200 tasks per repository, so the only data available show no detectable between-repository heterogeneity. Without heterogeneity, repositories are not the binding constraint and power is governed by total task count.",
+    "scaling": [
+      {
+        "tasks": 64,
+        "clusters": 16,
+        "tasks_per_cluster": 4,
+        "power": 0.1118
+      },
+      {
+        "tasks": 128,
+        "clusters": 16,
+        "tasks_per_cluster": 8,
+        "power": 0.1502
+      },
+      {
+        "tasks": 256,
+        "clusters": 16,
+        "tasks_per_cluster": 16,
+        "power": 0.235
+      },
+      {
+        "tasks": 512,
+        "clusters": 16,
+        "tasks_per_cluster": 32,
+        "power": 0.3992
+      },
+      {
+        "tasks": 1024,
+        "clusters": 16,
+        "tasks_per_cluster": 64,
+        "power": 0.6325
+      },
+      {
+        "tasks": 2048,
+        "clusters": 16,
+        "tasks_per_cluster": 128,
+        "power": 0.89
+      },
+      {
+        "tasks": 4096,
+        "clusters": 16,
+        "tasks_per_cluster": 256,
+        "power": 0.992
+      }
+    ],
+    "cluster_sd_sensitivity": [
+      {
+        "cluster_sd": 0.02,
+        "power": {
+          "10.0": 0.2177,
+          "20.0": 0.587,
+          "25.0": 0.7883,
+          "30.0": 0.9193
+        }
+      },
+      {
+        "cluster_sd": 0.05,
+        "power": {
+          "10.0": 0.22,
+          "20.0": 0.5942,
+          "25.0": 0.7847,
+          "30.0": 0.9153
+        }
+      },
+      {
+        "cluster_sd": 0.08,
+        "power": {
+          "10.0": 0.22,
+          "20.0": 0.5965,
+          "25.0": 0.7887,
+          "30.0": 0.915
+        }
+      },
+      {
+        "cluster_sd": 0.15,
+        "power": {
+          "10.0": 0.2328,
+          "20.0": 0.6205,
+          "25.0": 0.8103,
+          "30.0": 0.9217
+        }
+      },
+      {
+        "cluster_sd": 0.25,
+        "power": {
+          "10.0": 0.2625,
+          "20.0": 0.634,
+          "25.0": 0.8,
+          "30.0": 0.9048
+        }
+      }
+    ],
+    "model": "Each cluster draws a success rate from Normal(base_rate, cluster_sd); every task in it draws a control outcome at that rate and a treatment outcome at that rate plus the effect. Inference is the same cluster bootstrap over repositories that R3 used, and power is the fraction of simulations whose 95% interval excludes zero."
+  },
+  "calibration": {
+    "reference": "R3 / benchmarks/evidence/s0-rlcoder-replication.json",
+    "reference_structure": "8 clusters of 200 tasks",
+    "reference_effect_points": 2.8125,
+    "measured_ci_width": 5.8125,
+    "simulated_ci_width": 6.0175,
+    "relative_error": 0.0353,
+    "tolerance": 0.2,
+    "within_tolerance": true,
+    "power_on_reference_structure_at_observed_effect": 0.4447,
+    "power_on_reference_structure_at_reported_effect": 0.825,
+    "observed_power_caveat": "Power at the effect actually observed is observed power, not design power, and reporting it as if the reference setup were underpowered would be a post-hoc-power fallacy. At the effect R3's paper reports (+4.88) the same model puts that setup near the conventional 0.80 bar."
+  },
+  "verdict": "At 64 tasks over 16 repository clusters, the smallest effect this corpus can detect at 80% power is between 25 and 30 points; a literature-sized effect of 4.88 points has power 0.108. Reaching 80% power for that effect needs about 2048 tasks, against the 64 available today. Between-repository effect heterogeneity estimated from R3's measured per-repository deltas is 0.00 points, so the binding constraint is total task count and this audit does not claim repositories are the scarce resource."
+}
