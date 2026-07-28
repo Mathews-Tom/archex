@@ -2259,6 +2259,27 @@ _GRAPH_TOOL_NAMES: frozenset[str] = frozenset(
     {"graph_lookup", "graph_neighbors", "graph_path", "graph_stats", "graph_hubs"}
 )
 
+#: The tools advertised before a client has retrieved anything.
+#:
+#: Both are retrieval entry points, which is what makes the gate coherent: a
+#: client is charged for the two tools it needs to *start*, and for the rest only
+#: once it has demonstrated it is actually retrieving. Sized against R5's
+#: 1000-token acceptance bar -- `context` is 534 tokens and `query_repo` 231, for
+#: 765 with headroom, against 3859 for the full surface.
+#:
+#: Narrowing what is advertised never narrows what is *callable*: `build_server`'s
+#: `call_tool` dispatches by name whatever `list_tools` returned, so a client
+#: holding a hardcoded tool name keeps working through the gate. That is a
+#: fallback for hardcoded callers, not the reachability mechanism -- MCP tools are
+#: model-controlled, so what puts the wider surface back in front of a model is
+#: the `tools/list_changed` notification and the declared `listChanged` capability.
+#:
+#: Public, unlike `_GRAPH_TOOL_NAMES` beside it, because this set is R5's
+#: behavioural contract: its exact membership is pinned by a test and named in
+#: the compatibility matrix. The graph cluster is an implementation detail of a
+#: profile. The rule is public iff a test or the CLI must import it by name.
+DISCLOSURE_CORE_TOOL_NAMES: frozenset[str] = frozenset({"context", "query_repo"})
+
 #: Named convenience tool-scope profiles for `archex mcp --tools` and
 #: `install-client`/`setup --tool-scope`. "all" (every tool, the unscoped
 #: default) is intentionally absent here -- `resolve_tool_scope` treats it,
@@ -2267,6 +2288,7 @@ _GRAPH_TOOL_NAMES: frozenset[str] = frozenset(
 TOOL_SCOPE_PROFILES: dict[str, frozenset[str]] = {
     "core": frozenset(ALL_TOOL_NAMES) - _GRAPH_TOOL_NAMES,
     "graph": _GRAPH_TOOL_NAMES,
+    "disclosure": DISCLOSURE_CORE_TOOL_NAMES,
 }
 
 
@@ -2301,21 +2323,108 @@ def measure_tool_schema_size(tool_names: frozenset[str] | None = None) -> dict[s
 
     Serializes each tool's `{name, description, inputSchema}` as compact,
     sort-keyed JSON -- the same shape `list_tools()` advertises -- so the
-    reported byte counts track what a client actually registers.
+    reported counts track what a client actually registers.
+
+    Reports tokens as well as characters. Characters are what the wire carries;
+    tokens are what the context window is billed in, and every schema-size
+    target this project sets is stated in tokens, so measuring only characters
+    left the target uncheckable by the command meant to check it.
     """
     schemas = _tool_schemas()
     if tool_names is not None:
         schemas = [schema for schema in schemas if schema["name"] in tool_names]
-    per_tool_chars = {schema["name"]: len(json.dumps(schema, sort_keys=True)) for schema in schemas}
+    serialized = {schema["name"]: json.dumps(schema, sort_keys=True) for schema in schemas}
+    per_tool_chars = {name: len(text) for name, text in serialized.items()}
+    per_tool_tokens = {name: count_tokens(text) for name, text in serialized.items()}
     return {
         "tool_count": len(schemas),
         "total_chars": sum(per_tool_chars.values()),
+        "total_tokens": sum(per_tool_tokens.values()),
         "per_tool_chars": per_tool_chars,
+        "per_tool_tokens": per_tool_tokens,
     }
 
 
+class DisclosureGate:
+    """Tracks whether a session has retrieved, and so earned the full tool surface.
+
+    A fresh session is advertised only `DISCLOSURE_CORE_TOOL_NAMES`. The first
+    successful call to one of those retrieval tools opens the gate, after which
+    `list_tools()` advertises everything. The point is to stop charging every
+    session for a schema surface most of them never use.
+
+    Reachability is preserved by the `tools/list_changed` notification the server
+    sends on opening, not by dispatch-by-name: MCP tools are model-controlled, so
+    a model only calls what it was shown. Dispatch-by-name surviving a closed
+    gate is what keeps *hardcoded* callers working; it is a fallback, not the
+    mechanism.
+
+    Opening is one-way and per-server: a session that has retrieved does not go
+    back to the minimal surface.
+    """
+
+    def __init__(self, *, enabled: bool) -> None:
+        self._enabled = enabled
+        self._open = not enabled
+        self._announce_pending = False
+
+    @property
+    def is_open(self) -> bool:
+        return self._open
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @property
+    def announce_pending(self) -> bool:
+        """Whether the client still owes a `tools/list_changed` it has not received.
+
+        Set when the advertised set actually grew, cleared only once a send
+        succeeds. Kept separate from `is_open` so a dropped notification is
+        retried on the next call instead of stranding the client on the minimal
+        list for the rest of the session.
+        """
+        return self._announce_pending
+
+    def visible(self, tool_names: frozenset[str] | None) -> frozenset[str] | None:
+        """The names to advertise now, intersected with any explicit scope.
+
+        An explicit scope that shares no tool with the retrieval core is served
+        as asked rather than intersected to nothing. A client that narrowed its
+        own scope has already made the cost decision the gate exists to make for
+        it, and intersecting to zero would advertise nothing while every tool
+        stayed callable -- strictly worse than serving the scope.
+        """
+        if self._open:
+            return tool_names
+        if tool_names is None:
+            return DISCLOSURE_CORE_TOOL_NAMES
+        gated = tool_names & DISCLOSURE_CORE_TOOL_NAMES
+        return gated or tool_names
+
+    def observe_call(self, name: str) -> bool:
+        """Record a tool call. Returns True only on the transition that opens it.
+
+        A disabled gate starts open, so the first test covers both.
+        """
+        if self._open or name not in DISCLOSURE_CORE_TOOL_NAMES:
+            return False
+        self._open = True
+        return True
+
+    def mark_announce_pending(self) -> None:
+        self._announce_pending = True
+
+    def mark_announced(self) -> None:
+        self._announce_pending = False
+
+
 def build_server(
-    runtime: QueryRuntime | None = None, tool_names: frozenset[str] | None = None
+    runtime: QueryRuntime | None = None,
+    tool_names: frozenset[str] | None = None,
+    *,
+    disclosure: bool = False,
 ) -> Any:
     """Build and return a configured MCP Server instance.
 
@@ -2324,6 +2433,27 @@ def build_server(
     tool name still dispatches through `call_tool` regardless of scoping --
     scoping only shrinks the advertised schema surface, it never changes
     which tool names a client can successfully call.
+
+    `disclosure` adds a retrieval gate on top of that: until the client calls a
+    retrieval tool, only `DISCLOSURE_CORE_TOOL_NAMES` are advertised, and the
+    expansion is announced with `notifications/tools/list_changed`.
+
+    That notification is what makes the gate safe, and it is load-bearing rather
+    than a courtesy. MCP tools are model-controlled: a model only calls what it
+    was shown, so for the ordinary path the notification -- plus the declared
+    `listChanged` capability that entitles a client to act on it, see
+    `run_stdio_server` -- is the whole mechanism that puts the wider surface back
+    in front of the model. Dispatch-by-name surviving a closed gate rescues only
+    *hardcoded* callers: an agent file that names tools directly, or a script.
+
+    The two settings compose rather than override: `tool_names` bounds what is
+    advertised *once the gate opens*, so `tool_names=None` (`--tools all`) still
+    starts at the minimal set. `disclosure=False` is the only way back to
+    advertising everything from the first `list_tools()`.
+
+    `disclosure` defaults to False here and in `run_stdio_server` so a library
+    caller keeps pre-R5 behaviour, while the `archex mcp` CLI defaults it on --
+    the gate is a cost decision for interactive sessions, not for embedders.
 
     Raises:
         ImportError: If the `mcp` package is not installed.
@@ -2340,12 +2470,14 @@ def build_server(
         runtime = QueryRuntime()
 
     server: Server[None, Any] = Server("archex")  # type: ignore[type-arg]
+    gate = DisclosureGate(enabled=disclosure)
 
     @server.list_tools()  # pyright: ignore[reportUnusedFunction]
     async def list_tools() -> list[mcp_types.Tool]:  # pyright: ignore[reportUnusedFunction]
+        visible = gate.visible(tool_names)
         schemas = _tool_schemas()
-        if tool_names is not None:
-            schemas = [schema for schema in schemas if schema["name"] in tool_names]
+        if visible is not None:
+            schemas = [schema for schema in schemas if schema["name"] in visible]
         return [mcp_types.Tool(**schema) for schema in schemas]
 
     @server.call_tool()  # pyright: ignore[reportUnusedFunction]
@@ -2354,11 +2486,44 @@ def build_server(
         arguments: dict[str, Any],
     ) -> list[mcp_types.TextContent]:
         loop = asyncio.get_running_loop()
+        advertised_before = gate.visible(tool_names)
         result_text = await _run_mcp_tool(loop, name, arguments, runtime)
+        # Only after the call succeeded: a failed retrieval has not demonstrated
+        # that this session needs the wider surface.
+        if gate.observe_call(name) and gate.visible(tool_names) != advertised_before:
+            # Opening does not always change what is advertised: a scope disjoint
+            # from the retrieval core is served in full either way. Announcing an
+            # identical list would cost the client a pointless tools/list.
+            gate.mark_announce_pending()
+        if gate.announce_pending and await _announce_tool_list_changed(server):
+            gate.mark_announced()
 
         return [mcp_types.TextContent(type="text", text=result_text)]
 
     return server
+
+
+async def _announce_tool_list_changed(server: Any) -> bool:
+    """Tell the client its tool list grew. Returns whether the client was told.
+
+    Never raises. A client that never registered a session, or one whose
+    transport has already gone away, must not turn a successful retrieval into a
+    failed tool call. But a lost notification is not free either: for a
+    model-controlled client it is the only thing that puts the wider surface in
+    front of the model, so the caller retries on the next call and this logs
+    loudly enough for an operator to see.
+    """
+    try:
+        session = server.request_context.session
+    except LookupError:
+        logger.warning("no MCP session to announce the tool-list change to; will retry")
+        return False
+    try:
+        await session.send_tool_list_changed()
+    except Exception:  # noqa: BLE001 - see docstring: never fail the caller's tool call
+        logger.warning("could not announce MCP tool-list change; will retry", exc_info=True)
+        return False
+    return True
 
 
 def _ignored_watch_path(path: str) -> bool:
@@ -2433,9 +2598,11 @@ async def run_stdio_server(
     watch_path: str = ".",
     watch_debounce_ms: int = 300,
     tool_names: frozenset[str] | None = None,
+    disclosure: bool = False,
 ) -> None:
     """Run the archex MCP server over stdio."""
     try:
+        from mcp.server.lowlevel import NotificationOptions
         from mcp.server.stdio import stdio_server
     except ImportError as exc:
         raise ImportError(
@@ -2450,10 +2617,19 @@ async def run_stdio_server(
     # across every query_repo call so repeat warm queries against the same
     # generation skip re-hydrating from SQLite.
     runtime = QueryRuntime()
-    server = build_server(runtime=runtime, tool_names=tool_names)
+    server = build_server(runtime=runtime, tool_names=tool_names, disclosure=disclosure)
     try:
         async with stdio_server() as (read_stream, write_stream):
-            init_opts = server.create_initialization_options()
+            # A client only honours `notifications/tools/list_changed` if the
+            # server declared the capability during initialization; the SDK
+            # defaults it to False. Without this the gate would be a permanent
+            # tool-hiding mechanism for any spec-compliant client, since it
+            # would be entitled to never re-fetch the list it was first given.
+            # Declared only when the gate is on -- an ungated server's tool
+            # list genuinely never changes, and promising otherwise is a lie.
+            init_opts = server.create_initialization_options(
+                notification_options=NotificationOptions(tools_changed=disclosure)
+            )
             await server.run(read_stream, write_stream, init_opts, raise_exceptions=True)
     finally:
         runtime.close()
