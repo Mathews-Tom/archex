@@ -42,6 +42,16 @@ def _artifact() -> DeterminismEconomicsArtifact:
     )
 
 
+def _stub_preregistration_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    def validate_preregistration_stub(_root: Path, _commit: str, _source: str) -> None:
+        return None
+
+    monkeypatch.setattr(economics, "validate_preregistration_commit", validate_preregistration_stub)
+    monkeypatch.setattr(
+        benchmark_module, "validate_preregistration_commit", validate_preregistration_stub
+    )
+
+
 def test_measurement_uses_same_sessions_and_reports_cache_economics() -> None:
     artifact = _artifact()
     arms = {arm.arm: arm for arm in artifact.arms}
@@ -75,7 +85,10 @@ def test_validator_rejects_missing_fixed_arm(tmp_path: Path) -> None:
         validate_determinism_economics_artifact(evidence)
 
 
-def test_validator_rejects_ledger_that_does_not_reproduce_from_fixture(tmp_path: Path) -> None:
+def test_validator_rejects_ledger_that_does_not_reproduce_from_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_preregistration_validation(monkeypatch)
     payload = _artifact().model_dump(mode="json")
     ledger = payload["arms"][0]["sessions"][0]
     prefix = ledger["rendered_prefixes"][0] + "tampered"
@@ -98,7 +111,10 @@ def test_validator_rejects_interval_that_excludes_its_estimate() -> None:
         DeterminismEconomicsArtifact.model_validate(payload)
 
 
-def test_cli_validates_standalone_economics_evidence(tmp_path: Path) -> None:
+def test_cli_validates_standalone_economics_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_preregistration_validation(monkeypatch)
     evidence = tmp_path / "s7.json"
     evidence.write_text(_artifact().model_dump_json(), encoding="utf-8")
 
@@ -112,6 +128,7 @@ def test_cli_validates_standalone_economics_evidence(tmp_path: Path) -> None:
 
 
 def test_cli_runs_frozen_measurement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_preregistration_validation(monkeypatch)
     evidence = tmp_path / "s7.json"
 
     def source_revision_stub(_root: Path) -> str:
@@ -229,6 +246,7 @@ def test_validator_rejects_unknown_preregistration_commit(tmp_path: Path) -> Non
 def test_validator_wraps_replay_validation_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _stub_preregistration_validation(monkeypatch)
     evidence = tmp_path / "s7.json"
     evidence.write_text(_artifact().model_dump_json(), encoding="utf-8")
 
