@@ -1,6 +1,6 @@
 # Execution Prompts — archex Strategic Reassessment Program
 
-One `/goal` block per milestone in `.docs/DEVELOPMENT_PLAN.md` §6. Each block is self-contained and paste-ready. Run order follows §8 Critical Path; R2, R5, R6 run in parallel off R1, and R11/R15 run in parallel off R10.
+One `/goal` block per milestone in `.docs/DEVELOPMENT_PLAN.md` §6. Each block is self-contained and paste-ready. Run order follows §8 Critical Path; R2 and R5 run in parallel off R1, and R11/R15 run in parallel off R10. R6 is cancelled.
 
 Milestone IDs are `R`-prefixed. **Never reuse `M1`–`M17`** — that numbering is bound to the prior plan by tracked references in `CHANGELOG.md` and `benchmarks/results/m*/DECISION.md`.
 
@@ -264,49 +264,14 @@ DONE: design verdict with evidence; when authorized, a reviewed stack with a rel
 
 ---
 
-### R6 — S7 determinism as prefix-cache economics
+### R6 — S7 determinism as prefix-cache economics `CANCELLED — INVALID SESSION FIXTURE`
 
 ```text
-/goal Deliver milestone R6 (S7 determinism as prefix-cache economics) from DEVELOPMENT_PLAN.md as a reviewed stack of PRs.
+No execution prompt. R6 is cancelled.
 
-CONTEXT: DEVELOPMENT_PLAN.md §6 Section C R6 + .docs/strategic-reassessment/03-SPIKES.md S7 and 01-LITERATURE-POSITION.md §G6. Preconditions: R1 merged. Runs in parallel with R3/R4/R5. Repo: as above.
-OBJECTIVE: Convert archex's determinism guarantee from a trust property into a measured dollar figure. Success contract: benchmarks/preregistrations/S7-determinism-economics.md pre-registered and merged before any run; a measurement harness covering deterministic ordering, perturbed ordering, and a non-deterministic ANN baseline across repeated multi-turn sessions; benchmarks/evidence/s7-determinism-economics.json reporting cache-hit rate and $/resolved-task per arm with cluster-bootstrapped intervals; a DECISION.md.
-RELEASE TRAIN: target=unversioned; included milestones=R6; preparation trigger=n/a; required artifacts=none; release verification=n/a; publication=not requested.
+PR #592 merged the S7 pre-registration. PR #593 was reviewed and closed without merge after independent replay found every rendered prefix cache-ineligible: 72 prefixes across all three arms (24 per arm) were 50–56 `cl100k_base` tokens, below the recorded 512-token Claude Opus 5 floor. The resulting zero cache hits and zero cost deltas are construction facts, not an economics null, so the 5% kill criterion is not triggered.
 
-PRE-IMPLEMENTATION DESIGN GATE:
-1. Read this milestone, its source-map rows, current prompt, and `.docs/DEVELOPMENT_PLAN_HISTORY.md` when present.
-2. Inspect the current codebase plus merged predecessor diffs, merged predecessor PR outcomes, CI/check evidence, and predecessor verification output.
-3. Revalidate objective, interfaces, dependencies, acceptance, verification, risks, release train, and dependent status: R16 was cancelled by Gate A, so R6 has no live dependent milestone.
-4. Append one ledger entry with the fields listed in DEVELOPMENT_PLAN_HISTORY.md.
-5. If no material mismatch exists, report `DESIGN GO — PLAN REVISION: none`; this authorizes implementation.
-6. If a mismatch exists, update both authoritative artifacts for R6 and every affected future milestone, append the revision ID, and report `DESIGN GO — PLAN REVISION: <entry IDs>`.
-7. If validity cannot be established, report `DESIGN NO-GO — REASON: <evidence>` and stop.
-
-SPECIFIC GATE CHECK: confirm the cache-pricing multipliers cited in 01-LITERATURE-POSITION.md §G6 are still current at run time. A stale multiplier invalidates the dollar figure but not the hit-rate figure; record which is affected.
-
-RECONCILIATION RULE: A material revision opens `docs(plan): reconcile R6 design` as a docs-only prerequisite PR, reviewed, green, and externally merged before any code PR.
-
-PLANNED STACK:
-0. Required prerequisite `docs(plan): reconcile R6 design` — restores the authoritative plan/prompt artifacts removed by PR #590 and changes R6 verification to its dedicated single-JSON validator; MUST merge before any code PR.
-1. PR-1 `docs(spikes): pre-register S7 determinism economics` — scope: benchmarks/preregistrations/S7-determinism-economics.md only; gate: MUST merge before any run
-2. PR-2 `test(benchmark): measure prefix-cache hit rate and cost per ordering arm` (on PR-1) — scope: measurement harness, `--kind determinism-economics` validator, benchmarks/evidence/s7-determinism-economics.json, DECISION.md; commits: harness, run, decision; verification: `uv run archex benchmark validate --kind determinism-economics --input benchmarks/evidence/s7-determinism-economics.json` exits 0
-
-CONSTRAINTS: change archex's ordering in no way; make no claim about retrieval quality; all three arms run on the same sessions.
-VERIFICATION (must pass): `uv run archex benchmark validate --kind determinism-economics --input benchmarks/evidence/s7-determinism-economics.json` exits 0; the full local gate is green.
-REVIEW:
-Per PR:
-- Scope matches its purpose; the pre-registration merged before the run; behavior is meaningfully tested.
-- Failures are loud; every figure is reproducible from a recorded command.
-- History is atomic, conventional, attribution-free, and free of unrelated formatting churn.
-- PR-specific verification output is captured.
-Whole stack:
-- Bases form one valid stack; CI is green; no regression coverage removed without replacement.
-- If the measured cost delta is under 5%, the decision document says so explicitly and retires the economic framing, keeping determinism as a reproducibility property only. A null here is a pre-declared, acceptable outcome, not a failure.
-- Report PR URLs, bases, verification, risks, manual gates, and review completion.
-FINAL VERDICTS:
-- Report the design verdict before the merge verdict.
-- Then report exactly one merge verdict: `GO — RELEASE: unversioned — RELEASE PREP: not-required` or `NO-GO — RELEASE: unversioned — REASON: <blocking gate>`.
-DONE: design verdict with evidence; when authorized, a reviewed stack with a release-aware merge verdict and evidence.
+Do not revive this run, merge its closed branch, or make an economics claim from its artifact. A replacement requires a new milestone, a fresh pre-registration, and an independently inspected cache-eligible session fixture before any data-generating command.
 ```
 
 ---

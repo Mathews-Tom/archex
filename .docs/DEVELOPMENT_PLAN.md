@@ -44,7 +44,7 @@ graph TD
   R3[R3 S0 external replication gate]
   R4[R4 S2 corpus validity audit]
   R5[R5 MCP retrieval-gated tool disclosure]
-  R6[R6 S7 determinism cache economics]
+  R6[R6 S7 economics study - cancelled]
   R7[R7 Real-agent execution harness]
   R8[R8 External corpus adapters and decontamination]
   R9[R9 Clustered inference and analysis]
@@ -86,8 +86,9 @@ Gate A sat on R3's verdict and blocked R7. **It failed on 2026-07-28** (`GATE-A.
 | --- | --- | --- | --- | --- | --- |
 | `> GAP: version not source-traceable — operator selects at preparation time` (train **claims-and-cost**) | `R2, R5` | Both externally merged. Carries the pre-existing `[Unreleased]` prior-M6–M9 entries. | both (version update in `pyproject.toml` + `CHANGELOG.md`) | `uv run ruff check . && uv run ruff format --check . && uv run pyright . && uv run pytest` all green on the release commit; `uv run archex mcp-schema-size --format json` reports the reduced total | `git tag` → `uv build` → `uv publish` → `gh release create`. Manual; no release CI workflow exists. |
 | `> GAP: version not source-traceable — operator selects at preparation time` (train **certified-receipt**) | `R14` | R14 externally merged **and** its promotion verdict is GO. | both | full gate above, plus R14's certificate correlation artifact checked in | same manual sequence |
-| `unversioned` | `R1, R3, R4, R6, R7, R8, R9, R10, R12, R13, R15` | n/a — merged to `main`, no release preparation. | none | per-milestone verification in §6 | not requested |
+| `unversioned` | `R1, R3, R4, R7, R8, R9, R10, R12, R13, R15` | n/a — merged to `main`, no release preparation. | none | per-milestone verification in §6 | not requested |
 | `none` | `R11, R16` | n/a — artifacts land in a separate public repository, not in the `archex` distribution. | none | per-milestone verification in §6 | separate-repo release, out of scope for `archex` versioning |
+| `none` (cancelled) | `R6` | n/a — invalid study closed without merge. | none | validity record in §6 | not requested |
 
 A milestone in the `unversioned` set that later proves user-visible moves to a train only by a plan revision recorded under §5.
 
@@ -170,7 +171,7 @@ A milestone in the `unversioned` set that later proves user-visible moves to a t
 
 ### Section C — Zero-research-risk product wins
 
-Both run in parallel with Section B and ship regardless of Gate A.
+R5 shipped regardless of Gate A. R6 is cancelled because its session fixture never reached the cache-eligibility floor.
 
 #### R5 — MCP retrieval-gated tool disclosure
 
@@ -187,20 +188,20 @@ Both run in parallel with Section B and ship regardless of Gate A.
 | Risks & rollback | Risk: a client silently loses access to a tool it was relying on. This is the real risk of changing the default, and it is larger than the plan first implied: a client that ignores `notifications/tools/list_changed` and never retrieves would see only the minimal set for the whole session. Mitigation: tools stay *callable* whether or not they were advertised, so a client with hardcoded tool names keeps working; `--no-disclosure` restores the previous surface verbatim; the matrix documents which clients need it. Note `--tools` does **not** disable the gate — it bounds what is advertised once the gate opens, so `--tools all` still starts minimal. That is the opposite of the natural guess and is documented as such. Rollback: revert the stack; scoping falls back to the prior-M11 behavior. |
 | Est. PRs | 3 |
 
-#### R6 — S7 determinism as prefix-cache economics
+#### R6 — S7 determinism as prefix-cache economics `CANCELLED — INVALID SESSION FIXTURE`
 
 | Field | Value |
 | --- | --- |
-| Objective | Convert archex's determinism guarantee from a trust property into a measured dollar figure. |
-| In / Out of scope | In: measuring prefix-cache hit rate and cost across repeated multi-turn sessions for deterministic ordering, perturbed ordering, and a non-deterministic ANN baseline. Out: changing archex's ordering; any claim about retrieval quality. |
+| Objective | No dollar conclusion. The S7 run is invalid for the economics hypothesis because 0 of 72 rendered prefixes across all three arms (24 per arm) reached Claude Opus 5's 512-token cache-eligibility floor. Determinism remains a reproducibility property only. |
+| In / Out of scope | In: preserving the merged pre-registration as a protocol record and documenting the invalid result. Out: merging PR #593, changing archex ordering, a retrieval-quality claim, or treating zero eligible prefixes as a null economics result. |
 | Depends on | `R1` |
-| Target release | `unversioned` |
-| Deliverables | `benchmarks/preregistrations/S7-determinism-economics.md` pre-registered and merged before any run; a measurement harness; `benchmarks/evidence/s7-determinism-economics.json` reporting cache-hit rate and $/resolved-task per arm against published multipliers; a `DECISION.md`. |
-| Acceptance | All three arms measured on the same sessions. The report states cache-hit rate and cost delta with a cluster-bootstrapped interval. If the measured cost delta is under 5%, the decision document says so and explicitly retires the economic framing, keeping determinism as a reproducibility property only. |
-| Verification | `uv run archex benchmark validate --kind determinism-economics --input benchmarks/evidence/s7-determinism-economics.json` exits 0; full gate green. |
-| Design reevaluation | Confirm the pricing multipliers cited in `01-LITERATURE-POSITION.md` §G6 are still current at run time; a stale multiplier invalidates the dollar figure but not the hit-rate figure. No live dependent: R16 was cancelled by Gate A. |
-| Risks & rollback | Risk: a null (<5% delta). Pre-declared as an acceptable, reportable outcome, not a failure. The evidence JSON has an R6-specific validator because it is not an evidence-manifest directory. Rollback: revert. |
-| Est. PRs | 3 |
+| Target release | `none` (cancelled) |
+| Deliverables | PR #592 pre-registration remains merged; PR #593 measurement branch is closed without merge. The unmerged artifact and decision are not evidence of cost economics. |
+| Acceptance | The no-go record identifies the eligibility failure, keeps the 5% kill criterion untriggered, and prevents the invalid artifact from becoming a release or product claim. A future study requires a fresh pre-registration and a cache-eligible, independently inspected session fixture before any data-generating run. |
+| Verification | PR #593 final review independently recomputed all 72 prefixes (24 per arm) at 50–56 `cl100k_base` tokens against the recorded 512-token floor and found zero eligible prefixes. Its CI and local full gate were green, but that proves implementation integrity, not study validity. |
+| Design reevaluation | Pricing remains current: cache read 0.1× and 5-minute cache write 1.25×. This preserves the pricing schedule only; it does not repair an ineligible fixture. R16 remains cancelled by Gate A. |
+| Risks & rollback | Risk: describing a mechanism-not-fired run as an economic null. Mitigation: R6 is cancelled and PR #593 is closed without merge. Rollback: none; the invalid run is retained only in closed-PR history. |
+| Est. PRs | 3 planned: PR #591 reconciliation and PR #592 pre-registration merged; PR #593 closed without merge. |
 
 ### Section D — The instrument `CANCELLED — GATE A FAIL`
 
@@ -372,9 +373,9 @@ Both run in parallel with Section B and ship regardless of Gate A.
 
 **Evidence classing (applies to R3, R13, R14, R15).** Every arm is labelled `replication`, `adaptation`, or `original`. An adaptation-class null licenses only "as implemented here, on this corpus, it did not clear a cost-justified bar" — never a refutation of the literature. R3 is the program's replication anchor; no null anywhere claims more than adaptation class until R3 passes.
 
-**Pre-registration (applies to R3, R6, R10, R12–R15; only R3 and R6 survive Gate A).** Every spike pre-registration is a tracked file that merges before its first run and uses commit order as proof. A metric, margin, or hypothesis added after data exists is labelled post-hoc in every table. **New pre-registrations live in `benchmarks/preregistrations/`** — `.docs/` is ignored by the global excludes file, so a pre-registration written there is silently untrackable and the commit-order proof cannot exist. R3's `.docs/spikes/S0-replication-gate.md` stays at its historical path: it is tracked, closed, and referenced by `GATE-A.md`, both evidence artifacts, and their guard test.
+**Pre-registration (applies to R3, R6, R10, R12–R15; only R3 survived Gate A; R6 was subsequently cancelled at its own design gate, R6-DG-002).** Every spike pre-registration is a tracked file that merges before its first run and uses commit order as proof. A metric, margin, or hypothesis added after data exists is labelled post-hoc in every table. **New pre-registrations live in `benchmarks/preregistrations/`** — `.docs/` is ignored by the global excludes file, so a pre-registration written there is silently untrackable and the commit-order proof cannot exist. R3's `.docs/spikes/S0-replication-gate.md` stays at its historical path: it is tracked, closed, and referenced by `GATE-A.md`, both evidence artifacts, and their guard test.
 
-**Evidence-artifact validation (applies to R3, R4, R6, R10, R12–R15).** `archex benchmark validate --kind evidence` validates an evidence *directory* carrying a `manifest.json`, archex task IDs, and archex strategy names; it rejects a file path outright. A milestone whose deliverable is a single artifact under `benchmarks/evidence/*.json` therefore cannot be verified by that command and must name a validator that accepts its artifact. R3 adds `--kind replication` for external-reproduction artifacts. Every milestone above whose §6 verification names `--kind evidence` over a `.json` file inherits this defect and resolves it at its own design gate, either by emitting a conforming directory or by naming a validator for its shape.
+**Evidence-artifact validation (applies to R3, R4, R10, R12–R15).** `archex benchmark validate --kind evidence` validates an evidence *directory* carrying a `manifest.json`, archex task IDs, and archex strategy names; it rejects a file path outright. A milestone whose deliverable is a single artifact under `benchmarks/evidence/*.json` therefore cannot be verified by that command and must name a validator that accepts its artifact. R3 adds `--kind replication` for external-reproduction artifacts. Every milestone above whose §6 verification names `--kind evidence` over a `.json` file inherits this defect and resolves it at its own design gate, either by emitting a conforming directory or by naming a validator for its shape.
 
 **Determinism and no-hosted-inference boundary.** archex's default path stays deterministic, local, and free of hosted inference and API keys. R7's real-agent harness is benchmark-only and never on the product default path; R14's certificate is computed locally and must leave retrieval output byte-identical.
 
@@ -394,7 +395,7 @@ Both run in parallel with Section B and ship regardless of Gate A.
 | 2 | R3 | **Gate A — FAILED** | Complete; verdict in `GATE-A.md`, not renegotiable |
 | 3 | R2 | — | Complete |
 | 4 | **R4** | — | Next. Re-scoped by Gate A: it no longer supplies R9's margins, it answers whether any corpus this project can assemble could detect a literature-sized effect at all. That answer decides the program's disposition. |
-| 5 | R5 ∥ R6 | — | Section C; ship regardless of Gate A. Together with R2 they complete the `claims-and-cost` train. |
+| 5 | R5 | — | Section C delivery complete: R5 merged and shipped in the claims-and-cost train (`v0.25.0`). R6 is cancelled — its frozen fixture never crossed the cache-eligibility floor, so no economics result exists; it carried no release train. |
 | 6 | Root-cause effort | — | Mandated by the Gate A fail clause; scope is set after R4 reports, since R4 supplies the resolution figure the root-cause question turns on. |
 
 ```mermaid
@@ -403,7 +404,6 @@ graph LR
   R1 --> R3
   R1 --> R4
   R1 --> R5
-  R1 --> R6
   R3 -->|Gate A FAIL| R4
   R4 --> RC[Root-cause effort]
   R2 --> T[claims-and-cost train]
