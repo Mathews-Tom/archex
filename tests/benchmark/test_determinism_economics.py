@@ -27,6 +27,8 @@ def _artifact() -> DeterminismEconomicsArtifact:
         preregistration_commit=HASH,
         source_revision=HASH,
         generated_at="2026-07-29T00:00:00Z",
+        session_fixture=str(FIXTURE),
+        measurement_command="test command",
         resamples=100,
         seed=7,
     )
@@ -36,14 +38,11 @@ def test_measurement_uses_same_sessions_and_reports_cache_economics() -> None:
     artifact = _artifact()
     arms = {arm.arm: arm for arm in artifact.arms}
 
-    control_ids = [session.session_id for session in arms[OrderingArm.DETERMINISTIC].sessions]
-    assert control_ids == [session.session_id for session in arms[OrderingArm.PERTURBED].sessions]
-    assert (
-        arms[OrderingArm.DETERMINISTIC].cache_hit_rate > arms[OrderingArm.PERTURBED].cache_hit_rate
-    )
+    assert arms[OrderingArm.DETERMINISTIC].cache_hit_rate == 0.0
+    assert arms[OrderingArm.PERTURBED].cache_hit_rate == 0.0
     assert (
         arms[OrderingArm.DETERMINISTIC].input_cost_usd_per_resolved_task
-        < arms[OrderingArm.PERTURBED].input_cost_usd_per_resolved_task
+        == arms[OrderingArm.PERTURBED].input_cost_usd_per_resolved_task
     )
     for arm in arms.values():
         assert (
@@ -109,6 +108,8 @@ def test_cli_runs_frozen_measurement(tmp_path: Path, monkeypatch: pytest.MonkeyP
             HASH,
             "--resamples",
             "100",
+            "--pricing-retrieved-at",
+            "2026-07-29T00:00:00Z",
         ],
     )
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
+from pydantic import ValidationError
 
 from archex.benchmark.arch_quality import (
     DEFAULT_ARCHITECTURE_BASELINE_DIR,
@@ -32,6 +33,7 @@ from archex.benchmark.cross_tool import NaiveBaselineModel, run_cross_tool
 from archex.benchmark.delta_runner import run_all_delta
 from archex.benchmark.determinism_economics import (
     DeterminismEconomicsError,
+    PricingSchedule,
     load_sessions,
     measure_economics,
     validate_determinism_economics_artifact,
@@ -812,15 +814,23 @@ def scorecard_cmd(
     "input_path",
     default=None,
     type=click.Path(file_okay=True, dir_okay=True),
-    help=(
-        "Evidence directory or standalone evidence file. "
-        "R6 determinism-economics JSON is accepted by --kind evidence."
-    ),
+    help="Evidence directory, S7 determinism-economics JSON, or specialized artifact input.",
 )
 @click.option(
     "--kind",
     default="tasks",
-    type=click.Choice(["tasks", "arch", "delta", "all", "evidence", "replication", "corpus-audit"]),
+    type=click.Choice(
+        [
+            "tasks",
+            "arch",
+            "delta",
+            "all",
+            "evidence",
+            "replication",
+            "corpus-audit",
+            "determinism-economics",
+        ]
+    ),
     show_default=True,
     help="Task definition or evidence family to validate.",
 )
@@ -834,12 +844,20 @@ def validate_cmd(
     """Validate benchmark task definitions."""
     repo_root = Path.cwd()
     target: Path | None = None
-    if kind in {"evidence", "replication", "corpus-audit"}:
+    if kind in {"evidence", "replication", "corpus-audit", "determinism-economics"}:
         if input_path is None:
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
 
+    is_s7_artifact = False
     if kind == "evidence" and target is not None and target.is_file():
+        try:
+            is_s7_artifact = json.loads(target.read_text(encoding="utf-8")).get("spike_id") == "S7"
+        except (OSError, json.JSONDecodeError):
+            is_s7_artifact = False
+    if kind == "determinism-economics" or is_s7_artifact:
+        if target is None:
+            raise click.ClickException("--input is required for determinism-economics evidence")
         try:
             artifact = validate_determinism_economics_artifact(target)
         except DeterminismEconomicsError as exc:
@@ -970,8 +988,13 @@ def validate_cmd(
     "--resamples",
     default=10_000,
     show_default=True,
-    type=click.IntRange(min=1),
+    type=click.IntRange(min=20),
     help="Repository-cluster bootstrap resamples.",
+)
+@click.option(
+    "--pricing-retrieved-at",
+    required=True,
+    help="UTC timestamp when the published pricing source was retrieved.",
 )
 @click.option(
     "--seed",
@@ -985,9 +1008,17 @@ def determinism_economics_cmd(
     output_path: Path,
     preregistration_commit: str,
     resamples: int,
+    pricing_retrieved_at: str,
     seed: int,
 ) -> None:
     """Measure S7's frozen ordering arms over the same multi-turn sessions."""
+    command = (
+        "uv run archex benchmark determinism-economics "
+        f"--sessions {sessions_path} --output {output_path} "
+        f"--preregistration-commit {preregistration_commit} "
+        f"--pricing-retrieved-at {pricing_retrieved_at} "
+        f"--resamples {resamples} --seed {seed}"
+    )
     try:
         sessions = load_sessions(sessions_path)
         artifact = measure_economics(
@@ -998,10 +1029,13 @@ def determinism_economics_cmd(
             .replace(microsecond=0)
             .isoformat()
             .replace("+00:00", "Z"),
+            session_fixture=str(sessions_path),
+            measurement_command=command,
             resamples=resamples,
             seed=seed,
+            pricing=PricingSchedule(retrieved_at=pricing_retrieved_at),
         )
-    except DeterminismEconomicsError as exc:
+    except (BenchmarkEvidenceError, DeterminismEconomicsError, ValidationError) as exc:
         raise click.ClickException(str(exc)) from exc
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(artifact.model_dump_json(indent=2) + "\n", encoding="utf-8")

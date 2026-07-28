@@ -74,8 +74,10 @@ class PricingSchedule(_Model):
     base_input_usd_per_million: float = BASE_INPUT_USD_PER_MILLION
     cache_write_multiplier: float = CACHE_WRITE_MULTIPLIER
     cache_read_multiplier: float = CACHE_READ_MULTIPLIER
+    minimum_cacheable_tokens: Literal[512] = 512
     cache_ttl: Literal["5m"] = "5m"
     source_url: str = "https://platform.claude.com/docs/en/about-claude/pricing"
+    retrieved_at: str = Field(min_length=1)
 
     @model_validator(mode="after")
     def _published_multipliers(self) -> PricingSchedule:
@@ -94,16 +96,23 @@ class SessionLedger(_Model):
     session_id: str = Field(min_length=1)
     repository: str = Field(min_length=1)
     resolved: bool
-    cacheable_tokens: int = Field(ge=1)
+    cacheable_tokens: int = Field(ge=0)
     cache_read_tokens: int = Field(ge=0)
     cache_write_tokens: int = Field(ge=0)
     uncached_input_tokens: int = Field(ge=0)
+    rendered_prefixes: list[str] = Field(min_length=1)
+    prefix_sha256: list[str] = Field(min_length=1)
     input_cost_usd: float = Field(ge=0.0)
 
     @model_validator(mode="after")
     def _accounting_is_coherent(self) -> SessionLedger:
         if self.cache_read_tokens + self.cache_write_tokens != self.cacheable_tokens:
             raise ValueError("cacheable tokens must equal cache reads plus writes")
+        if len(self.rendered_prefixes) != len(self.prefix_sha256):
+            raise ValueError("each rendered prefix must have one SHA-256 identity")
+        for prefix, digest in zip(self.rendered_prefixes, self.prefix_sha256, strict=True):
+            if hashlib.sha256(prefix.encode()).hexdigest() != digest:
+                raise ValueError("prefix SHA-256 does not match its rendered prefix")
         return self
 
 
@@ -113,12 +122,14 @@ class MetricInterval(_Model):
     point_estimate: float
     low: float
     high: float
-    resamples: int = Field(ge=1)
+    resamples: int = Field(ge=20)
     seed: int
-    confidence: float = Field(gt=0.0, lt=1.0)
+    confidence: float = BOOTSTRAP_CONFIDENCE
 
     @model_validator(mode="after")
     def _ordered(self) -> MetricInterval:
+        if self.confidence != BOOTSTRAP_CONFIDENCE:
+            raise ValueError("R6 intervals use the fixed 95% confidence level")
         if self.low > self.high:
             raise ValueError("bootstrap interval low must not exceed high")
         if not self.low <= self.point_estimate <= self.high:
@@ -147,7 +158,8 @@ class ArmEvidence(_Model):
         resolved = sum(ledger.resolved for ledger in self.sessions)
         if resolved == 0:
             raise ValueError(f"arm {self.arm.value!r} has no resolved sessions")
-        if abs(self.cache_hit_rate - reads / cacheable) > 1e-12:
+        expected_hit_rate = reads / cacheable if cacheable else 0.0
+        if abs(self.cache_hit_rate - expected_hit_rate) > 1e-12:
             raise ValueError(f"arm {self.arm.value!r} cache hit rate does not match its ledgers")
         expected_cost = sum(ledger.input_cost_usd for ledger in self.sessions) / resolved
         if abs(self.input_cost_usd_per_resolved_task - expected_cost) > 1e-12:
@@ -174,12 +186,14 @@ class BootstrapInterval(_Model):
     point_estimate_percent: float
     low_percent: float
     high_percent: float
-    resamples: int = Field(ge=1)
+    resamples: int = Field(ge=20)
     seed: int
-    confidence: float = Field(gt=0.0, lt=1.0)
+    confidence: float = BOOTSTRAP_CONFIDENCE
 
     @model_validator(mode="after")
     def _ordered(self) -> BootstrapInterval:
+        if self.confidence != BOOTSTRAP_CONFIDENCE:
+            raise ValueError("R6 intervals use the fixed 95% confidence level")
         if self.low_percent > self.high_percent:
             raise ValueError("bootstrap interval low must not exceed high")
         if not self.low_percent <= self.point_estimate_percent <= self.high_percent:
@@ -195,7 +209,9 @@ class DeterminismEconomicsArtifact(_Model):
     preregistration: Literal["benchmarks/preregistrations/S7-determinism-economics.md"]
     preregistration_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
     source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    session_fixture: str = Field(min_length=1)
     session_fixture_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    measurement_command: str = Field(min_length=1)
     generated_at: str = Field(min_length=1)
     tokenizer: Literal["cl100k_base"] = "cl100k_base"
     pricing: PricingSchedule
@@ -221,6 +237,21 @@ class DeterminismEconomicsArtifact(_Model):
         expected_comparators = {OrderingArm.PERTURBED, OrderingArm.ANN_BASELINE}
         if comparators != expected_comparators or len(self.intervals) != len(expected_comparators):
             raise ValueError("R6 intervals must cover perturbed and ann_baseline exactly once")
+        for values in ledgers.values():
+            for ledger in values:
+                expected_cost = _cost_usd(
+                    reads=ledger.cache_read_tokens,
+                    writes=ledger.cache_write_tokens,
+                    uncached=ledger.uncached_input_tokens,
+                    pricing=self.pricing,
+                )
+                if abs(ledger.input_cost_usd - expected_cost) > 1e-12:
+                    raise ValueError("ledger cost does not match pricing and token accounting")
+        interval_by_comparator = {interval.comparator: interval for interval in self.intervals}
+        for comparator, interval in interval_by_comparator.items():
+            point = _relative_reduction(control, ledgers[comparator])
+            if abs(interval.point_estimate_percent - point) > 1e-12:
+                raise ValueError("comparison interval does not match its ledgers")
         return self
 
 
@@ -293,12 +324,16 @@ def _measure_session(
     reads = 0
     writes = 0
     uncached = 0
+    rendered_prefixes: list[str] = []
     history: list[str] = []
     for index, turn in enumerate(session.turns):
         contexts = _order_contexts(turn.contexts, arm, session.session_id, index)
         prefix = _cache_prefix(contexts)
+        rendered_prefixes.append(prefix)
         tokens = count_tokens(prefix)
-        if prefix in cached_prefixes:
+        if tokens < pricing.minimum_cacheable_tokens:
+            uncached += tokens
+        elif prefix in cached_prefixes:
             reads += tokens
         else:
             writes += tokens
@@ -314,6 +349,8 @@ def _measure_session(
         cache_read_tokens=reads,
         cache_write_tokens=writes,
         uncached_input_tokens=uncached,
+        rendered_prefixes=rendered_prefixes,
+        prefix_sha256=[hashlib.sha256(prefix.encode()).hexdigest() for prefix in rendered_prefixes],
         input_cost_usd=_cost_usd(
             reads=reads,
             writes=writes,
@@ -324,9 +361,10 @@ def _measure_session(
 
 
 def _cache_hit_rate(ledgers: Sequence[SessionLedger]) -> float:
-    return sum(ledger.cache_read_tokens for ledger in ledgers) / sum(
-        ledger.cacheable_tokens for ledger in ledgers
-    )
+    cacheable = sum(ledger.cacheable_tokens for ledger in ledgers)
+    if cacheable == 0:
+        return 0.0
+    return sum(ledger.cache_read_tokens for ledger in ledgers) / cacheable
 
 
 def _cost_per_resolved_task(ledgers: Sequence[SessionLedger]) -> float:
@@ -430,8 +468,6 @@ def _bootstrap(
     resamples: int,
     seed: int,
 ) -> BootstrapInterval:
-    if resamples < 1:
-        raise DeterminismEconomicsError("bootstrap resamples must be positive")
     control_by_repo: dict[str, list[SessionLedger]] = {}
     comparator_by_repo: dict[str, list[SessionLedger]] = {}
     for ledger in control:
@@ -453,16 +489,13 @@ def _bootstrap(
         samples.append(_relative_reduction(sampled_control, sampled_comparator))
     samples.sort()
     tail = (1.0 - BOOTSTRAP_CONFIDENCE) / 2.0
-    low = samples[int(tail * len(samples))]
-    high = samples[max(0, int((1.0 - tail) * len(samples)) - 1)]
     return BootstrapInterval(
         comparator=comparator_arm,
         point_estimate_percent=point,
-        low_percent=low,
-        high_percent=high,
+        low_percent=samples[int(tail * len(samples))],
+        high_percent=samples[max(0, int((1.0 - tail) * len(samples)) - 1)],
         resamples=resamples,
         seed=seed,
-        confidence=BOOTSTRAP_CONFIDENCE,
     )
 
 
@@ -472,12 +505,16 @@ def measure_economics(
     preregistration_commit: str,
     source_revision: str,
     generated_at: str,
+    session_fixture: str,
+    measurement_command: str,
     resamples: int = 10_000,
     seed: int = 20_260_729,
     pricing: PricingSchedule | None = None,
 ) -> DeterminismEconomicsArtifact:
     """Measure all three frozen arms over exactly the same session fixture."""
-    active_pricing = pricing or PricingSchedule()
+    if resamples < 20:
+        raise DeterminismEconomicsError("R6 requires at least 20 bootstrap resamples")
+    active_pricing = pricing or PricingSchedule(retrieved_at=generated_at)
     arms = [
         _summarize(arm, sessions, active_pricing, resamples=resamples, seed=seed + index * 10)
         for index, arm in enumerate(OrderingArm)
@@ -498,7 +535,9 @@ def measure_economics(
         preregistration="benchmarks/preregistrations/S7-determinism-economics.md",
         preregistration_commit=preregistration_commit,
         source_revision=source_revision,
+        session_fixture=session_fixture,
         session_fixture_sha256=fixture_digest(sessions),
+        measurement_command=measurement_command,
         generated_at=generated_at,
         pricing=active_pricing,
         arms=arms,
@@ -517,8 +556,14 @@ def validate_determinism_economics_artifact(path: Path) -> DeterminismEconomicsA
             f"cannot read determinism-economics artifact {path}: {exc}"
         ) from exc
     try:
-        return DeterminismEconomicsArtifact.model_validate(payload)
-    except ValidationError as exc:
+        artifact = DeterminismEconomicsArtifact.model_validate(payload)
+        sessions = load_sessions(Path(artifact.session_fixture))
+    except (DeterminismEconomicsError, ValidationError) as exc:
         raise DeterminismEconomicsError(
             f"determinism-economics artifact failed validation: {path}: {exc}"
         ) from exc
+    if fixture_digest(sessions) != artifact.session_fixture_sha256:
+        raise DeterminismEconomicsError(
+            f"determinism-economics fixture digest does not match {artifact.session_fixture}"
+        )
+    return artifact
