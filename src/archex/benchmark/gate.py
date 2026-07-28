@@ -12,11 +12,10 @@ from archex.benchmark.baseline import (
 )
 from archex.benchmark.models import (  # noqa: TCH001 — Pydantic needs at runtime
     BenchmarkReport,
-    BenchmarkResult,
     BenchmarkTask,
     DeltaBenchmarkResult,
     Strategy,
-    TaskCompletionResult,
+    completion_outcome_score,
 )
 
 # Tier 2.5 product-default `archex_query` minimum higher-is-better token
@@ -424,32 +423,21 @@ def check_language_family_non_regression(
     return violations
 
 
-def _completion_outcome_score(result: BenchmarkResult) -> float | None:
-    outcome = (
-        result.bundle_only_success
-        if result.bundle_only_success is not None
-        else result.task_completion_result
-    )
-    if outcome is TaskCompletionResult.PASS:
-        return 1.0
-    if outcome is TaskCompletionResult.FAIL:
-        return 0.0
-    return None
-
-
 def check_fixed_agent_non_regression(
     reports: list[BenchmarkReport],
     *,
     candidate_strategy: Strategy,
     control_strategy: Strategy,
 ) -> list[BaselineGateViolation]:
-    """Flag any task where the fixed-agent downstream outcome regresses.
+    """Flag any task whose required-file completeness outcome regresses.
 
-    Compares each task's completion outcome (``bundle_only_success``, or
-    ``task_completion_result`` when no external evaluator ran) between
-    candidate and control. A control PASS that becomes a candidate FAIL is a
-    fixed-agent success regression: the retrieval change broke a previously
-    solvable downstream task even if upstream recall/F1 look unchanged.
+    Compares each task's outcome (``completion_outcome_score``: required-file
+    completeness, or the bundle-eval lane's ``bundle_only_success`` where one exists)
+    between candidate and control. A control PASS that becomes a candidate FAIL means
+    the retrieval change stopped returning a required file it previously returned, even
+    if upstream recall/F1 look unchanged. No model is in the loop; the emitted
+    ``metric="fixed_agent_success_regression"`` string is a stable machine-readable
+    contract and keeps its historical name.
     Tasks where either side's outcome is UNKNOWN are skipped -- there is no
     outcome to regress from or to.
     """
@@ -460,8 +448,8 @@ def check_fixed_agent_non_regression(
         candidate = results_by_strategy.get(candidate_strategy)
         if control is None or candidate is None:
             continue
-        control_score = _completion_outcome_score(control)
-        candidate_score = _completion_outcome_score(candidate)
+        control_score = completion_outcome_score(control)
+        candidate_score = completion_outcome_score(candidate)
         if control_score is None or candidate_score is None:
             continue
         if candidate_score < control_score:

@@ -48,7 +48,7 @@ from archex.benchmark.models import (  # noqa: TC001 — Pydantic needs at runti
     BenchmarkResult,
     RepoSizeClass,
     Strategy,
-    TaskCompletionResult,
+    completion_outcome_score,
 )
 
 if TYPE_CHECKING:
@@ -143,18 +143,8 @@ def _percentile(values: list[float], quantile: float) -> float | None:
 
 
 def _completion_outcomes(results: list[BenchmarkResult]) -> list[float]:
-    outcomes: list[float] = []
-    for result in results:
-        outcome = (
-            result.bundle_only_success
-            if result.bundle_only_success is not None
-            else result.task_completion_result
-        )
-        if outcome is TaskCompletionResult.PASS:
-            outcomes.append(1.0)
-        elif outcome is TaskCompletionResult.FAIL:
-            outcomes.append(0.0)
-    return outcomes
+    scores = (completion_outcome_score(result) for result in results)
+    return [score for score in scores if score is not None]
 
 
 class ScorecardRow(BaseModel):
@@ -183,7 +173,29 @@ class ScorecardRow(BaseModel):
     mean_tool_calls: float
     mean_post_bundle_search_turns: float | None
     mean_receipt_accuracy: float | None
-    downstream_success_rate: float | None
+    required_file_completeness_rate: float | None
+    """Fraction of tasks whose required files were all present in the returned bundle.
+
+    On every default path this is a function of required-file recall and nothing else:
+    each task contributes ``1.0`` when no required file was missing and ``0.0``
+    otherwise (``completion_result_from_missing``). **No model is in the loop** —
+    archex never calls one to decide whether a task was solved, so this measures
+    retrieval completeness, never downstream task success.
+
+    The one exception is the opt-in ``benchmark bundle-eval`` lane. When a result
+    carries a non-null ``bundle_only_success``, ``_completion_outcomes`` prefers it over
+    required-file completeness, and that value is answer correctness rather than file
+    completeness — a task with perfect required-file recall contributes ``0.0`` if the
+    bundle-only answer was wrong. It has two possible producers: the operator's
+    evaluator command may set ``bundle_only_success`` directly, or, when it omits the
+    field, archex derives it by exact string comparison of the evaluator's ``answer``
+    against the task's ``expected_answer``
+    (``archex.benchmark.bundle_eval._with_expected_answer_success``). archex ships no
+    evaluator and makes no hosted or network call for that lane; it invokes only the
+    local command the operator supplies.
+
+    ``None`` when every task in the slice reported ``UNKNOWN``.
+    """
 
 
 def _build_row(
@@ -243,7 +255,7 @@ def _build_row(
         mean_tool_calls=_mean([float(result.tool_calls) for result in results]),
         mean_post_bundle_search_turns=_mean_optional(search_turns),
         mean_receipt_accuracy=_mean_optional(receipt_scores),
-        downstream_success_rate=_mean_optional(completion_outcomes),
+        required_file_completeness_rate=_mean_optional(completion_outcomes),
     )
 
 
@@ -334,9 +346,14 @@ def build_family_scorecard(
 
 
 class M3ScorecardArtifact(BaseModel):
-    """Raw M3 slice-provenance artifact: one strategy's scorecards across every dimension."""
+    """Raw M3 slice-provenance artifact: one strategy's scorecards across every dimension.
 
-    artifact_version: Literal[1] = 1
+    ``artifact_version`` is ``2`` since ``ScorecardRow``'s completion field was renamed
+    to ``required_file_completeness_rate``. A version-1 artifact fails to load loudly
+    (pydantic reports the renamed field as missing); regenerate it rather than editing it.
+    """
+
+    artifact_version: Literal[2] = 2
     manifest: BenchmarkEvidenceManifest
     strategy: Strategy
     language_scorecard: list[ScorecardRow]
@@ -377,12 +394,22 @@ def _format_optional(value: float | None, *, precision: int = 3) -> str:
     return "n/a" if value is None else f"{value:.{precision}f}"
 
 
+#: Rendered under every scorecard so the column's meaning travels with the table.
+_COMPLETENESS_NOTE = (
+    "> **Required-File Completeness** is the fraction of tasks whose required files were all",
+    "> present in the returned bundle — a function of required-file recall, with no model in",
+    "> the loop. In the opt-in `benchmark bundle-eval` lane a non-null `bundle_only_success`",
+    "> takes precedence for the tasks it covers, and there the value is answer correctness",
+    "> rather than file completeness.",
+)
+
+
 def _format_rows_table(rows: list[ScorecardRow]) -> list[str]:
     if not rows:
         return ["_No tasks in this dimension._"]
     lines = [
         "| Value | Tasks | Recall | F1 | MRR | Zero-Recall | Dup. Rate "
-        "| Tok. Eff. | Warm p50 | Warm p95 | Cold p50 | Downstream Success |",
+        "| Tok. Eff. | Warm p50 | Warm p95 | Cold p50 | Required-File Completeness |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
@@ -394,7 +421,7 @@ def _format_rows_table(rows: list[ScorecardRow]) -> list[str]:
             f"| {_format_optional(row.warm_p50_latency_ms, precision=0)} "
             f"| {_format_optional(row.warm_p95_latency_ms, precision=0)} "
             f"| {_format_optional(row.cold_p50_latency_ms, precision=0)} "
-            f"| {_format_optional(row.downstream_success_rate)} |"
+            f"| {_format_optional(row.required_file_completeness_rate)} |"
         )
     return lines
 
@@ -419,4 +446,5 @@ def format_m3_scorecard_markdown(artifact: M3ScorecardArtifact) -> str:
         lines.append("")
         lines.extend(_format_rows_table(rows))
         lines.append("")
+    lines.extend(_COMPLETENESS_NOTE)
     return "\n".join(lines)

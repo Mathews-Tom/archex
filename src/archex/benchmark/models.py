@@ -657,6 +657,30 @@ class BenchmarkResult(BaseModel):
     diversity_deselected_regions: int | None = None
 
 
+def completion_outcome_score(result: BenchmarkResult) -> float | None:
+    """Score one result's required-file completeness outcome as 1.0 / 0.0 / None.
+
+    ``1.0`` when no required file was missing, ``0.0`` when one was, ``None`` when the
+    outcome is ``UNKNOWN``. In the opt-in ``benchmark bundle-eval`` lane a non-null
+    ``bundle_only_success`` takes precedence, and there the score is answer correctness
+    rather than file completeness. No model is in the loop on any other path.
+
+    Shared by ``benchmark.scorecard`` (aggregated into
+    ``ScorecardRow.required_file_completeness_rate``) and ``benchmark.gate`` (per-task
+    regression checking) so the two surfaces cannot drift apart.
+    """
+    outcome = (
+        result.bundle_only_success
+        if result.bundle_only_success is not None
+        else result.task_completion_result
+    )
+    if outcome is TaskCompletionResult.PASS:
+        return 1.0
+    if outcome is TaskCompletionResult.FAIL:
+        return 0.0
+    return None
+
+
 class BenchmarkProvenance(BaseModel):
     """Reproducible run provenance for benchmark reports."""
 

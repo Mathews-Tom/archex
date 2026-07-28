@@ -200,16 +200,16 @@ class TestAggregation:
         rows = build_family_scorecard(reports, tasks_by_id, strategy=Strategy.ARCHEX_QUERY)
         assert rows[0].cold_p50_latency_ms == pytest.approx(42.0)  # pyright: ignore[reportUnknownMemberType]
 
-    def test_downstream_success_rate_from_task_completion(self) -> None:
+    def test_required_file_completeness_rate_from_task_completion(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1"), "t2": _task(task_id="t2")}
         reports = [
             _report("t1", [_result("t1", task_completion_result=TaskCompletionResult.PASS)]),
             _report("t2", [_result("t2", task_completion_result=TaskCompletionResult.FAIL)]),
         ]
         rows = build_family_scorecard(reports, tasks_by_id, strategy=Strategy.ARCHEX_QUERY)
-        assert rows[0].downstream_success_rate == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
+        assert rows[0].required_file_completeness_rate == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
 
-    def test_downstream_success_rate_prefers_bundle_only_success(self) -> None:
+    def test_required_file_completeness_rate_prefers_bundle_only_success(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1")}
         reports = [
             _report(
@@ -224,15 +224,15 @@ class TestAggregation:
             )
         ]
         rows = build_family_scorecard(reports, tasks_by_id, strategy=Strategy.ARCHEX_QUERY)
-        assert rows[0].downstream_success_rate == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
+        assert rows[0].required_file_completeness_rate == pytest.approx(1.0)  # pyright: ignore[reportUnknownMemberType]
 
-    def test_downstream_success_rate_none_when_all_unknown(self) -> None:
+    def test_required_file_completeness_rate_none_when_all_unknown(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1")}
         reports = [
             _report("t1", [_result("t1", task_completion_result=TaskCompletionResult.UNKNOWN)])
         ]
         rows = build_family_scorecard(reports, tasks_by_id, strategy=Strategy.ARCHEX_QUERY)
-        assert rows[0].downstream_success_rate is None
+        assert rows[0].required_file_completeness_rate is None
 
     def test_ignores_reports_missing_the_requested_strategy(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1")}
@@ -267,7 +267,7 @@ class TestM3ScorecardArtifact:
         artifact = build_m3_scorecard_artifact(
             reports, tasks_by_id, _manifest(), strategy=Strategy.ARCHEX_QUERY
         )
-        assert artifact.artifact_version == 1
+        assert artifact.artifact_version == 2
         assert len(artifact.language_scorecard) == 1
         assert len(artifact.family_scorecard) == 1
 
@@ -275,7 +275,7 @@ class TestM3ScorecardArtifact:
         save_m3_scorecard_artifact(path, artifact)
         loaded = load_m3_scorecard_artifact(path)
         assert loaded == artifact
-        assert json.loads(path.read_text())["artifact_version"] == 1
+        assert json.loads(path.read_text())["artifact_version"] == 2
 
     def test_markdown_renders_every_dimension_and_handles_missing_data(self) -> None:
         tasks_by_id = {"t1": _task(task_id="t1")}
@@ -289,6 +289,29 @@ class TestM3ScorecardArtifact:
         assert "## By Query Intent" in markdown
         assert "## By Task Family" in markdown
         assert "n/a" in markdown  # warm latency unmeasured for this fixture
+
+    def test_markdown_column_names_the_required_file_completeness_metric(self) -> None:
+        tasks_by_id = {"t1": _task(task_id="t1")}
+        reports = [_report("t1", [_result("t1")])]
+        artifact = build_m3_scorecard_artifact(
+            reports, tasks_by_id, _manifest(), strategy=Strategy.ARCHEX_QUERY
+        )
+        markdown = format_m3_scorecard_markdown(artifact)
+        assert "| Required-File Completeness |" in markdown
+        assert "Downstream Success" not in markdown
+
+    def test_markdown_carries_the_completeness_definition_with_the_table(self) -> None:
+        tasks_by_id = {"t1": _task(task_id="t1")}
+        reports = [_report("t1", [_result("t1")])]
+        artifact = build_m3_scorecard_artifact(
+            reports, tasks_by_id, _manifest(), strategy=Strategy.ARCHEX_QUERY
+        )
+        markdown = format_m3_scorecard_markdown(artifact)
+        # The column's meaning must travel with the rendered table, not live only in
+        # the source docstring, or a published scorecard reasserts a task-outcome claim
+        # the metric cannot support.
+        assert "a function of required-file recall, with no model in" in markdown
+        assert "`bundle_only_success`" in markdown
 
 
 class TestScorecardCliCommand:
@@ -354,7 +377,7 @@ class TestScorecardCliCommand:
         )
         assert result.exit_code == 0
         payload = json.loads(result.output)
-        assert payload["artifact_version"] == 1
+        assert payload["artifact_version"] == 2
         assert artifact_path.exists()
         assert json.loads(artifact_path.read_text())["strategy"] == "archex_query"
 
