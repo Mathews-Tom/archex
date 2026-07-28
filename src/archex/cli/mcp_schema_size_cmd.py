@@ -29,7 +29,7 @@ import click
 def mcp_schema_size_cmd(tools: str | None, format_: str) -> None:
     """Measure the serialized MCP tool-schema size for a tool scope.
 
-    Reports total and per-tool character counts of the JSON schema archex's
+    Reports total and per-tool character and token counts of the JSON schema archex's
     MCP server would advertise via list_tools() for the given scope, so a
     client can compare 'all' against a narrower scope before choosing
     `archex mcp --tools ...` or `archex install-client --tool-scope ...`.
@@ -48,7 +48,11 @@ def mcp_schema_size_cmd(tools: str | None, format_: str) -> None:
 
     click.echo(f"Scope: {tools or 'all'}")
     click.echo(f"Tools: {report['tool_count']}")
-    click.echo(f"Total serialized schema size: {report['total_chars']} chars")
+    click.echo(
+        f"Total serialized schema size: {report['total_chars']} chars, "
+        f"{report['total_tokens']} tokens"
+    )
     click.echo("\nPer-tool:")
+    tokens = report["per_tool_tokens"]
     for name, size in sorted(report["per_tool_chars"].items()):
-        click.echo(f"  {name}: {size} chars")
+        click.echo(f"  {name}: {size} chars, {tokens[name]} tokens")

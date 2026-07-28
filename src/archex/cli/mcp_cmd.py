@@ -27,15 +27,40 @@ import click
     default=None,
     help=(
         "Scope the tools this server advertises via list_tools(): 'all' "
-        "(default, every tool), a named profile ('core' excludes the "
-        "graph_* cluster, 'graph' is only the graph_* cluster), or a "
-        "comma-separated explicit tool-name allowlist. Every tool name "
-        "still dispatches regardless of scoping -- this only shrinks the "
-        "advertised schema surface, see `archex mcp-schema-size`."
+        "(every tool), a named profile ('core' excludes the graph_* cluster, "
+        "'graph' is only the graph_* cluster, 'disclosure' is the "
+        "retrieval-gated minimum), or a comma-separated explicit tool-name "
+        "allowlist. Every tool name still dispatches regardless of scoping -- "
+        "this only shrinks the advertised schema surface, see "
+        "`archex mcp-schema-size`."
     ),
 )
-def mcp_cmd(watch: bool, watch_path: str, watch_debounce_ms: int, tools: str | None) -> None:
+@click.option(
+    "--disclosure/--no-disclosure",
+    default=True,
+    show_default=True,
+    help=(
+        "Advertise only the retrieval entry points until the client retrieves, "
+        "then advertise everything and send notifications/tools/list_changed. "
+        "Cuts the fixed per-turn schema cost from 3859 to 765 tokens. Pass "
+        "--no-disclosure for the pre-R5 behavior, which every client can use. "
+        "Note --tools does not disable the gate: it bounds what is advertised "
+        "once the gate opens, so --tools all still starts minimal. Tools remain "
+        "callable either way, so a client with hardcoded tool names is unaffected."
+    ),
+)
+def mcp_cmd(
+    watch: bool,
+    watch_path: str,
+    watch_debounce_ms: int,
+    tools: str | None,
+    disclosure: bool,
+) -> None:
     """Start the archex MCP server (stdio transport).
+
+    Advertises the retrieval entry points (context, query_repo) up front and
+    the remaining tools once the client retrieves; pass --no-disclosure to
+    advertise all of them from the start.
 
     Exposes 19 MCP tools (analyze_repo, scout_repo, query_repo, context,
     compare_repos, get_file_tree, get_file_outline, search_symbols,
@@ -69,5 +94,6 @@ def mcp_cmd(watch: bool, watch_path: str, watch_debounce_ms: int, tools: str | N
             watch_path=watch_path,
             watch_debounce_ms=watch_debounce_ms,
             tool_names=tool_names,
+            disclosure=disclosure,
         )
     )

@@ -745,16 +745,21 @@ class TestRunStdioServer:
             yield (None, None)
 
         class FakeServer:
-            def create_initialization_options(self) -> object:
+            def create_initialization_options(self, notification_options: object = None) -> object:
+                captured["notification_options"] = notification_options
                 return object()
 
             async def run(self, *args: object, **kwargs: object) -> None:
                 return None
 
         def fake_build_server(
-            runtime: QueryRuntime | None = None, tool_names: frozenset[str] | None = None
+            runtime: QueryRuntime | None = None,
+            tool_names: frozenset[str] | None = None,
+            *,
+            disclosure: bool = False,
         ) -> object:
             captured["runtime"] = runtime
+            captured["disclosure"] = disclosure
             return FakeServer()
 
         with (
