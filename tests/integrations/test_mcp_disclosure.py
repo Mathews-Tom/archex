@@ -406,3 +406,50 @@ class TestClientCompatibilityPath:
             )
 
         assert seen == [True, False], "the flag never reached the plan builder"
+
+
+class TestTheAcceptanceCommandMeasuresTheShippedDefault:
+    """R5's acceptance row names `archex mcp-schema-size --format json` and a
+    sub-1000-token result. The command measured scope `all` regardless of the
+    gate, so it reported 3859 -- an operator running the documented command saw
+    the pre-R5 number and would conclude nothing had improved.
+    """
+
+    @staticmethod
+    def _json(*args: str) -> dict[str, Any]:
+        from click.testing import CliRunner
+
+        from archex.cli.main import cli
+
+        result = CliRunner().invoke(cli, ["mcp-schema-size", *args, "--format", "json"])
+        assert result.exit_code == 0, result.output
+        parsed: dict[str, Any] = json.loads(result.output)
+        return parsed
+
+    def test_the_bare_command_reports_the_gated_cost(self) -> None:
+        report = self._json()
+        assert report["gated"] is True
+        assert report["tool_count"] == len(DISCLOSURE_CORE_TOOL_NAMES)
+        assert report["total_tokens"] < DISCLOSURE_TOKEN_BUDGET
+
+    def test_the_gated_report_cannot_hide_the_expanded_cost(self) -> None:
+        """765 alone would oversell: a session that retrieves pays the full surface
+        afterwards, so the bare command reports both or neither.
+        """
+        report = self._json()
+        expanded = report["after_first_retrieval"]
+        assert expanded["tool_count"] == len(ALL_TOOL_NAMES)
+        assert expanded["total_tokens"] > report["total_tokens"]
+
+    def test_the_ungated_surface_is_still_reachable(self) -> None:
+        report = self._json("--no-disclosure")
+        assert report["gated"] is False
+        assert report["tool_count"] == len(ALL_TOOL_NAMES)
+        assert "after_first_retrieval" not in report
+
+    def test_an_explicit_scope_answers_about_that_scope(self) -> None:
+        """`--tools core` asks what `core` costs, not what a gated session sees."""
+        report = self._json("--tools", "core")
+        assert report["gated"] is False
+        assert report["scope"] == "core"
+        assert report["tool_count"] == len(TOOL_SCOPE_PROFILES["core"])
