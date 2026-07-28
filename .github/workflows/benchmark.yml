@@ -34,3 +34,11 @@ jobs:
 
       - name: Validate bounded evidence contracts
         run: uv run pytest --no-cov tests/benchmark/test_evidence.py
+
+      - name: Validate the Gate A replication artifacts
+        run: |
+          uv run archex benchmark validate --kind replication \
+            --input benchmarks/evidence/s0-rlcoder-replication.json
+          uv run archex benchmark validate --kind replication \
+            --input benchmarks/evidence/s0-cast-replication.json
+          uv run pytest --no-cov tests/benchmark/test_s0_replication_artifacts.py

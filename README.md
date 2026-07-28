@@ -38,6 +38,8 @@ It runs locally, uses deterministic retrieval and analysis, and does not require
 
 archex does not ask the downstream agent to trust ranking alone. Every query/scout receipt explains what was returned, what was skipped, whether freshness was current, and whether the bundle is complete enough to act on.
 
+**External replication.** archex tried to reproduce a published retrieval win in its original authors' own reference setup, and did not. [`GATE-A.md`](GATE-A.md) records the result: the reproduced delta landed below its pre-registered band, so every null this project has measured to date remains attributable to its own implementation rather than to the literature.
+
 ## Fast paths
 
 | If you are evaluating... | Start here | Why |

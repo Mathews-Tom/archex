@@ -1,0 +1,52 @@
+{
+  "replication_version": 1,
+  "spike_id": "S0",
+  "preregistration": ".docs/spikes/S0-replication-gate.md",
+  "preregistration_commit": "557c5683e5a2622e0a96370a379365c8498d1dc4",
+  "generated_at": "2026-07-27T23:48:37.592203+00:00",
+  "hardware": "Darwin 25.5.0 arm64, torch device mps",
+  "arms": [
+    {
+      "arm_id": "rlcoder-repoeval-line-deepseekcoder-1b",
+      "evidence_class": "replication",
+      "paper": "arXiv:2407.19487 (RLCoder, ICSE 2025)",
+      "paper_cell": "Table II, RepoEval (Line), DeepSeekCoder-1B: RawRAG 39.31 vs RLCoder 44.19, reported delta +4.88",
+      "metric": "exact_match_delta_points, RepoEval canonical EM (utils.eval_repoeval.compute_EM), the quantity Table II reports; n=1600 tasks over 8 repositories; generation failures scored as non-matches: 0; control 41.6250 against a reported 39.31, treatment 44.4375 against a reported 44.19; per-repository deltas {\"alibaba_FederatedScope\": 2.5, \"awslabs_fortuna\": 2.0, \"google_vizier\": -3.5, \"huggingface_diffusers\": 12.0, \"huggingface_evaluate\": 3.5, \"nerfstudio-project_nerfstudio\": -1.0, \"opendilab_ACE\": 4.5, \"pytorch_rl\": 2.5}; the pre-registered strict metric (utils.eval_metric, recomputed in a single process) gives control 18.4375, treatment 19.4375, delta 1.0000, 95% cluster interval [-0.1250, 2.1250], which also falls below the band",
+      "reported_delta": 4.88,
+      "equivalence_band": {
+        "low": 2.88,
+        "high": 6.88,
+        "method": "pre-registered, reported delta +/- 2.00 points, never widened"
+      },
+      "reproduced_delta": 2.8125,
+      "reproduced_interval": {
+        "low": 0.125,
+        "high": 5.9375,
+        "method": "cluster bootstrap over 8 repositories, 10000 resamples, seed 20260727, percentile"
+      },
+      "verdict": "fail",
+      "rationale": "Both arms' absolute values reproduce closely: control 41.62 against a reported 39.31 and treatment 44.44 against a reported 44.19. The delta between them, 2.8125 points, falls below the pre-registered band [2.88, 6.88] by 0.0675 points, because the control over-performed its published figure by more than the treatment over-performed its own. The 95% cluster-bootstrap interval is [0.1250, 5.9375]. The effect is positive, but the band was fixed before any data existed and is not widened to accommodate the result. Post-hoc metric correction, recorded in the pre-registration: the pre-registration named the strict tree-sitter-truncated EM in utils.eval_metric, which is not the quantity Table II reports; the gate is decided on the paper's own canonical metric, and the pre-registered metric is reported alongside and fails the band too.",
+      "pins": {
+        "harness_repo": "https://github.com/DeepSoftwareAnalytics/RLCoder",
+        "harness_commit": "164d8d88cde324a38f5da70c4f858cc4679ef08e",
+        "dataset": "nov3630/Data4RLCoder",
+        "dataset_revision": "cb9639f20f2374d75e5b0b8e8650f1b20802bf9f",
+        "dataset_split": "repoeval/line_level",
+        "models": {
+          "generator": "deepseek-ai/deepseek-coder-1.3b-base@c919139c3a9b4070729c8b2cca4847ab29ca8d94",
+          "retriever_control": "microsoft/unixcoder-base@5604afdc964f6c53782a6813140ade5216b99006",
+          "retriever_treatment": "nov3630/RLRetriever@ec587f5d8635462fff3cfb06f9a946148acda08b"
+        },
+        "environment": {
+          "python": "3.11.11",
+          "torch": "2.13.0",
+          "transformers": "4.44.2",
+          "tokenizers": "0.19.1",
+          "tree_sitter": "0.20.4",
+          "numpy": "2.4.6"
+        },
+        "command": "RLCODER_DEVICE=mps benchmarks/replication/rlcoder/run.sh /tmp/r3run /tmp/r3run/out"
+      }
+    }
+  ]
+}
