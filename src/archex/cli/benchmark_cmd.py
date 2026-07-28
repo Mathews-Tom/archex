@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import click
 from pydantic import ValidationError
@@ -37,6 +37,7 @@ from archex.benchmark.determinism_economics import (
     load_sessions,
     measure_economics,
     validate_determinism_economics_artifact,
+    validate_preregistration_commit,
 )
 from archex.benchmark.evidence import (
     BenchmarkEvidenceError,
@@ -852,8 +853,12 @@ def validate_cmd(
     is_s7_artifact = False
     if kind == "evidence" and target is not None and target.is_file():
         try:
-            is_s7_artifact = json.loads(target.read_text(encoding="utf-8")).get("spike_id") == "S7"
-        except (OSError, json.JSONDecodeError):
+            payload = cast("object", json.loads(target.read_text(encoding="utf-8")))
+            is_s7_artifact = (
+                isinstance(payload, dict)
+                and cast("dict[str, object]", payload).get("spike_id") == "S7"
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             is_s7_artifact = False
     if kind == "determinism-economics" or is_s7_artifact:
         if target is None:
@@ -1021,10 +1026,12 @@ def determinism_economics_cmd(
     )
     try:
         sessions = load_sessions(sessions_path)
+        source = source_revision(Path.cwd())
+        validate_preregistration_commit(Path.cwd(), preregistration_commit, source)
         artifact = measure_economics(
             sessions,
             preregistration_commit=preregistration_commit,
-            source_revision=source_revision(Path.cwd()),
+            source_revision=source,
             generated_at=datetime.now(UTC)
             .replace(microsecond=0)
             .isoformat()

@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import subprocess
 from collections.abc import Iterable, Sequence
 from enum import StrEnum
 from pathlib import Path
@@ -30,6 +31,28 @@ BOOTSTRAP_CONFIDENCE = 0.95
 
 class DeterminismEconomicsError(ValueError):
     """Raised when deterministic-economics evidence is incomplete or incoherent."""
+
+
+def validate_preregistration_commit(
+    repository: Path, preregistration_commit: str, source_revision: str
+) -> None:
+    """Require a pre-registration commit to exist before the measured source."""
+    commands = (
+        ("cat-file", "-e", f"{preregistration_commit}^{{commit}}"),
+        ("merge-base", "--is-ancestor", preregistration_commit, source_revision),
+    )
+    for command in commands:
+        result = subprocess.run(
+            ("git", *command),
+            cwd=repository,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise DeterminismEconomicsError(
+                "S7 pre-registration commit must exist and precede the measured source revision"
+            )
 
 
 class OrderingArm(StrEnum):
@@ -249,7 +272,7 @@ class DeterminismEconomicsArtifact(_Model):
                     raise ValueError("ledger cost does not match pricing and token accounting")
         interval_by_comparator = {interval.comparator: interval for interval in self.intervals}
         for comparator, interval in interval_by_comparator.items():
-            point = _relative_reduction(control, ledgers[comparator])
+            point = relative_cost_reduction(control, ledgers[comparator])
             if abs(interval.point_estimate_percent - point) > 1e-12:
                 raise ValueError("comparison interval does not match its ledgers")
         return self
@@ -294,9 +317,11 @@ def _order_contexts(
     seed_material = f"{arm.value}:{session_id}:{turn_index}".encode()
     seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:8], "big")
     if arm is OrderingArm.PERTURBED:
-        offset = seed % len(ordered)
+        offset = 1 + seed % (len(ordered) - 1)
         return ordered[offset:] + ordered[:offset]
     random.Random(seed).shuffle(ordered)
+    if ordered == list(contexts):
+        return ordered[1:] + ordered[:1]
     return ordered
 
 
@@ -437,24 +462,28 @@ def _summarize(
     )
 
 
-def _relative_reduction(
+def relative_cost_reduction(
     control: Iterable[SessionLedger],
     comparator: Iterable[SessionLedger],
 ) -> float:
-    control_by_id = {ledger.session_id: ledger for ledger in control}
-    comparator_by_id = {ledger.session_id: ledger for ledger in comparator}
-    if set(control_by_id) != set(comparator_by_id):
+    control_ledgers = list(control)
+    comparator_ledgers = list(comparator)
+    if len(control_ledgers) != len(comparator_ledgers):
         raise DeterminismEconomicsError("arms do not cover identical session IDs")
-    ids = sorted(control_by_id)
-    resolved = sum(control_by_id[session_id].resolved for session_id in ids)
+    for control_ledger, comparator_ledger in zip(control_ledgers, comparator_ledgers, strict=True):
+        if (
+            control_ledger.session_id != comparator_ledger.session_id
+            or control_ledger.repository != comparator_ledger.repository
+            or control_ledger.resolved != comparator_ledger.resolved
+        ):
+            raise DeterminismEconomicsError("arms do not cover identical session IDs")
+    resolved = sum(ledger.resolved for ledger in control_ledgers)
     if resolved == 0:
         raise DeterminismEconomicsError(
             "cannot calculate cost per resolved task without resolved sessions"
         )
-    control_cost = sum(control_by_id[session_id].input_cost_usd for session_id in ids) / resolved
-    comparator_cost = (
-        sum(comparator_by_id[session_id].input_cost_usd for session_id in ids) / resolved
-    )
+    control_cost = sum(ledger.input_cost_usd for ledger in control_ledgers) / resolved
+    comparator_cost = sum(ledger.input_cost_usd for ledger in comparator_ledgers) / resolved
     if comparator_cost <= 0.0:
         raise DeterminismEconomicsError("comparator cost must be positive")
     return (comparator_cost - control_cost) / comparator_cost * 100.0
@@ -479,14 +508,14 @@ def _bootstrap(
     repositories = sorted(control_by_repo)
     if len(repositories) < 2:
         raise DeterminismEconomicsError("R6 cluster bootstrap requires at least two repositories")
-    point = _relative_reduction(control, comparator)
+    point = relative_cost_reduction(control, comparator)
     rng = random.Random(seed)
     samples: list[float] = []
     for _ in range(resamples):
         drawn = [rng.choice(repositories) for _ in repositories]
         sampled_control = [ledger for repo in drawn for ledger in control_by_repo[repo]]
         sampled_comparator = [ledger for repo in drawn for ledger in comparator_by_repo[repo]]
-        samples.append(_relative_reduction(sampled_control, sampled_comparator))
+        samples.append(relative_cost_reduction(sampled_control, sampled_comparator))
     samples.sort()
     tail = (1.0 - BOOTSTRAP_CONFIDENCE) / 2.0
     return BootstrapInterval(
@@ -558,25 +587,28 @@ def validate_determinism_economics_artifact(path: Path) -> DeterminismEconomicsA
     try:
         artifact = DeterminismEconomicsArtifact.model_validate(payload)
         sessions = load_sessions(Path(artifact.session_fixture))
+        validate_preregistration_commit(
+            Path.cwd(), artifact.preregistration_commit, artifact.source_revision
+        )
+        if fixture_digest(sessions) != artifact.session_fixture_sha256:
+            raise DeterminismEconomicsError(
+                f"determinism-economics fixture digest does not match {artifact.session_fixture}"
+            )
+        expected = measure_economics(
+            sessions,
+            preregistration_commit=artifact.preregistration_commit,
+            source_revision=artifact.source_revision,
+            generated_at=artifact.generated_at,
+            session_fixture=artifact.session_fixture,
+            measurement_command=artifact.measurement_command,
+            resamples=artifact.arms[0].cache_hit_rate_interval.resamples,
+            seed=artifact.arms[0].cache_hit_rate_interval.seed,
+            pricing=artifact.pricing,
+        )
     except (DeterminismEconomicsError, ValidationError) as exc:
         raise DeterminismEconomicsError(
             f"determinism-economics artifact failed validation: {path}: {exc}"
         ) from exc
-    if fixture_digest(sessions) != artifact.session_fixture_sha256:
-        raise DeterminismEconomicsError(
-            f"determinism-economics fixture digest does not match {artifact.session_fixture}"
-        )
-    expected = measure_economics(
-        sessions,
-        preregistration_commit=artifact.preregistration_commit,
-        source_revision=artifact.source_revision,
-        generated_at=artifact.generated_at,
-        session_fixture=artifact.session_fixture,
-        measurement_command=artifact.measurement_command,
-        resamples=artifact.arms[0].cache_hit_rate_interval.resamples,
-        seed=artifact.arms[0].cache_hit_rate_interval.seed,
-        pricing=artifact.pricing,
-    )
     if expected.model_dump(mode="json") != artifact.model_dump(mode="json"):
         raise DeterminismEconomicsError(
             "determinism-economics artifact does not reproduce from its fixture"
