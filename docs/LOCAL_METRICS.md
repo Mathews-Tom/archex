@@ -188,7 +188,11 @@ naive grep/read path reaches full recall on every comparable task, and all 12 ex
 cases where archex did not return all required files within its token budget (archex recall
 0.0–0.8 there), excluded rather than scored at unequal recall. The naive agent is a blind
 reader with no triage step between `grep` and `read`, so it is a lower bound on a naive
-strategy rather than a model of competent agent behavior.
+strategy rather than a model of competent agent behavior. That semantics and the measured
+units-read distribution are documented in
+[Local benchmark evidence](LOCAL_BENCHMARK_EVIDENCE.md#cross-tool-efficiency-baseline-semantics)
+and alongside the artifact in
+[`benchmarks/cross-tool-efficiency/README.md`](../benchmarks/cross-tool-efficiency/README.md).
 
 Regenerate the artifact from a clean run (do not hand-edit metric values):
 
