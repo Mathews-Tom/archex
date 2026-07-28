@@ -270,7 +270,7 @@ DONE: design verdict with evidence; when authorized, a reviewed stack with a rel
 /goal Deliver milestone R6 (S7 determinism as prefix-cache economics) from DEVELOPMENT_PLAN.md as a reviewed stack of PRs.
 
 CONTEXT: DEVELOPMENT_PLAN.md §6 Section C R6 + .docs/strategic-reassessment/03-SPIKES.md S7 and 01-LITERATURE-POSITION.md §G6. Preconditions: R1 merged. Runs in parallel with R3/R4/R5. Repo: as above.
-OBJECTIVE: Convert archex's determinism guarantee from a trust property into a measured dollar figure. Success contract: .docs/spikes/S7-determinism-economics.md pre-registered and merged before any run; a measurement harness covering deterministic ordering, perturbed ordering, and a non-deterministic ANN baseline across repeated multi-turn sessions; benchmarks/evidence/s7-determinism-economics.json reporting cache-hit rate and $/resolved-task per arm with cluster-bootstrapped intervals; a DECISION.md.
+OBJECTIVE: Convert archex's determinism guarantee from a trust property into a measured dollar figure. Success contract: benchmarks/preregistrations/S7-determinism-economics.md pre-registered and merged before any run; a measurement harness covering deterministic ordering, perturbed ordering, and a non-deterministic ANN baseline across repeated multi-turn sessions; benchmarks/evidence/s7-determinism-economics.json reporting cache-hit rate and $/resolved-task per arm with cluster-bootstrapped intervals; a DECISION.md.
 RELEASE TRAIN: target=unversioned; included milestones=R6; preparation trigger=n/a; required artifacts=none; release verification=n/a; publication=not requested.
 
 PRE-IMPLEMENTATION DESIGN GATE:
@@ -288,7 +288,7 @@ RECONCILIATION RULE: A material revision opens `docs(plan): reconcile R6 design`
 
 PLANNED STACK:
 0. Conditional prerequisite `docs(plan): reconcile R6 design`.
-1. PR-1 `docs(spikes): pre-register S7 determinism economics` — scope: .docs/spikes/S7-determinism-economics.md only; gate: MUST merge before any run
+1. PR-1 `docs(spikes): pre-register S7 determinism economics` — scope: benchmarks/preregistrations/S7-determinism-economics.md only; gate: MUST merge before any run
 2. PR-2 `test(benchmark): measure prefix-cache hit rate and cost per ordering arm` (on PR-1) — scope: measurement harness, benchmarks/evidence/s7-determinism-economics.json, DECISION.md; commits: harness, run, decision; verification: `uv run archex benchmark validate --kind evidence --input benchmarks/evidence/s7-determinism-economics.json` exits 0
 
 CONSTRAINTS: change archex's ordering in no way; make no claim about retrieval quality; all three arms run on the same sessions.
