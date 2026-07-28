@@ -12,7 +12,7 @@
     "plan_stated_tokens": 6000
   },
   "measured_at": "2026-07-28",
-  "measured_with": "archex mcp-schema-size --tools <scope> --format json",
+  "measured_with": "archex mcp-schema-size [--tools <scope>|--no-disclosure] --format json; the bare command reports the gated default",
   "method": "len() and cl100k_base token count of json.dumps({name,description,inputSchema}, sort_keys=True) per tool, summed. The same shape list_tools() advertises, so the counts track what a client actually registers.",
   "milestone": "R5",
   "schema_version": 1,

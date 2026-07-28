@@ -77,7 +77,7 @@ Registering an MCP server is necessary but not sufficient for an agent to actual
 
 ### Retrieval-gated disclosure (R5)
 
-`archex mcp` advertises only the two retrieval entry points — `context` and `query_repo` — until the client calls one of them, then advertises everything and sends `notifications/tools/list_changed`. That cuts the fixed per-turn schema cost from **3 859 tokens to 765**, an 80.2% reduction, measurable with `archex mcp-schema-size --tools disclosure`.
+`archex mcp` advertises only the two retrieval entry points — `context` and `query_repo` — until the client calls one of them, then advertises everything and sends `notifications/tools/list_changed`. That cuts the fixed per-turn schema cost from **3 859 tokens to 765**, an 80.2% reduction, measurable with a bare `archex mcp-schema-size`, which reports the gated cost a fresh session is actually charged alongside the expanded cost the same session pays after it retrieves. `--no-disclosure` reports the ungated surface.
 
 **What makes this safe is the notification, not the dispatch.** MCP tools are model-controlled: a model only calls what it was shown. So for the ordinary path, the thing that puts the other 17 tools back in front of the model is `tools/list_changed` — which archex is entitled to have honoured because the gated server declares the `listChanged` capability at initialization.
 

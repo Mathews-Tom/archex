@@ -21,10 +21,17 @@ stated in tokens, and the command measured characters only, so the
 acceptance bar was uncheckable by the command named to check it.
 
 ```
-uv run archex mcp-schema-size --tools all --format json
+uv run archex mcp-schema-size --format json              # the shipped default
+uv run archex mcp-schema-size --no-disclosure --format json
 uv run archex mcp-schema-size --tools core --format json
-uv run archex mcp-schema-size --tools disclosure --format json
 ```
+
+The bare command reports what `archex mcp` actually advertises to a fresh
+session, which is the gated surface. It previously measured scope `all`
+regardless of the gate, so the command R5's acceptance row names reported
+3 859 -- the pre-R5 figure -- and an operator following the documentation
+would have concluded nothing had changed. It now reports the gated cost
+*and* the expanded cost together, so neither can be quoted alone.
 
 Raw numbers are checked in at `BASELINE.json`;
 `tests/integrations/test_mcp_disclosure.py` guards the budget and the

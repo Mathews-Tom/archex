@@ -8,15 +8,25 @@ from archex.cli.main import cli
 
 
 def test_mcp_schema_size_default_text_format() -> None:
+    """R5 changed the bare command's meaning: it reports the gated default, which
+    is what `archex mcp` really advertises to a fresh session."""
     result = CliRunner().invoke(cli, ["mcp-schema-size"])
     assert result.exit_code == 0
-    assert "Scope: all" in result.output
+    assert "Scope: disclosure (gated default)" in result.output
     assert "Total serialized schema size:" in result.output
     assert "query_repo:" in result.output
 
 
+def test_mcp_schema_size_ungated_text_format() -> None:
+    """`--no-disclosure` keeps the pre-R5 reading available."""
+    result = CliRunner().invoke(cli, ["mcp-schema-size", "--no-disclosure"])
+    assert result.exit_code == 0
+    assert "Scope: all" in result.output
+    assert "get_impact:" in result.output
+
+
 def test_mcp_schema_size_json_format_reports_full_report() -> None:
-    result = CliRunner().invoke(cli, ["mcp-schema-size", "--format", "json"])
+    result = CliRunner().invoke(cli, ["mcp-schema-size", "--no-disclosure", "--format", "json"])
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["scope"] == "all"
@@ -25,7 +35,9 @@ def test_mcp_schema_size_json_format_reports_full_report() -> None:
 
 
 def test_mcp_schema_size_scoped_is_strictly_smaller_than_all() -> None:
-    full = json.loads(CliRunner().invoke(cli, ["mcp-schema-size", "--format", "json"]).output)
+    full = json.loads(
+        CliRunner().invoke(cli, ["mcp-schema-size", "--no-disclosure", "--format", "json"]).output
+    )
     scoped = json.loads(
         CliRunner().invoke(cli, ["mcp-schema-size", "--tools", "core", "--format", "json"]).output
     )
