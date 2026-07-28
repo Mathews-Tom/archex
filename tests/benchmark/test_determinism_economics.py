@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -64,6 +65,19 @@ def test_validator_rejects_missing_fixed_arm(tmp_path: Path) -> None:
     evidence.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match="R6 arms"):
+        validate_determinism_economics_artifact(evidence)
+
+
+def test_validator_rejects_ledger_that_does_not_reproduce_from_fixture(tmp_path: Path) -> None:
+    payload = _artifact().model_dump(mode="json")
+    ledger = payload["arms"][0]["sessions"][0]
+    prefix = ledger["rendered_prefixes"][0] + "tampered"
+    ledger["rendered_prefixes"][0] = prefix
+    ledger["prefix_sha256"][0] = hashlib.sha256(prefix.encode()).hexdigest()
+    evidence = tmp_path / "tampered.json"
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not reproduce"):
         validate_determinism_economics_artifact(evidence)
 
 

@@ -566,4 +566,19 @@ def validate_determinism_economics_artifact(path: Path) -> DeterminismEconomicsA
         raise DeterminismEconomicsError(
             f"determinism-economics fixture digest does not match {artifact.session_fixture}"
         )
+    expected = measure_economics(
+        sessions,
+        preregistration_commit=artifact.preregistration_commit,
+        source_revision=artifact.source_revision,
+        generated_at=artifact.generated_at,
+        session_fixture=artifact.session_fixture,
+        measurement_command=artifact.measurement_command,
+        resamples=artifact.arms[0].cache_hit_rate_interval.resamples,
+        seed=artifact.arms[0].cache_hit_rate_interval.seed,
+        pricing=artifact.pricing,
+    )
+    if expected.model_dump(mode="json") != artifact.model_dump(mode="json"):
+        raise DeterminismEconomicsError(
+            "determinism-economics artifact does not reproduce from its fixture"
+        )
     return artifact
