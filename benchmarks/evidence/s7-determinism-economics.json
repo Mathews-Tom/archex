@@ -1,0 +1,349 @@
+{
+  "evidence_version": 1,
+  "spike_id": "S7",
+  "preregistration": "benchmarks/preregistrations/S7-determinism-economics.md",
+  "preregistration_commit": "0c8c8483aab09c8b4d9e6c4e2f80408de7e2ed6e",
+  "source_revision": "2224d0d41c293702d6450a182899f48576252e2d",
+  "session_fixture_sha256": "c01f2ba787cbb46f2dd585881d95e5ce131ae103b508816c688087d915c31cef",
+  "generated_at": "2026-07-28T21:22:54Z",
+  "tokenizer": "cl100k_base",
+  "pricing": {
+    "model": "claude-opus-5",
+    "base_input_usd_per_million": 5.0,
+    "cache_write_multiplier": 1.25,
+    "cache_read_multiplier": 0.1,
+    "cache_ttl": "5m",
+    "source_url": "https://platform.claude.com/docs/en/about-claude/pricing"
+  },
+  "arms": [
+    {
+      "arm": "deterministic",
+      "sessions": [
+        {
+          "session_id": "archex-index-01",
+          "repository": "Mathews-Tom/archex",
+          "resolved": true,
+          "cacheable_tokens": 165,
+          "cache_read_tokens": 110,
+          "cache_write_tokens": 55,
+          "uncached_input_tokens": 65,
+          "input_cost_usd": 0.00072375
+        },
+        {
+          "session_id": "archex-query-02",
+          "repository": "Mathews-Tom/archex",
+          "resolved": true,
+          "cacheable_tokens": 162,
+          "cache_read_tokens": 108,
+          "cache_write_tokens": 54,
+          "uncached_input_tokens": 69,
+          "input_cost_usd": 0.0007365
+        },
+        {
+          "session_id": "enginery-stage-03",
+          "repository": "Mathews-Tom/Enginery",
+          "resolved": true,
+          "cacheable_tokens": 165,
+          "cache_read_tokens": 110,
+          "cache_write_tokens": 55,
+          "uncached_input_tokens": 76,
+          "input_cost_usd": 0.00077875
+        },
+        {
+          "session_id": "enginery-release-04",
+          "repository": "Mathews-Tom/Enginery",
+          "resolved": false,
+          "cacheable_tokens": 153,
+          "cache_read_tokens": 102,
+          "cache_write_tokens": 51,
+          "uncached_input_tokens": 61,
+          "input_cost_usd": 0.00067475
+        },
+        {
+          "session_id": "kosha-memory-05",
+          "repository": "Mathews-Tom/Kosha",
+          "resolved": true,
+          "cacheable_tokens": 159,
+          "cache_read_tokens": 106,
+          "cache_write_tokens": 53,
+          "uncached_input_tokens": 69,
+          "input_cost_usd": 0.00072925
+        },
+        {
+          "session_id": "kosha-policy-06",
+          "repository": "Mathews-Tom/Kosha",
+          "resolved": true,
+          "cacheable_tokens": 159,
+          "cache_read_tokens": 106,
+          "cache_write_tokens": 53,
+          "uncached_input_tokens": 58,
+          "input_cost_usd": 0.00067425
+        },
+        {
+          "session_id": "searchat-store-07",
+          "repository": "Mathews-Tom/searchat",
+          "resolved": true,
+          "cacheable_tokens": 168,
+          "cache_read_tokens": 112,
+          "cache_write_tokens": 56,
+          "uncached_input_tokens": 70,
+          "input_cost_usd": 0.000756
+        },
+        {
+          "session_id": "searchat-api-08",
+          "repository": "Mathews-Tom/searchat",
+          "resolved": false,
+          "cacheable_tokens": 150,
+          "cache_read_tokens": 100,
+          "cache_write_tokens": 50,
+          "uncached_input_tokens": 63,
+          "input_cost_usd": 0.0006775
+        }
+      ],
+      "cache_hit_rate": 0.6666666666666666,
+      "cache_hit_rate_interval": {
+        "point_estimate": 0.6666666666666666,
+        "low": 0.6666666666666666,
+        "high": 0.6666666666666666,
+        "resamples": 10000,
+        "seed": 20260729,
+        "confidence": 0.95
+      },
+      "input_cost_usd_per_resolved_task": 0.0009584583333333333,
+      "input_cost_usd_per_resolved_task_interval": {
+        "point_estimate": 0.0009584583333333333,
+        "low": 0.0007159375,
+        "high": 0.0014435000000000001,
+        "resamples": 10000,
+        "seed": 20260730,
+        "confidence": 0.95
+      }
+    },
+    {
+      "arm": "perturbed",
+      "sessions": [
+        {
+          "session_id": "archex-index-01",
+          "repository": "Mathews-Tom/archex",
+          "resolved": true,
+          "cacheable_tokens": 165,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 165,
+          "uncached_input_tokens": 65,
+          "input_cost_usd": 0.00135625
+        },
+        {
+          "session_id": "archex-query-02",
+          "repository": "Mathews-Tom/archex",
+          "resolved": true,
+          "cacheable_tokens": 162,
+          "cache_read_tokens": 54,
+          "cache_write_tokens": 108,
+          "uncached_input_tokens": 69,
+          "input_cost_usd": 0.001047
+        },
+        {
+          "session_id": "enginery-stage-03",
+          "repository": "Mathews-Tom/Enginery",
+          "resolved": true,
+          "cacheable_tokens": 165,
+          "cache_read_tokens": 110,
+          "cache_write_tokens": 55,
+          "uncached_input_tokens": 76,
+          "input_cost_usd": 0.00077875
+        },
+        {
+          "session_id": "enginery-release-04",
+          "repository": "Mathews-Tom/Enginery",
+          "resolved": false,
+          "cacheable_tokens": 153,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 153,
+          "uncached_input_tokens": 61,
+          "input_cost_usd": 0.00126125
+        },
+        {
+          "session_id": "kosha-memory-05",
+          "repository": "Mathews-Tom/Kosha",
+          "resolved": true,
+          "cacheable_tokens": 159,
+          "cache_read_tokens": 53,
+          "cache_write_tokens": 106,
+          "uncached_input_tokens": 69,
+          "input_cost_usd": 0.001034
+        },
+        {
+          "session_id": "kosha-policy-06",
+          "repository": "Mathews-Tom/Kosha",
+          "resolved": true,
+          "cacheable_tokens": 159,
+          "cache_read_tokens": 53,
+          "cache_write_tokens": 106,
+          "uncached_input_tokens": 58,
+          "input_cost_usd": 0.000979
+        },
+        {
+          "session_id": "searchat-store-07",
+          "repository": "Mathews-Tom/searchat",
+          "resolved": true,
+          "cacheable_tokens": 168,
+          "cache_read_tokens": 56,
+          "cache_write_tokens": 112,
+          "uncached_input_tokens": 70,
+          "input_cost_usd": 0.001078
+        },
+        {
+          "session_id": "searchat-api-08",
+          "repository": "Mathews-Tom/searchat",
+          "resolved": false,
+          "cacheable_tokens": 150,
+          "cache_read_tokens": 100,
+          "cache_write_tokens": 50,
+          "uncached_input_tokens": 63,
+          "input_cost_usd": 0.0006775
+        }
+      ],
+      "cache_hit_rate": 0.3325526932084309,
+      "cache_hit_rate_interval": {
+        "point_estimate": 0.3325526932084309,
+        "low": 0.20939183987682833,
+        "high": 0.45125786163522014,
+        "resamples": 10000,
+        "seed": 20260739,
+        "confidence": 0.95
+      },
+      "input_cost_usd_per_resolved_task": 0.001368625,
+      "input_cost_usd_per_resolved_task_interval": {
+        "point_estimate": 0.001368625,
+        "low": 0.0011040625,
+        "high": 0.0018977500000000001,
+        "resamples": 10000,
+        "seed": 20260740,
+        "confidence": 0.95
+      }
+    },
+    {
+      "arm": "ann_baseline",
+      "sessions": [
+        {
+          "session_id": "archex-index-01",
+          "repository": "Mathews-Tom/archex",
+          "resolved": true,
+          "cacheable_tokens": 165,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 165,
+          "uncached_input_tokens": 65,
+          "input_cost_usd": 0.00135625
+        },
+        {
+          "session_id": "archex-query-02",
+          "repository": "Mathews-Tom/archex",
+          "resolved": true,
+          "cacheable_tokens": 162,
+          "cache_read_tokens": 54,
+          "cache_write_tokens": 108,
+          "uncached_input_tokens": 69,
+          "input_cost_usd": 0.001047
+        },
+        {
+          "session_id": "enginery-stage-03",
+          "repository": "Mathews-Tom/Enginery",
+          "resolved": true,
+          "cacheable_tokens": 165,
+          "cache_read_tokens": 55,
+          "cache_write_tokens": 110,
+          "uncached_input_tokens": 76,
+          "input_cost_usd": 0.001095
+        },
+        {
+          "session_id": "enginery-release-04",
+          "repository": "Mathews-Tom/Enginery",
+          "resolved": false,
+          "cacheable_tokens": 153,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 153,
+          "uncached_input_tokens": 61,
+          "input_cost_usd": 0.00126125
+        },
+        {
+          "session_id": "kosha-memory-05",
+          "repository": "Mathews-Tom/Kosha",
+          "resolved": true,
+          "cacheable_tokens": 159,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 159,
+          "uncached_input_tokens": 69,
+          "input_cost_usd": 0.00133875
+        },
+        {
+          "session_id": "kosha-policy-06",
+          "repository": "Mathews-Tom/Kosha",
+          "resolved": true,
+          "cacheable_tokens": 159,
+          "cache_read_tokens": 53,
+          "cache_write_tokens": 106,
+          "uncached_input_tokens": 58,
+          "input_cost_usd": 0.000979
+        },
+        {
+          "session_id": "searchat-store-07",
+          "repository": "Mathews-Tom/searchat",
+          "resolved": true,
+          "cacheable_tokens": 168,
+          "cache_read_tokens": 56,
+          "cache_write_tokens": 112,
+          "uncached_input_tokens": 70,
+          "input_cost_usd": 0.001078
+        },
+        {
+          "session_id": "searchat-api-08",
+          "repository": "Mathews-Tom/searchat",
+          "resolved": false,
+          "cacheable_tokens": 150,
+          "cache_read_tokens": 50,
+          "cache_write_tokens": 100,
+          "uncached_input_tokens": 63,
+          "input_cost_usd": 0.000965
+        }
+      ],
+      "cache_hit_rate": 0.20921155347384857,
+      "cache_hit_rate_interval": {
+        "point_estimate": 0.20921155347384857,
+        "low": 0.16589147286821707,
+        "high": 0.2916666666666667,
+        "resamples": 10000,
+        "seed": 20260749,
+        "confidence": 0.95
+      },
+      "input_cost_usd_per_resolved_task": 0.0015200416666666667,
+      "input_cost_usd_per_resolved_task_interval": {
+        "point_estimate": 0.0015200416666666667,
+        "low": 0.00118025,
+        "high": 0.002199625,
+        "resamples": 10000,
+        "seed": 20260750,
+        "confidence": 0.95
+      }
+    }
+  ],
+  "intervals": [
+    {
+      "comparator": "perturbed",
+      "point_estimate_percent": 29.969251377599175,
+      "low_percent": 23.936240284547488,
+      "high_percent": 35.15425983583357,
+      "resamples": 10000,
+      "seed": 20260729,
+      "confidence": 0.95
+    },
+    {
+      "comparator": "ann_baseline",
+      "point_estimate_percent": 36.94525917600943,
+      "low_percent": 34.37517758708871,
+      "high_percent": 39.3401821647956,
+      "resamples": 10000,
+      "seed": 20260729,
+      "confidence": 0.95
+    }
+  ]
+}
