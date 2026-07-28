@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,12 @@ from archex.benchmark.corpus_audit import (
 )
 from archex.benchmark.cross_tool import NaiveBaselineModel, run_cross_tool
 from archex.benchmark.delta_runner import run_all_delta
+from archex.benchmark.determinism_economics import (
+    DeterminismEconomicsError,
+    load_sessions,
+    measure_economics,
+    validate_determinism_economics_artifact,
+)
 from archex.benchmark.evidence import (
     BenchmarkEvidenceError,
     build_evidence_manifest,
@@ -806,8 +813,8 @@ def scorecard_cmd(
     default=None,
     type=click.Path(file_okay=True, dir_okay=True),
     help=(
-        "Evidence directory to validate with --kind evidence, "
-        "or replication artifact file to validate with --kind replication."
+        "Evidence directory or standalone evidence file. "
+        "R6 determinism-economics JSON is accepted by --kind evidence."
     ),
 )
 @click.option(
@@ -832,6 +839,16 @@ def validate_cmd(
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
 
+    if kind == "evidence" and target is not None and target.is_file():
+        try:
+            artifact = validate_determinism_economics_artifact(target)
+        except DeterminismEconomicsError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            "Valid determinism economics: "
+            f"{len(artifact.arms)} arm(s), {len(artifact.intervals)} clustered interval(s)."
+        )
+        return
     if kind == "corpus-audit" and target is not None:
         try:
             audit = validate_corpus_audit_artifact(target)
@@ -926,6 +943,72 @@ def validate_cmd(
         f"{count} {label}{'' if count == 1 else 's'}" for label, count in validated_counts
     )
     click.echo(f"\nAll {summary} valid.")
+
+
+@benchmark_cmd.command("determinism-economics")
+@click.option(
+    "--sessions",
+    "sessions_path",
+    default="benchmarks/determinism_economics/sessions.json",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    show_default=True,
+    help="Frozen multi-turn session fixture.",
+)
+@click.option(
+    "--output",
+    "output_path",
+    required=True,
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    help="Standalone JSON evidence file to create.",
+)
+@click.option(
+    "--preregistration-commit",
+    required=True,
+    help="Full commit SHA that merged the S7 pre-registration.",
+)
+@click.option(
+    "--resamples",
+    default=10_000,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Repository-cluster bootstrap resamples.",
+)
+@click.option(
+    "--seed",
+    default=20_260_729,
+    show_default=True,
+    type=int,
+    help="Seed for reproducible bootstrap and ANN ordering.",
+)
+def determinism_economics_cmd(
+    sessions_path: Path,
+    output_path: Path,
+    preregistration_commit: str,
+    resamples: int,
+    seed: int,
+) -> None:
+    """Measure S7's frozen ordering arms over the same multi-turn sessions."""
+    try:
+        sessions = load_sessions(sessions_path)
+        artifact = measure_economics(
+            sessions,
+            preregistration_commit=preregistration_commit,
+            source_revision=source_revision(Path.cwd()),
+            generated_at=datetime.now(UTC)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+            resamples=resamples,
+            seed=seed,
+        )
+    except DeterminismEconomicsError as exc:
+        raise click.ClickException(str(exc)) from exc
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(artifact.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    click.echo(
+        f"Wrote determinism economics for {len(artifact.arms)} arm(s) "
+        f"and {len(artifact.intervals)} clustered interval(s): {output_path}"
+    )
 
 
 @benchmark_cmd.group("baseline")

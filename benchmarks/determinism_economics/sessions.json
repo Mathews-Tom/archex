@@ -1,0 +1,82 @@
+[
+  {
+    "session_id": "archex-index-01",
+    "repository": "Mathews-Tom/archex",
+    "resolved": true,
+    "turns": [
+      {"question": "Where does index publication become atomic?", "contexts": ["src/archex/indexer.py: publish a staging generation only after every store is complete.", "src/archex/store.py: manifest records the published generation identity.", "tests/test_indexer.py: interrupted generation leaves the previous manifest readable."]},
+      {"question": "What verifies the generated manifest?", "contexts": ["src/archex/indexer.py: publish a staging generation only after every store is complete.", "src/archex/store.py: manifest records the published generation identity.", "tests/test_indexer.py: interrupted generation leaves the previous manifest readable."]},
+      {"question": "Which old state remains visible after failure?", "contexts": ["src/archex/indexer.py: publish a staging generation only after every store is complete.", "src/archex/store.py: manifest records the published generation identity.", "tests/test_indexer.py: interrupted generation leaves the previous manifest readable."]}
+    ]
+  },
+  {
+    "session_id": "archex-query-02",
+    "repository": "Mathews-Tom/archex",
+    "resolved": true,
+    "turns": [
+      {"question": "How does the query pipeline select candidates?", "contexts": ["src/archex/query.py: score lexical and graph candidates before context packing.", "src/archex/context.py: pack chunks within the requested token budget.", "src/archex/reporting.py: attach token metadata to the returned response."]},
+      {"question": "Where is the token budget enforced?", "contexts": ["src/archex/query.py: score lexical and graph candidates before context packing.", "src/archex/context.py: pack chunks within the requested token budget.", "src/archex/reporting.py: attach token metadata to the returned response."]},
+      {"question": "What metadata reports the result size?", "contexts": ["src/archex/query.py: score lexical and graph candidates before context packing.", "src/archex/context.py: pack chunks within the requested token budget.", "src/archex/reporting.py: attach token metadata to the returned response."]}
+    ]
+  },
+  {
+    "session_id": "enginery-stage-03",
+    "repository": "Mathews-Tom/Enginery",
+    "resolved": true,
+    "turns": [
+      {"question": "How does the stage gate choose its next action?", "contexts": ["src/enginery/stage.py: inspect state before dispatching the next transition.", "src/enginery/policy.py: merge policy records an explicit human-review decision.", "tests/test_stage.py: a cancelled run cannot advance."]},
+      {"question": "What stops a cancelled run from advancing?", "contexts": ["src/enginery/stage.py: inspect state before dispatching the next transition.", "src/enginery/policy.py: merge policy records an explicit human-review decision.", "tests/test_stage.py: a cancelled run cannot advance."]},
+      {"question": "Where is human review represented?", "contexts": ["src/enginery/stage.py: inspect state before dispatching the next transition.", "src/enginery/policy.py: merge policy records an explicit human-review decision.", "tests/test_stage.py: a cancelled run cannot advance."]}
+    ]
+  },
+  {
+    "session_id": "enginery-release-04",
+    "repository": "Mathews-Tom/Enginery",
+    "resolved": false,
+    "turns": [
+      {"question": "Which release destination failed verification?", "contexts": ["src/enginery/release.py: publish records each destination receipt.", "src/enginery/verify.py: verify package installation from the published artifact.", "tests/test_release.py: missing receipt fails the run loudly."]},
+      {"question": "Where are release receipts recorded?", "contexts": ["src/enginery/release.py: publish records each destination receipt.", "src/enginery/verify.py: verify package installation from the published artifact.", "tests/test_release.py: missing receipt fails the run loudly."]},
+      {"question": "Why did the run remain unresolved?", "contexts": ["src/enginery/release.py: publish records each destination receipt.", "src/enginery/verify.py: verify package installation from the published artifact.", "tests/test_release.py: missing receipt fails the run loudly."]}
+    ]
+  },
+  {
+    "session_id": "kosha-memory-05",
+    "repository": "Mathews-Tom/Kosha",
+    "resolved": true,
+    "turns": [
+      {"question": "How does memory routing avoid duplicate facets?", "contexts": ["src/kosha/routing.py: route a request through the deduplication threshold.", "src/kosha/store.py: preserve the canonical facet identity.", "tests/test_routing.py: duplicate requests reuse the recorded facet."]},
+      {"question": "What is canonical after deduplication?", "contexts": ["src/kosha/routing.py: route a request through the deduplication threshold.", "src/kosha/store.py: preserve the canonical facet identity.", "tests/test_routing.py: duplicate requests reuse the recorded facet."]},
+      {"question": "Which test proves reuse?", "contexts": ["src/kosha/routing.py: route a request through the deduplication threshold.", "src/kosha/store.py: preserve the canonical facet identity.", "tests/test_routing.py: duplicate requests reuse the recorded facet."]}
+    ]
+  },
+  {
+    "session_id": "kosha-policy-06",
+    "repository": "Mathews-Tom/Kosha",
+    "resolved": true,
+    "turns": [
+      {"question": "How is retention policy enforced?", "contexts": ["src/kosha/policy.py: apply retention rules before writing a facet.", "src/kosha/vault.py: soft deletion retains audit provenance.", "tests/test_policy.py: expired content is unavailable to recall."]},
+      {"question": "What survives soft deletion?", "contexts": ["src/kosha/policy.py: apply retention rules before writing a facet.", "src/kosha/vault.py: soft deletion retains audit provenance.", "tests/test_policy.py: expired content is unavailable to recall."]},
+      {"question": "How do expired facets behave?", "contexts": ["src/kosha/policy.py: apply retention rules before writing a facet.", "src/kosha/vault.py: soft deletion retains audit provenance.", "tests/test_policy.py: expired content is unavailable to recall."]}
+    ]
+  },
+  {
+    "session_id": "searchat-store-07",
+    "repository": "Mathews-Tom/searchat",
+    "resolved": true,
+    "turns": [
+      {"question": "How does storage compaction preserve active data?", "contexts": ["src/searchat/storage.py: copy live records into a compact DuckDB database.", "src/searchat/doctor.py: report live blocks separately from file size.", "tests/test_compact.py: verify replacement only after the compact copy succeeds."]},
+      {"question": "Which metric reports storage bloat?", "contexts": ["src/searchat/storage.py: copy live records into a compact DuckDB database.", "src/searchat/doctor.py: report live blocks separately from file size.", "tests/test_compact.py: verify replacement only after the compact copy succeeds."]},
+      {"question": "When does replacement occur?", "contexts": ["src/searchat/storage.py: copy live records into a compact DuckDB database.", "src/searchat/doctor.py: report live blocks separately from file size.", "tests/test_compact.py: verify replacement only after the compact copy succeeds."]}
+    ]
+  },
+  {
+    "session_id": "searchat-api-08",
+    "repository": "Mathews-Tom/searchat",
+    "resolved": false,
+    "turns": [
+      {"question": "What endpoint reports disk diagnostics?", "contexts": ["src/searchat/api.py: diagnostics endpoint opens a read-only database connection.", "src/searchat/dashboard.py: render report-only disk measurements.", "tests/test_api.py: mutable maintenance actions are absent from diagnostics."]},
+      {"question": "Why is the endpoint read-only?", "contexts": ["src/searchat/api.py: diagnostics endpoint opens a read-only database connection.", "src/searchat/dashboard.py: render report-only disk measurements.", "tests/test_api.py: mutable maintenance actions are absent from diagnostics."]},
+      {"question": "How is report-only behavior tested?", "contexts": ["src/searchat/api.py: diagnostics endpoint opens a read-only database connection.", "src/searchat/dashboard.py: render report-only disk measurements.", "tests/test_api.py: mutable maintenance actions are absent from diagnostics."]}
+    ]
+  }
+]
