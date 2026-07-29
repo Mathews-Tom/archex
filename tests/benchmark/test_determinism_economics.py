@@ -16,6 +16,7 @@ from archex.benchmark.determinism_economics import (
     perturbed_orders,
     request_payload,
     run_preflight,
+    validate_provider_receipts,
 )
 
 
@@ -171,6 +172,32 @@ def test_preflight_requires_every_unique_prefix_pair(
     assert len(calls) == 168
     assert sum(phase == "prewarm" for phase, _, _ in calls) == 84
     assert sum(phase == "replay" for phase, _, _ in calls) == 84
+
+
+def test_receipt_validation_rejects_prefix_not_in_frozen_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _fixture()
+
+    def fake_call(
+        *, session: FrozenSession, arm: OrderingArm, turn_index: int, phase: str, api_key: str
+    ) -> ProviderReceipt:
+        del api_key
+        return _receipt(
+            session,
+            arm,
+            turn_index,
+            phase,
+            cached_tokens=100 if phase == "replay" else 0,
+            cache_write_tokens=100 if phase == "prewarm" else 0,
+        )
+
+    monkeypatch.setattr("archex.benchmark.determinism_economics.call_openrouter", fake_call)
+    receipts = run_preflight(fixture, "test-key")
+    receipts[0] = receipts[0].model_copy(update={"rendered_prefix_sha256": "0" * 64})
+
+    with pytest.raises(ValueError, match="rendered-prefix SHA-256"):
+        validate_provider_receipts(receipts, fixture, preflight=True)
 
 
 def test_preflight_fails_on_zero_cache_read(monkeypatch: pytest.MonkeyPatch) -> None:

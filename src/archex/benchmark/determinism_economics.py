@@ -190,8 +190,8 @@ class DeterminismEconomicsArtifact(BaseModel):
         )
         if fixture_digest(fixture) != self.fixture_sha256:
             raise ValueError("fixture digest does not match embedded frozen sessions")
-        _validate_receipts(self.preflight_receipts, fixture, preflight=True)
-        _validate_receipts(self.measurement_receipts, fixture, preflight=False)
+        validate_provider_receipts(self.preflight_receipts, fixture, preflight=True)
+        validate_provider_receipts(self.measurement_receipts, fixture, preflight=False)
         if self.summary.get("bootstrap_resamples") != BOOTSTRAP_RESAMPLES:
             raise ValueError("artifact must use the pre-registered bootstrap count")
         return self
@@ -603,24 +603,35 @@ def _validate_measured_receipt(receipt: ProviderReceipt, arm: OrderingArm, turn_
         raise DeterminismEconomicsError("perturbed transition requires write and zero read")
 
 
-def _validate_receipts(
+def validate_provider_receipts(
     receipts: list[ProviderReceipt], fixture: SessionFixture, *, preflight: bool
 ) -> None:
-    expected_sessions = {session.session_id for session in fixture.sessions}
-    if {receipt.session_id for receipt in receipts} != expected_sessions:
-        raise ValueError("receipts do not cover every frozen session")
-    expected_count = 168 if preflight else 108
-    if len(receipts) != expected_count:
-        raise ValueError(f"expected {expected_count} receipts, got {len(receipts)}")
-    if preflight:
-        phases = [receipt.phase for receipt in receipts]
-        if phases.count("prewarm") != 84 or phases.count("replay") != 84:
-            raise ValueError("preflight must contain 84 prewarm/replay receipt pairs")
-        for receipt in receipts:
-            if receipt.phase == "prewarm" and receipt.cache_write_tokens <= 0:
-                raise ValueError("prewarm receipt lacks cache write")
-            if receipt.phase == "replay" and receipt.cached_tokens <= 0:
-                raise ValueError("replay receipt lacks cache read")
+    """Reject receipts that cannot be replayed from the frozen arm matrix."""
+    expected: set[tuple[str, OrderingArm, int, str]] = set()
+    expected_hashes: dict[tuple[str, OrderingArm, int], str] = {}
+    for session in fixture.sessions:
+        for arm in OrderingArm:
+            turn_indices = (1,) if preflight and arm is OrderingArm.DETERMINISTIC else (1, 2, 3)
+            phases = ("prewarm", "replay") if preflight else ("measurement",)
+            for turn_index in turn_indices:
+                key = (session.session_id, arm, turn_index)
+                expected_hashes[key] = request_payload(session, arm, turn_index)[1]
+                expected.update((*key, phase) for phase in phases)
+    observed = {
+        (receipt.session_id, receipt.arm, receipt.turn_index, receipt.phase) for receipt in receipts
+    }
+    if observed != expected or len(observed) != len(receipts):
+        raise ValueError("receipts do not cover the frozen arm/turn/phase matrix exactly")
+    for receipt in receipts:
+        key = (receipt.session_id, receipt.arm, receipt.turn_index)
+        if receipt.rendered_prefix_sha256 != expected_hashes[key]:
+            raise ValueError("receipt rendered-prefix SHA-256 mismatches the frozen fixture")
+        if receipt.phase == "prewarm" and receipt.cache_write_tokens <= 0:
+            raise ValueError("prewarm receipt lacks cache write")
+        if receipt.phase == "replay" and receipt.cached_tokens <= 0:
+            raise ValueError("replay receipt lacks cache read")
+        if not preflight:
+            _validate_measured_receipt(receipt, receipt.arm, receipt.turn_index)
 
 
 def _summarize(fixture: SessionFixture, receipts: list[ProviderReceipt]) -> dict[str, Any]:
