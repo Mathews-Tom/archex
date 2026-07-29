@@ -16,6 +16,7 @@ from archex.benchmark.determinism_economics import (
     perturbed_orders,
     provider_receipt_from_response,
     request_payload,
+    run_measurement,
     run_preflight,
     validate_provider_receipts,
 )
@@ -243,6 +244,44 @@ def test_receipt_validation_rejects_prefix_not_in_frozen_matrix(
 
     with pytest.raises(ValueError, match="rendered-prefix SHA-256"):
         validate_provider_receipts(receipts, fixture, preflight=True)
+
+
+def test_measurement_waits_between_turns_and_isolates_arms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _fixture()
+    sleeps: list[int] = []
+
+    def fake_call(
+        *, session: FrozenSession, arm: OrderingArm, turn_index: int, phase: str, api_key: str
+    ) -> ProviderReceipt:
+        del api_key
+        if phase == "prewarm":
+            return _receipt(
+                session, arm, turn_index, phase, cached_tokens=0, cache_write_tokens=100
+            )
+        if phase == "replay":
+            return _receipt(
+                session, arm, turn_index, phase, cached_tokens=100, cache_write_tokens=0
+            )
+        if turn_index == 1 or arm is not OrderingArm.DETERMINISTIC:
+            return _receipt(
+                session, arm, turn_index, phase, cached_tokens=0, cache_write_tokens=100
+            )
+        return _receipt(session, arm, turn_index, phase, cached_tokens=100, cache_write_tokens=0)
+
+    monkeypatch.setattr("archex.benchmark.determinism_economics.call_openrouter", fake_call)
+    monkeypatch.setattr("archex.benchmark.determinism_economics.time.sleep", sleeps.append)
+
+    artifact = run_measurement(
+        fixture=fixture,
+        preregistration_commit="c" * 40,
+        api_key="test-key",
+    )
+
+    assert len(artifact.measurement_receipts) == 108
+    assert sleeps.count(60) == 72
+    assert sleeps.count(301) == 3
 
 
 def test_preflight_fails_on_zero_cache_read(monkeypatch: pytest.MonkeyPatch) -> None:

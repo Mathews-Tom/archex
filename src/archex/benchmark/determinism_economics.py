@@ -43,6 +43,7 @@ STUDY_INSTRUCTION = (
     "Use only the selected source context."
 )
 CACHE_TTL_SECONDS = 301
+TURN_DELAY_SECONDS = 60
 
 TurnOrders: TypeAlias = tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]
 
@@ -577,6 +578,8 @@ def run_measurement(
                 )
                 _validate_measured_receipt(receipt, arm, turn_index)
                 measured.append(receipt)
+                if turn_index < 3:
+                    time.sleep(TURN_DELAY_SECONDS)
         if arm_index < len(OrderingArm) - 1:
             time.sleep(CACHE_TTL_SECONDS)
     artifact = DeterminismEconomicsArtifact(
