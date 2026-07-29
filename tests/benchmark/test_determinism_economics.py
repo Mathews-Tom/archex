@@ -130,6 +130,22 @@ def test_receipt_parser_accepts_current_openrouter_completion_cost_key() -> None
     assert receipt.completion_cost == 0.009
 
 
+def test_receipt_parser_reports_provider_error_without_usage() -> None:
+    with pytest.raises(
+        DeterminismEconomicsError,
+        match="error={'message': 'provider overloaded'}",
+    ):
+        provider_receipt_from_response(
+            raw={"error": {"message": "provider overloaded"}},
+            session=_session(0),
+            arm=OrderingArm.DETERMINISTIC,
+            turn_index=1,
+            phase="measurement",
+            prefix_sha256="0" * 64,
+            request_timestamp="2026-07-29T00:00:00Z",
+        )
+
+
 def test_request_payload_keeps_question_after_cacheable_context() -> None:
     session = _session(0)
 
