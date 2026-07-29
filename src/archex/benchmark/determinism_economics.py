@@ -44,6 +44,7 @@ STUDY_INSTRUCTION = (
 )
 CACHE_TTL_SECONDS = 301
 TURN_DELAY_SECONDS = 60
+PREFLIGHT_PAIR_DELAY_SECONDS = 60
 
 TurnOrders: TypeAlias = tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]
 
@@ -554,6 +555,8 @@ def run_preflight(fixture: SessionFixture, api_key: str) -> list[ProviderReceipt
                 if replay.cached_tokens <= 0:
                     raise DeterminismEconomicsError("replay receipt has zero cached_tokens")
                 receipts.extend((prewarm, replay))
+                if len(receipts) < 168:
+                    time.sleep(PREFLIGHT_PAIR_DELAY_SECONDS)
     if len(receipts) != 168:
         raise DeterminismEconomicsError(f"expected 168 preflight receipts, got {len(receipts)}")
     return receipts

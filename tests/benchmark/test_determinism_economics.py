@@ -71,6 +71,10 @@ def _fixture() -> SessionFixture:
     )
 
 
+def _sleep_noop(_seconds: float) -> None:
+    return None
+
+
 def _receipt(
     session: FrozenSession,
     arm: OrderingArm,
@@ -211,6 +215,7 @@ def test_preflight_requires_every_unique_prefix_pair(
         "archex.benchmark.determinism_economics.call_openrouter",
         fake_call,
     )
+    monkeypatch.setattr("archex.benchmark.determinism_economics.time.sleep", _sleep_noop)
 
     receipts = run_preflight(fixture, "test-key")
 
@@ -239,6 +244,7 @@ def test_receipt_validation_rejects_prefix_not_in_frozen_matrix(
         )
 
     monkeypatch.setattr("archex.benchmark.determinism_economics.call_openrouter", fake_call)
+    monkeypatch.setattr("archex.benchmark.determinism_economics.time.sleep", _sleep_noop)
     receipts = run_preflight(fixture, "test-key")
     receipts[0] = receipts[0].model_copy(update={"rendered_prefix_sha256": "0" * 64})
 
@@ -280,7 +286,7 @@ def test_measurement_waits_between_turns_and_isolates_arms(
     )
 
     assert len(artifact.measurement_receipts) == 108
-    assert sleeps.count(60) == 72
+    assert sleeps.count(60) == 155
     assert sleeps.count(301) == 3
 
 
