@@ -488,7 +488,10 @@ def provider_receipt_from_response(
 ) -> ProviderReceipt:
     usage_value = raw.get("usage")
     if not isinstance(usage_value, dict):
-        raise DeterminismEconomicsError("OpenRouter response lacks usage")
+        error = raw.get("error")
+        raise DeterminismEconomicsError(
+            f"OpenRouter response lacks usage; fields={sorted(raw)}; error={error!r}"
+        )
     usage = cast("dict[str, Any]", usage_value)
     details_value = usage.get("prompt_tokens_details")
     costs_value = usage.get("cost_details")
