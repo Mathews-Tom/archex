@@ -29,6 +29,14 @@ from archex.benchmark.corpus_audit import (
 )
 from archex.benchmark.cross_tool import NaiveBaselineModel, run_cross_tool
 from archex.benchmark.delta_runner import run_all_delta
+from archex.benchmark.determinism_economics import (
+    DeterminismEconomicsError,
+    build_fixture,
+    load_artifact,
+    load_fixture,
+    require_openrouter_api_key,
+    run_measurement,
+)
 from archex.benchmark.evidence import (
     BenchmarkEvidenceError,
     build_evidence_manifest,
@@ -781,6 +789,77 @@ def scorecard_cmd(
         click.echo(format_m3_scorecard_markdown(artifact))
 
 
+_S7_R6_1_TASK_IDS = [
+    "archex_query_pipeline",
+    "celery_task_dispatch",
+    "click_decorators",
+    "django_middleware",
+    "fastapi_dependency_injection",
+    "loc_flask_blueprint_register",
+    "gin_routing",
+    "httpx_pooling",
+    "mini_redis_async",
+    "pydantic_validators",
+    "pytest_fixtures",
+    "react_hooks",
+]
+
+
+@benchmark_cmd.command("freeze-determinism-economics")
+@click.option(
+    "--output",
+    default="benchmarks/determinism_economics_r6_1/sessions.json",
+    type=click.Path(dir_okay=False, path_type=Path),
+    show_default=True,
+)
+@click.option(
+    "--source-revision",
+    required=True,
+    help="Merged pre-registration SHA used to freeze the self-repository source.",
+)
+def freeze_determinism_economics_cmd(output: Path, source_revision: str) -> None:
+    """Freeze selected context and recorded arm permutations before provider use."""
+    if output.exists():
+        raise click.ClickException(f"refusing to overwrite existing frozen fixture: {output}")
+    fixture = build_fixture(
+        task_ids=_S7_R6_1_TASK_IDS,
+        repository_root=Path.cwd(),
+        source_revision=source_revision,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(fixture.model_dump_json(indent=2) + "\n")
+    click.echo(f"Frozen {len(fixture.sessions)} S7 sessions at {output}.")
+
+
+@benchmark_cmd.command("determinism-economics")
+@click.option(
+    "--sessions",
+    default="benchmarks/determinism_economics_r6_1/sessions.json",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    show_default=True,
+)
+@click.option(
+    "--output",
+    default="benchmarks/evidence/s7-determinism-economics-r6.1.json",
+    type=click.Path(dir_okay=False, path_type=Path),
+    show_default=True,
+)
+@click.option("--preregistration-commit", required=True)
+def determinism_economics_cmd(sessions: Path, output: Path, preregistration_commit: str) -> None:
+    """Measure provider-observed input cost across frozen ordering arms."""
+    try:
+        artifact = run_measurement(
+            fixture=load_fixture(sessions),
+            preregistration_commit=preregistration_commit,
+            api_key=require_openrouter_api_key(),
+        )
+    except DeterminismEconomicsError as exc:
+        raise click.ClickException(str(exc)) from exc
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(artifact.model_dump_json(indent=2) + "\n")
+    click.echo(f"Wrote S7 provider evidence to {output}.")
+
+
 @benchmark_cmd.command("validate")
 @click.option(
     "--tasks-dir",
@@ -813,7 +892,18 @@ def scorecard_cmd(
 @click.option(
     "--kind",
     default="tasks",
-    type=click.Choice(["tasks", "arch", "delta", "all", "evidence", "replication", "corpus-audit"]),
+    type=click.Choice(
+        [
+            "tasks",
+            "arch",
+            "delta",
+            "all",
+            "evidence",
+            "replication",
+            "corpus-audit",
+            "determinism-economics-r6-1",
+        ]
+    ),
     show_default=True,
     help="Task definition or evidence family to validate.",
 )
@@ -827,10 +917,20 @@ def validate_cmd(
     """Validate benchmark task definitions."""
     repo_root = Path.cwd()
     target: Path | None = None
-    if kind in {"evidence", "replication", "corpus-audit"}:
+    if kind in {"evidence", "replication", "corpus-audit", "determinism-economics-r6-1"}:
         if input_path is None:
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
+    if kind == "determinism-economics-r6-1" and target is not None:
+        try:
+            artifact = load_artifact(target)
+        except DeterminismEconomicsError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Valid S7 determinism evidence: {len(artifact.sessions)} session(s), "
+            f"{len(artifact.measurement_receipts)} measured receipt(s)."
+        )
+        return
 
     if kind == "corpus-audit" and target is not None:
         try:
