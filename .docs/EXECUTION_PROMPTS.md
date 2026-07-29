@@ -1,6 +1,6 @@
 # Execution Prompts — archex Strategic Reassessment Program
 
-One `/goal` block per milestone in `.docs/DEVELOPMENT_PLAN.md` §6. Each block is self-contained and paste-ready. Run order follows §8 Critical Path; R2 and R5 run in parallel off R1, and R11/R15 run in parallel off R10. R6 is cancelled.
+One `/goal` block per milestone in `.docs/DEVELOPMENT_PLAN.md` §6. Each block is self-contained and paste-ready. Run order follows §8 Critical Path; R6 is cancelled and R6.1 is its separately authorized, ordering-only replacement.
 
 Milestone IDs are `R`-prefixed. **Never reuse `M1`–`M17`** — that numbering is bound to the prior plan by tracked references in `CHANGELOG.md` and `benchmarks/results/m*/DECISION.md`.
 
@@ -15,7 +15,7 @@ Milestone IDs are `R`-prefixed. **Never reuse `M1`–`M17`** — that numbering 
 - A shared mismatch in a proposed parallel wave blocks product-code work in every affected lane. Do not continue scaffolding, partial implementation, or isolated ledger writes while reconciliation is pending.
 - `GO` only makes the milestone stack merge-eligible. Release preparation stays deferred until every milestone in its train is externally merged.
 - **Gates A, B, and C are declared in advance and are not renegotiable after seeing results.** Adjusting a threshold post-hoc is a plan violation.
-- **Pre-registration ordering is load-bearing.** Where a milestone requires a pre-registration, its tracked `.docs/spikes/` file merges before the first run and commit order is the proof.
+- **Pre-registration ordering is load-bearing.** Where a milestone requires a pre-registration, its tracked file merges before the first run and commit order is the proof. New pre-registrations belong in `benchmarks/preregistrations/`; only R3's historical, already-tracked record remains under `.docs/spikes/`.
 - Never solicit an external/bot code review. The configured reviewer runs automatically.
 - The full local gate referenced below is: `uv run ruff check . && uv run ruff format --check . && uv run pyright . && uv run pytest`.
 
@@ -272,6 +272,55 @@ No execution prompt. R6 is cancelled.
 PR #592 merged the S7 pre-registration. PR #593 was reviewed and closed without merge after independent replay found every rendered prefix cache-ineligible: 72 prefixes across all three arms (24 per arm) were 50–56 `cl100k_base` tokens, below the recorded 512-token Claude Opus 5 floor. The resulting zero cache hits and zero cost deltas are construction facts, not an economics null, so the 5% kill criterion is not triggered.
 
 Do not revive this run, merge its closed branch, or make an economics claim from its artifact. A replacement requires a new milestone, a fresh pre-registration, and an independently inspected cache-eligible session fixture before any data-generating command.
+```
+
+---
+
+### R6.1 — S7 determinism as prefix-cache economics replacement `PENDING — FRESH PRE-REGISTRATION REQUIRED`
+
+```text
+/goal Deliver milestone R6.1 (S7 determinism as prefix-cache economics replacement) from DEVELOPMENT_PLAN.md as a reviewed stack of PRs.
+
+CONTEXT: DEVELOPMENT_PLAN.md §6 Section C R6.1 + .docs/strategic-reassessment/03-SPIKES.md S7 + 01-LITERATURE-POSITION.md §G6. Preconditions: R1 merged; R6 remains cancelled and PR #593 remains closed without merge. This is an explicitly authorized, benchmark-only replacement after Gate A failed; no successor milestone is reopened. Repo: Python 3.11+, uv, pytest, ruff, pyright strict, GitHub Actions CI. Relevant boundaries: the shipped default retrieval path and `benchmarks/preregistrations/`.
+OBJECTIVE: Measure provider-observed prefix-cache economics over a fresh cache-eligible, frozen, 12-repository, three-turn maintenance-session fixture. Each session uses `token_budget: 8192`; the 12 repositories comprise the self-repo plus at least one task from every current external corpus family. The same selected chunks, session IDs, resolution labels, model-price schedule, and turn content apply to deterministic, seed-recorded perturbed, and seed-recorded ANN-style ordering arms; only rendered context order differs. The comparator emits a permutation during fixture construction and replays that recorded order at measurement time; it performs no live ANN retrieval. Success contract: a fresh pre-registration merged before fixture construction or data generation; every prefix meets the pre-registered provider-native eligibility floor and has exact-SHA prewarm/replay cache-use receipts; a valid artifact records `original` evidence class and paired repository-cluster bootstrap intervals with per-cell `superior` / `equivalent` / `inconclusive at this N` dispositions; and the decision retires economics for either comparator below the `+5%` MWG or whose 95% interval includes zero.
+RELEASE TRAIN: target=unversioned; included milestones=R6.1; preparation trigger=n/a; required artifacts=none; release verification=n/a; publication=not requested.
+
+PRE-IMPLEMENTATION DESIGN GATE:
+1. Read this milestone, its source-map rows, current prompt, `.docs/DEVELOPMENT_PLAN_HISTORY.md` when present, R6's cancellation record, and the current pre-registration template.
+2. Inspect the current codebase plus merged R1 predecessor diffs, merged predecessor PR outcomes, CI/check evidence, and the current provider pricing/cache documentation.
+3. Revalidate objective, interfaces, dependencies, acceptance, verification, risks, release train, the 12-repository matrix, and every listed dependent milestone (none; R16 remains cancelled).
+4. Append one ledger entry with the fields listed in DEVELOPMENT_PLAN_HISTORY.md.
+5. If no material mismatch exists, report `DESIGN GO — PLAN REVISION: none`; this authorizes implementation.
+6. If a mismatch exists, update both authoritative artifacts for R6.1 and every affected future milestone, append the revision ID, and report `DESIGN GO — PLAN REVISION: <entry IDs>`.
+7. If validity cannot be established, report `DESIGN NO-GO — REASON: <evidence>` and stop.
+
+SPECIFIC GATE CHECK: before PR-1, confirm on official provider documentation that Claude Opus 5 has a documented model-specific cache-eligibility floor, 5-minute cache writes cost 1.25× base input, cache reads cost 0.1× base input, and the replay TTL is five minutes; record those values in the pre-registration. Before PR-2, confirm the provider client's configured authentication chain supplies credentials and quota without printing a secret. A changed price invalidates dollar interpretation but not hit-rate interpretation; absent, changed, or incompatible eligibility/cache semantics is a design no-go that blocks the run. Missing credentials, quota, or provider receipt support blocks fixture construction and evidence generation. Do not substitute `cl100k_base` or another local estimate for a provider-native receipt.
+
+RECONCILIATION RULE: R6.1-DG-001 is material. PR #595, `docs(plan): reconcile R6.1 design`, is the docs-only prerequisite containing the matching plan and prompt update; it must be reviewed, green, and externally merged before any code or data PR. After it merges, rerun this gate and require `DESIGN GO — PLAN REVISION: none`.
+
+PLANNED STACK:
+0. Conditional prerequisite `docs(plan): reconcile R6.1 design` (PR #595) — scope: authoritative plan and execution prompt only; must externally merge before PR-1.
+1. PR-1 `docs(spikes): pre-register cache-eligible S7 replacement` — scope: `benchmarks/preregistrations/S7-determinism-economics-r6.1.md` only; fixes the 12 pinned task/revision rows, three-turn question sequences, `token_budget: 8192`, self-repo-plus-corpus-family selection rule, arm matrix, seeds, Claude Opus 5 cache-floor/pricing lookup URL and timestamp, distinct `+5%` MWG / `-5%` NIM / `[-5%, +5%]` EQM utility justification, `original` evidence class, per-cell `superior` / `equivalent` / `inconclusive at this N` disposition rules, 10,000-resample paired repository bootstrap, and provider receipt gate; MUST merge before fixture construction or any data-generating command.
+2. PR-2 `test(benchmark): freeze and inspect cache-eligible S7 sessions` (on PR-1) — scope: benchmark-only fixture construction, committed 12-repository session fixture, recorded seed comparator permutations, exact provider Count Tokens and prewarm/replay receipts, matrix digest, and focused tests; merge only after an independent fixture review recomputes every rendered-prefix SHA and receipt linkage. It must fail if any arm has a different chunk identity, label, model, pricing, or missing, zero, or mismatched prewarm/replay receipt.
+3. PR-3 `test(benchmark): measure S7 ordering cache economics` (on PR-2) — scope: ordering-economics runner, dedicated JSON validator, focused tests, `benchmarks/evidence/s7-determinism-economics-r6.1.json`, and `benchmarks/evidence/S7-R6.1-DECISION.md`; commits: runner and validators, frozen-fixture run, decision. Run only after PR-2 merges and the independent fixture review is recorded.
+
+CONSTRAINTS: change archex's retrieval, ranking, and ordering in no way; do not expose the provider client on a product path; use no API key from source or artifact; compare no retrieval quality, task resolution, or live ANN behavior; do not use the invalid R6 fixture or artifact; model an ANN arm as a seed-recorded reordering of identical chunks; do not batch arms in a way that shares a cache state; reject every undeclared matrix cell or arm lacking a requested prewarm/replay receipt or returned provider usage fields.
+VERIFICATION (must pass): the pre-registration commit is an ancestor of fixture and evidence commits; `uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics_r6_1/sessions.json --output benchmarks/evidence/s7-determinism-economics-r6.1.json --preregistration-commit <merged-SHA>` regenerates the artifact; `uv run archex benchmark validate --kind determinism-economics-r6-1 --input benchmarks/evidence/s7-determinism-economics-r6.1.json` exits 0; mutation tests prove matrix-digest tampering, missing receipt linkage, zero cache reads/writes, and an arm lacking required usage fields fail; full local gate green.
+REVIEW:
+Per PR:
+- Scope matches its purpose; the fresh pre-registration merges before fixture construction or data generation; no R6 artifact is reused.
+- Failures are loud; no missing provider receipt, changed SHA, cache-ineligible prefix, zero cache-use receipt, undeclared cell, or arm lacking required usage fields can record an economic result.
+- History is atomic, conventional, attribution-free, and free of unrelated formatting churn.
+- PR-specific verification output is captured.
+Whole stack:
+- Bases form one valid stack; CI is green; no regression coverage removed without replacement.
+- Independent review verifies provider token counts and prewarm/replay receipts before the measurement command, then verifies every arm made the requested cache-enabled prewarm and replay calls and returned their provider usage fields.
+- The decision has no retrieval-quality, product, literature, or Gate-A claim. If either comparison fails the `+5%` MWG or includes zero, it explicitly retires the economic framing and preserves determinism only as reproducibility. If both clear, it licenses only an original, fixture-bounded observed input-cost result and authorizes no product, default-ordering, retrieval-quality, literature, or Gate-A claim.
+- Report PR URLs, bases, verification, risks, manual gates, and review completion.
+FINAL VERDICTS:
+- Report the design verdict before the merge verdict.
+- Then report exactly one merge verdict: `GO — RELEASE: unversioned — RELEASE PREP: not-required` or `NO-GO — RELEASE: unversioned — REASON: <blocking gate>`.
+DONE: design verdict with evidence; when authorized, a reviewed stack with a release-aware merge verdict and evidence.
 ```
 
 ---
