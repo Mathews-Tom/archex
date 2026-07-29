@@ -14,6 +14,7 @@ from archex.benchmark.determinism_economics import (
     SessionFixture,
     ann_baseline_orders,
     perturbed_orders,
+    provider_receipt_from_response,
     request_payload,
     run_preflight,
     validate_provider_receipts,
@@ -99,6 +100,34 @@ def _receipt(
         cached_tokens=cached_tokens,
         completion_tokens=1,
     )
+
+
+def test_receipt_parser_accepts_current_openrouter_completion_cost_key() -> None:
+    receipt = provider_receipt_from_response(
+        raw={
+            "model": MODEL,
+            "provider": "Anthropic",
+            "id": "generation",
+            "usage": {
+                "cost": 0.01,
+                "prompt_tokens": 100,
+                "completion_tokens": 1,
+                "prompt_tokens_details": {"cache_write_tokens": 100, "cached_tokens": 0},
+                "cost_details": {
+                    "upstream_inference_prompt_cost": 0.001,
+                    "upstream_inference_completions_cost": 0.009,
+                },
+            },
+        },
+        session=_session(0),
+        arm=OrderingArm.DETERMINISTIC,
+        turn_index=1,
+        phase="measurement",
+        prefix_sha256="0" * 64,
+        request_timestamp="2026-07-29T00:00:00Z",
+    )
+
+    assert receipt.completion_cost == 0.009
 
 
 def test_request_payload_keeps_question_after_cacheable_context() -> None:

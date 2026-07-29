@@ -465,7 +465,7 @@ def call_openrouter(
         raise DeterminismEconomicsError(f"OpenRouter HTTP {exc.code}: {body}") from exc
     except (URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise DeterminismEconomicsError(f"OpenRouter request failed: {exc}") from exc
-    return _receipt_from_response(
+    return provider_receipt_from_response(
         raw=raw,
         session=session,
         arm=arm,
@@ -476,7 +476,7 @@ def call_openrouter(
     )
 
 
-def _receipt_from_response(
+def provider_receipt_from_response(
     *,
     raw: dict[str, Any],
     session: FrozenSession,
@@ -512,7 +512,7 @@ def _receipt_from_response(
             usage=usage,
             total_cost=float(usage["cost"]),
             upstream_inference_prompt_cost=float(costs["upstream_inference_prompt_cost"]),
-            completion_cost=float(costs["upstream_inference_completion_cost"]),
+            completion_cost=float(costs["upstream_inference_completions_cost"]),
             prompt_tokens=int(usage["prompt_tokens"]),
             cache_write_tokens=int(details.get("cache_write_tokens", 0)),
             cached_tokens=int(details.get("cached_tokens", 0)),
