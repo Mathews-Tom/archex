@@ -1,6 +1,6 @@
 # Execution Prompts — archex Strategic Reassessment Program
 
-One `/goal` block per milestone in `.docs/DEVELOPMENT_PLAN.md` §6. Each block is self-contained and paste-ready. Run order follows §8 Critical Path; R6 is cancelled and R6.1 is its separately authorized, ordering-only replacement.
+One `/goal` block per active milestone in `.docs/DEVELOPMENT_PLAN.md` §6. Each block is self-contained and paste-ready. Run order follows §8 Critical Path; R6 and R6.1 are cancelled.
 
 Milestone IDs are `R`-prefixed. **Never reuse `M1`–`M17`** — that numbering is bound to the prior plan by tracked references in `CHANGELOG.md` and `benchmarks/results/m*/DECISION.md`.
 
@@ -276,52 +276,14 @@ Do not revive this run, merge its closed branch, or make an economics claim from
 
 ---
 
-### R6.1 — S7 determinism as prefix-cache economics replacement `PENDING — FRESH PRE-REGISTRATION REQUIRED`
+### R6.1 — S7 determinism as prefix-cache economics replacement `CANCELLED — PROVIDER FEASIBILITY FAILED`
 
 ```text
-/goal Deliver milestone R6.1 (S7 determinism as prefix-cache economics replacement) from DEVELOPMENT_PLAN.md as a reviewed stack of PRs.
+No execution prompt. R6.1 is cancelled.
 
-CONTEXT: DEVELOPMENT_PLAN.md §6 Section C R6.1 + .docs/strategic-reassessment/03-SPIKES.md S7 + 01-LITERATURE-POSITION.md §G6. Preconditions: R1 merged; R6 remains cancelled and PR #593 remains closed without merge. The unrun first-party protocol in PR #596 is retired. This is an explicitly authorized, benchmark-only replacement after Gate A failed; no successor milestone is reopened. Repo: Python 3.11+, uv, pytest, ruff, pyright strict, GitHub Actions CI. Relevant boundaries: the shipped default retrieval path and `benchmarks/preregistrations/`.
-OBJECTIVE: Measure OpenRouter-metered prefix-cache economics over a fresh cache-eligible, frozen, 12-repository, three-turn maintenance-session fixture. The fixture is provider-neutral; its sole registered measurement cell is OpenRouter `anthropic/claude-opus-5` pinned to the Anthropic upstream with fallbacks disabled and explicit cache control. Each session uses `token_budget: 8192`; the 12 repositories comprise the self-repo plus at least one task from every current external corpus family. The same selected chunks, session IDs, resolution labels, model-price schedule, and turn content apply to deterministic, seed-recorded perturbed, and seed-recorded ANN-style ordering arms; only rendered context order differs. The comparator emits a permutation during fixture construction and replays that recorded order at measurement time; it performs no live ANN retrieval. OpenRouter may return enforced response tokens despite `max_tokens: 0`; record them, exclude their cost and content from the metric and all later request history, and use only provider-observed prompt cost. Success contract: a new OpenRouter pre-registration merged before fixture construction or data generation; a committed fixture with exact rendered-prefix, routing, prompt-cost-isolation, and provider-usage receipts; a dedicated validator; and an original, fixture-bounded decision with no product, retrieval-quality, literature, or Gate-A claim.
-RELEASE TRAIN: target=unversioned; included milestones=R6.1; preparation trigger=n/a; required artifacts=none; release verification=n/a; publication=not requested.
+Two unchanged protocol runs ended with OpenRouter `503 Overloaded` error payloads and no usable provider receipt. A third unchanged run ended when a required prewarm receipt reported zero `cache_write_tokens`. These are provider-feasibility failures, not economics observations: they establish no cache-hit, dollar, retrieval-quality, product, literature, or Gate-A conclusion. No valid evidence JSON or economics decision document exists.
 
-PRE-IMPLEMENTATION DESIGN GATE:
-1. Read this milestone, its source-map rows, current prompt, `.docs/DEVELOPMENT_PLAN_HISTORY.md` when present, R6's cancellation record, and the current pre-registration template.
-2. Inspect the current codebase plus merged R1 predecessor diffs, merged predecessor PR outcomes, CI/check evidence, and the current provider pricing/cache documentation.
-3. Revalidate objective, interfaces, dependencies, acceptance, verification, risks, release train, the 12-repository matrix, and every listed dependent milestone (none; R16 remains cancelled).
-4. Append one ledger entry with the fields listed in DEVELOPMENT_PLAN_HISTORY.md.
-5. If no material mismatch exists, report `DESIGN GO — PLAN REVISION: none`; this authorizes implementation.
-6. If a mismatch exists, update both authoritative artifacts for R6.1 and every affected future milestone, append the revision ID, and report `DESIGN GO — PLAN REVISION: <entry IDs>`.
-7. If validity cannot be established, report `DESIGN NO-GO — REASON: <evidence>` and stop.
-
-SPECIFIC GATE CHECK: before PR-1, confirm from official OpenRouter documentation and its live `anthropic/claude-opus-5` model endpoint that explicit cache control, cache-write/read usage fields, and a separable provider-observed prompt-cost field are supported. Fix `provider.only: ["anthropic"]`, `allow_fallbacks: false`, the returned `provider: "Anthropic"` assertion, model price schedule, response-output exclusion, and source retrieval timestamps in the new pre-registration. Before PR-2, confirm `OPENROUTER_API_KEY` and quota without printing a secret. A changed price invalidates dollar interpretation but not hit-rate interpretation; absent, changed, or incompatible cache semantics, routing pinning, usage fields, or prompt-cost isolation is a design no-go that blocks the run. Missing credentials or quota blocks fixture construction and evidence generation. Do not substitute local token counting for provider-accepted cache-write evidence.
-
-RECONCILIATION RULE: R6.1-DG-004 is material. Open `docs(plan): reconcile R6.1 OpenRouter provider receipt field` as a docs-only prerequisite containing the matching plan and prompt update; it must be reviewed, green, and externally merged before the replacement pre-registration, fixture, code, or data PR. After it merges, rerun this gate and require `DESIGN GO — PLAN REVISION: none`.
-
-PLANNED STACK:
-0. Conditional prerequisite `docs(plan): reconcile R6.1 OpenRouter provider receipt field` — scope: authoritative plan and execution prompt only; must externally merge before PR-1.
-1. PR-1 `docs(spikes): pre-register OpenRouter S7 output-accounting replacement` — scope: `benchmarks/preregistrations/S7-determinism-economics-r6.1-openrouter-output.md` only; preserves and retires PR #596's unrun direct protocol and PR #598's unrun zero-output protocol; fixes the 12 pinned task/revision rows, three-turn question sequences, `token_budget: 8192`, self-repo-plus-corpus-family selection rule, arm matrix, seeds, OpenRouter `anthropic/claude-opus-5` model/pricing/usage lookup URLs and timestamps, pinned Anthropic upstream/no-fallback policy, explicit cache control, response-output exclusion, distinct `+5%` MWG / `-5%` NIM / `[-5%, +5%]` EQM utility justification, `original` evidence class, per-cell `superior` / `equivalent` / `inconclusive at this N` disposition rules, 10,000-resample paired repository bootstrap, and provider receipt gate; MUST merge before fixture construction or any data-generating command.
-2. PR-2 `test(benchmark): freeze and inspect cache-eligible S7 sessions` (on PR-1) — scope: benchmark-only fixture construction, committed 12-repository session fixture, recorded seed comparator permutations, exact OpenRouter prewarm/replay usage receipts, matrix digest, and focused tests; merge only after an independent fixture review recomputes every rendered-prefix SHA, routing assertion, receipt linkage, and prompt-cost isolation. It must fail if any arm has a different chunk identity, label, model, pricing, requested routing policy, resolved upstream provider, or missing, zero, mismatched, fallback, or output-contaminated receipt.
-3. PR-3 `test(benchmark): measure S7 ordering cache economics` (on PR-2) — scope: ordering-economics runner, dedicated JSON validator, focused tests, `benchmarks/evidence/s7-determinism-economics-r6.1.json`, and `benchmarks/evidence/S7-R6.1-DECISION.md`; commits: runner and validators, frozen-fixture run, decision. Run only after PR-2 merges and the independent fixture review is recorded.
-
-CONSTRAINTS: change archex's retrieval, ranking, and ordering in no way; do not expose the OpenRouter client on a product path; use no API key from source or artifact; request only `anthropic/claude-opus-5` with `provider.only: ["anthropic"]` and `allow_fallbacks: false`; request `max_tokens: 0`; reject a receipt whose resolved upstream is not Anthropic or that reports fallback activity; record every completion usage field but calculate economics only from the provider-observed prompt-cost field and never carry response content into a later request; compare no retrieval quality, task resolution, or live ANN behavior; do not use the invalid R6 fixture or artifact; model an ANN arm as a seed-recorded reordering of identical chunks; do not batch arms in a way that shares a cache state; reject every undeclared matrix cell or arm lacking a requested prewarm/replay receipt or returned provider usage fields.
-VERIFICATION (must pass): the replacement pre-registration commit is an ancestor of fixture and evidence commits; with `OPENROUTER_API_KEY`, `uv run archex benchmark determinism-economics --sessions benchmarks/determinism_economics_r6_1/sessions.json --output benchmarks/evidence/s7-determinism-economics-r6.1.json --preregistration-commit <merged-SHA>` regenerates the artifact; `uv run archex benchmark validate --kind determinism-economics-r6-1 --input benchmarks/evidence/s7-determinism-economics-r6.1.json` exits 0; mutation tests prove matrix-digest tampering, changed routing, fallback metadata, missing receipt linkage, zero cache reads/writes, an arm lacking required usage fields, and response-cost contamination fail; full local gate green.
-REVIEW:
-Per PR:
-- Scope matches its purpose; the replacement pre-registration merges before fixture construction or data generation; no R6 artifact is reused.
-- Failures are loud; no missing provider receipt, changed SHA, changed routing, fallback, cache-ineligible prefix, zero cache-use receipt, undeclared cell, or arm lacking required usage fields can record an economic result.
-- History is atomic, conventional, attribution-free, and free of unrelated formatting churn.
-- PR-specific verification output is captured.
-Whole stack:
-- Bases form one valid stack; CI is green; no regression coverage removed without replacement.
-- Independent review verifies OpenRouter usage receipts, requested routing, resolved Anthropic upstream, and prewarm/replay linkage before the measurement command, then verifies every arm made the requested cache-enabled prewarm and replay calls and returned their provider usage fields.
-- The decision has no retrieval-quality, product, literature, or Gate-A claim. If the `ann_baseline` comparison fails the `+5%` MWG or includes zero, it explicitly retires the economic framing and preserves determinism only as reproducibility. If it clears the pre-registered rule, it licenses only an original, fixture-bounded OpenRouter-metered input-cost result and authorizes no product, default-ordering, retrieval-quality, literature, or Gate-A claim.
-- Report PR URLs, bases, verification, risks, manual gates, and review completion.
-FINAL VERDICTS:
-- Report the design verdict before the merge verdict.
-- Then report exactly one merge verdict: `GO — RELEASE: unversioned — RELEASE PREP: not-required` or `NO-GO — RELEASE: unversioned — REASON: <blocking gate>`.
-DONE: design verdict with evidence; when authorized, a reviewed stack with a release-aware merge verdict and evidence.
-
+Do not rerun this protocol, relax receipt validation, change provider routing, or introduce retries. Any future S7 economics work requires a separate milestone and a fresh pre-registration; it must not reuse incomplete provider attempts.
 ```
 
 ---
