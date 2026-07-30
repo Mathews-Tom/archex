@@ -156,7 +156,7 @@ A milestone in the `unversioned` set that later proves user-visible moves to a t
 
 > **Gate A.** Pass = at least one published win reproduced inside its pre-registered equivalence band → R7 is authorized. Fail = no published win reproduces in its own setup → **stop all research work**; every archex null to date is attributable to implementation, R7–R16 are cancelled, and the program reduces to Section A + Section C outputs plus a root-cause engineering effort. An arm that cannot be run at all is neither a pass nor a fail; it is recorded as unrunnable with its blocking evidence, and Gate A is decided by the remaining arms. Recorded in `GATE-A.md` and the ledger. Not renegotiable.
 
-#### R4 — S2 corpus validity audit `BLOCKING`
+#### R4 — S2 corpus validity audit `COMPLETE — VALIDITY DISPOSITION RECORDED`
 
 | Field | Value |
 | --- | --- |
@@ -164,12 +164,12 @@ A milestone in the `unversioned` set that later proves user-visible moves to a t
 | In / Out of scope | In: leakage scoring, clustering statistics, held-out leak measurement, power simulation, and a calibration of that simulation against R3's RepoEval corpus. Out: fixing the corpus; deleting tasks; changing retrieval; deriving MWG/NIM/EQM, which existed to feed cancelled R9. |
 | Depends on | `R1`, and `R3`'s measured interval as a calibration input |
 | Target release | `unversioned` |
-| Deliverables | A leakage score for every `benchmarks/tasks/*.yaml` (gold symbol or path appearing verbatim in `question` or `keywords`; 8 of 21 previously confirmed in the `loc_*` family — re-count, do not assume); ICC over repo clusters with the items-per-cluster distribution and largest-cluster share (**re-counted at R4's design gate**: 64 top-level tasks over 16 distinct repo values, largest cluster 24 self-repo = 37.5%; the plan's earlier 66 was wrong); an empirical held-out leak measurement for `benchmarks/held_out.txt` (**corrected at R4's design gate**: the plan previously noted only `archex_project_status` and `archex_query_pipeline` as tuning-set members. In fact all five held-out IDs are top-level tasks in `benchmarks/tasks/` — `tests/benchmark/test_generalization.py:29` asserts exactly that — and no code under `src/` or `.github/` excludes them from a run, so the held-out set is a labelling convention with no runtime separation. R4 must measure and report that, not restate the old note); a power simulation over the measured cluster-size distribution reporting the minimum detectable effect at the current N and how many **independent repositories** would be needed to resolve an effect the size R3 targeted (+4.88 points); the same simulation applied to R3's 8-cluster RepoEval structure and checked against its measured interval width, as a validation point rather than a projection; `benchmarks/evidence/s2-corpus-validity.json`. |
-| Acceptance | Every deliverable is present in the artifact. The simulation is validated against R3's measured interval before any projection about archex's corpus is believed. The report states plainly, and in one line, whether any realistic number of independent repositories makes a literature-sized effect detectable here. A negative answer is the expected and acceptable outcome. |
-| Verification | `uv run archex benchmark validate --kind replication --input benchmarks/evidence/s2-corpus-validity.json` is **not** applicable — this is an internal measurement, not a replication. R4 names its own validator at its design gate per §7's evidence-artifact rule; the audit script must rerun deterministically to the same figures; full gate green. |
-| Design reevaluation | Re-count the corpus before auditing; task counts have changed across milestones and the previously quoted 66 and 64 disagree. Resolve §7's evidence-artifact defect for this milestone's artifact shape. Dependents: none surviving — R9 and R10 are cancelled, so R4's output feeds the disposition decision and the root-cause effort, not a downstream analysis plan. |
+| Deliverables | A leakage score for every `benchmarks/tasks/*.yaml`: 9 of 21 `loc_*` tasks have an identifier-shaped gold symbol quoted in the query, and 19 of 64 tasks leak at this symbol tier (29.69%). Clustering statistics over the 64 top-level tasks and 16 distinct `repo` values, including the items-per-cluster distribution, largest self-repo cluster (24 tasks, 37.5%), and an effective-N sensitivity across explicitly assumed ICC values. The task corpus contains labels but no per-task outcome series, so it cannot identify an empirical ICC; the report must not imply otherwise. An empirical held-out leak measurement for `benchmarks/held_out.txt`: all five declared IDs are top-level tasks, and no code under `src/` or `.github/` excludes them from a run, so the held-out set is a labelling convention with no runtime separation. A power simulation over the measured cluster-size distribution reporting the minimum detectable effect at the current N and how many total tasks under the current 16-cluster structure are needed to resolve the +4.88-point literature-sized effect; the same simulation applied to R3's 8-cluster RepoEval structure and checked against its measured interval width; `benchmarks/evidence/s2-corpus-validity.json`. |
+| Acceptance | Every deliverable is present in the artifact. The simulation is calibrated against R3's measured interval before any projection about archex's corpus is believed. The report states plainly, in one line, whether a realistic expansion of the current corpus makes a literature-sized effect detectable. A negative answer is the expected and acceptable outcome. |
+| Verification | `uv run archex benchmark validate --kind corpus-audit --input benchmarks/evidence/s2-corpus-validity.json` exits 0; the audit script reruns deterministically to the same stable figures; full gate green. |
+| Design reevaluation | Resolved at delivery: the corpus was re-counted, the evidence-artifact validator accepts this artifact shape, and R3's measured interval calibrates the simulation. Dependents: none surviving — R9 and R10 are cancelled, so R4's output feeds the disposition decision and root-cause effort, not a downstream analysis plan. |
 | Risks & rollback | Risk: the simulation shows no reachable N for any candidate metric. That is the **finding**, not a failure, and it is the strongest available evidence about what this program can and cannot conclude. Rollback: revert; measurement only. |
-| Est. PRs | 3 |
+| Est. PRs | 2 after the merged R4 design reconciliation prerequisite |
 
 ### Section C — Zero-research-risk product wins
 
@@ -254,7 +254,7 @@ R5 shipped regardless of Gate A. R6 is cancelled because its session fixture nev
 | Risks & rollback | Risk: the corpus's gold-context schema does not map cleanly onto region-level metrics. Mitigation: map at file+symbol granularity first and record the loss explicitly rather than approximating. Rollback: revert the adapter. |
 | Est. PRs | 4 |
 
-#### R9 — Clustered inference and pre-registered analysis
+#### R9 — Clustered inference and pre-registered analysis `CANCELLED — GATE A FAIL`
 
 | Field | Value |
 | --- | --- |
@@ -269,7 +269,7 @@ R5 shipped regardless of Gate A. R6 is cancelled because its session fixture nev
 | Risks & rollback | Risk: the eligibility matrix is written permissively and stops constraining anything. Mitigation: the refusal test is the acceptance criterion. Rollback: revert. |
 | Est. PRs | 4 |
 
-#### R10 — S1 cost model, pilot, and full sweep
+#### R10 — S1 cost model, pilot, and full sweep `CANCELLED — GATE A FAIL`
 
 | Field | Value |
 | --- | --- |
@@ -406,16 +406,16 @@ R5 shipped regardless of Gate A. R6 is cancelled because its session fixture nev
 
 ## 8. Critical Path
 
-**Realized 2026-07-28.** R1, R2, and R3 are complete. Gate A failed, so the critical path below is what remains, not what was originally planned. The cancelled path is preserved in the second table for the record.
+**Realized 2026-07-28.** R1–R5 are complete. Gate A failed, so the critical path below is what remains, not what was originally planned. The cancelled path is preserved in the second table for the record.
 
 | Order | Milestone | Gate | Blocking reason |
 | --- | --- | --- | --- |
 | 1 | R1 | — | Complete |
 | 2 | R3 | **Gate A — FAILED** | Complete; verdict in `GATE-A.md`, not renegotiable |
 | 3 | R2 | — | Complete |
-| 4 | **R4** | — | Next. Re-scoped by Gate A: it no longer supplies R9's margins, it answers whether any corpus this project can assemble could detect a literature-sized effect at all. That answer decides the program's disposition. |
-| 5 | R5 | — | R5 merged and shipped in the claims-and-cost train (`v0.25.0`). R6 is cancelled — its frozen fixture never crossed the cache-eligibility floor, so no economics result exists; it carried no release train. |
-| 6 | Root-cause effort | — | Mandated by the Gate A fail clause; scope is set after R4 reports, since R4 supplies the resolution figure the root-cause question turns on. |
+| 4 | R4 | — | Complete. At 64 tasks over 16 repository clusters, a +4.88-point literature-sized effect has 0.108 power; the calibrated current-structure projection reaches 80% at about 2,048 total tasks. |
+| 5 | R5 | — | Complete; merged and shipped in the claims-and-cost train (`v0.25.0`). |
+| 6 | **Root-cause effort** | — | Next unblocked work. R4 establishes the required scale and validity defects; scope must address them rather than add another retrieval mechanism. |
 
 R6.1 is cancelled — two provider attempts returned `503 Overloaded` without usable receipts and a third reported zero prewarm cache-write usage. It is retained in §6 as a protocol record, not a remaining critical-path milestone.
 
