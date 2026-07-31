@@ -1,6 +1,6 @@
 # Execution Prompts — archex Strategic Reassessment Program
 
-This file preserves execution prompts and disposition records for the strategic-reassessment milestones. R1–R5 are complete; R6/R6.1 and R7–R16 are cancelled. A future authorized root-cause effort must follow the current §8 Critical Path.
+This file preserves execution prompts and disposition records for the strategic-reassessment milestones. R1–R5 are complete; R6/R6.1 and R7–R16 are cancelled. R17 is the only pending root-cause diagnostic in the current §8 Critical Path; its docs-only reconciliation must merge before any implementation work.
 
 Milestone IDs are `R`-prefixed. **Never reuse `M1`–`M17`** — that numbering is bound to the prior plan by tracked references in `CHANGELOG.md` and `benchmarks/results/m*/DECISION.md`.
 
@@ -348,4 +348,51 @@ R15 depended on R10's cancelled evaluation instrument. It must not be revived wi
 No execution prompt. Gate A failed before Gates B and C could apply.
 
 R16 depended on the cancelled R7–R15 program. It must not be revived without a new authorized program and fresh pre-registration.
+```
+
+---
+
+### R17 — Instrument viability diagnostic
+
+```text
+/goal Deliver milestone R17 (Instrument viability diagnostic) from DEVELOPMENT_PLAN.md as a reviewed stack of PRs.
+
+CONTEXT: DEVELOPMENT_PLAN.md §6 Section G R17; GATE-A.md §§1–3 and §6; .docs/strategic-reassessment/00-DIAGNOSIS.md §§1.2–1.4 and §2; completed R3/R4 evidence. Preconditions: R3 and R4 merged. Repo: Python 3.11+, uv, pytest, ruff, pyright strict, GitHub Actions CI. Relevant surfaces: src/archex/benchmark/replication.py, external_corpus.py, evidence.py; benchmarks/evidence/s0-*-replication.json, benchmarks/evidence/s2-corpus-validity.json; benchmarks/tasks/.
+OBJECTIVE: Make one fail-closed engineering decision: can the research instrument be rehabilitated without rerunning an adaptation-class retrieval lane, or must archex remain a maintained local-first utility? Success contract: a frozen input manifest; a reproducible root-cause matrix covering provenance, identity pinning, runtime split isolation, identifier leakage, metric headroom, and reproduction fidelity; a validator-backed evidence artifact; and exactly one `rehabilitate` or `maintain-local-utility` decision. A rehabilitation decision authorizes only a separately planned and pre-registered external-evaluation milestone.
+RELEASE TRAIN: target=unversioned; included milestones=R17; preparation trigger=n/a; required artifacts=none; release verification=n/a; publication=not requested.
+
+PRE-IMPLEMENTATION DESIGN GATE:
+1. Read this milestone, its source-map rows, current prompt, and `.docs/DEVELOPMENT_PLAN_HISTORY.md` when present.
+2. Inspect the current benchmark code plus merged R3/R4 predecessor diffs, their PR outcomes, CI/check evidence, and verification output.
+3. Revalidate the failure taxonomy, candidate-corpus prerequisites, artifact interface, acceptance, verification, release train, and the prohibition on reviving R7–R16.
+4. Append one ledger entry: timestamp, milestone, decision, trigger, evidence, plan/prompt sections changed, downstream impact, and implementation authorization.
+5. If no material mismatch exists, report `DESIGN GO — PLAN REVISION: none`; this authorizes implementation.
+6. If a mismatch exists, update both authoritative artifacts for R17 and every affected future milestone, append the revision ID, and report `DESIGN GO — PLAN REVISION: <entry IDs>`. This records a completed diagnosis but blocks product-code work until the reconciliation prerequisite merges.
+7. If candidate-corpus viability cannot be established, report `DESIGN NO-GO — REASON: <evidence>` and stop.
+
+RECONCILIATION RULE: A material revision opens `docs(plan): reconcile R17 instrument viability design` as a docs-only prerequisite PR. It contains no product code, must be reviewed, green, and externally merged before any code PR.
+
+PLANNED STACK:
+0. Conditional prerequisite `docs(plan): reconcile R17 instrument viability design` — scope: authoritative plan/prompt updates only; gate: reviewed, green, and merged before the implementation stack.
+1. PR-1 `test(benchmark): diagnose instrument viability predicates` — scope: frozen input-manifest format and deterministic provenance, identity, split-isolation, leakage, metric-headroom, and reproduction-fidelity probes with tests; verification: the diagnostic reruns to the same stable payload.
+2. PR-2 `feat(benchmark): validate instrument viability evidence` (on PR-1) — scope: evidence schema, fail-closed validator, CLI registration, and negative-contract tests; verification: malformed and non-terminal dispositions fail loudly.
+3. PR-3 `docs(benchmark): publish instrument viability decision` (on PR-2) — scope: checked-in R17 evidence and terminal decision; verification: `uv run archex benchmark validate --kind instrument-viability --input benchmarks/evidence/r17-instrument-viability.json` exits 0.
+
+CONSTRAINTS: no adapter implementation, corpus authoring, agent or hosted-model run, retrieval/ranking/default/product-claim change, or revival of R7–R16. A candidate missing an immutable public revision, licence, runtime-enforced disjoint split, non-ceiling metric, or reproducible reference setup is `unavailable`, never silently excluded. `rehabilitate` authorizes no evaluation run; it creates a separately planned, pre-registered continuation only.
+VERIFICATION (must pass): `uv run archex benchmark validate --kind instrument-viability --input benchmarks/evidence/r17-instrument-viability.json` exits 0; the recorded diagnostic command reruns to the same stable payload; `uv run pytest tests/benchmark -k "instrument_viability"` and the full local gate are green.
+REVIEW:
+Per PR:
+- Scope matches its purpose; each predicate is inspectable, reproducible, and fails closed.
+- Failures are loud; no missing or ambiguous external prerequisite becomes a pass.
+- History is atomic, conventional, attribution-free, and free of unrelated formatting churn.
+- PR-specific verification output is captured.
+Whole stack:
+- Bases form one valid stack; CI is green; no regression coverage is removed without replacement.
+- The final artifact contains exactly one terminal decision. `rehabilitate` has evidence for every mandatory predicate; otherwise the decision is `maintain-local-utility`.
+- Report PR URLs, bases, verification, risks, manual gates, and review completion.
+FINAL VERDICTS:
+- Report the design verdict before the merge verdict.
+- Then report exactly one merge verdict: `GO — RELEASE: unversioned — RELEASE PREP: not-required` or `NO-GO — RELEASE: unversioned — REASON: <blocking gate>`.
+- `GO` requires a current `DESIGN GO`, every PR correctly based/reviewed/green, local verification, and a fail-closed terminal decision. `NO-GO` applies to a missing candidate prerequisite, pending or failed checks, incomplete review, scope drift, or an ambiguous disposition.
+DONE: design verdict with evidence; when authorized, a reviewed stack with a release-aware merge verdict and evidence.
 ```

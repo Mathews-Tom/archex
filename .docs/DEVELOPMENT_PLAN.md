@@ -14,6 +14,7 @@ Milestones are prefixed `R` (reassessment). **Do not reuse `M1`–`M17`** — th
 | §6 Section D — The instrument | R7–R11 | `05-ROADMAP.md` §3; `03-SPIKES.md` S1; `02-STRATEGY.md` §C1; `04-PRODUCT-AND-ECONOMICS.md` §2 |
 | §6 Section E — Payload | R12–R15 | `05-ROADMAP.md` §4; `03-SPIKES.md` S3–S6; `01-LITERATURE-POSITION.md` §G2–G5 |
 | §6 Section F — Publication & disposition | R16 | `05-ROADMAP.md` §4 Gate C; `02-STRATEGY.md` §C1 elements 1–7 |
+| §6 Section G — Root-cause engineering | R17 | `GATE-A.md` §§1–3, §6; `00-DIAGNOSIS.md` §§1.2–1.4, §2; R3 and R4 evidence artifacts |
 | §4 Release trains | all | `04-PRODUCT-AND-ECONOMICS.md` §3, §5; repo `CHANGELOG.md` `[Unreleased]`; `pyproject.toml` |
 | §7 Cross-cutting | all | `03-SPIKES.md` preamble; `skill://null-result-benchmark-study-design` |
 
@@ -56,6 +57,7 @@ graph TD
   R14[R14 S4 certified context receipt]
   R15[R15 S5 co-change and ownership ranking fusion]
   R16[R16 Public artifact release and disposition]
+  R17[R17 Instrument viability diagnostic]
 
   R1 --> R2
   R1 --> R3
@@ -78,6 +80,8 @@ graph TD
   R13 --> R16
   R14 --> R16
   R15 --> R16
+  R3 --> R17
+  R4 --> R17
 ```
 
 Gate A sat on R3's verdict and blocked R7. **It failed on 2026-07-28** (`GATE-A.md`), so R7–R16 are cancelled and Gates B and C never come into play. The graph above is the plan as designed; §8 records what remains.
@@ -88,7 +92,7 @@ Gate A sat on R3's verdict and blocked R7. **It failed on 2026-07-28** (`GATE-A.
 | --- | --- | --- | --- | --- | --- |
 | `> GAP: version not source-traceable — operator selects at preparation time` (train **claims-and-cost**) | `R2, R5` | Both externally merged. Carries the pre-existing `[Unreleased]` prior-M6–M9 entries. | both (version update in `pyproject.toml` + `CHANGELOG.md`) | `uv run ruff check . && uv run ruff format --check . && uv run pyright . && uv run pytest` all green on the release commit; `uv run archex mcp-schema-size --format json` reports the reduced total | `git tag` → `uv build` → `uv publish` → `gh release create`. Manual; no release CI workflow exists. |
 | `> GAP: version not source-traceable — operator selects at preparation time` (train **certified-receipt**) | `R14` | R14 externally merged **and** its promotion verdict is GO. | both | full gate above, plus R14's certificate correlation artifact checked in | same manual sequence |
-| `unversioned` | `R1, R3, R4, R7, R8, R9, R10, R12, R13, R15` | n/a — merged to `main`, no release preparation. | none | per-milestone verification in §6 | not requested |
+| `unversioned` | `R1, R3, R4, R7, R8, R9, R10, R12, R13, R15, R17` | n/a — unversioned milestones merge to `main`; no release preparation. | none | per-milestone verification in §6 | not requested |
 | `none` | `R11, R16` | n/a — artifacts land in a separate public repository, not in the `archex` distribution. | none | per-milestone verification in §6 | separate-repo release, out of scope for `archex` versioning |
 | `none` (cancelled) | `R6, R6.1` | n/a — each study was closed before a valid economics result. | none | validity record in §6 | not requested |
 
@@ -384,6 +388,25 @@ R5 shipped regardless of Gate A. R6 is cancelled because its session fixture nev
 | Risks & rollback | Risk: publishing traces breaches a corpus licence. Mitigation: the licence check is a blocking acceptance item, verified before the repository is made public. Rollback: the repository can be made private again; assume anything published is permanent and check first. |
 | Est. PRs | 4 |
 
+### Section G — Root-cause engineering
+
+R17 is the pending diagnostic decision after Gate A failed. It does not revive R7–R16, add a retrieval mechanism, or make a research claim. Its result determines whether a separately planned external-evaluation program is viable or archex remains a maintained local-first utility.
+
+#### R17 — Instrument viability diagnostic
+
+| Field | Value |
+| --- | --- |
+| Objective | Make one fail-closed engineering decision: whether archex's research instrument can be rehabilitated without rerunning an adaptation-class retrieval lane, or whether its appropriate scope is a maintained local-first utility. |
+| In / Out of scope | In: a deterministic root-cause matrix over R3/R4 evidence and the current benchmark surface; provenance, identity pinning, runtime split isolation, label leakage, metric headroom, and reproduction-fidelity checks; a probe of publicly accessible external-corpus candidates sufficient to determine rehabilitation viability. Out: implementing an adapter; authoring a corpus; running an agent or hosted model; changing retrieval, ranking, defaults, or product claims; reviving R7–R16. |
+| Depends on | `R3, R4` |
+| Target release | `unversioned` |
+| Deliverables | A frozen input manifest naming every inspected R3/R4 artifact, benchmark task manifest, code path, and external-corpus candidate; a machine-readable `benchmarks/evidence/r17-instrument-viability.json` with one evidence-backed disposition per predicate (`pass`, `fail`, or `unavailable`); a validator that rejects absent evidence, non-terminal predicates, or a `rehabilitate` verdict with any predicate other than `pass`; and `benchmarks/instrument_viability/DECISION.md` recording exactly one terminal decision: `rehabilitate` or `maintain-local-utility`. |
+| Acceptance | Every predicate is reproducible from a recorded local command or immutable external revision. `rehabilitate` requires an independently authored, publicly accessible candidate corpus; revision-pinned provenance; a runtime-enforced disjoint evaluation split; no disqualifying identifier leakage; a non-ceiling outcome metric; and a reproducible reference setup. A missing, inaccessible, or ambiguous prerequisite is `unavailable` and forces `maintain-local-utility`; silence never becomes a pass. A `rehabilitate` decision authorizes only a separately planned and pre-registered external-evaluation milestone. |
+| Verification | `uv run archex benchmark validate --kind instrument-viability --input benchmarks/evidence/r17-instrument-viability.json` exits 0; the recorded diagnostic command reruns to the same stable payload; `uv run pytest tests/benchmark -k "instrument_viability"` and the full local gate are green. |
+| Design reevaluation | Reconfirm candidate-corpus licensing, immutable revision availability, and public access before implementation. If no candidate can satisfy the mandatory predicates, record `DESIGN NO-GO` without code. Dependents: none; a later external-evaluation milestone exists only after a merged `rehabilitate` decision and fresh pre-registration. |
+| Risks & rollback | Risk: the diagnostic selects a convenient candidate or lets an unavailable condition drift into an implicit pass. Mitigation: all predicates are fail-closed and validator-enforced. Rollback: revert; R17 is measurement and decision infrastructure only. |
+| Est. PRs | 3 |
+
 ## 7. Cross-Cutting Concerns
 
 **Statistical discipline (applies to R4, R9, R10, R12–R15).** MWG, NIM, and EQM are three distinct quantities and are never conflated; EQM is strictly positive and utility-derived, never derived from observed SD. archex's existing `+0.05 F1 / no-regression / p95 ≤ 3000 ms` product rule is a non-inferiority margin and must not be reused as an equivalence margin. Primary intervals come from a cluster bootstrap resampling repositories. Every completed cell resolves to `superior`, `equivalent`, or `inconclusive at this N`.
@@ -415,7 +438,7 @@ R5 shipped regardless of Gate A. R6 is cancelled because its session fixture nev
 | 3 | R2 | — | Complete |
 | 4 | R4 | — | Complete. At 64 tasks over 16 repository clusters, a +4.88-point literature-sized effect has 0.108 power; the calibrated current-structure projection reaches 80% at about 2,048 total tasks. |
 | 5 | R5 | — | Complete; merged and shipped in the claims-and-cost train (`v0.25.0`). |
-| 6 | **Root-cause effort** | — | Next unblocked work. R4 establishes the required scale and validity defects; scope must address them rather than add another retrieval mechanism. |
+| 6 | **R17 — Instrument viability diagnostic** | fail-closed viability decision | Next planned work after its docs-only reconciliation merges. It must address R4's scale and validity defects without adding a retrieval mechanism; a `rehabilitate` result authorizes only a separately planned external-evaluation milestone. |
 
 R6.1 is cancelled — two provider attempts returned `503 Overloaded` without usable receipts and a third reported zero prewarm cache-write usage. It is retained in §6 as a protocol record, not a remaining critical-path milestone.
 
@@ -426,7 +449,8 @@ graph LR
   R1 --> R4
   R1 --> R5
   R3 -->|Gate A FAIL| R4
-  R4 --> RC[Root-cause effort]
+  R3 --> R17
+  R4 --> R17[R17 Instrument viability diagnostic]
   R2 --> T[claims-and-cost train]
   R5 --> T
 ```
