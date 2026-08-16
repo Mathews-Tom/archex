@@ -1,10 +1,9 @@
 # Explorer orientation usability evidence
 
-M5 (`.docs/DEVELOPMENT_PLAN.md` §4) requires "usability evidence measures time to first correct
-file/symbol rather than self-reported satisfaction" for the local explorer's new-contributor
-orientation use case (`.docs/2026-07-10-codeflow-archex-enhancement-analysis.md`, "Adoption
-wedge": *New contributor -- Where do I start? -- Bounded repository projection -- Time to first
-correct file/symbol*).
+M5 required "usability evidence measures time to first correct file/symbol rather than
+self-reported satisfaction" for the local explorer's new-contributor orientation use case:
+*New contributor — Where do I start? — Bounded repository projection — Time to first correct
+file/symbol*.
 
 ## What this evidence is, and is not
 

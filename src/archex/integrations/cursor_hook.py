@@ -44,15 +44,14 @@ no-injection, non-blocking no-op from Cursor's point of view, logged instead
 to the same local diagnostics log (`ARCHEX_HOOK_DIAGNOSTICS_LOG`, default
 `~/.archex/hook-diagnostics.log`).
 
-This module is a thin per-client shim, per the Section G architecture note
-in `.docs/DEVELOPMENT_PLAN.md` §2: unlike the Claude Code/omp/Pi/OpenCode
+This module is a thin per-client shim. Unlike the Claude Code/omp/Pi/OpenCode
 hooks, which translate a *tool-call* payload into a Grep/Glob query, this
 translates a *prompt-submission* payload (free natural-language text, not a
-search pattern) into a query by extracting the single longest
-identifier-like token from the prompt (see `_extract_query`), then calls
-straight into `archex.integrations.hook`'s lookup/timeout/freshness engine
-(`lookup_with_timeout`, `log_diagnostic`, `IDENTIFIER_TOKEN_RE`)
-in-process — no lookup, ranking, or timeout logic is reimplemented here.
+search pattern) into a query by extracting the single longest identifier-like
+token from the prompt (see `_extract_query`), then calls straight into
+`archex.integrations.hook`'s lookup/timeout/freshness engine
+(`lookup_with_timeout`, `log_diagnostic`, `IDENTIFIER_TOKEN_RE`) in-process —
+no lookup, ranking, or timeout logic is reimplemented here.
 
 Invoked as a subprocess: `python -m archex.integrations.cursor_hook`,
 reading Cursor's `beforeSubmitPrompt` JSON payload (`{"prompt": str,

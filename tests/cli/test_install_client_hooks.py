@@ -1347,9 +1347,8 @@ def test_cli_hooks_opencode_installed_file_never_targets_read_or_mcp_tool_ids(
 
 
 def test_opencode_ts_hook_module_subagent_dispatch_reachability(tmp_path: Path) -> None:
-    """M22 subagent-dispatch finding (`.docs/DEVELOPMENT_PLAN.md` §4 M22
-    acceptance criterion): confirmed **reachable**, via two independent
-    checks performed during development (recorded in
+    """M22 subagent-dispatch finding: confirmed **reachable**, via two
+    independent checks performed during development (recorded in
     `docs/CLIENT_COMPATIBILITY_MATRIX.md`), not assumed either way:
 
     1. Source-level: `opencode-ai@1.14.33`'s

@@ -11,7 +11,7 @@ about archex's own retrieval.
 | Harness | Paper | Status |
 | --- | --- | --- |
 | `rlcoder/` | RLCoder, arXiv:2407.19487 (ICSE 2025) | primary S0 arm |
-| _(none)_ | cAST, arXiv:2506.15655 (Findings of EMNLP 2025) | no harness: the released artifact is the chunker only, see `.docs/spikes/S0-replication-gate.md` |
+| _(none)_ | cAST, arXiv:2506.15655 (Findings of EMNLP 2025) | no harness: the released `yilinjz/astchunk@82029ada` tree contains the chunker only, not its evaluation setup |
 
 Upstream code is never vendored. What is checked in is the pin, the patch, and
 the commands. Every fetch is by explicit revision -- the git harness by commit,

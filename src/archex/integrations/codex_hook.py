@@ -39,8 +39,7 @@ all degrade to a silent no-op from Codex's point of view, logged instead to
 the same local diagnostics log `archex.integrations.hook` already uses
 (`ARCHEX_HOOK_DIAGNOSTICS_LOG`, default `~/.archex/hook-diagnostics.log`).
 
-This module is a thin per-client shim, per the Section G architecture note
-in `.docs/DEVELOPMENT_PLAN.md` §2: it translates Codex's `PreToolUse`
+This module is a thin per-client shim: it translates Codex's `PreToolUse`
 payload into a query and calls straight into `archex.integrations.hook`'s
 lookup/timeout/freshness engine (`lookup_with_timeout`, `log_diagnostic`,
 `IDENTIFIER_TOKEN_RE`) in-process — no lookup, ranking, or timeout logic is

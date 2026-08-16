@@ -2,7 +2,7 @@
 
 A pre-registration fixes a spike's hypothesis, primary metric, decision margins, clustering unit, and kill criterion **before** any data exists, and merges before its first run. Commit order is the proof: if the pre-registration commit is not an ancestor of the evidence commit, the result is not pre-registered.
 
-That proof only works for tracked files. This directory exists so it keeps working — `.docs/` is ignored by the global excludes file, so a pre-registration written there is silently untrackable and `git add` reports success while committing nothing.
+That proof only works for tracked files. This directory exists so it keeps working — `/.docs/` is ignored by both the global excludes file and this repository's `.gitignore`, so a pre-registration written there is silently untrackable and `git add` reports success while committing nothing.
 
 ## Where things live
 
@@ -10,9 +10,9 @@ That proof only works for tracked files. This directory exists so it keeps worki
 | --- | --- |
 | Template for new pre-registrations | `TEMPLATE.md`, here |
 | New pre-registrations | here, as `<spike-id>.md` |
-| S0 — external replication gate (Gate A) | `.docs/spikes/S0-replication-gate.md` |
+| S0 — external replication gate (Gate A) | Historical record identified by each S0 evidence artifact's `preregistration_commit` |
 
-S0 stays at its historical path deliberately. It is a closed record: `GATE-A.md`, both evidence artifacts, and `tests/benchmark/test_s0_replication_artifacts.py` all reference that path and the commit it merged in, and rewriting a completed study's provenance to tidy a directory would weaken the record it exists to protect. The file is already tracked, so appending to its post-hoc section still works.
+S0's pre-registration remains identified by the immutable `preregistration` path and `preregistration_commit` stored in both evidence artifacts. Those commit references, the artifacts, and `tests/benchmark/test_s0_replication_artifacts.py` preserve provenance without requiring a local working-copy document in a fresh clone.
 
 ## Rules
 

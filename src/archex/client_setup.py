@@ -936,9 +936,9 @@ _OPENCODE_HOOK_MODULE_TEMPLATE = r"""/**
  *   host agent past the budget.
  *
  * Two OpenCode-side reliability gaps this milestone's own tests assert
- * against rather than assume away (`.docs/DEVELOPMENT_PLAN.md` §2), both
- * confirmed by reading `opencode-ai` 1.14.33's own tool-resolution source
- * (the version installed during development), not secondary documentation:
+ * against rather than assume away, both confirmed by reading `opencode-ai`
+ * 1.14.33's own tool-resolution source (the version installed during
+ * development), not secondary documentation:
  * - MCP tool calls DO trigger `tool.execute.after`, but the hook receives
  *   the tool's raw MCP `CallToolResult` as `output` (a `{content, metadata}`
  *   shape), not the `{title, output, metadata}` shape this type declares --

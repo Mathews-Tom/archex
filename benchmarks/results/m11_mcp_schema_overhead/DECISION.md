@@ -1,7 +1,7 @@
 # M11 — MCP tool-schema context overhead: full-stack measurement and decision
 
 Milestone: reduce the fixed per-turn MCP tool-schema context cost
-(`.docs/DEVELOPMENT_PLAN.md` §4 M11) via a 3-PR stack: tool-scoping
+(`M11`) via a 3-PR stack: tool-scoping
 (PR-1), trimmed descriptions (PR-2), and a consolidated `graph_query`
 dispatch tool with a deprecation-window compatibility shim (PR-3).
 
