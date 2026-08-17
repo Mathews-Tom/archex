@@ -1,6 +1,6 @@
 # Client Compatibility Matrix
 
-Last updated: 2026-07-06
+Last updated: 2026-08-18
 
 This matrix separates config-shape verification from actual client smoke tests. `archex install-client <client>` writes the config by default (global/user scope; a SOURCE path or `--scope project` installs repo-local). Add `--dry-run` to preview the exact target and config without writing.
 
@@ -10,6 +10,7 @@ This matrix separates config-shape verification from actual client smoke tests. 
 | --- | --- | --- | --- | --- | --- | --- |
 | Claude Code MCP stdio | Config-path tested; client smoke unverified | `archex install-client claude-code` writes `~/.claude.json` (global); `archex install-client claude-code . --scope project` writes `.mcp.json` with `mcpServers.archex.command = "archex"` and `args = ["mcp"]`. `--dry-run` previews either. | Yes — `archex mcp --watch --watch-path .` | Inline query refresh by default; `--no-refresh` leaves freshness `unknown`; watch keeps a warm process subscribed to file events. | This stack did not run a live Claude Code UI smoke. Skill and MCP are separate rows. | 2026-06-16 |
 | Claude Code PreToolUse hook (opt-in) | Config-shape tested end-to-end (install, remove, non-destructive merge, matcher-only-Grep/Glob assertion); no live Claude Code UI smoke | `archex install-client claude-code --hooks` writes `~/.claude/settings.json` (global) or `.claude/settings.json` (project) — a different file from the MCP config above. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#claude-code-pretooluse-hook-opt-in) for the full contract. | N/A — one subprocess per matched tool call, not a warm process | Every injected block carries `index_revision=`/`generated_at=` receipt fields; a missing/stale index degrades to no injected context plus a diagnostics log line. | Opt-in, never installed by default; augments only (`additionalContext`, never `permissionDecision`); matcher is `Grep`/`Glob` only, `Read` is never intercepted; hard ~500ms lookup timeout; diagnostics at `~/.archex/hook-diagnostics.log`. | 2026-07-06 |
+| Claude Code SessionStart session primer (opt-in) | Config-shape tested end-to-end (install, remove, idempotent reinstall, preserves unrelated hook groups) and live hook-process proof for both `startup` and `resume`; no live Claude Code UI smoke | `archex install-client claude-code --session-primer` writes `~/.claude/settings.json` (global) or `.claude/settings.json` (project), adding only an owned `SessionStart` handler. `--dry-run` previews; `--remove-session-primer` uninstalls. See [below](#claude-code-sessionstart-session-primer-opt-in). | N/A — one bounded subprocess per session start/resume | Injects only a fresh-index, explicit, receipt-bearing session primer; stale/missing state, malformed payloads, errors, and timeout emit no context and exit 0. | Opt-in. It does not capture records, index, inject opaque transcript state, or run for any SessionStart source other than `startup` and `resume`. | 2026-08-18 |
 | Claude Code skill command | Existing skill path tested in-repo; client smoke unverified | Use `skills/archex/` and the `/archex` command flow. No config file is written by `install-client`; this is command-only onboarding. | Indirect — skill can target a warm MCP server. | Same as MCP/query/scout paths underneath. | Skill setup remains repo-local documentation, not a writable client config target. | 2026-06-16 |
 | CLI-only query/scout | Tested | No client config required. Run `archex doctor`, `archex scout`, `archex query`. | N/A | Query checks freshness inline unless `--no-refresh`; scout inherits query freshness in its receipt. | Not an MCP client. | 2026-06-16 |
 | Generic MCP stdio client | Unverified | Use a JSON config shaped like `{ "mcpServers": { "archex": { "command": "archex", "args": ["mcp"] }}}`. `archex install-client claude-code --dry-run` prints a compatible snippet. | Client-dependent | Same server-side freshness semantics as Claude Code / Cursor. | No live generic-client smoke in this stack. | 2026-06-16 |
@@ -173,6 +174,30 @@ echo '{"tool_name":"Grep","tool_input":{"pattern":"compute_delta"}}' \
 A repo with a fresh index returns JSON on stdout shaped `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "..."}}`. A repo with no index, a stale index, or a `cwd` outside a Git working tree exits 0 with empty stdout and a diagnostics log line instead.
 
 Section G of the development plan (M20–M23) extends this same `python -m archex.integrations.hook` subprocess contract to other clients with per-client installer shims. M20 (oh-my-pi and Pi), M21 (Codex CLI, diagnostics-only), M22 (OpenCode), and M23 (Cursor, diagnostics-only, prompt-level) are all implemented.
+
+## Claude Code SessionStart session primer (opt-in)
+
+`archex install-client claude-code --session-primer` installs a separate Claude Code `SessionStart` hook (`src/archex/integrations/session_hook.py`, invoked as `python -m archex.integrations.session_hook`). It delivers the bounded primer rendered from the explicit project-session ledger only when an existing index is fresh. It is opt-in: plain MCP installation and `--hooks` search-hook installation never add it.
+
+```bash
+archex install-client claude-code --session-primer                   # global: ~/.claude/settings.json
+archex install-client claude-code . --session-primer --scope project # repo-local: .claude/settings.json
+archex install-client claude-code --session-primer --dry-run          # preview only, writes nothing
+archex install-client claude-code --remove-session-primer             # clean uninstall
+```
+
+The installer owns only its `SessionStart` handler, with matcher `resume|startup` and `args = ["-m", "archex.integrations.session_hook"]`. It preserves every other `SessionStart` handler, all search-hook groups, other hook events, and unrelated settings. Re-installation converges on one canonical handler; removal removes only that owned handler.
+
+The hook accepts `cwd` and only `source: "startup"` or `"resume"` from Claude Code's SessionStart payload. It renders through `render_session_primer`, whose receipt checks index freshness and record revisions before the hook emits `{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "..."}}`. A missing/stale index, empty eligible primer, malformed payload, render failure, or elapsed `ARCHEX_HOOK_TIMEOUT_SECONDS` budget emits no stdout context, writes a local diagnostic where relevant, and exits 0. It never captures a record, reindexes, reads conversation transcripts, or blocks session start.
+
+Manual process-level check after recording a session item and indexing the repo:
+
+```bash
+printf '%s' '{"source":"startup","cwd":"'"$PWD"'"}' \
+  | python -m archex.integrations.session_hook
+```
+
+`tests/integrations/test_hooks.py::test_session_start_hook_injects_only_fresh_explicit_context` exercises both supported sources through the actual module process and proves a modified repository emits no primer. This is hook-process evidence, not a claim of a live Claude Code UI smoke.
 
 ## oh-my-pi (omp) / Pi `tool_result` hook (opt-in)
 
