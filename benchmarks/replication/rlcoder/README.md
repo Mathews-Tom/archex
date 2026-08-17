@@ -5,7 +5,8 @@ reference setup**. This is not archex code exercising archex retrieval; it is th
 authors' harness, at a pinned commit, on their dataset, with their weights and
 their metric.
 
-Pre-registration: [`.docs/spikes/S0-replication-gate.md`](../../../.docs/spikes/S0-replication-gate.md).
+Pre-registration: the historical S0 record identified by the `preregistration_commit`
+`557c5683e5a2622e0a96370a379365c8498d1dc4` in the checked-in evidence artifact.
 It fixes the target cell, the equivalence band, the clustering unit, and the
 decision rule, and it merged before this harness ran.
 
@@ -59,10 +60,9 @@ and no metric. Per-task exact match is recomputed from the harness's own
 `prediction.jsonl` and `prediction_truncated.jsonl` using the harness's own
 scoring functions, imported unmodified. It is deliberately **not** read from
 `exact_match_idx.jsonl`: the released scorer runs through an `mp.Pool` whose
-workers lose the module-global tree-sitter parser under a spawn start method,
-and the resulting exception is swallowed by a bare `except`, which drives the
-strict exact match to near zero. See the 2026-07-27 finding in the
-pre-registration.
+workers lose the module-global tree-sitter parser under a spawn start method, and
+the resulting exception is swallowed by a bare `except`, which drives the strict
+exact match to near zero. The recorded S0 evidence artifact preserves this finding.
 
 One platform caveat: the repository ships prebuilt **x86-64 ELF** tree-sitter
 parsers, which cannot load elsewhere. `prepare.py` rebuilds
@@ -90,7 +90,7 @@ actually ran against into the evidence artifact's `pins.environment`. Decoding i
 greedy either way, so the comparison between the two arms is unaffected by that
 drift even where absolute values could shift.
 
-For the measured wall clock of the recorded run, see `GATE-A.md`.
+The measured wall clock was about 11 hours per arm, or 22 hours for the pair.
 
 ## Reading the result
 

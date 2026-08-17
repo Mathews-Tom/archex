@@ -1,9 +1,9 @@
 # R5 — MCP retrieval-gated tool disclosure: measurement and decision
 
 Milestone: cut the fixed per-turn MCP tool-schema context cost
-(`.docs/DEVELOPMENT_PLAN.md` §6 R5) via a 3-PR stack — retrieval-gated
-disclosure plus token reporting (PR-1), a client compatibility path and
-matrix update (PR-2), and this decision record (PR-3).
+(`R5`) via a 3-PR stack — retrieval-gated disclosure plus token reporting
+(PR-1), a client compatibility path and matrix update (PR-2), and this
+decision record (PR-3).
 
 Builds directly on M11 (`../m11_mcp_schema_overhead/DECISION.md`), whose
 tool-scoping mechanism and consolidated `graph_query` tool are used as-is

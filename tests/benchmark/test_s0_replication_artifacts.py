@@ -61,11 +61,15 @@ def test_the_rlcoder_band_is_the_pre_registered_one() -> None:
     assert (band.low, band.high) == BAND
 
 
-def test_gate_a_records_a_fail() -> None:
-    """R7 through R16 are cancelled on this line."""
-    verdict = (REPO_ROOT / "GATE-A.md").read_text(encoding="utf-8")
-    assert "GATE A FAIL" in verdict
-    assert "GATE A PASS" not in verdict
+def test_gate_a_fail_remains_outside_the_pre_registered_band() -> None:
+    """The primary replication arm must stay outside its fixed equivalence band."""
+    artifact = validate_replication_artifact(EVIDENCE_DIR / "s0-rlcoder-replication.json")
+    arm = artifact.arms[0]
+    assert arm.verdict is ReplicationVerdict.FAIL
+    band = arm.equivalence_band
+    assert band is not None
+    assert arm.reproduced_delta is not None
+    assert arm.reproduced_delta < band.low
 
 
 def test_the_analyzer_uses_the_pre_registered_constants() -> None:
