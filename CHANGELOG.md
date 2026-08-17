@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.26.0] - 2026-08-18
+
+### Added
+
+- **R6.1 (benchmark-only): provider-metered determinism-economics evidence runner.** `archex benchmark freeze-determinism-economics` freezes the pre-registered session fixture, `archex benchmark determinism-economics` makes the explicitly invoked provider measurements, and `archex benchmark validate --kind determinism-economics-r6-1 --input <artifact>` validates the resulting artifact. This opt-in protocol does not change retrieval, ranking, context selection, or any product default, and it authorizes no README performance claim.
+
+### Fixed
+
+- **R6.1 measurement receipt and pacing integrity.** Live provider receipts now accept the reported completion-cost field and preserve error diagnostics; measurement and preflight calls are spaced to respect the registered cache lifecycle. These corrections apply only to the benchmark protocol.
+
 ## [0.25.0] - 2026-07-28
 
 ### Added
