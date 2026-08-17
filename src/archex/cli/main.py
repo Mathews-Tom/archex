@@ -28,6 +28,7 @@ from archex.cli.query_cmd import query_cmd
 from archex.cli.report_cmd import report_cmd
 from archex.cli.reset_cmd import reset_cmd
 from archex.cli.scout_cmd import scout_cmd
+from archex.cli.session_cmd import session_cmd
 from archex.cli.setup_cmd import setup_cmd
 from archex.cli.status_cmd import status_cmd
 from archex.cli.symbol_cmd import symbol_cmd
@@ -68,6 +69,7 @@ cli.add_command(explain_cmd)
 cli.add_command(impact_cmd)
 cli.add_command(onboard_cmd)
 cli.add_command(report_cmd)
+cli.add_command(session_cmd)
 cli.add_command(explore_cmd)
 
 

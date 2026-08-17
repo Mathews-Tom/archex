@@ -56,6 +56,11 @@ class ProjectState:
         return self.project_dir / "index.db"
 
     @property
+    def session_ledger_path(self) -> Path:
+        """Repo-local durable project-session ledger path."""
+        return self.project_dir / "session.db"
+
+    @property
     def vector_dir(self) -> Path:
         return self.project_dir / "vectors"
 

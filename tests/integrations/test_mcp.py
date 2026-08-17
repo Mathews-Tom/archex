@@ -922,7 +922,7 @@ class TestBuildServer:
         server_result = await handler(req)
         result = server_result.root
         assert isinstance(result, mcp_types.ListToolsResult)
-        assert len(result.tools) == 19
+        assert len(result.tools) == 20
         tool_names = {t.name for t in result.tools}
         assert "scout_repo" in tool_names
         assert "get_file_tree" in tool_names
@@ -935,6 +935,16 @@ class TestBuildServer:
         assert "explain_target" in tool_names
         assert "generate_onboarding" in tool_names
         assert "context" in tool_names
+        assert "session" in tool_names
+        session_tool = next(tool for tool in result.tools if tool.name == "session")
+        assert session_tool.inputSchema["required"] == ["repo_url", "action"]
+        assert session_tool.inputSchema["properties"]["action"]["enum"] == [
+            "record",
+            "list",
+            "invalidate",
+            "delete",
+            "prime",
+        ]
 
     @pytest.mark.asyncio
     async def test_call_tool_query_repo_passes_explicit_runtime_to_handler(self) -> None:
