@@ -42,7 +42,7 @@ import click
     help=(
         "Advertise only the retrieval entry points until the client retrieves, "
         "then advertise everything and send notifications/tools/list_changed. "
-        "Cuts the fixed per-turn schema cost from 3859 to 765 tokens. Pass "
+        "Cuts the fixed per-turn schema cost from 4192 to 765 tokens. Pass "
         "--no-disclosure for the pre-R5 behavior, which every client can use. "
         "Note --tools does not disable the gate: it bounds what is advertised "
         "once the gate opens, so --tools all still starts minimal. Tools remain "
@@ -62,13 +62,13 @@ def mcp_cmd(
     the remaining tools once the client retrieves; pass --no-disclosure to
     advertise all of them from the start.
 
-    Exposes 19 MCP tools (analyze_repo, scout_repo, query_repo, context,
-    compare_repos, get_file_tree, get_file_outline, search_symbols,
+    Exposes 20 MCP tools (analyze_repo, scout_repo, query_repo, context,
+    session, compare_repos, get_file_tree, get_file_outline, search_symbols,
     get_symbol, get_symbols_batch, get_impact, explain_target,
     generate_onboarding, the graph_* lookup/neighbors/path/stats/hubs
-    tools, and the consolidated graph_query dispatch tool) unless
-    narrowed with --tools. Connect an MCP-compatible client (e.g. Claude
-    Code) to stdin/stdout.
+    tools, and the consolidated graph_query dispatch tool) unless narrowed
+    with --tools. Connect an MCP-compatible client (e.g. Claude Code) to
+    stdin/stdout.
     """
     try:
         from archex.integrations.mcp import resolve_tool_scope, run_stdio_server

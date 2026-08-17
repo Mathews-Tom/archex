@@ -78,9 +78,9 @@ Registering an MCP server is necessary but not sufficient for an agent to actual
 
 ### Retrieval-gated disclosure (R5)
 
-`archex mcp` advertises only the two retrieval entry points — `context` and `query_repo` — until the client calls one of them, then advertises everything and sends `notifications/tools/list_changed`. That cuts the fixed per-turn schema cost from **3 859 tokens to 765**, an 80.2% reduction, measurable with a bare `archex mcp-schema-size`, which reports the gated cost a fresh session is actually charged alongside the expanded cost the same session pays after it retrieves. `--no-disclosure` reports the ungated surface.
+`archex mcp` advertises only the two retrieval entry points — `context` and `query_repo` — until the client calls one of them, then advertises everything and sends `notifications/tools/list_changed`. That cuts the fixed per-turn schema cost from **4 192 tokens to 765**, an 81.8% reduction, measurable with a bare `archex mcp-schema-size`, which reports the gated cost a fresh session is actually charged alongside the expanded cost the same session pays after it retrieves. `--no-disclosure` reports the ungated surface.
 
-**What makes this safe is the notification, not the dispatch.** MCP tools are model-controlled: a model only calls what it was shown. So for the ordinary path, the thing that puts the other 17 tools back in front of the model is `tools/list_changed` — which archex is entitled to have honoured because the gated server declares the `listChanged` capability at initialization.
+**What makes this safe is the notification, not the dispatch.** MCP tools are model-controlled: a model only calls what it was shown. So for the ordinary path, the thing that puts the other 18 tools back in front of the model is `tools/list_changed` — which archex is entitled to have honoured because the gated server declares the `listChanged` capability at initialization.
 
 Dispatch-by-name surviving a closed gate is a *fallback*, not the mechanism: `call_tool` dispatches by name whatever `list_tools()` returned, which rescues **hardcoded** callers — a script, or an agent file that names tools directly, as archex's own guidance block does. It does not help a model that was never shown the tool.
 
@@ -88,7 +88,7 @@ Dispatch-by-name surviving a closed gate is a *fallback*, not the mechanism: `ca
 | --- | --- |
 | Honours `notifications/tools/list_changed` | Nothing. The default is correct and cheapest. |
 | Ignores the notification, calls tools by hardcoded name | Nothing. Those calls still dispatch. |
-| Ignores the notification and builds its tool list only from `list_tools()` | `--no-disclosure`. Its model would otherwise never see the other 17 tools. |
+| Ignores the notification and builds its tool list only from `list_tools()` | `--no-disclosure`. Its model would otherwise never see the other 18 tools. |
 | Needs every tool visible in `list_tools()` before it will call anything | `archex install-client <client> --no-disclosure`, `archex setup --no-disclosure`, or `archex mcp --no-disclosure` by hand. Pays the full per-turn cost, sees everything immediately. |
 
 One behavioural consequence worth knowing: the MCP client SDK validates a call's arguments against the schema it has cached from `list_tools()`, so through a closed gate a call to a not-yet-advertised tool is **not** validated client-side and reaches the server instead of failing fast. The window is one round trip for a client that honours the notification, and the whole session for one that does not — another reason for the third row above.

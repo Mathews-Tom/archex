@@ -2423,7 +2423,7 @@ _GRAPH_TOOL_NAMES: frozenset[str] = frozenset(
 #: client is charged for the two tools it needs to *start*, and for the rest only
 #: once it has demonstrated it is actually retrieving. Sized against R5's
 #: 1000-token acceptance bar -- `context` is 534 tokens and `query_repo` 231, for
-#: 765 with headroom, against 3859 for the full surface.
+#: 765 with headroom, against 4192 for the full surface.
 #:
 #: Narrowing what is advertised never narrows what is *callable*: `build_server`'s
 #: `call_tool` dispatches by name whatever `list_tools` returned, so a client
