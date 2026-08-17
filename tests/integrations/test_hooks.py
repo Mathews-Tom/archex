@@ -46,7 +46,9 @@ from archex.integrations.hook import (
     _parse_payload,  # pyright: ignore[reportPrivateUsage]
     handle_pre_tool_use,
 )
+from archex.integrations.session_hook import handle_session_start
 from archex.project import init_project
+from archex.session import SessionRecordKind, capture_session_record
 from archex.status import inspect_project_status
 
 # ---------------------------------------------------------------------------
@@ -96,6 +98,51 @@ def _run_hook_subprocess(
         env=env,
         timeout=30,
     )
+
+
+def _run_session_hook_subprocess(
+    payload: dict[str, Any], *, cwd: Path, diagnostics_log: Path
+) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["ARCHEX_HOOK_DIAGNOSTICS_LOG"] = str(diagnostics_log)
+    return subprocess.run(
+        [sys.executable, "-m", "archex.integrations.session_hook"],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        cwd=str(cwd),
+        env=env,
+        timeout=30,
+    )
+
+
+def test_session_start_hook_injects_only_fresh_explicit_context(
+    indexed_repo: Path, diagnostics_log: Path
+) -> None:
+    capture_session_record(
+        indexed_repo,
+        kind=SessionRecordKind.ACTIVE_TASK,
+        content="Repair the parser boundary.",
+        creator="test",
+    )
+
+    for source in ("startup", "resume"):
+        completed = _run_session_hook_subprocess(
+            {"source": source, "cwd": str(indexed_repo)},
+            cwd=indexed_repo,
+            diagnostics_log=diagnostics_log,
+        )
+        assert completed.returncode == 0, completed.stderr
+        output = json.loads(completed.stdout)
+        context = output["hookSpecificOutput"]["additionalContext"]
+        assert "Repair the parser boundary." in context
+        assert "Index revision:" in context
+
+    assert handle_session_start({"source": "clear", "cwd": str(indexed_repo)}) is None
+    assert handle_session_start({"source": [], "cwd": str(indexed_repo)}) is None
+
+    (indexed_repo / "main.py").write_text("changed = True\n", encoding="utf-8")
+    assert handle_session_start({"source": "resume", "cwd": str(indexed_repo)}) is None
 
 
 # ---------------------------------------------------------------------------

@@ -14,8 +14,11 @@ from archex.client_setup import (
     CursorHookInstallPlan,
     TsHookInstallPlan,
     build_hook_install_plan,
+    build_session_primer_install_plan,
     render_hook_install_preview,
+    render_session_primer_install_preview,
     write_hook_install_plan,
+    write_session_primer_install_plan,
 )
 from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.hook import HOOK_MATCHER
@@ -68,6 +71,22 @@ def _hook_group_has_archex_entry(group: object) -> bool:
         if any(isinstance(item, str) and "archex.integrations.hook" in item for item in items):
             return True
     return False
+
+
+def _session_start_group_has_archex_entry(group: object) -> bool:
+    if not isinstance(group, dict):
+        return False
+    handlers = cast("dict[str, object]", group).get("hooks")
+    if not isinstance(handlers, list):
+        return False
+    return any(
+        isinstance(handler, dict)
+        and any(
+            isinstance(item, str) and "archex.integrations.session_hook" in item
+            for item in cast("list[object]", cast("dict[str, object]", handler).get("args", []))
+        )
+        for handler in cast("list[object]", handlers)
+    )
 
 
 # --- build_hook_install_plan / write_hook_install_plan / render_hook_install_preview ---
@@ -1462,3 +1481,66 @@ def test_cli_hooks_cursor_installed_file_never_targets_before_read_file(
         "archex.integrations.cursor_hook" in entry["command"]
         for entry in payload["hooks"]["beforeSubmitPrompt"]
     )
+
+
+# --- Claude Code SessionStart session-primer wiring ---
+
+
+def test_session_primer_install_and_remove_preserve_other_claude_hooks(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / ".claude" / "settings.json"
+    seed = _seed_payload()
+    existing_session_start = {
+        "matcher": "startup",
+        "hooks": [{"type": "command", "command": "echo existing-session-start"}],
+    }
+    seed["hooks"]["SessionStart"] = [existing_session_start]
+    _write_json(target, seed)
+
+    install_plan = build_session_primer_install_plan(str(repo), action="install")
+    write_session_primer_install_plan(install_plan)
+    installed = json.loads(target.read_text(encoding="utf-8"))
+
+    assert installed["otherTopLevelKey"] == seed["otherTopLevelKey"]
+    assert installed["hooks"]["PreToolUse"] == seed["hooks"]["PreToolUse"]
+    session_start = installed["hooks"]["SessionStart"]
+    assert existing_session_start in session_start
+    primer_groups = [
+        group for group in session_start if _session_start_group_has_archex_entry(group)
+    ]
+    assert len(primer_groups) == 1
+    assert primer_groups[0]["matcher"] == "resume|startup"
+
+    after_first = target.read_text(encoding="utf-8")
+    write_session_primer_install_plan(
+        build_session_primer_install_plan(str(repo), action="install")
+    )
+    assert target.read_text(encoding="utf-8") == after_first
+
+    write_session_primer_install_plan(build_session_primer_install_plan(str(repo), action="remove"))
+    removed = json.loads(target.read_text(encoding="utf-8"))
+    assert removed["hooks"]["SessionStart"] == [existing_session_start]
+    assert removed["hooks"]["PreToolUse"] == seed["hooks"]["PreToolUse"]
+
+
+def test_session_primer_preview_and_cli_are_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    plan = build_session_primer_install_plan(action="install")
+
+    preview = render_session_primer_install_preview(plan)
+    assert "SessionStart" in preview
+    assert "Dry run." in preview
+    assert not plan.target_path.exists()
+
+    result = CliRunner().invoke(cli, ["install-client", "claude-code", "--session-primer"])
+    assert result.exit_code == 0, result.output
+    target = tmp_path / ".claude" / "settings.json"
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert _session_start_group_has_archex_entry(payload["hooks"]["SessionStart"][0])
+
+    incompatible = CliRunner().invoke(cli, ["install-client", "omp", "--session-primer"])
+    assert incompatible.exit_code != 0
+    assert "only supported for claude-code" in incompatible.output

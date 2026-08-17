@@ -12,6 +12,7 @@ from typing import Literal, cast
 from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.hook import HOOK_MATCHER
 from archex.integrations.mcp import resolve_tool_scope
+from archex.integrations.session_hook import SESSION_START_MATCHER
 
 ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
 ClientScope = Literal["project", "user"]
@@ -24,6 +25,11 @@ HookAction = Literal["install", "remove"]
 #: so install/remove can find and replace our own entry without disturbing any
 #: other hook the user has configured for the same matcher group.
 _HOOK_ARGS_MARKER = "archex.integrations.hook"
+
+#: Substring in a SessionStart handler's ``args`` that identifies it as
+#: archex-owned, so the session-primer installer can preserve existing search
+#: hooks and unrelated SessionStart handlers.
+_SESSION_PRIMER_ARGS_MARKER = "archex.integrations.session_hook"
 _OMP_SCHEMA = (
     "https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
     "packages/coding-agent/src/config/mcp-schema.json"
@@ -417,6 +423,17 @@ class CursorHookInstallPlan:
     hook_entry: dict[str, object]
 
 
+@dataclass(frozen=True)
+class ClaudeCodeSessionPrimerInstallPlan:
+    """Install or remove the opt-in Claude Code SessionStart primer hook."""
+
+    client: ClientName
+    scope: ClientScope
+    target_path: Path
+    action: HookAction
+    hook_entry: dict[str, object]
+
+
 #: Either hook install plan shape. ``install_client_cmd.py`` treats both
 #: uniformly; ``write_hook_install_plan``/``render_hook_install_preview``
 #: dispatch on the concrete type.
@@ -475,6 +492,24 @@ def build_hook_install_plan(
     )
 
 
+def build_session_primer_install_plan(
+    source: str | Path | None = None,
+    *,
+    scope: ClientScope | None = None,
+    action: HookAction,
+) -> ClaudeCodeSessionPrimerInstallPlan:
+    """Build a separate opt-in Claude Code SessionStart primer install plan."""
+    repo_root = Path(source if source is not None else ".").expanduser().resolve()
+    selected_scope = _resolve_hook_scope(source, scope)
+    return ClaudeCodeSessionPrimerInstallPlan(
+        client="claude-code",
+        scope=selected_scope,
+        target_path=_hook_settings_path(repo_root, selected_scope),
+        action=action,
+        hook_entry=_render_session_primer_hook_entry(),
+    )
+
+
 def write_hook_install_plan(plan: HookInstallPlan) -> Path:
     if isinstance(plan, TsHookInstallPlan):
         return _write_ts_hook_plan(plan)
@@ -485,6 +520,18 @@ def write_hook_install_plan(plan: HookInstallPlan) -> Path:
     target = plan.target_path
     existing = _read_json_object(target) if target.exists() else {}
     updated, changed = _apply_hook_action(existing, plan)
+    if not changed:
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+def write_session_primer_install_plan(plan: ClaudeCodeSessionPrimerInstallPlan) -> Path:
+    """Write a SessionStart primer plan without disturbing other settings."""
+    target = plan.target_path
+    existing = _read_json_object(target) if target.exists() else {}
+    updated, changed = _apply_session_primer_action(existing, plan)
     if not changed:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -542,6 +589,33 @@ def render_hook_install_preview(plan: HookInstallPlan) -> str:
         lines.append("Dry run. Re-run without --dry-run to write this config.")
     lines.append("")
     lines.append(json.dumps(updated, indent=2))
+    return "\n".join(lines) + "\n"
+
+
+def render_session_primer_install_preview(plan: ClaudeCodeSessionPrimerInstallPlan) -> str:
+    """Render a no-write preview for the SessionStart primer installer."""
+    existing = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
+    updated, changed = _apply_session_primer_action(existing, plan)
+    action_label = "Install" if plan.action == "install" else "Remove"
+    lines = [
+        f"Client: {plan.client}",
+        f"Scope: {plan.scope}",
+        f"Target: {plan.target_path}",
+        (
+            "Action: "
+            f"{action_label} SessionStart session-primer hook "
+            f"(matcher: {SESSION_START_MATCHER!r})"
+        ),
+    ]
+    if not changed:
+        lines.append(
+            "No change: session-primer hook already in the requested state (idempotent no-op)."
+            if plan.action == "install"
+            else "No change: no archex session-primer hook is installed."
+        )
+    else:
+        lines.append("Dry run. Re-run without --dry-run to write this config.")
+    lines.extend(["", json.dumps(updated, indent=2)])
     return "\n".join(lines) + "\n"
 
 
@@ -615,6 +689,14 @@ def _render_hook_entry() -> dict[str, object]:
         "type": "command",
         "command": sys.executable,
         "args": ["-m", _HOOK_ARGS_MARKER],
+    }
+
+
+def _render_session_primer_hook_entry() -> dict[str, object]:
+    return {
+        "type": "command",
+        "command": sys.executable,
+        "args": ["-m", _SESSION_PRIMER_ARGS_MARKER],
     }
 
 
@@ -1281,14 +1363,14 @@ def _render_cursor_hook_preview(plan: CursorHookInstallPlan) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _is_archex_hook_entry(entry: object) -> bool:
+def _is_archex_hook_entry(entry: object, marker: str = _HOOK_ARGS_MARKER) -> bool:
     if not isinstance(entry, dict):
         return False
     args = cast("dict[str, object]", entry).get("args")
     if not isinstance(args, list):
         return False
     items = cast("list[object]", args)
-    return any(isinstance(item, str) and _HOOK_ARGS_MARKER in item for item in items)
+    return any(isinstance(item, str) and marker in item for item in items)
 
 
 def _read_json_object(path: Path) -> dict[str, object]:
@@ -1345,7 +1427,46 @@ def _apply_hook_action(
     return updated, updated != payload
 
 
-def _strip_archex_hook_entries(groups: list[object]) -> list[object]:
+def _apply_session_primer_action(
+    payload: dict[str, object], plan: ClaudeCodeSessionPrimerInstallPlan
+) -> tuple[dict[str, object], bool]:
+    """Merge one owned SessionStart handler without touching other settings."""
+    updated = copy.deepcopy(payload)
+    hooks_root_obj = updated.get("hooks")
+    if hooks_root_obj is None:
+        hooks_root: dict[str, object] = {}
+        updated["hooks"] = hooks_root
+    elif isinstance(hooks_root_obj, dict):
+        hooks_root = cast("dict[str, object]", hooks_root_obj)
+    else:
+        raise ValueError("expected object at 'hooks' in existing settings")
+
+    session_start_obj = hooks_root.get("SessionStart")
+    if session_start_obj is None:
+        session_start: list[object] = []
+    elif isinstance(session_start_obj, list):
+        session_start = cast("list[object]", session_start_obj)
+    else:
+        raise ValueError("expected array at 'hooks.SessionStart' in existing settings")
+
+    stripped_groups = _strip_archex_hook_entries(session_start, marker=_SESSION_PRIMER_ARGS_MARKER)
+    merged_groups = (
+        _merge_hook_entry(stripped_groups, plan.hook_entry, matcher=SESSION_START_MATCHER)
+        if plan.action == "install"
+        else stripped_groups
+    )
+    if merged_groups:
+        hooks_root["SessionStart"] = merged_groups
+    else:
+        hooks_root.pop("SessionStart", None)
+    if not hooks_root:
+        updated.pop("hooks", None)
+    return updated, updated != payload
+
+
+def _strip_archex_hook_entries(
+    groups: list[object], *, marker: str = _HOOK_ARGS_MARKER
+) -> list[object]:
     stripped: list[object] = []
     for group in groups:
         if not isinstance(group, dict):
@@ -1357,24 +1478,26 @@ def _strip_archex_hook_entries(groups: list[object]) -> list[object]:
             stripped.append(group_dict)
             continue
         handlers = cast("list[object]", handlers_obj)
-        kept = [h for h in handlers if not _is_archex_hook_entry(h)]
+        kept = [h for h in handlers if not _is_archex_hook_entry(h, marker)]
         if not kept:
             continue  # the group only ever held our own entry
         stripped.append({**group_dict, "hooks": kept} if len(kept) != len(handlers) else group_dict)
     return stripped
 
 
-def _merge_hook_entry(groups: list[object], hook_entry: dict[str, object]) -> list[object]:
+def _merge_hook_entry(
+    groups: list[object], hook_entry: dict[str, object], *, matcher: str = HOOK_MATCHER
+) -> list[object]:
     for group in groups:
         if not isinstance(group, dict):
             continue
         group_dict = cast("dict[str, object]", group)
-        if group_dict.get("matcher") == HOOK_MATCHER:
+        if group_dict.get("matcher") == matcher:
             handlers_obj = group_dict.get("hooks")
             handlers = cast("list[object]", handlers_obj) if isinstance(handlers_obj, list) else []
             group_dict["hooks"] = [*handlers, hook_entry]
             return groups
-    return [*groups, {"matcher": HOOK_MATCHER, "hooks": [hook_entry]}]
+    return [*groups, {"matcher": matcher, "hooks": [hook_entry]}]
 
 
 def _resolve_scope(
