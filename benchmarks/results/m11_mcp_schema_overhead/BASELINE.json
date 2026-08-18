@@ -1,9 +1,9 @@
 {
-  "schema_version": 2,
+  "schema_version": 4,
   "milestone": "M11",
   "measured_at": "2026-07-24",
   "measured_with": "archex mcp-schema-size --format json",
-  "method": "len(json.dumps({name, description, inputSchema}, sort_keys=True)) per tool; sum for total_chars. Recorded once per PR in the M11 stack (PR-1 tool-scoping mechanism, PR-2 trimmed descriptions, PR-3 consolidated graph_query) so the artifact tells the full before/after story, not just the final state.",
+  "method": "len(json.dumps({name, description, inputSchema}, sort_keys=True)) per tool; sum for total_chars. Recorded at each M11 stack stage (PR-1 tool-scoping mechanism, PR-2 trimmed descriptions, PR-3 consolidated graph_query) and for intentional post-M11 additions. Each post-M11 addition records its own provenance; current_surface records the exact live tool set it produces.",
   "pre_m11_unscoped_baseline": {
     "note": "The 'all' scope before any M11 PR landed -- the number the M11 objective's own grounding cites (~24K chars for a since-superseded 17-tool count; this repo's tip already had an 18th tool, 'context', from the M10 milestone, so 18/14270 is this repo's real starting point).",
     "tool_count": 18,
@@ -30,7 +30,16 @@
       "graph_query": { "tool_count": 1, "total_chars": 1695 }
     }
   },
-  "per_tool_chars_final": {
+  "post_m11_additions": {
+    "session": {
+      "measured_at": "2026-08-18",
+      "source_revision": "15efa6222606d2370d51b57782b662c6dc57c7f5",
+      "note": "PR #614 added the explicit local project-session ledger MCP tool. Its 1382-character schema changes the core scope to 13512 chars: still 758 chars (5.3%) below the 14270-char pre-M11 unscoped baseline, down from the M11 PR-3 margin of 15.0%.",
+      "tool_count": 1,
+      "total_chars": 1382
+    }
+  },
+  "m11_final_per_tool_chars": {
     "analyze_repo": 570,
     "compare_repos": 718,
     "context": 2279,
@@ -50,5 +59,34 @@
     "query_repo": 1007,
     "scout_repo": 703,
     "search_symbols": 689
+  },
+  "current_surface": {
+    "measured_at": "2026-08-18",
+    "source_revision": "15efa6222606d2370d51b57782b662c6dc57c7f5",
+    "all": { "tool_count": 20, "total_chars": 16984 },
+    "core": { "tool_count": 15, "total_chars": 13512 },
+    "graph": { "tool_count": 5, "total_chars": 3472 },
+    "per_tool_chars": {
+      "analyze_repo": 570,
+      "compare_repos": 718,
+      "context": 2279,
+      "explain_target": 892,
+      "generate_onboarding": 715,
+      "get_file_outline": 433,
+      "get_file_tree": 503,
+      "get_impact": 1118,
+      "get_symbol": 352,
+      "get_symbols_batch": 456,
+      "graph_hubs": 584,
+      "graph_lookup": 676,
+      "graph_neighbors": 812,
+      "graph_path": 826,
+      "graph_query": 1695,
+      "graph_stats": 574,
+      "query_repo": 1007,
+      "scout_repo": 703,
+      "search_symbols": 689,
+      "session": 1382
+    }
   }
 }

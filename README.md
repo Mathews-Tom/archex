@@ -46,7 +46,7 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 | --- | --- | --- |
 | Agent workflows | `archex doctor`, then `archex context "question"` | Checks local trust first, then returns a candidate map, exact fetch handles, selected code, relation paths, a route decision, and a receipt in one call. |
 | Already using an agent that calls Grep/Glob | `archex install-client <client> --hooks` | Zero added context cost — augments existing tool calls instead of registering a new MCP tool surface. |
-| Want the full tool surface (graph, impact, symbol lookup, etc.) | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts. Registers 18 tool schemas that resend every turn regardless of use — heavier than hooks, richer than grep/glob augmentation. |
+| Want the full tool surface (graph, impact, symbol lookup, session records, etc.) | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts. Starts with two retrieval schemas and exposes 20 after the first retrieval — heavier than hooks, richer than grep/glob augmentation. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
 | Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, raw-ripgrep/read baseline, bundle-only evaluator reports, required-file trust gates, and TurboQuant storage/recall evidence. |
 | Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Client bootstrap paths for Claude Code, Codex, Pi, OpenCode, Cursor, and oh-my-pi (`omp`); global/user scope by default, `--dry-run` previews. |
@@ -173,11 +173,13 @@ archex index --quantize-vectors --quantize-bits 4 --allow-remote-code
 archex graph export --output .archex/archgraph.json
 archex graph neighbors src/auth/middleware.py --graph .archex/archgraph.json --format markdown
 archex symbol 'symbol:src/auth/middleware.py::authenticate#function'
+archex session record decision "Keep the auth boundary explicit."
+archex session prime --budget 512 --format markdown
 ```
 
 ### MCP and Claude Code
 
-Registers all 18 archex tools with a client; every tool's schema resends on every conversational turn regardless of use, since tool-calling APIs are stateless. That is real, measurable context cost — roughly 6,000 tokens for the full set, computed from the tool schemas in `src/archex/integrations/mcp.py`. If a client only needs grep/glob-shaped lookups, `archex install-client <client> --hooks` (documented further down this section) gets the same retrieval quality with zero added schema cost. Use MCP when the fuller surface — graph inspection, impact analysis, batch symbol lookup — is worth that fixed per-turn cost. The `context` tool is the same primary agent path as the CLI's `archex context`: query/intent/profile/filters/budgets/handles in, candidate map/fetch handles/selected code/relation paths/route/receipt/next action out.
+Fresh MCP sessions advertise two retrieval schemas (765 measured tokens). After the first retrieval, the server exposes all 20 archex tools (4,192 measured tokens), including explicit project-session ledger operations. Tool-calling APIs are stateless, so a client receives the surface it has reached on every following turn. `uv run archex mcp-schema-size --format json` reports both figures from the schemas in `src/archex/integrations/mcp.py`. If a client only needs grep/glob-shaped lookups, `archex install-client <client> --hooks` (documented further down this section) gets the same retrieval quality with zero added schema cost. Use MCP when the fuller surface — graph inspection, impact analysis, batch symbol lookup, or session continuity — is worth that post-retrieval cost. The `context` tool is the same primary agent path as the CLI's `archex context`: query/intent/profile/filters/budgets/handles in, candidate map/fetch handles/selected code/relation paths/route/receipt out. The `session` tool is explicit-only: it can record, list, invalidate, delete, or render a fresh-index bounded primer; it never records prompts, transcripts, inferred facts, or arbitrary tool output.
 
 Install the MCP extra and register the stdio server:
 
@@ -300,7 +302,7 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 | Installation trust contract | Exact CLI, MCP, Docker, skill, cache, network, freshness, benchmark, and uninstall semantics live in [INSTALLATION_TRUST_CONTRACT](docs/INSTALLATION_TRUST_CONTRACT.md). |
 | `archex install-client` | Client config writer for Claude Code, Codex, Pi, OpenCode, Cursor, and oh-my-pi (`omp`). Global/user scope by default; `--dry-run` previews without writing. |
 | `archex doctor` | Text/JSON diagnostics for index health, staleness, local model cache presence, grammar availability by tier, MCP registration, model security, and `.archex/` disk usage. |
-| Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, optional vectors, graph artifacts, dogfood history. Keep it uncommitted. |
+| Repo-local `.archex/` | Generated state: settings, metadata, SQLite index, explicit project-session ledger, optional vectors, graph artifacts, dogfood history. Keep it uncommitted; remove a session record only with `archex session delete <record-id> --force`. |
 | Local usage metrics | Calculation rules, privacy boundaries, default-off versus opt-in behavior, export/delete controls, and retention live in [LOCAL_METRICS](docs/LOCAL_METRICS.md). |
 | `archex report status-card` | Opt-in, dimensioned documentation/release status summary: doc-link, ADR, and CODEOWNERS-style ownership evidence (each disabled unless its `documentation_evidence_providers` entry is configured) plus local CHANGELOG/CI-workflow evidence. Every dimension links to immutable local evidence; there is no composite score or letter grade, and the output is never written back into the repository automatically — paste it into your own README by hand if you want to publish it. |
 | `archex report release-artifact` | Per-release compatibility + benchmark evidence bundle: archex's own installed version, supported Python range, report/index schema versions, a pointer to any checked-in benchmark manifest, and an embedded status card, as one read-only JSON document suitable for attaching to a GitHub release. |

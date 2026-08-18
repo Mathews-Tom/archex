@@ -13,7 +13,7 @@ Contract (M19 — non-blocking client hook integration):
   blocking or erroring the agent over a context-augmentation failure would be
   worse than returning no extra context.
 - The archex lookup itself runs under a hard wall-clock timeout
-  (`_hook_timeout_seconds`, ~500ms by default). A lookup that is still running
+  (`hook_timeout_seconds`, ~500ms by default). A lookup that is still running
   past the budget is abandoned in place (its thread is not joined) and the
   process exits immediately via `os._exit` so a stuck lookup can never block the
   agent loop.
@@ -147,7 +147,7 @@ def _extract_query(tool_name: str, tool_input: dict[str, Any]) -> str:
 
 
 def lookup_with_timeout(cwd: str, query: str) -> str | None:
-    timeout = _hook_timeout_seconds()
+    timeout = hook_timeout_seconds()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="archex-hook")
     future = executor.submit(_lookup, cwd, query)
     try:
@@ -204,7 +204,7 @@ def _build_output(context: str) -> dict[str, Any]:
     }
 
 
-def _hook_timeout_seconds() -> float:
+def hook_timeout_seconds() -> float:
     raw = os.environ.get(_TIMEOUT_ENV_VAR)
     if raw:
         try:

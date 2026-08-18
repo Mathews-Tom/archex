@@ -14,11 +14,14 @@ from archex.client_setup import (
     append_agent_guidance,
     build_client_install_plan,
     build_hook_install_plan,
+    build_session_primer_install_plan,
     render_agent_guidance_preview,
     render_client_install_preview,
     render_hook_install_preview,
+    render_session_primer_install_preview,
     write_client_install_plan,
     write_hook_install_plan,
+    write_session_primer_install_plan,
 )
 
 
@@ -82,6 +85,21 @@ def _is_interactive() -> bool:
     help="Remove the archex PreToolUse hook previously installed by --hooks.",
 )
 @click.option(
+    "--session-primer",
+    is_flag=True,
+    default=False,
+    help=(
+        "Install the opt-in Claude Code SessionStart primer hook for startup/resume. "
+        "It injects only fresh, receipt-bearing explicit session context."
+    ),
+)
+@click.option(
+    "--remove-session-primer",
+    is_flag=True,
+    default=False,
+    help="Remove the Archex Claude Code SessionStart primer hook.",
+)
+@click.option(
     "--allow-missing-mcp",
     is_flag=True,
     default=False,
@@ -120,6 +138,8 @@ def install_client_cmd(
     agent_file: Path | None,
     hooks: bool,
     remove_hooks: bool,
+    session_primer: bool,
+    remove_session_primer: bool,
     allow_missing_mcp: bool,
     all_detected: bool,
     yes: bool,
@@ -129,6 +149,14 @@ def install_client_cmd(
     """Install MCP client configuration for archex (preview with --dry-run)."""
     if hooks and remove_hooks:
         raise click.ClickException("--hooks and --remove-hooks are mutually exclusive")
+    if session_primer and remove_session_primer:
+        raise click.ClickException(
+            "--session-primer and --remove-session-primer are mutually exclusive"
+        )
+    if (hooks or remove_hooks) and (session_primer or remove_session_primer):
+        raise click.ClickException(
+            "Search hooks and session-primer hooks must be installed or removed separately"
+        )
     valid_clients = ["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
 
     client: str | None = None
@@ -143,6 +171,19 @@ def install_client_cmd(
                 raise click.ClickException(f"Invalid client: {client_or_source}")
             client = None
             source = client_or_source
+
+    if session_primer or remove_session_primer:
+        if client != "claude-code":
+            raise click.ClickException(
+                "--session-primer/--remove-session-primer is only supported for claude-code"
+            )
+        _run_session_primer_action(
+            source,
+            scope=cast("ClientScope | None", scope),
+            dry_run=dry_run,
+            action="install" if session_primer else "remove",
+        )
+        return
 
     if hooks or remove_hooks:
         if client is None:
@@ -327,3 +368,24 @@ def _run_hook_action(
         click.echo(f"Installed archex hook for {client}: {target}")
     else:
         click.echo(f"Removed archex hook for {client} (if present): {target}")
+
+
+def _run_session_primer_action(
+    source: str | None,
+    *,
+    scope: ClientScope | None,
+    dry_run: bool,
+    action: HookAction,
+) -> None:
+    try:
+        plan = build_session_primer_install_plan(source, scope=scope, action=action)
+        if dry_run:
+            click.echo(render_session_primer_install_preview(plan), nl=False)
+            return
+        target = write_session_primer_install_plan(plan)
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if action == "install":
+        click.echo(f"Installed archex session-primer hook for claude-code: {target}")
+    else:
+        click.echo(f"Removed archex session-primer hook for claude-code (if present): {target}")

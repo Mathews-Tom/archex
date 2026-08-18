@@ -81,6 +81,15 @@ from archex.serve.compare import validate_dimensions
 from archex.serve.intent import DEFAULT_TOKEN_BUDGET, QueryIntent
 from archex.serve.renderers.xml import render_xml, render_xml_envelope
 from archex.serve.runtime import QueryRuntime
+from archex.session import (
+    DEFAULT_SESSION_TOKEN_BUDGET,
+    SessionRecordKind,
+    capture_session_record,
+    delete_session_record,
+    invalidate_session_record,
+    list_session_records,
+    render_session_primer,
+)
 from archex.utils import resolve_source
 
 logger = logging.getLogger(__name__)
@@ -296,6 +305,73 @@ def handle_context(
             "_meta": meta.model_dump(),
         },
         indent=2,
+    )
+
+
+def handle_session(
+    repo_url: str,
+    action: str,
+    kind: str | None = None,
+    content: str | None = None,
+    record_id: str | None = None,
+    file_path: str | None = None,
+    symbol_id: str | None = None,
+    budget: int | None = None,
+    output_format: str = "json",
+) -> str:
+    """Operate the explicit repo-local project-session ledger."""
+    if action == "record":
+        if kind is None or content is None:
+            raise ValueError("session record requires both kind and content")
+        try:
+            record_kind = SessionRecordKind(kind)
+        except ValueError as exc:
+            raise ValueError(f"unknown session record kind {kind!r}") from exc
+        record = capture_session_record(
+            repo_url,
+            kind=record_kind,
+            content=content,
+            creator="mcp",
+            file_path=file_path,
+            symbol_id=symbol_id,
+        )
+        return json.dumps({"record": record.model_dump(mode="json")}, indent=2)
+    if action == "list":
+        records = list_session_records(repo_url)
+        return json.dumps(
+            {"records": [record.model_dump(mode="json") for record in records]},
+            indent=2,
+        )
+    if action == "invalidate":
+        if record_id is None:
+            raise ValueError("session invalidate requires record_id")
+        record = invalidate_session_record(repo_url, record_id)
+        return json.dumps({"record": record.model_dump(mode="json")}, indent=2)
+    if action == "delete":
+        if record_id is None:
+            raise ValueError("session delete requires record_id")
+        delete_session_record(repo_url, record_id)
+        return json.dumps({"deleted": record_id}, indent=2)
+    if action == "prime":
+        if output_format not in _SUPPORTED_FORMATS:
+            raise ValueError(
+                f"format must be one of {sorted(_SUPPORTED_FORMATS)}, got {output_format!r}"
+            )
+        primer = render_session_primer(
+            repo_url,
+            token_budget=budget if budget is not None else DEFAULT_SESSION_TOKEN_BUDGET,
+        )
+        if output_format == "markdown":
+            return json.dumps(
+                {
+                    "content": primer.content,
+                    "receipt": primer.receipt.model_dump(mode="json"),
+                },
+                indent=2,
+            )
+        return primer.model_dump_json(indent=2)
+    raise ValueError(
+        "session action must be one of ['record', 'list', 'invalidate', 'delete', 'prime']"
     )
 
 
@@ -1305,6 +1381,30 @@ async def _run_mcp_tool(
             context_handles,
             context_format,
         )
+    if name == "session":
+        session_repo_url: str = arguments["repo_url"]
+        session_action: str = arguments["action"]
+        session_kind: str | None = arguments.get("kind")
+        session_content: str | None = arguments.get("content")
+        session_record_id: str | None = arguments.get("record_id")
+        session_file_path: str | None = arguments.get("file_path")
+        session_symbol_id: str | None = arguments.get("symbol_id")
+        session_budget_arg = arguments.get("budget")
+        session_budget = int(session_budget_arg) if session_budget_arg is not None else None
+        session_format: str = arguments.get("format", "json")
+        return await loop.run_in_executor(
+            None,
+            handle_session,
+            session_repo_url,
+            session_action,
+            session_kind,
+            session_content,
+            session_record_id,
+            session_file_path,
+            session_symbol_id,
+            session_budget,
+            session_format,
+        )
     if name == "compare_repos":
         repo_a: str = arguments["repo_a"]
         repo_b: str = arguments["repo_b"]
@@ -1747,6 +1847,64 @@ def _tool_schemas() -> list[dict[str, Any]]:
                     },
                 },
                 "required": ["repo_url", "query"],
+            },
+        },
+        {
+            "name": "session",
+            "description": (
+                "Explicit local project-session ledger and bounded primer. "
+                "Use action='record' only for user-confirmed tasks, decisions, "
+                "blockers, or rationale; no transcript or inferred memory is stored. "
+                "Use action='prime' to render fresh-index session context."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": "Local Git repository path; remote URLs are rejected.",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["record", "list", "invalidate", "delete", "prime"],
+                        "description": "Ledger operation.",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["active_task", "decision", "blocker", "rationale"],
+                        "description": "Required for action='record'.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": (
+                            "Explicit operator-approved record content for action='record'."
+                        ),
+                    },
+                    "record_id": {
+                        "type": "string",
+                        "description": "Required for action='invalidate' or action='delete'.",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional relative repository file anchor for action='record'."
+                        ),
+                    },
+                    "symbol_id": {
+                        "type": "string",
+                        "description": "Optional indexed symbol anchor for action='record'.",
+                    },
+                    "budget": {
+                        "type": "integer",
+                        "description": "Hard primer token budget for action='prime'.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "description": "Primer output format for action='prime'.",
+                    },
+                },
+                "required": ["repo_url", "action"],
             },
         },
         {
@@ -2265,7 +2423,7 @@ _GRAPH_TOOL_NAMES: frozenset[str] = frozenset(
 #: client is charged for the two tools it needs to *start*, and for the rest only
 #: once it has demonstrated it is actually retrieving. Sized against R5's
 #: 1000-token acceptance bar -- `context` is 534 tokens and `query_repo` 231, for
-#: 765 with headroom, against 3859 for the full surface.
+#: 765 with headroom, against 4192 for the full surface.
 #:
 #: Narrowing what is advertised never narrows what is *callable*: `build_server`'s
 #: `call_tool` dispatches by name whatever `list_tools` returned, so a client

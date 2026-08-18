@@ -12,9 +12,9 @@ dispatch tool with a deprecation-window compatibility shim (PR-3).
 the character count — the same shape a client actually registers via
 `list_tools()`. Measured at the tip of each PR in the stack for the
 `all` (unscoped), `core`, and `graph` scope profiles PR-1 introduced.
-Raw numbers for every stage are checked in at `BASELINE.json` in this
-directory; `tests/integrations/test_mcp_schema_size_baseline.py` guards
-the final stage against silent future regression.
+Raw historical M11-stage numbers and post-M11 additions are checked in at
+`BASELINE.json` in this directory. `tests/integrations/test_mcp_schema_size_baseline.py`
+guards the currently recorded surface against silent future regression.
 
 ```
 uv run archex mcp-schema-size --format json
@@ -31,6 +31,7 @@ uv run archex mcp-schema-size --tools graph_query --format json
 | PR-1 (tool-scoping mechanism) | 18 / 14270 | 13 / 10665 | 5 / 3605 |
 | PR-2 (trimmed descriptions) | 18 / 13907 | 13 / 10435 | 5 / 3472 |
 | PR-3 (+ `graph_query`, 1695 chars) | **19 / 15602** | **14 / 12130** | 5 / 3472 |
+| Post-M11 (+ `session`, 1382 chars; outside M11 stack) | 20 / 16984 | 15 / 13512 | 5 / 3472 |
 
 ## The `all`-scope tension, stated plainly
 
@@ -56,13 +57,14 @@ published. `core` is the scope that matters here: it excludes the five
 raw `graph_*` tools (unchanged since PR-1) and — because `graph_query`
 is not one of those five excluded names — picks it up automatically.
 A client on `core` gets full graph capability through one tool instead
-of five, at 12130 chars: **below the original pre-M11 unscoped
-baseline of 14270 chars, a real 15.0% reduction**, while `all` (which
-no real client should use once scoping is available — it exists only
-so a config with no `--tools`/`--tool-scope` flag keeps working
-byte-for-byte) grows by exactly `graph_query`'s own 1695 chars, as
-expected and guarded by
-`test_unscoped_all_growth_is_exactly_graph_query_no_removal_no_surprise`.
+of five. At M11 PR-3 it cost 12130 chars: **below the original pre-M11
+unscoped baseline of 14270 chars, a real 15.0% reduction**. The current
+post-M11 surface also includes the `session` tool; its core scope is 13512
+chars, still 758 chars (5.3%) below that baseline. `all` (which no real client
+should use once scoping is available — it exists only so a config with no
+`--tools`/`--tool-scope` flag keeps working byte-for-byte) grows by each
+intentional full-surface addition, as recorded and guarded by
+`test_unscoped_all_growth_matches_known_additions`.
 
 ## Decision
 
