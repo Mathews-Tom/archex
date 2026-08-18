@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.27.0] - 2026-08-18
+
+### Added
+
+- **Explicit project-session ledger and bounded Claude Code primer.** `archex session record|list|invalidate|delete|prime` and the `session` MCP tool store only explicit tasks, decisions, blockers, and rationale in repo-local `.archex/session.db`, scoped to the active worktree and branch. `archex install-client claude-code --session-primer` installs an opt-in `SessionStart` hook that injects fresh, receipt-bearing context on startup or resume without blocking the session.
+
+### Changed
+
+- **MCP schema-surface measurements and help reflect the 20-tool current surface.** The recorded `session` tool schema adds 1,382 characters to the ungated MCP surface (4,192 measured tokens after first retrieval); the disclosure default remains 765 tokens.
+
 ## [0.26.0] - 2026-08-18
 
 ### Added
