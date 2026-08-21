@@ -7,7 +7,7 @@
 [![Tests](https://img.shields.io/badge/tests-3619_passing-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-91.1%25-brightgreen)](https://github.com/Mathews-Tom/archex/actions/workflows/ci.yml)
 [![Languages](https://img.shields.io/badge/languages-26-orange)](#language-support)
-[![MCP tools](https://img.shields.io/badge/MCP_tools-17-purple)](#mcp-and-claude-code)
+[![MCP tools](https://img.shields.io/badge/MCP_tools-20-purple)](#mcp-and-claude-code)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Typing](https://img.shields.io/badge/typing-pyright_strict-blue)](https://github.com/microsoft/pyright)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
