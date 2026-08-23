@@ -9,7 +9,12 @@ import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import mcp.types as mcp_types
+    from mcp.server.context import ServerRequestContext
+
 
 from archex.api import (
     analyze,
@@ -2627,55 +2632,67 @@ def build_server(
     if runtime is None:
         runtime = QueryRuntime()
 
-    server: Server[None, Any] = Server("archex")  # type: ignore[type-arg]
     gate = DisclosureGate(enabled=disclosure)
 
-    @server.list_tools()  # pyright: ignore[reportUnusedFunction]
-    async def list_tools() -> list[mcp_types.Tool]:  # pyright: ignore[reportUnusedFunction]
+    async def list_tools(
+        _request_context: ServerRequestContext[Any, Any],
+        _params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
         visible = gate.visible(tool_names)
         schemas = _tool_schemas()
         if visible is not None:
             schemas = [schema for schema in schemas if schema["name"] in visible]
-        return [mcp_types.Tool(**schema) for schema in schemas]
+        return mcp_types.ListToolsResult(
+            tools=[
+                mcp_types.Tool(
+                    name=schema["name"],
+                    description=schema["description"],
+                    input_schema=schema["inputSchema"],
+                )
+                for schema in schemas
+            ]
+        )
 
-    @server.call_tool()  # pyright: ignore[reportUnusedFunction]
-    async def call_tool(  # pyright: ignore[reportUnusedFunction]
-        name: str,
-        arguments: dict[str, Any],
-    ) -> list[mcp_types.TextContent]:
+    async def call_tool(
+        request_context: ServerRequestContext[Any, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult:
         loop = asyncio.get_running_loop()
         advertised_before = gate.visible(tool_names)
-        result_text = await _run_mcp_tool(loop, name, arguments, runtime)
+        try:
+            result_text = await _run_mcp_tool(loop, params.name, params.arguments or {}, runtime)
+        except Exception as exc:  # noqa: BLE001 - MCP tool failures are model-visible results
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(type="text", text=str(exc))],
+                is_error=True,
+            )
         # Only after the call succeeded: a failed retrieval has not demonstrated
         # that this session needs the wider surface.
-        if gate.observe_call(name) and gate.visible(tool_names) != advertised_before:
+        if gate.observe_call(params.name) and gate.visible(tool_names) != advertised_before:
             # Opening does not always change what is advertised: a scope disjoint
             # from the retrieval core is served in full either way. Announcing an
             # identical list would cost the client a pointless tools/list.
             gate.mark_announce_pending()
-        if gate.announce_pending and await _announce_tool_list_changed(server):
+        if gate.announce_pending and await _announce_tool_list_changed(request_context):
             gate.mark_announced()
 
-        return [mcp_types.TextContent(type="text", text=result_text)]
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text", text=result_text)]
+        )
 
-    return server
+    return Server("archex", on_list_tools=list_tools, on_call_tool=call_tool)
 
 
-async def _announce_tool_list_changed(server: Any) -> bool:
+async def _announce_tool_list_changed(request_context: ServerRequestContext[Any, Any]) -> bool:
     """Tell the client its tool list grew. Returns whether the client was told.
 
-    Never raises. A client that never registered a session, or one whose
-    transport has already gone away, must not turn a successful retrieval into a
-    failed tool call. But a lost notification is not free either: for a
-    model-controlled client it is the only thing that puts the wider surface in
-    front of the model, so the caller retries on the next call and this logs
-    loudly enough for an operator to see.
+    Never raises. A session whose transport has already gone away must not turn a
+    successful retrieval into a failed tool call. But a lost notification is not
+    free either: for a model-controlled client it is the only thing that puts the
+    wider surface in front of the model, so the caller retries on the next call
+    and this logs loudly enough for an operator to see.
     """
-    try:
-        session = server.request_context.session
-    except LookupError:
-        logger.warning("no MCP session to announce the tool-list change to; will retry")
-        return False
+    session = request_context.session
     try:
         await session.send_tool_list_changed()
     except Exception:  # noqa: BLE001 - see docstring: never fail the caller's tool call

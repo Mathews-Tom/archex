@@ -8,10 +8,12 @@ is the property that lets the default change safely.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext, suppress
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -224,7 +226,7 @@ class TestListChangedCapability:
             notification_options=NotificationOptions(tools_changed=True)
         )
         assert opts.capabilities.tools is not None
-        assert opts.capabilities.tools.listChanged is True
+        assert opts.capabilities.tools.list_changed is True
 
 
 class TestGateThroughARealSession:
@@ -239,11 +241,14 @@ class TestGateThroughARealSession:
     @staticmethod
     @asynccontextmanager
     async def _session(
-        *, disclosure: bool, tool_names: frozenset[str] | None = None
+        *,
+        disclosure: bool,
+        tool_names: frozenset[str] | None = None,
+        stub_tools: bool = True,
     ) -> AsyncIterator[tuple[Any, list[Any]]]:
-        from unittest.mock import patch
-
-        from mcp.shared.memory import create_connected_server_and_client_session
+        from mcp.client.session import ClientSession
+        from mcp.server.lowlevel import NotificationOptions
+        from mcp.shared.memory import create_client_server_memory_streams
 
         notifications: list[Any] = []
 
@@ -255,12 +260,29 @@ class TestGateThroughARealSession:
         ) -> str:
             return f"ran {name}"
 
-        with patch("archex.integrations.mcp._run_mcp_tool", side_effect=fake_run_mcp_tool):
+        patcher = (
+            patch("archex.integrations.mcp._run_mcp_tool", side_effect=fake_run_mcp_tool)
+            if stub_tools
+            else nullcontext()
+        )
+        with patcher:
             server = build_server(tool_names=tool_names, disclosure=disclosure)
-            async with create_connected_server_and_client_session(
-                server, message_handler=record
-            ) as client:
-                yield client, notifications
+            initial_options = server.create_initialization_options(
+                notification_options=NotificationOptions(tools_changed=disclosure)
+            )
+            async with create_client_server_memory_streams() as (client_streams, server_streams):
+                server_task = asyncio.create_task(
+                    server.run(*server_streams, initial_options, raise_exceptions=True)
+                )
+                try:
+                    async with ClientSession(*client_streams, message_handler=record) as client:
+                        await client.initialize()
+                        yield client, notifications
+                finally:
+                    if not server_task.done():
+                        server_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await server_task
 
     @pytest.mark.asyncio
     async def test_a_fresh_session_is_advertised_only_the_retrieval_core(self) -> None:
@@ -278,7 +300,22 @@ class TestGateThroughARealSession:
             assert "graph_hubs" not in advertised
 
             result = await client.call_tool("graph_hubs", {"repo_url": "."})
-            assert result.isError is False
+            assert result.is_error is False
+
+    @pytest.mark.asyncio
+    async def test_a_bad_tool_call_returns_an_error_without_ending_the_session(self) -> None:
+        from mcp import types as mcp_types
+
+        async with self._session(disclosure=True, stub_tools=False) as (client, _):
+            result = await client.call_tool("graph_hubs", {})
+
+            assert result.is_error is True
+            content = result.content[0]
+            assert isinstance(content, mcp_types.TextContent)
+            assert "graph_path" in content.text
+            assert {tool.name for tool in (await client.list_tools()).tools} == set(
+                DISCLOSURE_CORE_TOOL_NAMES
+            )
 
     @pytest.mark.asyncio
     async def test_retrieving_expands_the_surface_and_tells_the_client(self) -> None:

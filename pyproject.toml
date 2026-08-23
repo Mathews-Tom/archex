@@ -35,7 +35,7 @@ dependencies = [
     "click>=8.1",
     "pyyaml>=6.0",
     "rich==14.3.3",
-    "mcp>=1.0",
+    "mcp>=2.0,<3.0",
     "watchdog>=6.0.0",
 ]
 
@@ -144,7 +144,7 @@ dev = [
     "httpx>=0.27",
     "langchain-core>=0.2",
     "llama-index-core>=0.10",
-    "mcp>=1.0",
+    "mcp>=2.0,<3.0",
     "pre-commit>=3.7",
     "pyright>=1.1",
     "pytest>=9.0.2",
