@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.28.0] - 2026-08-23
+
+### Fixed
+
+- **MCP 2 runtime compatibility.** `archex mcp` now uses the MCP 2 low-level callback API, so a clean `uv tool install archex` no longer resolves an SDK that crashes at startup with `AttributeError: 'Server' object has no attribute 'list_tools'`. Malformed MCP tool calls now return model-visible errors without ending the stdio session.
+
 ## [0.27.0] - 2026-08-18
 
 ### Added
