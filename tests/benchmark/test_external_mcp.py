@@ -43,9 +43,9 @@ def test_run_external_mcp_runs_bootstrap_commands(tmp_path: Path) -> None:
     server = tmp_path / "server.py"
     server.write_text(
         """\
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP("benchmark-fixture", json_response=True)
+mcp = MCPServer("benchmark-fixture")
 
 
 @mcp.tool()
@@ -101,9 +101,9 @@ def test_run_external_mcp_scores_fixture_server(tmp_path: Path) -> None:
     server = tmp_path / "server.py"
     server.write_text(
         """\
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP("benchmark-fixture", json_response=True)
+mcp = MCPServer("benchmark-fixture")
 
 
 @mcp.tool()
