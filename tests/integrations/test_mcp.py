@@ -8,11 +8,14 @@ import json
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 pytest.importorskip("mcp", reason="mcp not installed")
+
 
 from archex.context_facade import ContextResult, ContextRouteDecision
 from archex.explain import ExplainError
@@ -64,6 +67,32 @@ from archex.reporting import count_tokens
 from archex.serve.intent import QueryIntent
 from archex.serve.modality import BudgetTier, QueryModality
 from archex.serve.renderers.xml import render_xml, render_xml_envelope
+
+
+class _TestServerSession:
+    async def send_tool_list_changed(self) -> None:
+        return None
+
+
+def _mcp_request_handler(server: Any, method: str) -> Any:
+    """Adapt MCP 2's public handler entry to direct handler tests."""
+    from mcp.server.context import ServerRequestContext
+
+    entry = server.get_request_handler(method)
+    assert entry is not None, f"missing MCP handler for {method}"
+    session: Any = _TestServerSession()
+    request_context = ServerRequestContext(
+        session=session,
+        lifespan_context={},
+        protocol_version="2025-11-25",
+        method=method,
+    )
+
+    async def invoke(request: Any) -> SimpleNamespace:
+        return SimpleNamespace(root=await entry.handler(request_context, request.params))
+
+    return invoke
+
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -693,7 +722,6 @@ class TestHandleCompareRepos:
 class TestBuildServerImportError:
     def test_build_server_raises_import_error_when_mcp_missing(self) -> None:
         import builtins
-        from typing import Any
 
         original_import: Any = builtins.__import__
 
@@ -714,7 +742,6 @@ class TestRunStdioServer:
     async def test_run_stdio_server_import_error(self) -> None:
         """run_stdio_server raises ImportError when mcp.server.stdio is missing."""
         import builtins
-        from typing import Any
 
         original_import: Any = builtins.__import__
 
@@ -782,16 +809,12 @@ class TestBuildServer:
         assert server.name == "archex"
 
     def test_server_has_list_tools_handler(self) -> None:
-        from mcp import types as mcp_types
-
         server = build_server()
-        assert mcp_types.ListToolsRequest in server.request_handlers
+        assert server.get_request_handler("tools/list") is not None
 
     def test_server_has_call_tool_handler(self) -> None:
-        from mcp import types as mcp_types
-
         server = build_server()
-        assert mcp_types.CallToolRequest in server.request_handlers
+        assert server.get_request_handler("tools/call") is not None
 
     @pytest.mark.asyncio
     async def test_list_tools_returns_core_tools(self) -> None:
@@ -799,7 +822,7 @@ class TestBuildServer:
         # Call the registered list_tools handler directly
         from mcp import types as mcp_types
 
-        handler = server.request_handlers[mcp_types.ListToolsRequest]
+        handler = _mcp_request_handler(server, "tools/list")
         req = mcp_types.ListToolsRequest(method="tools/list", params=None)
         server_result = await handler(req)
         result = server_result.root
@@ -810,10 +833,10 @@ class TestBuildServer:
         assert "compare_repos" in tool_names
 
         query_repo = next(tool for tool in result.tools if tool.name == "query_repo")
-        budget_schema = query_repo.inputSchema["properties"]["budget"]
+        budget_schema = query_repo.input_schema["properties"]["budget"]
         assert "default" not in budget_schema
         assert "Omit to use adaptive intent routing" in budget_schema["description"]
-        profile_schema = query_repo.inputSchema["properties"]["profile"]
+        profile_schema = query_repo.input_schema["properties"]["profile"]
         assert profile_schema["enum"] == ["fast", "balanced", "deep"]
 
     @pytest.mark.asyncio
@@ -822,7 +845,7 @@ class TestBuildServer:
             server = build_server()
             from mcp import types as mcp_types
 
-            handler = server.request_handlers[mcp_types.CallToolRequest]
+            handler = _mcp_request_handler(server, "tools/call")
             req = mcp_types.CallToolRequest(
                 method="tools/call",
                 params=mcp_types.CallToolRequestParams(
@@ -831,7 +854,7 @@ class TestBuildServer:
                 ),
             )
             # Force list_tools to populate tool cache
-            list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+            list_handler = _mcp_request_handler(server, "tools/list")
             await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
 
             server_result = await handler(req)
@@ -848,7 +871,7 @@ class TestBuildServer:
             server = build_server()
             from mcp import types as mcp_types
 
-            handler = server.request_handlers[mcp_types.CallToolRequest]
+            handler = _mcp_request_handler(server, "tools/call")
             req = mcp_types.CallToolRequest(
                 method="tools/call",
                 params=mcp_types.CallToolRequestParams(
@@ -856,7 +879,7 @@ class TestBuildServer:
                     arguments={"repo_url": "/fake", "question": "what?", "budget": 4000},
                 ),
             )
-            list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+            list_handler = _mcp_request_handler(server, "tools/list")
             await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
 
             server_result = await handler(req)
@@ -872,7 +895,7 @@ class TestBuildServer:
             server = build_server()
             from mcp import types as mcp_types
 
-            handler = server.request_handlers[mcp_types.CallToolRequest]
+            handler = _mcp_request_handler(server, "tools/call")
             req = mcp_types.CallToolRequest(
                 method="tools/call",
                 params=mcp_types.CallToolRequestParams(
@@ -880,7 +903,7 @@ class TestBuildServer:
                     arguments={"repo_a": "/a", "repo_b": "/b", "dimensions": "api_surface"},
                 ),
             )
-            list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+            list_handler = _mcp_request_handler(server, "tools/list")
             await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
 
             server_result = await handler(req)
@@ -890,13 +913,13 @@ class TestBuildServer:
             assert result.content[0].type == "text"
 
     @pytest.mark.asyncio
-    async def test_call_tool_unknown_name_raises(self) -> None:
+    async def test_call_tool_unknown_name_returns_error(self) -> None:
         server = build_server()
         from mcp import types as mcp_types
 
-        handler = server.request_handlers[mcp_types.CallToolRequest]
+        handler = _mcp_request_handler(server, "tools/call")
         # Populate tool cache first
-        list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+        list_handler = _mcp_request_handler(server, "tools/list")
         await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
 
         req = mcp_types.CallToolRequest(
@@ -906,18 +929,20 @@ class TestBuildServer:
                 arguments={},
             ),
         )
-        # The MCP server converts unhandled exceptions to error results
         server_result = await handler(req)
         result = server_result.root
-        # Should be an error result (isError=True) or ValidationError for bad tool name
-        assert result.isError or isinstance(result, mcp_types.CallToolResult)
+        assert isinstance(result, mcp_types.CallToolResult)
+        assert result.is_error is True
+        content = result.content[0]
+        assert isinstance(content, mcp_types.TextContent)
+        assert content.text == "Unknown tool: 'nonexistent_tool'"
 
     @pytest.mark.asyncio
     async def test_list_tools_returns_graph_tools(self) -> None:
         server = build_server()
         from mcp import types as mcp_types
 
-        handler = server.request_handlers[mcp_types.ListToolsRequest]
+        handler = _mcp_request_handler(server, "tools/list")
         req = mcp_types.ListToolsRequest(method="tools/list", params=None)
         server_result = await handler(req)
         result = server_result.root
@@ -937,8 +962,8 @@ class TestBuildServer:
         assert "context" in tool_names
         assert "session" in tool_names
         session_tool = next(tool for tool in result.tools if tool.name == "session")
-        assert session_tool.inputSchema["required"] == ["repo_url", "action"]
-        assert session_tool.inputSchema["properties"]["action"]["enum"] == [
+        assert session_tool.input_schema["required"] == ["repo_url", "action"]
+        assert session_tool.input_schema["properties"]["action"]["enum"] == [
             "record",
             "list",
             "invalidate",
@@ -958,8 +983,8 @@ class TestBuildServer:
                 server = build_server(runtime=runtime)
                 from mcp import types as mcp_types
 
-                handler = server.request_handlers[mcp_types.CallToolRequest]
-                list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+                handler = _mcp_request_handler(server, "tools/call")
+                list_handler = _mcp_request_handler(server, "tools/list")
                 await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
                 req = mcp_types.CallToolRequest(
                     method="tools/call",
@@ -983,8 +1008,8 @@ class TestBuildServer:
             server = build_server()
             from mcp import types as mcp_types
 
-            handler = server.request_handlers[mcp_types.CallToolRequest]
-            list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+            handler = _mcp_request_handler(server, "tools/call")
+            list_handler = _mcp_request_handler(server, "tools/list")
             await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
             req = mcp_types.CallToolRequest(
                 method="tools/call",
@@ -1012,8 +1037,8 @@ class TestBuildServer:
             server = build_server(runtime=runtime)
             from mcp import types as mcp_types
 
-            handler = server.request_handlers[mcp_types.CallToolRequest]
-            list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+            handler = _mcp_request_handler(server, "tools/call")
+            list_handler = _mcp_request_handler(server, "tools/list")
             await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
 
             def _call(question: str) -> mcp_types.CallToolRequest:
@@ -1715,8 +1740,8 @@ class TestHandleContextEndToEnd:
         server = build_server()
         from mcp import types as mcp_types
 
-        handler = server.request_handlers[mcp_types.CallToolRequest]
-        list_handler = server.request_handlers[mcp_types.ListToolsRequest]
+        handler = _mcp_request_handler(server, "tools/call")
+        list_handler = _mcp_request_handler(server, "tools/list")
         await list_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
 
         def _call(query: str, handles: list[str] | None = None) -> mcp_types.CallToolRequest:
@@ -1733,7 +1758,9 @@ class TestHandleContextEndToEnd:
 
         first = (await handler(_call("how does authentication work?"))).root
         assert isinstance(first, mcp_types.CallToolResult)
-        first_envelope = json.loads(first.content[0].text)  # type: ignore[union-attr]
+        first_content = first.content[0]
+        assert isinstance(first_content, mcp_types.TextContent)
+        first_envelope = json.loads(first_content.text)
         handle = first_envelope["fetch_handles"][0]
         expected_chunk = next(
             item for item in first_envelope["content"] if item["chunk"]["id"] in handle
@@ -1741,7 +1768,9 @@ class TestHandleContextEndToEnd:
 
         second = (await handler(_call("ignored query text", handles=[handle]))).root
         assert isinstance(second, mcp_types.CallToolResult)
-        second_envelope = json.loads(second.content[0].text)  # type: ignore[union-attr]
+        second_content = second.content[0]
+        assert isinstance(second_content, mcp_types.TextContent)
+        second_envelope = json.loads(second_content.text)
 
         assert second_envelope["route"]["handles_mode"] is True
         assert second_envelope["fetch_handles"] == [handle]
@@ -1806,7 +1835,7 @@ class TestAllToolNames:
         server = build_server()
         from mcp import types as mcp_types
 
-        handler = server.request_handlers[mcp_types.ListToolsRequest]
+        handler = _mcp_request_handler(server, "tools/list")
         result = (await handler(mcp_types.ListToolsRequest(method="tools/list", params=None))).root
         assert isinstance(result, mcp_types.ListToolsResult)
         live_names = {t.name for t in result.tools}
@@ -1841,7 +1870,7 @@ class TestBuildServerToolScoping:
         from mcp import types as mcp_types
 
         full_server = build_server()
-        full_handler = full_server.request_handlers[mcp_types.ListToolsRequest]
+        full_handler = _mcp_request_handler(full_server, "tools/list")
         full_result = (
             await full_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
         ).root
@@ -1849,7 +1878,7 @@ class TestBuildServerToolScoping:
         full_names = {t.name for t in full_result.tools}
 
         scoped_server = build_server(tool_names=frozenset({"query_repo", "context"}))
-        scoped_handler = scoped_server.request_handlers[mcp_types.ListToolsRequest]
+        scoped_handler = _mcp_request_handler(scoped_server, "tools/list")
         scoped_result = (
             await scoped_handler(mcp_types.ListToolsRequest(method="tools/list", params=None))
         ).root
@@ -1869,7 +1898,7 @@ class TestBuildServerToolScoping:
             "archex.integrations.mcp.handle_analyze_repo", return_value='{"repo": {}}'
         ) as mock_handle:
             server = build_server(tool_names=frozenset({"query_repo"}))
-            handler = server.request_handlers[mcp_types.CallToolRequest]
+            handler = _mcp_request_handler(server, "tools/call")
             req = mcp_types.CallToolRequest(
                 method="tools/call",
                 params=mcp_types.CallToolRequestParams(
@@ -1880,7 +1909,7 @@ class TestBuildServerToolScoping:
             server_result = await handler(req)
             result = server_result.root
             assert isinstance(result, mcp_types.CallToolResult)
-            assert not result.isError
+            assert not result.is_error
             mock_handle.assert_called_once()
 
 
@@ -1898,17 +1927,17 @@ class TestGraphQueryConsolidation:
     async def _call(server: object, name: str, arguments: dict[str, object]) -> str:
         from mcp import types as mcp_types
 
-        handler = server.request_handlers[mcp_types.CallToolRequest]  # type: ignore[attr-defined]
+        handler = _mcp_request_handler(server, "tools/call")
         req = mcp_types.CallToolRequest(
             method="tools/call",
             params=mcp_types.CallToolRequestParams(name=name, arguments=arguments),
         )
         result = (await handler(req)).root
         assert isinstance(result, mcp_types.CallToolResult)
-        assert not result.isError
-        text = result.content[0].text  # type: ignore[union-attr]
-        assert isinstance(text, str)
-        return text
+        assert not result.is_error
+        content = result.content[0]
+        assert isinstance(content, mcp_types.TextContent)
+        return content.text
 
     @staticmethod
     def _normalize(response_text: str) -> dict[str, object]:
@@ -2006,7 +2035,7 @@ class TestGraphQueryConsolidation:
         server = build_server()
         from mcp import types as mcp_types
 
-        handler = server.request_handlers[mcp_types.CallToolRequest]
+        handler = _mcp_request_handler(server, "tools/call")
         req = mcp_types.CallToolRequest(
             method="tools/call",
             params=mcp_types.CallToolRequestParams(
@@ -2016,14 +2045,14 @@ class TestGraphQueryConsolidation:
         )
         result = (await handler(req)).root
         assert isinstance(result, mcp_types.CallToolResult)
-        assert result.isError
+        assert result.is_error
 
     @pytest.mark.asyncio
     async def test_all_five_original_graph_tools_still_registered(self) -> None:
         server = build_server()
         from mcp import types as mcp_types
 
-        handler = server.request_handlers[mcp_types.ListToolsRequest]
+        handler = _mcp_request_handler(server, "tools/list")
         result = (await handler(mcp_types.ListToolsRequest(method="tools/list", params=None))).root
         assert isinstance(result, mcp_types.ListToolsResult)
         tool_names = {t.name for t in result.tools}
