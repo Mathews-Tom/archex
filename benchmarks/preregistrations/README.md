@@ -12,6 +12,7 @@ That proof only works for tracked files. This directory exists so it keeps worki
 | New pre-registrations | here, as `<spike-id>.md` |
 | S0 — external replication gate (Gate A) | Historical record identified by each S0 evidence artifact's `preregistration_commit` |
 | R19 — pinned Graft graph-memory comparison | `R19-graft-graph-memory-comparison.md`, here |
+| R20 — paired product-as-shipped agent-loop baseline | `R20-product-loop-agent-baseline.md`, here |
 
 S0's pre-registration remains identified by the immutable `preregistration` path and `preregistration_commit` stored in both evidence artifacts. Those commit references, the artifacts, and `tests/benchmark/test_s0_replication_artifacts.py` preserve provenance without requiring a local working-copy document in a fresh clone.
 
