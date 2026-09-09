@@ -19,7 +19,10 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from archex.benchmark.product_loop import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+
+
+from archex.benchmark.product_loop import (  # noqa: E402
     AGENT_MODEL,
     AGENT_NAME,
     AGENT_VERSION,
@@ -36,13 +39,17 @@ from archex.benchmark.product_loop import (
     ProductLoopCellStatus,
     ProductLoopError,
     ProductLoopFailureReason,
+    TranscriptSummary,
     assert_frozen_prompt,
+    build_cell_artifact,
     build_prompt,
     cell_filename,
+    classify_cell_failure,
     extract_answer_paths,
     instruction_block_digest,
     normalize_answer_path,
     preregistered_instruction_block,
+    read_hook_records,
     sanitize_document,
     score_completeness,
     summarize_transcript,
@@ -409,6 +416,168 @@ class TestArtifactContract:
     def test_repetition_beyond_the_frozen_count_is_rejected(self) -> None:
         with pytest.raises(ValidationError, match="exceeds the frozen"):
             ProductLoopCellArtifact.model_validate(_cell_payload(repetition=REPETITIONS + 1))
+
+
+class TestCellFailurePaths:
+    """A cell that cannot be measured must be retained, never abort the run."""
+
+    def _task(self) -> Any:
+        from archex.benchmark.models import BenchmarkTask
+
+        return BenchmarkTask(
+            task_id="celery_task_dispatch",
+            repo="celery/celery",
+            commit="v5.4.0",
+            question="q",
+            expected_files=["a.py", "b.py", "c.py"],
+        )
+
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            ProductLoopFailureReason.DEADLINE_EXCEEDED,
+            ProductLoopFailureReason.TRANSCRIPT_UNPARSABLE,
+        ],
+    )
+    def test_summaryless_failure_still_yields_a_valid_artifact(
+        self, tmp_path: Path, reason: ProductLoopFailureReason
+    ) -> None:
+        # Killing the process group at the deadline truncates the last
+        # stream-json line, so the summary is absent. If that path cannot build
+        # an artifact, the first timed-out cell aborts an unregenerable run.
+        artifact = build_cell_artifact(
+            task=self._task(),
+            arm=ProductLoopArm.ARCHEX,
+            repetition=1,
+            summary=None,
+            reason=reason,
+            detail="truncated",
+            repo_path=tmp_path,
+            setup_seconds=1.0,
+            wall_seconds=300.0,
+            hook_records=[],
+            freshness_state=None,
+            stale_index_event=False,
+            graft_cards_greppable=None,
+            mcp_command_original=None,
+            mcp_command_used=None,
+            provider_endpoint_overridden=False,
+        )
+        assert artifact.status is ProductLoopCellStatus.FAILED
+        assert artifact.failure_reason is reason
+        assert artifact.completeness == 0.0
+        assert artifact.modelled_cost_usd == 0.0
+        assert artifact.no_product_use is True
+
+    def test_partial_hook_log_line_is_skipped(self, tmp_path: Path) -> None:
+        (tmp_path / "hooks.jsonl").write_text(
+            '{"event": "PreToolUse", "stdin_bytes": 1, "stdout_bytes": 2, '
+            '"exit_code": 0, "latency_ms": 1.0, "augmented": true}\n'
+            '{"event": "PostToolUse", "stdin_by',
+            encoding="utf-8",
+        )
+        records = read_hook_records(tmp_path)
+        assert len(records) == 1
+        assert records[0].event == "PreToolUse"
+
+    @pytest.mark.parametrize(
+        ("timed_out", "tools", "mcp_status", "dropped", "is_error", "saw_result", "expected"),
+        [
+            (
+                True,
+                None,
+                "connected",
+                False,
+                False,
+                True,
+                ProductLoopFailureReason.DEADLINE_EXCEEDED,
+            ),
+            (False, None, "connected", False, True, True, ProductLoopFailureReason.AGENT_ERROR),
+            (False, None, "connected", False, False, False, ProductLoopFailureReason.AGENT_ERROR),
+            (False, None, "failed", False, False, True, ProductLoopFailureReason.MCP_DISCONNECTED),
+            (
+                False,
+                None,
+                "connected",
+                True,
+                False,
+                True,
+                ProductLoopFailureReason.MCP_DISCONNECTED,
+            ),
+            (
+                False,
+                [],
+                "connected",
+                False,
+                False,
+                True,
+                ProductLoopFailureReason.TOOL_PARITY_VIOLATION,
+            ),
+            (False, None, "connected", False, False, True, None),
+        ],
+    )
+    def test_failure_classification(
+        self,
+        timed_out: bool,
+        tools: list[str] | None,
+        mcp_status: str,
+        dropped: bool,
+        is_error: bool,
+        saw_result: bool,
+        expected: ProductLoopFailureReason | None,
+    ) -> None:
+        summary = TranscriptSummary(
+            tools_advertised=(
+                sorted(ProductLoopArm.ARCHEX.expected_tools) if tools is None else tools
+            ),
+            mcp_status=mcp_status,
+            mcp_dropped=dropped,
+            models_observed=[],
+            tool_call_mix={},
+            tool_calls=0,
+            product_tool_calls=0,
+            final_text="",
+            input_tokens=0,
+            output_tokens=0,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            modelled_cost_usd=0.0,
+            num_turns=1,
+            is_error=is_error,
+            error_text=None,
+            saw_result=saw_result,
+            rate_limited=False,
+        )
+        actual = classify_cell_failure(
+            timed_out=timed_out, summary=summary, arm=ProductLoopArm.ARCHEX
+        )
+        assert actual is expected
+
+    def test_rate_limit_outranks_a_generic_agent_error(self) -> None:
+        summary = TranscriptSummary(
+            tools_advertised=[],
+            mcp_status=None,
+            mcp_dropped=False,
+            models_observed=[],
+            tool_call_mix={},
+            tool_calls=0,
+            product_tool_calls=0,
+            final_text="",
+            input_tokens=0,
+            output_tokens=0,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            modelled_cost_usd=0.0,
+            num_turns=0,
+            is_error=True,
+            error_text="rate limit",
+            saw_result=True,
+            rate_limited=True,
+        )
+        assert (
+            classify_cell_failure(timed_out=False, summary=summary, arm=ProductLoopArm.ARCHEX)
+            is ProductLoopFailureReason.RATE_LIMITED
+        )
 
 
 class TestSanitization:

@@ -42,6 +42,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
+    from archex.benchmark.models import BenchmarkTask
+
 PREREGISTRATION_PATH = "benchmarks/preregistrations/R20-product-loop-agent-baseline.md"
 """Tracked contract this module implements; its commit precedes every cell."""
 
@@ -718,6 +720,179 @@ def _usage_counts(usage: JsonValue) -> dict[str, int]:
     return counts
 
 
+def read_hook_records(cell_dir: Path) -> list[HookRecord]:
+    """Read the instrumented hook boundary's rows, ignoring recorder anomalies."""
+    log = cell_dir / "hooks.jsonl"
+    if not log.is_file():
+        return []
+    records: list[HookRecord] = []
+    for line in log.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = as_json_object(decode_json(line))
+        except json.JSONDecodeError:
+            # Killing the process group can interrupt the recorder mid-write.
+            continue
+        if row is None or "recorder_error" in row:
+            continue
+        records.append(
+            HookRecord(
+                event=as_json_text(row.get("event")) or "",
+                matcher=as_json_text(row.get("matcher")),
+                tool_name=as_json_text(row.get("tool_name")),
+                stdin_bytes=as_json_int(row.get("stdin_bytes")),
+                stdout_bytes=as_json_int(row.get("stdout_bytes")),
+                exit_code=as_json_int(row.get("exit_code")),
+                latency_ms=as_json_float(row.get("latency_ms")),
+                augmented=row.get("augmented") is True,
+            )
+        )
+    return records
+
+
+def as_json_int(value: JsonValue) -> int:
+    """Read a recorded integer field, defaulting to zero rather than guessing."""
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
+def as_json_float(value: JsonValue) -> float:
+    """Read a recorded float field, defaulting to zero rather than guessing."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
+def classify_cell_failure(
+    *, timed_out: bool, summary: TranscriptSummary | None, arm: ProductLoopArm
+) -> ProductLoopFailureReason | None:
+    """Classify a cell that cannot be scored, in the pre-registered order."""
+    if timed_out:
+        return ProductLoopFailureReason.DEADLINE_EXCEEDED
+    if summary is None:
+        return ProductLoopFailureReason.TRANSCRIPT_UNPARSABLE
+    if summary.rate_limited:
+        return ProductLoopFailureReason.RATE_LIMITED
+    if not summary.saw_result or summary.is_error:
+        return ProductLoopFailureReason.AGENT_ERROR
+    if summary.mcp_status != "connected" or summary.mcp_dropped:
+        return ProductLoopFailureReason.MCP_DISCONNECTED
+    if sorted(summary.tools_advertised) != sorted(arm.expected_tools):
+        return ProductLoopFailureReason.TOOL_PARITY_VIOLATION
+    return None
+
+
+def build_cell_artifact(
+    *,
+    task: BenchmarkTask,
+    arm: ProductLoopArm,
+    repetition: int,
+    summary: TranscriptSummary | None,
+    reason: ProductLoopFailureReason | None,
+    detail: str | None,
+    repo_path: Path,
+    setup_seconds: float,
+    wall_seconds: float,
+    hook_records: list[HookRecord],
+    freshness_state: str | None,
+    stale_index_event: bool,
+    graft_cards_greppable: bool | None,
+    mcp_command_original: str | None,
+    mcp_command_used: str | None,
+    provider_endpoint_overridden: bool,
+) -> ProductLoopCellArtifact:
+    expected_count = len(task.expected_files)
+    common: dict[str, Any] = {
+        "instruction_block_sha256": INSTRUCTION_BLOCK_SHA256,
+        "task_id": task.task_id,
+        "repo": task.repo,
+        "commit": task.commit,
+        "arm": arm,
+        "repetition": repetition,
+        "agent_name": AGENT_NAME,
+        "agent_version": AGENT_VERSION,
+        "model_requested": AGENT_MODEL,
+        "billing_mode": BILLING_MODE,
+        "mcp_server": arm.mcp_server,
+        "expected_file_count": expected_count,
+        "setup_seconds": setup_seconds,
+        "wall_seconds": wall_seconds,
+        "freshness_state": freshness_state,
+        "stale_index_event": stale_index_event,
+        "hook_records": hook_records,
+        "hook_invocations": len(hook_records),
+        "graft_cards_greppable": graft_cards_greppable,
+        "mcp_command_original": mcp_command_original,
+        "mcp_command_used": mcp_command_used,
+        "provider_endpoint_overridden": provider_endpoint_overridden,
+    }
+    if summary is not None:
+        common |= {
+            "models_observed": summary.models_observed,
+            "mcp_status": summary.mcp_status,
+            "mcp_dropped": summary.mcp_dropped,
+            "tools_advertised": sorted(summary.tools_advertised),
+            "tool_calls": summary.tool_calls,
+            "tool_call_mix": summary.tool_call_mix,
+            "product_tool_calls": summary.product_tool_calls,
+            "no_product_use": summary.product_tool_calls == 0,
+            "input_tokens": summary.input_tokens,
+            "output_tokens": summary.output_tokens,
+            "cache_read_tokens": summary.cache_read_tokens,
+            "cache_creation_tokens": summary.cache_creation_tokens,
+            "modelled_cost_usd": summary.modelled_cost_usd,
+            "num_turns": summary.num_turns,
+        }
+
+    if reason is not None:
+        # A cell with no usable transcript still has to become a retained
+        # failure. Truncating the last stream-json line is the normal result of
+        # killing the process group at the deadline, so without these zero
+        # defaults the first timed-out cell would abort the whole run.
+        zeroed: dict[str, Any] = {
+            "tool_calls": 0,
+            "product_tool_calls": 0,
+            "no_product_use": True,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "modelled_cost_usd": 0.0,
+            "num_turns": 0,
+        }
+        return ProductLoopCellArtifact.model_validate(
+            zeroed
+            | common
+            | {
+                "status": ProductLoopCellStatus.FAILED,
+                "failure_reason": reason,
+                "failure_detail": detail,
+                "matched_file_count": 0,
+                "completeness": 0.0,
+                "answer_flag": ProductLoopAnswerFlag.ANSWER_UNPARSED,
+                "answer_paths": [],
+                "answer_path_count": 0,
+                "answer_precision": 0.0,
+            }
+        )
+
+    assert summary is not None  # noqa: S101 - _failure_reason returns None only with a summary
+    paths, flag = extract_answer_paths(summary.final_text, repo_root=repo_path)
+    matched = score_completeness(paths, task.expected_files) if paths else 0
+    completeness = 0.0 if flag is not ProductLoopAnswerFlag.SCORED else matched / expected_count
+    precision = (matched / len(paths)) if paths else 0.0
+    return ProductLoopCellArtifact.model_validate(
+        common
+        | {
+            "status": ProductLoopCellStatus.OK,
+            "matched_file_count": 0 if flag is not ProductLoopAnswerFlag.SCORED else matched,
+            "completeness": completeness,
+            "answer_flag": flag,
+            "answer_paths": paths,
+            "answer_path_count": len(paths),
+            "answer_precision": precision,
+        }
+    )
+
+
 def sanitize_document(document: str, *, replacements: Sequence[tuple[Path, str]]) -> str:
     """Replace machine paths with placeholders and refuse residual leaks.
 
@@ -803,6 +978,7 @@ def validate_product_loop_directory(
         for repetition in range(1, repetitions + 1)
     }
     seen: dict[tuple[ProductLoopArm, str, int], Path] = {}
+    costs: list[float] = []
     total_cost = 0.0
     ok_cells = 0
     failed_cells = 0
@@ -833,6 +1009,7 @@ def validate_product_loop_directory(
                 raise ProductLoopError(msg)
             seen[key] = path
             total_cost += artifact.modelled_cost_usd
+            costs.append(artifact.modelled_cost_usd)
             if artifact.status is ProductLoopCellStatus.OK:
                 ok_cells += 1
             else:
@@ -843,10 +1020,15 @@ def validate_product_loop_directory(
         example = sorted(f"{arm.value}/{task}#{rep}" for arm, task, rep in missing)[:5]
         msg = f"{len(missing)} planned cells are missing, for example {example}"
         raise ProductLoopError(msg)
-    if total_cost > cost_ceiling_usd + 1e-9:
+    # The runner aborts *before* starting a new cell, so the cell that crossed
+    # the ceiling is allowed to finish and be retained. Enforcing a hard ceiling
+    # here would reject exactly the partial evidence the protocol says to keep,
+    # so the allowance is the most expensive single cell actually recorded.
+    headroom = max(costs) if costs else 0.0
+    if total_cost > cost_ceiling_usd + headroom + 1e-9:
         msg = (
             f"recorded modelled cost {total_cost:.4f} exceeds the pre-registered "
-            f"ceiling {cost_ceiling_usd:.2f}"
+            f"ceiling {cost_ceiling_usd:.2f} by more than one cell"
         )
         raise ProductLoopError(msg)
 

@@ -31,35 +31,28 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 from archex.benchmark.models import BenchmarkTask
 from archex.benchmark.product_loop import (
     AGENT_MODEL,
     AGENT_NAME,
-    AGENT_VERSION,
     BASE_TOOLS,
-    BILLING_MODE,
     CELL_DEADLINE_SECONDS,
     DENIED_TOOLS,
-    INSTRUCTION_BLOCK_SHA256,
-    HookRecord,
-    JsonValue,
-    ProductLoopAnswerFlag,
     ProductLoopArm,
-    ProductLoopCellArtifact,
-    ProductLoopCellStatus,
     ProductLoopError,
-    ProductLoopFailureReason,
     TranscriptSummary,
     as_json_array,
+    as_json_float,
+    as_json_int,
     as_json_object,
     as_json_text,
+    build_cell_artifact,
     build_prompt,
+    classify_cell_failure,
     decode_json,
-    extract_answer_paths,
+    read_hook_records,
     sanitize_document,
-    score_completeness,
     summarize_transcript,
 )
 
@@ -148,41 +141,6 @@ def _run_agent(
         return stdout or "", process.returncode, True
 
 
-def _hook_records(cell_dir: Path) -> list[HookRecord]:
-    """Read the instrumented hook boundary's rows, ignoring recorder anomalies."""
-    log = cell_dir / "hooks.jsonl"
-    if not log.is_file():
-        return []
-    records: list[HookRecord] = []
-    for line in log.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = as_json_object(decode_json(line))
-        if row is None or "recorder_error" in row:
-            continue
-        records.append(
-            HookRecord(
-                event=as_json_text(row.get("event")) or "",
-                matcher=as_json_text(row.get("matcher")),
-                tool_name=as_json_text(row.get("tool_name")),
-                stdin_bytes=_as_int(row.get("stdin_bytes")),
-                stdout_bytes=_as_int(row.get("stdout_bytes")),
-                exit_code=_as_int(row.get("exit_code")),
-                latency_ms=_as_float(row.get("latency_ms")),
-                augmented=row.get("augmented") is True,
-            )
-        )
-    return records
-
-
-def _as_int(value: JsonValue) -> int:
-    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
-
-
-def _as_float(value: JsonValue) -> float:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
-
-
 def _probe_freshness(
     command: list[str], *, arm: ProductLoopArm, env: dict[str, str], cwd: Path
 ) -> tuple[str | None, bool]:
@@ -216,123 +174,6 @@ def _probe_freshness(
     return ("fresh" if ok else "stale"), not ok
 
 
-def _failure_reason(
-    *, timed_out: bool, summary: TranscriptSummary | None, arm: ProductLoopArm
-) -> ProductLoopFailureReason | None:
-    """Classify a cell that cannot be scored, in the pre-registered order."""
-    if timed_out:
-        return ProductLoopFailureReason.DEADLINE_EXCEEDED
-    if summary is None:
-        return ProductLoopFailureReason.TRANSCRIPT_UNPARSABLE
-    if summary.rate_limited:
-        return ProductLoopFailureReason.RATE_LIMITED
-    if not summary.saw_result or summary.is_error:
-        return ProductLoopFailureReason.AGENT_ERROR
-    if summary.mcp_status != "connected" or summary.mcp_dropped:
-        return ProductLoopFailureReason.MCP_DISCONNECTED
-    if sorted(summary.tools_advertised) != sorted(arm.expected_tools):
-        return ProductLoopFailureReason.TOOL_PARITY_VIOLATION
-    return None
-
-
-def _build_artifact(
-    *,
-    task: BenchmarkTask,
-    arm: ProductLoopArm,
-    repetition: int,
-    summary: TranscriptSummary | None,
-    reason: ProductLoopFailureReason | None,
-    detail: str | None,
-    repo_path: Path,
-    setup_seconds: float,
-    wall_seconds: float,
-    hook_records: list[HookRecord],
-    freshness_state: str | None,
-    stale_index_event: bool,
-    graft_cards_greppable: bool | None,
-    mcp_command_original: str | None,
-    mcp_command_used: str | None,
-    provider_endpoint_overridden: bool,
-) -> ProductLoopCellArtifact:
-    expected_count = len(task.expected_files)
-    common: dict[str, Any] = {
-        "instruction_block_sha256": INSTRUCTION_BLOCK_SHA256,
-        "task_id": task.task_id,
-        "repo": task.repo,
-        "commit": task.commit,
-        "arm": arm,
-        "repetition": repetition,
-        "agent_name": AGENT_NAME,
-        "agent_version": AGENT_VERSION,
-        "model_requested": AGENT_MODEL,
-        "billing_mode": BILLING_MODE,
-        "mcp_server": arm.mcp_server,
-        "expected_file_count": expected_count,
-        "setup_seconds": setup_seconds,
-        "wall_seconds": wall_seconds,
-        "freshness_state": freshness_state,
-        "stale_index_event": stale_index_event,
-        "hook_records": hook_records,
-        "hook_invocations": len(hook_records),
-        "graft_cards_greppable": graft_cards_greppable,
-        "mcp_command_original": mcp_command_original,
-        "mcp_command_used": mcp_command_used,
-        "provider_endpoint_overridden": provider_endpoint_overridden,
-    }
-    if summary is not None:
-        common |= {
-            "models_observed": summary.models_observed,
-            "mcp_status": summary.mcp_status,
-            "mcp_dropped": summary.mcp_dropped,
-            "tools_advertised": sorted(summary.tools_advertised),
-            "tool_calls": summary.tool_calls,
-            "tool_call_mix": summary.tool_call_mix,
-            "product_tool_calls": summary.product_tool_calls,
-            "no_product_use": summary.product_tool_calls == 0,
-            "input_tokens": summary.input_tokens,
-            "output_tokens": summary.output_tokens,
-            "cache_read_tokens": summary.cache_read_tokens,
-            "cache_creation_tokens": summary.cache_creation_tokens,
-            "modelled_cost_usd": summary.modelled_cost_usd,
-            "num_turns": summary.num_turns,
-        }
-
-    if reason is not None:
-        return ProductLoopCellArtifact.model_validate(
-            common
-            | {
-                "status": ProductLoopCellStatus.FAILED,
-                "failure_reason": reason,
-                "failure_detail": detail,
-                "matched_file_count": 0,
-                "completeness": 0.0,
-                "answer_flag": ProductLoopAnswerFlag.ANSWER_UNPARSED,
-                "answer_paths": [],
-                "answer_path_count": 0,
-                "answer_precision": 0.0,
-                "no_product_use": common.get("no_product_use", True),
-            }
-        )
-
-    assert summary is not None  # noqa: S101 - _failure_reason returns None only with a summary
-    paths, flag = extract_answer_paths(summary.final_text, repo_root=repo_path)
-    matched = score_completeness(paths, task.expected_files) if paths else 0
-    completeness = 0.0 if flag is not ProductLoopAnswerFlag.SCORED else matched / expected_count
-    precision = (matched / len(paths)) if paths else 0.0
-    return ProductLoopCellArtifact.model_validate(
-        common
-        | {
-            "status": ProductLoopCellStatus.OK,
-            "matched_file_count": 0 if flag is not ProductLoopAnswerFlag.SCORED else matched,
-            "completeness": completeness,
-            "answer_flag": flag,
-            "answer_paths": paths,
-            "answer_path_count": len(paths),
-            "answer_precision": precision,
-        }
-    )
-
-
 def main() -> int:
     payload = as_json_object(decode_json(sys.stdin.read()))
     if payload is None:
@@ -340,7 +181,7 @@ def main() -> int:
         raise ProductLoopError(message)
     task = BenchmarkTask.model_validate(payload["task"])
     arm = ProductLoopArm(as_json_text(payload["arm"]))
-    repetition = _as_int(payload["repetition"])
+    repetition = as_json_int(payload["repetition"])
     cell_dir = Path(as_json_text(payload["cell_dir"]) or "")
     repo_path = Path(as_json_text(payload["repo_path"]) or "")
     binary = as_json_text(payload.get("agent_binary")) or AGENT_NAME
@@ -364,7 +205,7 @@ def main() -> int:
     except ProductLoopError as exc:
         detail = str(exc)
 
-    reason = _failure_reason(timed_out=timed_out, summary=summary, arm=arm)
+    reason = classify_cell_failure(timed_out=timed_out, summary=summary, arm=arm)
     if reason is not None and detail is None:
         if summary is not None and summary.error_text:
             detail = summary.error_text
@@ -383,7 +224,7 @@ def main() -> int:
         cwd=repo_path,
     )
 
-    artifact = _build_artifact(
+    artifact = build_cell_artifact(
         task=task,
         arm=arm,
         repetition=repetition,
@@ -391,9 +232,9 @@ def main() -> int:
         reason=reason,
         detail=detail,
         repo_path=repo_path,
-        setup_seconds=_as_float(payload.get("setup_seconds")),
+        setup_seconds=as_json_float(payload.get("setup_seconds")),
         wall_seconds=wall_seconds,
-        hook_records=_hook_records(cell_dir),
+        hook_records=read_hook_records(cell_dir),
         freshness_state=freshness_state,
         stale_index_event=stale_index_event,
         graft_cards_greppable=(
