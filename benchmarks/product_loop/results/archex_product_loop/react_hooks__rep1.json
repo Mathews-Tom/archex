@@ -1,0 +1,141 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 6,
+  "answer_paths": [
+    "packages/react/src/ReactHooks.js",
+    "packages/react-reconciler/src/ReactFiberHooks.js",
+    "packages/react/src/ReactSharedInternalsClient.js",
+    "packages/react-reconciler/src/ReactFiber.js",
+    "packages/react-reconciler/src/ReactFiberWorkLoop.js",
+    "packages/react-reconciler/src/ReactFiberLane.js"
+  ],
+  "answer_precision": 0.3333333333333333,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 17940,
+  "cache_read_tokens": 162440,
+  "commit": "v19.0.0",
+  "completeness": 1.0,
+  "expected_file_count": 2,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 7,
+  "hook_records": [
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 308.570499997586,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 768,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 308.29829105641693,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 768,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 362.2114169411361,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 773,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 364.53491705469787,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 829,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 376.60879199393094,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 807,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 359.0804999694228,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 806,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 359.7068329108879,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 800,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    }
+  ],
+  "input_tokens": 81,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 2,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.070077,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": true,
+  "num_turns": 15,
+  "output_tokens": 3367,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 0,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.27,
+  "repetition": 1,
+  "repo": "facebook/react",
+  "setup_seconds": 4.927370416000485,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "react_hooks",
+  "tool_call_mix": {
+    "Glob": 6,
+    "Grep": 1,
+    "Read": 7
+  },
+  "tool_calls": 14,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 50.83779262495227
+}
