@@ -1,0 +1,100 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 5,
+  "answer_paths": [
+    "lib/router/index.js",
+    "lib/router/layer.js",
+    "lib/application.js",
+    "lib/router/route.js",
+    "lib/middleware/init.js"
+  ],
+  "answer_precision": 0.6,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 22156,
+  "cache_read_tokens": 63373,
+  "commit": "4.21.2",
+  "completeness": 1.0,
+  "expected_file_count": 3,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 3,
+  "hook_records": [
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 361.07958294451237,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 666,
+      "stdout_bytes": 297,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 412.88416692987084,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 719,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 427.5754999835044,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 719,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    }
+  ],
+  "input_tokens": 43,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 3,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.0630643,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": true,
+  "num_turns": 10,
+  "output_tokens": 2266,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 0,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.14,
+  "repetition": 3,
+  "repo": "expressjs/express",
+  "setup_seconds": 5.976573500083759,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "express_error_handling",
+  "tool_call_mix": {
+    "Glob": 1,
+    "Grep": 2,
+    "Read": 6
+  },
+  "tool_calls": 9,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 34.394375999923795
+}

@@ -1,6 +1,6 @@
 # R20 — paired product-as-shipped agent-loop baseline
 
-This directory holds the raw per-cell artifacts for R20. The protocol is frozen in [`../preregistrations/R20-product-loop-agent-baseline.md`](../preregistrations/R20-product-loop-agent-baseline.md), which merged before the first cell existed; that document, not this one, is authoritative for every measurement decision.
+This directory holds the raw per-cell artifacts for R20. The published reading is [`R20_BASELINE.md`](R20_BASELINE.md). The protocol is frozen in [`../preregistrations/R20-product-loop-agent-baseline.md`](../preregistrations/R20-product-loop-agent-baseline.md), which merged before the first cell existed; that document, not this one, is authoritative for every measurement decision.
 
 ## What is measured
 

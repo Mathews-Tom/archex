@@ -1,0 +1,90 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 5,
+  "answer_paths": [
+    "django/core/handlers/base.py",
+    "django/core/handlers/wsgi.py",
+    "django/core/handlers/exception.py",
+    "django/utils/deprecation.py",
+    "django/middleware/common.py"
+  ],
+  "answer_precision": 0.6,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 19190,
+  "cache_read_tokens": 46781,
+  "commit": "5.1.4",
+  "completeness": 1.0,
+  "expected_file_count": 3,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 2,
+  "hook_records": [
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 547.8459580335766,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 698,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 485.57558294851333,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 643,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    }
+  ],
+  "input_tokens": 33,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 3,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.0549791,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": true,
+  "num_turns": 8,
+  "output_tokens": 2167,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 0,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.11,
+  "repetition": 1,
+  "repo": "django/django",
+  "setup_seconds": 7.0281539160059765,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "django_middleware",
+  "tool_call_mix": {
+    "Glob": 1,
+    "Grep": 1,
+    "Read": 5
+  },
+  "tool_calls": 7,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 28.6926280829357
+}

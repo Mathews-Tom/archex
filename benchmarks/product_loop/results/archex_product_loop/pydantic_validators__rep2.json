@@ -1,0 +1,158 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 3,
+  "answer_paths": [
+    "pydantic/functional_validators.py",
+    "pydantic/_internal/_decorators.py",
+    "pydantic/_internal/_generate_schema.py"
+  ],
+  "answer_precision": 0.3333333333333333,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 34474,
+  "cache_read_tokens": 223720,
+  "commit": "v2.10.5",
+  "completeness": 0.3333333333333333,
+  "expected_file_count": 3,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 9,
+  "hook_records": [
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 305.29574991669506,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 792,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 305.1323329564184,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 792,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 428.25858294963837,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 798,
+      "stdout_bytes": 505,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 369.6838340256363,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 859,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 390.6110420357436,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 887,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 499.66804194264114,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 852,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 362.60524997487664,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 931,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 387.7249590586871,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 925,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 407.9921670490876,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 959,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    }
+  ],
+  "input_tokens": 81,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 1,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.11118499999999999,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": true,
+  "num_turns": 17,
+  "output_tokens": 3745,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 0,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.24,
+  "repetition": 2,
+  "repo": "pydantic/pydantic",
+  "setup_seconds": 5.479938374948688,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "pydantic_validators",
+  "tool_call_mix": {
+    "Glob": 3,
+    "Grep": 6,
+    "Read": 7
+  },
+  "tool_calls": 16,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 58.20872870902531
+}

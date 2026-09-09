@@ -1,0 +1,132 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 4,
+  "answer_paths": [
+    "src/_pytest/fixtures.py",
+    "src/_pytest/python.py",
+    "src/_pytest/config/__init__.py",
+    "src/_pytest/nodes.py"
+  ],
+  "answer_precision": 0.5,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 27116,
+  "cache_read_tokens": 187889,
+  "commit": "8.3.4",
+  "completeness": 1.0,
+  "expected_file_count": 2,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 6,
+  "hook_records": [
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 442.5941250519827,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 889,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 470.73195897974074,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 881,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 363.95958298817277,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 870,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 363.16937499213964,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 792,
+      "stdout_bytes": 519,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 366.0854590125382,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 889,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 367.6179579924792,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 868,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    }
+  ],
+  "input_tokens": 77,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 2,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.0906079,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": false,
+  "num_turns": 13,
+  "output_tokens": 3293,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 5,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.25,
+  "repetition": 1,
+  "repo": "pytest-dev/pytest",
+  "setup_seconds": 4.742477749940008,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "pytest_fixtures",
+  "tool_call_mix": {
+    "Glob": 1,
+    "Grep": 5,
+    "Read": 1,
+    "mcp__archex__context": 1,
+    "mcp__archex__get_file_outline": 3,
+    "mcp__archex__get_file_tree": 1
+  },
+  "tool_calls": 12,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 60.241163500002585
+}

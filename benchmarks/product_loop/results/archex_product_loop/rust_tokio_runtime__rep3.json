@@ -1,0 +1,171 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 6,
+  "answer_paths": [
+    "tokio/src/runtime/scheduler/multi_thread/worker.rs",
+    "tokio/src/runtime/scheduler/multi_thread/queue.rs",
+    "tokio/src/runtime/scheduler/multi_thread/mod.rs",
+    "tokio/src/runtime/scheduler/multi_thread/park.rs",
+    "tokio/src/runtime/scheduler/multi_thread/handle.rs",
+    "tokio/src/runtime/scheduler/current_thread/mod.rs"
+  ],
+  "answer_precision": 0.5,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 17554,
+  "cache_read_tokens": 240057,
+  "commit": "tokio-1.42.0",
+  "completeness": 1.0,
+  "expected_file_count": 3,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 10,
+  "hook_records": [
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 335.65616700798273,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 789,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 503.2787920208648,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 804,
+      "stdout_bytes": 593,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 363.42091590631753,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 807,
+      "stdout_bytes": 593,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 368.54850000236183,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 801,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 361.4952500211075,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 796,
+      "stdout_bytes": 585,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 359.7940410254523,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 792,
+      "stdout_bytes": 579,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 450.66754100844264,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 764,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 369.3204999435693,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 773,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 334.1248750220984,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 799,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 493.58491599559784,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 744,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    }
+  ],
+  "input_tokens": 145,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 3,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.0810577,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": true,
+  "num_turns": 17,
+  "output_tokens": 4148,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 0,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.29,
+  "repetition": 3,
+  "repo": "tokio-rs/tokio",
+  "setup_seconds": 4.438241042080335,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "rust_tokio_runtime",
+  "tool_call_mix": {
+    "Glob": 7,
+    "Grep": 3,
+    "Read": 6
+  },
+  "tool_calls": 16,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 71.21885425003711
+}

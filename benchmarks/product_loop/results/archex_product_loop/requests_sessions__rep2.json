@@ -1,0 +1,150 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 5,
+  "answer_paths": [
+    "src/requests/sessions.py",
+    "src/requests/adapters.py",
+    "src/requests/api.py",
+    "src/requests/models.py",
+    "src/requests/cookies.py"
+  ],
+  "answer_precision": 0.6,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 26225,
+  "cache_read_tokens": 375557,
+  "commit": "v2.32.3",
+  "completeness": 1.0,
+  "expected_file_count": 3,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 8,
+  "hook_records": [
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 333.2805420504883,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 643,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 364.8059170227498,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 855,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 365.60962500516325,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 859,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 519.8640410089865,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 846,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 376.6348339850083,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 856,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 357.9774999525398,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 848,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 448.7313750432804,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 876,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 393.73520901426673,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 658,
+      "stdout_bytes": 495,
+      "tool_name": "Glob"
+    }
+  ],
+  "input_tokens": 155,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 3,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.11771869999999998,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": true,
+  "num_turns": 19,
+  "output_tokens": 5300,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 0,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.28,
+  "repetition": 2,
+  "repo": "psf/requests",
+  "setup_seconds": 4.372163166059181,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "requests_sessions",
+  "tool_call_mix": {
+    "Glob": 2,
+    "Grep": 6,
+    "Read": 10
+  },
+  "tool_calls": 18,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 80.35035391699057
+}
