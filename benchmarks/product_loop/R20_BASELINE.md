@@ -4,7 +4,9 @@ Frozen protocol: [`../preregistrations/R20-product-loop-agent-baseline.md`](../p
 
 ## What ran
 
-114 of 114 planned cells: 2 arms × 19 tasks × 3 repetitions. 113 scored, 1 recorded failure retained. Total modelled cost `$7.74` against the `$25` ceiling; the run used the operator's OAuth subscription, so no dollars were billed and every cost figure here is Claude Code's list-price arithmetic over recorded tokens. Claude Code `2.1.266` on `claude-haiku-4-5`, one ambient tool fingerprint across every scored cell.
+Archex source revision `e0300bae`, clean tree. 114 of 114 planned cells: 2 arms × 19 tasks × 3 repetitions. 113 scored, 1 recorded failure retained. Total modelled cost `$7.74` against the `$25` ceiling; the run used the operator's OAuth subscription, so no dollars were billed and every cost figure here is Claude Code's list-price arithmetic over recorded tokens. Claude Code `2.1.266` on `claude-haiku-4-5`, one ambient tool fingerprint across every scored cell.
+
+The agent version held for the whole run, and that took work. Claude Code auto-updated to `2.1.267` between the protocol corrections and the measured run, and the frozen version kill criterion fired and stopped the suite rather than silently measuring a different agent. The run was then executed against a fixed path pinned to the `2.1.266` build with auto-update disabled for its duration, and auto-update was restored afterwards. The harness now re-checks the version before every cell rather than once per sweep, so the same incident mid-campaign would abort instead of splitting the population across two agents.
 
 ## Primary result
 
@@ -44,7 +46,7 @@ This is an adoption result, not a retrieval-quality result. It says the shipped 
 
 ## Pre-declared secondary, exploratory
 
-Restricted to cells that actually called the arm's product, the difference is `−0.1270` with interval `[−0.2593, −0.0278]`. Read this with care and do not quote it as a head-to-head result: it compares all 114 Graft cells against the 18 Archex cells (15.8%) in which the agent chose to use Archex, which is a self-selected subset, not a randomised contrast. It is reported because the pre-registration required the product-using view, and because the selection effect is itself the point — the Archex cells that used Archex are the hard ones where `Grep` was not enough.
+Restricted to cells that actually called the arm's product, the difference is `−0.1270` with interval `[−0.2593, −0.0278]`. Read this with care and do not quote it as a head-to-head result: it compares all 57 Graft cells against the 9 Archex cells (15.8%) in which the agent chose to use Archex, which is a self-selected subset, not a randomised contrast. Only 7 of the 19 tasks, over 6 repositories, have a product-using cell on both arms and therefore enter that comparison at all. It is reported because the pre-registration required the product-using view, and because the selection effect is itself the point — the Archex cells that used Archex are the hard ones where `Grep` was not enough.
 
 Efficiency over the 43 both-complete comparison units moves in the same direction as over all cells: `10.37` vs `5.91` tool calls, `157 699` vs `89 427` tokens, `41.5 s` vs `28.8 s`, `$0.0817` vs `$0.0506`. Because repetitions are unseeded, a unit is an index alignment, not a matched pair.
 
