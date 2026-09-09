@@ -26,7 +26,7 @@ The competitive report is a richer view of the same artifacts, grouped by repo/t
 uv run archex benchmark headtohead competitive --input benchmarks/headtohead/results --format markdown
 ```
 
-It models lanes by `layer_type` (`retrieval`/`graph-memory`/`compression`/`baseline`) so graph/memory and compression layers are never presented as direct retrieval engines. The checked-in public artifact set now includes the benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`), both Graphify follow-up lanes, and the original `archex` / `ccc` / raw-ripgrep/read lanes. Headroom-style compression lanes appear in the public report when operator artifacts are present.
+It models lanes by `layer_type` (`retrieval`/`graph-memory`/`compression`/`baseline`) so graph/memory and compression layers are never presented as direct retrieval engines. The checked-in public artifact set now includes the benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`), both Graphify lanes, both pinned Graft lanes, and the original `archex` / `ccc` / raw-ripgrep/read lanes. Headroom-style compression lanes appear in the public report when operator artifacts are present.
 
 ## Graph-memory lanes
 
@@ -49,9 +49,9 @@ Local reproduction of one lane uses the adapter contract in `scripts/run_graphif
 
 Graphify token-efficiency cells in the public reports count the graph reference listing returned by `graphify query`, not returned source code. They are useful as within-lane efficiency signals, but they are not bundle-for-bundle comparisons against archex or `ccc`.
 
-### Graft (pinned adapter, evidence pending)
+### Graft
 
-Graft is the second graph-memory tool in this harness. Its protocol is frozen in [`benchmarks/preregistrations/R19-graft-graph-memory-comparison.md`](../preregistrations/R19-graft-graph-memory-comparison.md), which merged before any Graft cell was generated. The adapter, the two manifest lanes (`graft_build_plus_query`, `graft_query_warm`), and the operator runner exist; **no Graft artifact or number exists yet**, so both lanes are absent from the report until all 19 task artifacts are checked in for each mode.
+Graft is the second graph-memory tool in this harness. Its protocol was frozen in [`benchmarks/preregistrations/R19-graft-graph-memory-comparison.md`](../preregistrations/R19-graft-graph-memory-comparison.md), which merged before any Graft cell was generated, and the result plus the terminal decision are recorded in [`GRAFT_COMPARISON_R19.md`](GRAFT_COMPARISON_R19.md) with a re-derivable analysis at [`benchmarks/evidence/r19-graft-graph-memory-comparison.json`](../evidence/r19-graft-graph-memory-comparison.json). Both lanes (`graft_build_plus_query`, `graft_query_warm`) carry all 19 task artifacts with no recorded failures; nothing in that comparison changed an archex retrieval default, in either direction.
 
 The pin is the released package `@nanonets/graft@0.16.0` (npm integrity `sha512-L3E5F1aDYJDCARgfR7O2VaMt8xwO1XNYyHiW2n1WhKnj87gPqoxoZJGNbGXfw6XeA9JSJX3naA36RZ+jDf4AcQ==`, MIT), whose `gitHead` `aa1e2bb0f6326068ac64886da1e67fa25a7804de` is the commit tagged `v0.16.0`. A source checkout declaring an unpublished version is not a released artifact and is not pinnable. `src/archex/benchmark/graft.py` holds that pinned identity as constants and rejects any artifact that disagrees with it.
 
@@ -67,7 +67,9 @@ One cell is produced by `scripts/run_graft_headtohead_lane.py`, which reads the 
 
 Every Graft artifact records the pinned package, npm integrity, source commit, command shape, `ask` output digest, timing mode, extraction tier, Graft's own query mode, the rank basis, the freshness source, the returned-unit split (symbol vs whole-file hits), and the returned-source count. Whole-file hits name a required file but carry no source even under `--source`, so they count toward required-file recall and contribute nothing to the returned-source and token-efficiency cells. A cell that could not be measured is retained as an explicit failure artifact with zeroed metrics and a reason; it is never dropped.
 
-Graft, like Graphify, will be reported as a graph-memory lane and never as a direct retrieval-equivalent winner, and no result from it may change an archex retrieval default.
+The suite driver `scripts/run_graft_headtohead_suite.py` runs both modes for every manifest task, preparing each task checkout exactly as the other lanes do (pinned commit, `include_paths` slice) and rejecting any artifact that leaks an absolute path.
+
+Graft, like Graphify, is reported as a graph-memory lane and never as a direct retrieval-equivalent winner, and no result from it may change an archex retrieval default.
 
 ## Headroom is a compression layer, not a retrieval engine
 

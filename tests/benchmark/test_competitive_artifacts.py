@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from statistics import mean
+
+import pytest
 
 from archex.benchmark.competitive import format_competitive_markdown, load_compression_results
+from archex.benchmark.graft import (
+    GRAFT_NPM_INTEGRITY,
+    GRAFT_SOURCE_COMMIT,
+    graft_extraction_tier,
+)
 from archex.benchmark.headtohead import (
     load_headtohead_manifest,
     load_headtohead_results,
     reports_with_graph_memory_lanes,
+    select_headtohead_tasks,
 )
 from archex.benchmark.models import (
     BenchmarkReport,
@@ -25,6 +34,18 @@ from archex.benchmark.models import (
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "headroom_artifacts"
 _RESULTS_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "headtohead" / "results"
+_EVIDENCE = (
+    Path(__file__).resolve().parents[2]
+    / "benchmarks"
+    / "evidence"
+    / "r19-graft-graph-memory-comparison.json"
+)
+_GRAPH_MEMORY_LANE_DIRS = (
+    "graphify_build_plus_query",
+    "graphify_query_warm",
+    "graft_build_plus_query",
+    "graft_query_warm",
+)
 
 
 def _manifest_with_headroom() -> HeadToHeadManifest:
@@ -271,20 +292,130 @@ def test_checked_in_headtohead_artifacts_validate_and_render() -> None:
     assert "| ccc | retrieval |" in output
     assert "| graphify_build_plus_query | graph-memory |" in output
     assert "| graphify_query_warm | graph-memory |" in output
+    assert "| graft_build_plus_query | graph-memory |" in output
+    assert "| graft_query_warm | graph-memory |" in output
     assert "| raw-ripgrep/read | baseline |" in output
     assert "## Aggregate (19 tasks)" in output
     assert "## By task family" in output
     assert "## By repo" in output
+    assert "package=@nanonets/graft; version=0.16.0; mode=build+query" in output
+    assert "package=@nanonets/graft; version=0.16.0; mode=warm-query" in output
 
 
 def test_checked_in_artifacts_have_no_absolute_path_leaks() -> None:
     artifact_paths = sorted(_RESULTS_DIR.glob("*.json"))
-    artifact_paths += sorted((_RESULTS_DIR / "graphify_build_plus_query").glob("*.json"))
-    artifact_paths += sorted((_RESULTS_DIR / "graphify_query_warm").glob("*.json"))
+    for lane in _GRAPH_MEMORY_LANE_DIRS:
+        artifact_paths += sorted((_RESULTS_DIR / lane).glob("*.json"))
     for path in artifact_paths:
         text = path.read_text(encoding="utf-8")
         assert "/Users/" not in text, path.name
         assert "/home/" not in text, path.name
         assert "/private/" not in text, path.name
+        assert "/tmp/" not in text, path.name
         if path.parent == _RESULTS_DIR:
             BenchmarkReport.model_validate(json.loads(text))
+
+
+def test_checked_in_graph_memory_lanes_cover_every_task() -> None:
+    task_ids = {report.task_id for report in load_headtohead_results(_RESULTS_DIR)}
+
+    for lane in _GRAPH_MEMORY_LANE_DIRS:
+        covered = {path.stem for path in (_RESULTS_DIR / lane).glob("*.json")}
+        assert covered == task_ids, lane
+
+
+def test_checked_in_graft_artifacts_carry_pinned_provenance() -> None:
+    manifest = load_headtohead_manifest(_RESULTS_DIR / "manifest.yaml")
+    reports = reports_with_graph_memory_lanes(manifest, load_headtohead_results(_RESULTS_DIR))
+
+    graft_results = [
+        result
+        for report in reports
+        for result in report.results
+        if (result.strategy_label or "").startswith("graft_")
+    ]
+
+    # 2 modes x 19 tasks, every cell recorded, none dropped.
+    assert len(graft_results) == 38
+    for result in graft_results:
+        assert result.provenance["graph_memory_package"] == "@nanonets/graft"
+        assert result.provenance["external_tool_version"] == "0.16.0"
+        assert result.provenance["graft_npm_integrity"] == GRAFT_NPM_INTEGRITY
+        assert result.provenance["graft_source_commit"] == GRAFT_SOURCE_COMMIT
+        assert result.provenance["graft_rank_basis"] == "emitted_hits_order"
+        assert result.provenance["graft_freshness_source"] == "check_json_graph"
+        assert result.provenance["graft_no_refresh"] == "true"
+        assert result.provenance["graft_deep_summaries"] == "false"
+        assert result.provenance["graft_telemetry_disabled"] == "true"
+        assert result.provenance["graft_result_cardinality"] == "10"
+        assert result.provenance["graft_extraction_tier"] in {"depth", "breadth"}
+        assert len(result.provenance["graft_output_digest"]) == 64
+
+    tiers = [result.provenance["graft_extraction_tier"] for result in graft_results]
+    # 17 depth-tier and 2 breadth-tier (Rust) tasks per mode, as the protocol froze.
+    assert tiers.count("depth") == 34
+    assert tiers.count("breadth") == 4
+
+
+def test_checked_in_graft_artifact_tiers_match_each_task_language() -> None:
+    """A swapped tier keeps the depth/breadth counts intact but corrupts the subset.
+
+    The pre-declared secondary analysis is restricted to the depth-tier tasks, so each
+    cell's tier has to match the languages its own task declares, not just aggregate.
+    """
+    manifest = load_headtohead_manifest(_RESULTS_DIR / "manifest.yaml")
+    tasks_dir = Path(__file__).resolve().parents[2] / "benchmarks" / "tasks"
+    expected = {
+        task.task_id: graft_extraction_tier(task.languages).value
+        for task in select_headtohead_tasks(manifest, tasks_dir)
+    }
+    reports = reports_with_graph_memory_lanes(manifest, load_headtohead_results(_RESULTS_DIR))
+
+    observed = {
+        (report.task_id, result.strategy_label): result.provenance["graft_extraction_tier"]
+        for report in reports
+        for result in report.results
+        if (result.strategy_label or "").startswith("graft_")
+    }
+
+    assert len(observed) == 38
+    for (task_id, _lane), tier in observed.items():
+        assert tier == expected[task_id]
+
+
+def test_checked_in_graft_analysis_matches_the_artifacts() -> None:
+    analysis = json.loads(_EVIDENCE.read_text(encoding="utf-8"))
+    manifest = load_headtohead_manifest(_RESULTS_DIR / "manifest.yaml")
+    reports = reports_with_graph_memory_lanes(manifest, load_headtohead_results(_RESULTS_DIR))
+
+    treatment = [
+        result
+        for report in reports
+        for result in report.results
+        if result.strategy_label == "graft_query_warm"
+    ]
+    control = [
+        result
+        for report in reports
+        for result in report.results
+        if result.strategy is Strategy.ARCHEX_QUERY
+    ]
+
+    assert analysis["primary"]["tasks"] == len(treatment) == len(control) == 19
+    assert analysis["primary"]["clusters"] == 15
+    assert analysis["coverage"]["recorded_failures"] == 0
+    assert analysis["bootstrap"] == {"resamples": 10000, "seed": 20260909, "unit": "repository"}
+    assert analysis["margins"] == {
+        "minimum_worthwhile_gain": 0.05,
+        "non_inferiority": -0.05,
+        "equivalence": 0.03,
+    }
+    assert analysis["primary"]["treatment_mean"] == pytest.approx(  # pyright: ignore[reportUnknownMemberType]
+        mean(result.required_file_recall for result in treatment)
+    )
+    assert analysis["primary"]["control_mean"] == pytest.approx(  # pyright: ignore[reportUnknownMemberType]
+        mean(result.required_file_recall for result in control)
+    )
+    assert analysis["primary"]["mean_difference"] == pytest.approx(  # pyright: ignore[reportUnknownMemberType]
+        analysis["primary"]["treatment_mean"] - analysis["primary"]["control_mean"]
+    )
