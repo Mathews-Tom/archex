@@ -1,4 +1,4 @@
-"""Tests for the Graphify competitive-lane adapter."""
+"""Tests for the Graphify graph-memory comparison-lane adapter."""
 
 from __future__ import annotations
 
@@ -8,17 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from archex.benchmark.graphify import (
-    GraphifyAdapterError,
-    GraphifyUnavailableError,
-    load_graphify_artifact,
-    load_graphify_results,
-    run_graphify_lane,
+from archex.benchmark.graph_memory import (
+    GraphMemoryAdapterError,
+    GraphMemoryUnavailableError,
 )
+from archex.benchmark.graphify import load_graphify_artifact, run_graphify_lane
+from archex.benchmark.headtohead import load_graph_memory_results
 from archex.benchmark.models import (
     BenchmarkTask,
-    GraphifyLaneConfig,
-    GraphifyLaneName,
+    GraphMemoryLaneConfig,
+    GraphMemoryLaneMode,
+    GraphMemoryTool,
     Strategy,
     TaskCompletionResult,
 )
@@ -37,18 +37,18 @@ def _task() -> BenchmarkTask:
 
 def _config(
     *,
-    lane: str = "graphify_build_plus_query",
-    includes_build_cost: bool = True,
+    mode: GraphMemoryLaneMode = GraphMemoryLaneMode.BUILD_PLUS_QUERY,
     command: str,
     args: list[str] | None = None,
     artifact_dir: Path | None = None,
-) -> GraphifyLaneConfig:
-    return GraphifyLaneConfig(
-        name=GraphifyLaneName(lane),
+) -> GraphMemoryLaneConfig:
+    return GraphMemoryLaneConfig(
+        tool=GraphMemoryTool.GRAPHIFY,
+        mode=mode,
+        package_name="graphifyy",
         version="0.8.44",
         command=command,
         args=args or [],
-        includes_build_cost=includes_build_cost,
         artifact_dir=str(artifact_dir) if artifact_dir is not None else None,
     )
 
@@ -157,19 +157,18 @@ def test_run_graphify_lane_local_records_provenance_and_build_label(tmp_path: Pa
     assert result.warm_latency_ms == 315.0
     assert result.provenance["external_tool"] == "graphify_build_plus_query"
     assert result.provenance["external_tool_version"] == "0.8.44"
-    assert result.provenance["graphify_run_mode"] == "local"
-    assert result.provenance["graphify_includes_build_cost"] == "true"
-    assert "graphify query" in result.provenance["graphify_command"]
+    assert result.provenance["graph_memory_run_mode"] == "local"
+    assert result.provenance["graph_memory_includes_build_cost"] == "true"
+    assert "graphify query" in result.provenance["graph_memory_command"]
 
 
 def test_run_graphify_lane_raises_when_unavailable_without_artifact_mode() -> None:
     config = _config(
         command="archex-graphify-missing-binary",
-        lane="graphify_query_warm",
-        includes_build_cost=False,
+        mode=GraphMemoryLaneMode.QUERY_WARM,
     )
 
-    with pytest.raises(GraphifyUnavailableError, match="artifact_dir"):
+    with pytest.raises(GraphMemoryUnavailableError, match="artifact_dir"):
         run_graphify_lane(config, task=_task(), repo_path=Path("."))
 
 
@@ -182,8 +181,7 @@ def test_run_graphify_lane_uses_artifact_mode_without_binary(tmp_path: Path) -> 
     )
     config = _config(
         command="archex-graphify-missing-binary",
-        lane="graphify_query_warm",
-        includes_build_cost=False,
+        mode=GraphMemoryLaneMode.QUERY_WARM,
         artifact_dir=artifact_dir,
     )
 
@@ -192,9 +190,9 @@ def test_run_graphify_lane_uses_artifact_mode_without_binary(tmp_path: Path) -> 
     assert result.strategy_label == "graphify_query_warm"
     assert result.cold_start_ms == 0.0
     assert result.warm_latency_ms == 315.0
-    assert result.provenance["graphify_run_mode"] == "artifact"
-    assert result.provenance["graphify_includes_build_cost"] == "false"
-    assert len(result.provenance["graphify_artifact_sha256"]) == 64
+    assert result.provenance["graph_memory_run_mode"] == "artifact"
+    assert result.provenance["graph_memory_includes_build_cost"] == "false"
+    assert len(result.provenance["graph_memory_artifact_sha256"]) == 64
 
 
 def test_load_graphify_artifact_rejects_version_mismatch(tmp_path: Path) -> None:
@@ -207,7 +205,7 @@ def test_load_graphify_artifact_rejects_version_mismatch(tmp_path: Path) -> None
     )
     config = _config(command="graphify", artifact_dir=artifact_dir)
 
-    with pytest.raises(GraphifyAdapterError, match="does not match pinned version"):
+    with pytest.raises(GraphMemoryAdapterError, match="does not match pinned version"):
         load_graphify_artifact(config, task_id="task_a", artifact_dir=artifact_dir)
 
 
@@ -224,12 +222,11 @@ def test_load_graphify_artifact_rejects_warm_lane_with_cold_start_cost(tmp_path:
     )
     config = _config(
         command="graphify",
-        lane="graphify_query_warm",
-        includes_build_cost=False,
+        mode=GraphMemoryLaneMode.QUERY_WARM,
         artifact_dir=artifact_dir,
     )
 
-    with pytest.raises(GraphifyAdapterError, match="must report cold_start_ms == 0"):
+    with pytest.raises(GraphMemoryAdapterError, match="must report cold_start_ms == 0"):
         load_graphify_artifact(config, task_id="task_a", artifact_dir=artifact_dir)
 
 
@@ -245,11 +242,11 @@ def test_load_graphify_artifact_rejects_build_lane_without_cold_start_cost(tmp_p
     )
     config = _config(command="graphify", artifact_dir=artifact_dir)
 
-    with pytest.raises(GraphifyAdapterError, match="must report cold_start_ms > 0"):
+    with pytest.raises(GraphMemoryAdapterError, match="must report cold_start_ms > 0"):
         load_graphify_artifact(config, task_id="task_a", artifact_dir=artifact_dir)
 
 
-def test_load_graphify_results_import_is_deterministic(tmp_path: Path) -> None:
+def test_load_graph_memory_results_imports_every_graphify_lane(tmp_path: Path) -> None:
     build_dir = tmp_path / "graphify-build"
     warm_dir = tmp_path / "graphify-warm"
     _write_artifact(
@@ -262,25 +259,55 @@ def test_load_graphify_results_import_is_deterministic(tmp_path: Path) -> None:
         lane="graphify_query_warm",
         includes_build_cost=False,
     )
-    results = load_graphify_results(
+    results = load_graph_memory_results(
         [
             _config(command="graphify", artifact_dir=build_dir),
             _config(
                 command="graphify",
-                lane="graphify_query_warm",
-                includes_build_cost=False,
+                mode=GraphMemoryLaneMode.QUERY_WARM,
                 artifact_dir=warm_dir,
             ),
         ],
-        ["task_a", "missing_task"],
+        ["task_a"],
     )
 
     by_lane = {result.strategy_label: result for result in results}
     assert set(by_lane) == {"graphify_build_plus_query", "graphify_query_warm"}
-    assert by_lane["graphify_build_plus_query"].provenance["graphify_artifact_sha256"]
-    assert by_lane["graphify_query_warm"].provenance["graphify_artifact_sha256"]
+    assert by_lane["graphify_build_plus_query"].provenance["graph_memory_tool"] == "graphify"
     assert (
-        by_lane["graphify_build_plus_query"].provenance["graphify_artifact_sha256"]
-        != by_lane["graphify_query_warm"].provenance["graphify_artifact_sha256"]
+        by_lane["graphify_build_plus_query"].provenance["graph_memory_mode"] == "build_plus_query"
+    )
+    assert by_lane["graphify_query_warm"].provenance["graph_memory_mode"] == "query_warm"
+    assert (
+        by_lane["graphify_build_plus_query"].provenance["graph_memory_artifact_sha256"]
+        != by_lane["graphify_query_warm"].provenance["graph_memory_artifact_sha256"]
     )
     assert all(result.task_completion_result is TaskCompletionResult.PASS for result in results)
+
+
+def test_load_graph_memory_results_rejects_partial_lane_coverage(tmp_path: Path) -> None:
+    build_dir = tmp_path / "graphify-build"
+    _write_artifact(
+        build_dir,
+        lane="graphify_build_plus_query",
+        includes_build_cost=True,
+    )
+
+    with pytest.raises(GraphMemoryAdapterError, match="incomplete coverage"):
+        load_graph_memory_results(
+            [_config(command="graphify", artifact_dir=build_dir)],
+            ["task_a", "missing_task"],
+        )
+
+
+def test_load_graph_memory_results_skips_lane_without_any_artifact(tmp_path: Path) -> None:
+    empty_dir = tmp_path / "graphify-empty"
+    empty_dir.mkdir()
+
+    assert (
+        load_graph_memory_results(
+            [_config(command="graphify", artifact_dir=empty_dir)],
+            ["task_a"],
+        )
+        == []
+    )

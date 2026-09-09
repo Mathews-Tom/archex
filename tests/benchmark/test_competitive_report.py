@@ -13,8 +13,9 @@ from archex.benchmark.models import (
     CompressionLayerMode,
     CompressionLayerResult,
     ExternalToolBenchmarkConfig,
-    GraphifyLaneConfig,
-    GraphifyLaneName,
+    GraphMemoryLaneConfig,
+    GraphMemoryLaneMode,
+    GraphMemoryTool,
     HeadToHeadArchexConfig,
     HeadToHeadManifest,
     Strategy,
@@ -182,7 +183,7 @@ def test_competitive_report_renders_unmeasured_warm_latency_as_na() -> None:
     assert cells[13:15] == ["n/a", "n/a"]
 
 
-def test_competitive_report_includes_graphify_lanes_and_fairness_frame() -> None:
+def test_competitive_report_includes_graph_memory_lanes_and_fairness_frame() -> None:
     manifest = HeadToHeadManifest(
         name="competitive",
         task_subset=["task_a"],
@@ -197,19 +198,21 @@ def test_competitive_report_includes_graphify_lanes_and_fairness_frame() -> None
                 embedder="Snowflake/snowflake-arctic-embed-xs",
             )
         ],
-        graphify_lanes=[
-            GraphifyLaneConfig(
-                name=GraphifyLaneName.GRAPHIFY_BUILD_PLUS_QUERY,
+        graph_memory_lanes=[
+            GraphMemoryLaneConfig(
+                tool=GraphMemoryTool.GRAPHIFY,
+                mode=GraphMemoryLaneMode.BUILD_PLUS_QUERY,
+                package_name="graphifyy",
                 version="0.8.44",
                 command="graphify",
-                includes_build_cost=True,
                 operational_notes="operator-run graph workflow",
             ),
-            GraphifyLaneConfig(
-                name=GraphifyLaneName.GRAPHIFY_QUERY_WARM,
+            GraphMemoryLaneConfig(
+                tool=GraphMemoryTool.GRAPHIFY,
+                mode=GraphMemoryLaneMode.QUERY_WARM,
+                package_name="graphifyy",
                 version="0.8.44",
                 command="graphify",
-                includes_build_cost=False,
                 operational_notes="operator-run graph workflow",
             ),
         ],
@@ -231,10 +234,10 @@ def test_competitive_report_includes_graphify_lanes_and_fairness_frame() -> None
                     provenance={
                         "external_tool": "graphify_build_plus_query",
                         "external_tool_version": "0.8.44",
-                        "graphify_package": "graphifyy",
-                        "graphify_run_mode": "artifact",
-                        "graphify_backend": "local-ast",
-                        "graphify_local_offline_posture": "local code graph only",
+                        "graph_memory_package": "graphifyy",
+                        "graph_memory_run_mode": "artifact",
+                        "graph_memory_backend": "local-ast",
+                        "graph_memory_local_offline_posture": "local code graph only",
                     },
                 ),
                 _result(
@@ -246,10 +249,10 @@ def test_competitive_report_includes_graphify_lanes_and_fairness_frame() -> None
                     provenance={
                         "external_tool": "graphify_query_warm",
                         "external_tool_version": "0.8.44",
-                        "graphify_package": "graphifyy",
-                        "graphify_run_mode": "artifact",
-                        "graphify_backend": "local-ast",
-                        "graphify_local_offline_posture": "local code graph only",
+                        "graph_memory_package": "graphifyy",
+                        "graph_memory_run_mode": "artifact",
+                        "graph_memory_backend": "local-ast",
+                        "graph_memory_local_offline_posture": "local code graph only",
                     },
                 ),
                 _result(Strategy.RAW_RIPGREP),
@@ -261,10 +264,12 @@ def test_competitive_report_includes_graphify_lanes_and_fairness_frame() -> None
 
     assert "| graphify_build_plus_query | graph-memory |" in output
     assert "| graphify_query_warm | graph-memory |" in output
-    assert "Graphify is evaluated as a graph / memory layer." in output
+    assert "Graph-memory lanes are evaluated as graph / memory layers" in output
     assert "graph construction/setup plus the first graph-backed answer" in output
-    assert "warm graph-query path against a prebuilt graph" in output
-    assert "Graphify token-efficiency cells measure the graph reference listing" in output
+    assert "warm graph-query path against a graph that was already built" in output
+    assert "Modeled graph-memory tools: graphify (`graphifyy 0.8.44`)." in output
+    assert "- `graphify_build_plus_query`: operator-run graph workflow" in output
+    assert "- `graphify_query_warm`: operator-run graph workflow" in output
     assert (
         "manifest=competitive; lane=graphify_build_plus_query; package=graphifyy; "
         "version=0.8.44; mode=build+query; run=artifact"

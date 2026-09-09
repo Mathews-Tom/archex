@@ -165,11 +165,34 @@ def _ordered_retrieval_labels(
 ) -> list[str]:
     preferred = ["archex", *(s.value for s in manifest.archex.candidate_strategies)]
     preferred += [tool.name for tool in manifest.external_tools]
-    preferred += [lane.name.value for lane in manifest.graphify_lanes]
+    preferred += [lane.name for lane in manifest.graph_memory_lanes]
     preferred.append("raw-ripgrep/read")
     ordered = [label for label in preferred if label in lanes]
     ordered += sorted(label for label in lanes if label not in preferred)
     return ordered
+
+
+def _graph_memory_notes(manifest: HeadToHeadManifest, present_labels: list[str]) -> list[str]:
+    """Render the graph-memory framing for whichever graph-memory lanes are present."""
+    lanes = [lane for lane in manifest.graph_memory_lanes if lane.name in present_labels]
+    if not lanes:
+        return []
+    tools = sorted({f"{lane.tool.value} (`{lane.package_name} {lane.version}`)" for lane in lanes})
+    lines = [
+        "Graph-memory lanes are evaluated as graph / memory layers, never as direct "
+        "retrieval-equivalent winners. A `<tool>_build_plus_query` lane includes graph "
+        "construction/setup plus the first graph-backed answer; a `<tool>_query_warm` lane "
+        "measures only the warm graph-query path against a graph that was already built. "
+        "Their token-efficiency cells are within-lane signals over whatever that tool "
+        "returns, so they are not bundle-for-bundle comparisons against retrieval lanes. "
+        f"Modeled graph-memory tools: {', '.join(tools)}.",
+        "",
+    ]
+    notes = [(lane.name, lane.operational_notes) for lane in lanes if lane.operational_notes]
+    if notes:
+        lines.extend(f"- `{label}`: {note}" for label, note in notes)
+        lines.append("")
+    return lines
 
 
 def _compression_provenance(results: list[CompressionLayerResult]) -> str:
@@ -252,15 +275,7 @@ def format_competitive_markdown(
         "retrieval engine. Compression lanes contribute a compression ratio only; "
         "retrieval-quality columns are `n/a` for them.",
         "",
-        "Graphify is evaluated as a graph / memory layer. "
-        "`graphify_build_plus_query` includes graph construction/setup plus the first "
-        "graph-backed answer; `graphify_query_warm` measures only the warm graph-query "
-        "path against a prebuilt graph. These lanes are reported separately and are not "
-        "framed as direct retrieval-equivalent wins. Graphify token-efficiency cells "
-        "measure the graph reference listing returned by `graphify query`, not returned "
-        "source code, so treat them as within-lane efficiency signals rather than "
-        "bundle-for-bundle comparisons against retrieval lanes.",
-        "",
+        *_graph_memory_notes(manifest, retrieval_order),
         "Metrics are reported per repo/task family and in aggregate. No aggregate-only "
         "winner is claimed; every lane and cell is shown.",
         "",
@@ -353,7 +368,7 @@ def _operational_dimensions(
     layers: dict[str, ComparisonLayerType],
 ) -> list[str]:
     tool_by_name = {tool.name: tool for tool in manifest.external_tools}
-    graphify_by_name = {lane.name.value: lane for lane in manifest.graphify_lanes}
+    graph_memory_by_name = {lane.name: lane for lane in manifest.graph_memory_lanes}
     lines = [
         "## Operational dimensions",
         "",
@@ -375,11 +390,11 @@ def _operational_dimensions(
             posture = f"operator-configured (embedder={tool.embedder})"
             steps = f"{len(tool.bootstrap_commands)} bootstrap command(s)"
             backend = tool.embedder
-        elif label in graphify_by_name:
-            lane = graphify_by_name[label]
+        elif label in graph_memory_by_name:
+            lane = graph_memory_by_name[label]
             provenance = retrieval_lanes[label][0].provenance
             posture = provenance.get(
-                "graphify_local_offline_posture",
+                "graph_memory_local_offline_posture",
                 lane.operational_notes or "graph / memory layer",
             )
             steps = (
@@ -387,7 +402,7 @@ def _operational_dimensions(
                 if lane.includes_build_cost
                 else "warm query on prebuilt graph"
             )
-            backend = provenance.get("graphify_backend", "n/a")
+            backend = provenance.get("graph_memory_backend", "n/a")
         else:
             posture = "local models only"
             steps = "index build"

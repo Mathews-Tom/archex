@@ -30,18 +30,24 @@ It models lanes by `layer_type` (`retrieval`/`graph-memory`/`compression`/`basel
 
 ## Graph-memory lanes
 
-Graphify is modeled under `graphify_lanes`, not `external_tools`. The checked-in public set uses two explicit lanes pinned to `graphifyy 0.8.44`:
+A graph-memory lane is any tool whose product is a persistent code graph queried after a build step, so the comparison must keep build cost and warm query cost separate instead of collapsing them into one latency number. Graph-memory tools are modeled under `graph_memory_lanes`, not `external_tools`.
 
-- `graphify_build_plus_query` — includes the per-task graph build/setup cost plus the first graph-backed answer.
-- `graphify_query_warm` — prebuilds the graph first, then reports only the warm graph-query path.
+A lane is identified by its `tool` plus its `mode`, and the public lane label is `<tool>_<mode>`:
 
-Both lanes point at checked-in artifact directories (`benchmarks/headtohead/results/graphify_build_plus_query/` and `benchmarks/headtohead/results/graphify_query_warm/`). Each task artifact is `<artifact_dir>/<task_id>.json` and carries the exact numeric fields claimed in docs plus the sanitized Graphify command shape, pinned package/version, and build-vs-warm semantics.
+- `mode: build_plus_query` — includes the per-task graph build/setup cost plus the first graph-backed answer.
+- `mode: query_warm` — reports only the warm graph-query path against a graph that was already built.
 
-Local reproduction of one lane uses the adapter contract introduced in `scripts/run_graphify_headtohead_lane.py`: it reads the PR2 stdin payload (`task`, `repo_path`, `lane`, `graphify`) and emits one artifact JSON on stdout. The checked-in public artifacts were produced with that script and then copied into the two directories above. No new public claim should be added unless the corresponding Graphify artifact JSON exists in git.
+Build-cost semantics follow from `mode` alone, so a lane cannot declare one mode and a contradicting cost basis. Each lane pins its own released distribution package and version, and points at an artifact directory holding one `<task_id>.json` per task. A lane with no artifacts is simply absent from the report; a lane with some but not all artifacts is rejected, because a missing cell is never silently dropped from a published comparison.
+
+The tool-neutral contract lives in `src/archex/benchmark/graph_memory.py`; each tool adds only its own pinned-identity fields, so no tool inherits a field it never measured.
+
+### Graphify
+
+The checked-in public set uses two Graphify lanes pinned to `graphifyy 0.8.44`: `graphify_build_plus_query` and `graphify_query_warm`. Both point at checked-in artifact directories (`benchmarks/headtohead/results/graphify_build_plus_query/` and `benchmarks/headtohead/results/graphify_query_warm/`). Each task artifact carries the exact numeric fields claimed in docs plus the sanitized Graphify command shape, pinned package/version, and build-vs-warm semantics.
+
+Local reproduction of one lane uses the adapter contract in `scripts/run_graphify_headtohead_lane.py`: it reads the stdin payload (`task`, `repo_path`, `lane`, `tool`, `mode`, `graphify`) and emits one artifact JSON on stdout. The checked-in public artifacts were produced with that script and then copied into the two directories above. No new public claim should be added unless the corresponding Graphify artifact JSON exists in git.
 
 Graphify token-efficiency cells in the public reports count the graph reference listing returned by `graphify query`, not returned source code. They are useful as within-lane efficiency signals, but they are not bundle-for-bundle comparisons against archex or `ccc`.
-
-A graph-memory lane is any tool whose product is a persistent code graph queried after a build step, so the comparison must keep build cost and warm query cost separate instead of collapsing them into one latency number. Graphify is currently the only graph-memory tool with checked-in artifacts, and the lane family is still named after it in code: the manifest key is `graphify_lanes` and the lane names are fixed to `graphify_build_plus_query` and `graphify_query_warm`. The information a lane actually carries is not Graphify-specific — tool identity, pinned released version, whether the cell includes build cost, and the artifact directory holding one JSON per task — so R19 generalizes the naming and reuses that contract for a second tool rather than adding a parallel lane family. Adding a second tool therefore requires that generalization first; it does not slot into `graphify_lanes` unchanged.
 
 ### Pinned Graft comparison protocol (pre-registered, not yet run)
 

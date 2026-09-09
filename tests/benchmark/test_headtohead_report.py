@@ -10,8 +10,9 @@ from archex.benchmark.models import (
     BenchmarkReport,
     BenchmarkResult,
     ExternalToolBenchmarkConfig,
-    GraphifyLaneConfig,
-    GraphifyLaneName,
+    GraphMemoryLaneConfig,
+    GraphMemoryLaneMode,
+    GraphMemoryTool,
     HeadToHeadManifest,
     Strategy,
 )
@@ -97,7 +98,7 @@ def test_format_headtohead_markdown_keeps_all_lanes_and_provenance() -> None:
     assert "No winner filtering" in output
 
 
-def test_format_headtohead_markdown_ignores_graphify_followup_lanes() -> None:
+def test_format_headtohead_markdown_ignores_graph_memory_lanes() -> None:
     manifest = HeadToHeadManifest(
         name="comparison",
         task_subset=["task_a"],
@@ -111,12 +112,13 @@ def test_format_headtohead_markdown_ignores_graphify_followup_lanes() -> None:
                 embedder="Snowflake/snowflake-arctic-embed-xs",
             )
         ],
-        graphify_lanes=[
-            GraphifyLaneConfig(
-                name=GraphifyLaneName.GRAPHIFY_QUERY_WARM,
+        graph_memory_lanes=[
+            GraphMemoryLaneConfig(
+                tool=GraphMemoryTool.GRAPHIFY,
+                mode=GraphMemoryLaneMode.QUERY_WARM,
+                package_name="graphifyy",
                 version="0.8.44",
                 command="graphify",
-                includes_build_cost=False,
             )
         ],
     )
@@ -134,8 +136,8 @@ def test_format_headtohead_markdown_ignores_graphify_followup_lanes() -> None:
                 provenance={
                     "external_tool": "graphify_query_warm",
                     "external_tool_version": "0.8.44",
-                    "graphify_package": "graphifyy",
-                    "graphify_run_mode": "artifact",
+                    "graph_memory_package": "graphifyy",
+                    "graph_memory_run_mode": "artifact",
                 },
             ),
             _result(Strategy.RAW_RIPGREP),
