@@ -103,7 +103,7 @@ def artifact_digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def validate_graph_memory_artifact(
+def validate_graph_memory_identity(
     config: GraphMemoryLaneConfig,
     artifact: GraphMemoryArtifact,
     *,
@@ -111,7 +111,7 @@ def validate_graph_memory_artifact(
     package: str,
     version: str,
 ) -> None:
-    """Fail closed unless ``artifact`` matches ``config``'s pinned lane contract.
+    """Fail closed unless ``artifact`` claims ``config``'s pinned lane identity.
 
     ``package``/``version`` come from the tool's own provenance fields so each
     adapter keeps its registry naming instead of sharing one field name.
@@ -139,6 +139,20 @@ def validate_graph_memory_artifact(
             else "must not include build cost"
         )
         raise GraphMemoryAdapterError(f"graph-memory lane {lane!r} {source} {verb}")
+
+
+def validate_graph_memory_cost_semantics(
+    config: GraphMemoryLaneConfig,
+    artifact: GraphMemoryArtifact,
+    *,
+    source: str,
+) -> None:
+    """Fail closed unless a measured cell's cold/warm cost matches its lane mode.
+
+    Only measured cells carry cost semantics. A recorded failure has no valid
+    timing, so its adapter validates identity and its own failure fields instead.
+    """
+    lane = config.name
     if artifact.cache_state not in {"cold", "warm"}:
         raise GraphMemoryAdapterError(
             f"graph-memory lane {lane!r} {source} cache_state "

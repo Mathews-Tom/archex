@@ -49,13 +49,23 @@ Local reproduction of one lane uses the adapter contract in `scripts/run_graphif
 
 Graphify token-efficiency cells in the public reports count the graph reference listing returned by `graphify query`, not returned source code. They are useful as within-lane efficiency signals, but they are not bundle-for-bundle comparisons against archex or `ccc`.
 
-### Pinned Graft comparison protocol (pre-registered, not yet run)
+### Graft (pinned adapter, evidence pending)
 
-Graft is the second graph-memory tool queued for this harness. Its protocol is frozen in [`benchmarks/preregistrations/R19-graft-graph-memory-comparison.md`](../preregistrations/R19-graft-graph-memory-comparison.md), which merges before any Graft cell is generated. **No Graft lane, artifact, or number exists yet**; this section records the frozen protocol so the commit order proves the protocol predates the data.
+Graft is the second graph-memory tool in this harness. Its protocol is frozen in [`benchmarks/preregistrations/R19-graft-graph-memory-comparison.md`](../preregistrations/R19-graft-graph-memory-comparison.md), which merged before any Graft cell was generated. The adapter, the two manifest lanes (`graft_build_plus_query`, `graft_query_warm`), and the operator runner exist; **no Graft artifact or number exists yet**, so both lanes are absent from the report until all 19 task artifacts are checked in for each mode.
 
-The pin is the released package `@nanonets/graft@0.16.0` (npm integrity `sha512-L3E5F1aDYJDCARgfR7O2VaMt8xwO1XNYyHiW2n1WhKnj87gPqoxoZJGNbGXfw6XeA9JSJX3naA36RZ+jDf4AcQ==`, MIT), whose `gitHead` `aa1e2bb0f6326068ac64886da1e67fa25a7804de` is the commit tagged `v0.16.0`. A source checkout declaring an unpublished version is not a released artifact and is not pinnable.
+The pin is the released package `@nanonets/graft@0.16.0` (npm integrity `sha512-L3E5F1aDYJDCARgfR7O2VaMt8xwO1XNYyHiW2n1WhKnj87gPqoxoZJGNbGXfw6XeA9JSJX3naA36RZ+jDf4AcQ==`, MIT), whose `gitHead` `aa1e2bb0f6326068ac64886da1e67fa25a7804de` is the commit tagged `v0.16.0`. A source checkout declaring an unpublished version is not a released artifact and is not pinnable. `src/archex/benchmark/graft.py` holds that pinned identity as constants and rejects any artifact that disagrees with it.
 
 The measured protocol, in short: structural mode only (`build` without `--deep`, so no API key and no spend); the graph directory outside the task repository with `--no-gitignore --no-ignore`, so the checkout the other lanes measure stays pristine; `ask --no-refresh` for every measured query, because a default `ask` silently repairs graph drift and would fold synchronization into query latency; freshness read only from `check --json`'s `graph` section, since context cards are a `--deep` artifact and are always absent here; rank taken from the emitted `hits` order rather than `hits[].score`, which is not monotonically descending; `-n 10` to match the external retrieval lane's frozen limit; a per-task extraction tier, because Graft covers the two Rust tasks through a signature-only WASM tier rather than its native tier; and `DO_NOT_TRACK=1` plus `CI=1` on install and every invocation.
+
+Install once per machine (network-dependent: a transitive `tree-sitter-cli` install downloads a platform binary from GitHub release assets, and a transient `ECONNRESET` there is retried rather than recorded as a Graft failure):
+
+```bash
+CI=1 DO_NOT_TRACK=1 npm install -g @nanonets/graft@0.16.0
+```
+
+One cell is produced by `scripts/run_graft_headtohead_lane.py`, which reads the stdin payload (`task`, `repo_path`, `graph_dir`, `lane`, `tool`, `mode`, `graft`, optional `binary`) and emits one artifact JSON on stdout. The cold lane builds the graph and asks; the warm lane asks only, against the graph the cold lane built in the same `graph_dir`, and refuses to run when no graph is there. `graph_dir` must live outside the task repository, and both the adapter and the runner reject a `graph_dir` inside it.
+
+Every Graft artifact records the pinned package, npm integrity, source commit, command shape, `ask` output digest, timing mode, extraction tier, Graft's own query mode, the rank basis, the freshness source, the returned-unit split (symbol vs whole-file hits), and the returned-source count. Whole-file hits name a required file but carry no source even under `--source`, so they count toward required-file recall and contribute nothing to the returned-source and token-efficiency cells. A cell that could not be measured is retained as an explicit failure artifact with zeroed metrics and a reason; it is never dropped.
 
 Graft, like Graphify, will be reported as a graph-memory lane and never as a direct retrieval-equivalent winner, and no result from it may change an archex retrieval default.
 

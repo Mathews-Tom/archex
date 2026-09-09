@@ -75,4 +75,20 @@ graph_memory_lanes:
     args: [run, python, scripts/run_graphify_headtohead_lane.py]
     artifact_dir: benchmarks/headtohead/results/graphify_query_warm
     operational_notes: "local AST-only Graphify code graph; warm lane measures query-only against a prebuilt graph; token-efficiency cells count the graph reference listing returned by `graphify query`, not returned source code"
+  - tool: graft
+    mode: build_plus_query
+    package_name: "@nanonets/graft"
+    version: "0.16.0"
+    command: uv
+    args: [run, python, scripts/run_graft_headtohead_lane.py]
+    artifact_dir: benchmarks/headtohead/results/graft_build_plus_query
+    operational_notes: "pinned released @nanonets/graft structural graph; cold lane includes the per-task graph build plus the first graph-backed answer; build runs without --deep so no model is called and no key is required"
+  - tool: graft
+    mode: query_warm
+    package_name: "@nanonets/graft"
+    version: "0.16.0"
+    command: uv
+    args: [run, python, scripts/run_graft_headtohead_lane.py]
+    artifact_dir: benchmarks/headtohead/results/graft_query_warm
+    operational_notes: "pinned released @nanonets/graft structural graph; warm lane measures ask --no-refresh only, against the graph the cold lane built; freshness is probed separately from check --json's graph section and never folded into query latency"
 raw_read_strategy: raw_ripgrep

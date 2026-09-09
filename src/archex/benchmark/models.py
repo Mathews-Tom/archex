@@ -397,6 +397,7 @@ class GraphMemoryTool(StrEnum):
     """A graph-memory tool with a modeled comparison lane family."""
 
     GRAPHIFY = "graphify"
+    GRAFT = "graft"
 
 
 class GraphMemoryLaneMode(StrEnum):
@@ -413,6 +414,7 @@ class GraphMemoryLaneMode(StrEnum):
 
 GRAPH_MEMORY_TOOL_PACKAGES: dict[GraphMemoryTool, str] = {
     GraphMemoryTool.GRAPHIFY: "graphifyy",
+    GraphMemoryTool.GRAFT: "@nanonets/graft",
 }
 """Released distribution package that each graph-memory tool must be pinned to."""
 
