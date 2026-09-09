@@ -155,19 +155,39 @@ class TestAnswerExtraction:
         assert flag is ProductLoopAnswerFlag.ANSWER_UNPARSED
         assert paths == []
 
+    def test_a_product_footer_after_the_list_does_not_trip_the_cap(self, checkout: Path) -> None:
+        # Graft's shipped Stop hook appends a token-savings footer after the
+        # answer. Counting raw tokens instead of resolved paths made every Graft
+        # cell answer_over_broad and zeroed the whole arm.
+        text = (
+            "FILES:\n"
+            "pkg/service.py\n"
+            "pkg/models.py\n"
+            "README.md\n"
+            "\n"
+            "\N{SEEDLING} graft saved ~151k tokens this turn"
+        )
+        paths, flag = extract_answer_paths(text, repo_root=checkout)
+        assert flag is ProductLoopAnswerFlag.SCORED
+        assert paths == ["pkg/service.py", "pkg/models.py", "README.md"]
+
     def test_over_broad_list_scores_zero(self, checkout: Path) -> None:
         # Breadth alone must not reach completeness 1.0; this is the hole the
         # cardinality cap exists to close.
-        listed = "\n".join(f"pkg/f{index}.py" for index in range(ANSWER_PATH_CAP + 1))
+        for index in range(ANSWER_PATH_CAP + 1):
+            (checkout / f"f{index}.py").write_text("x\n", encoding="utf-8")
+        listed = "\n".join(f"f{index}.py" for index in range(ANSWER_PATH_CAP + 1))
         paths, flag = extract_answer_paths(f"FILES:\n{listed}\n", repo_root=checkout)
         assert flag is ProductLoopAnswerFlag.ANSWER_OVER_BROAD
         assert paths == []
 
     def test_exactly_the_cap_is_still_scored(self, checkout: Path) -> None:
-        listed = "\n".join(["pkg/service.py"] * ANSWER_PATH_CAP)
+        for index in range(ANSWER_PATH_CAP):
+            (checkout / f"g{index}.py").write_text("x\n", encoding="utf-8")
+        listed = "\n".join(f"g{index}.py" for index in range(ANSWER_PATH_CAP))
         paths, flag = extract_answer_paths(f"FILES:\n{listed}\n", repo_root=checkout)
         assert flag is ProductLoopAnswerFlag.SCORED
-        assert paths == ["pkg/service.py"]
+        assert len(paths) == ANSWER_PATH_CAP
 
     def test_comma_separated_paths_are_split(self, checkout: Path) -> None:
         paths, flag = extract_answer_paths(

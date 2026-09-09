@@ -536,10 +536,17 @@ def extract_answer_paths(
     """Read the answer's file list from the final assistant text.
 
     Returns the normalized paths and how the list was read. The list is taken
-    from the *last* line whose stripped content equals `FILES:`. A list naming
-    more than :data:`ANSWER_PATH_CAP` paths is `answer_over_broad` and scores
-    zero: the primary is a pure recall measure, so an uncapped list would let
-    breadth alone reach `1.0`.
+    from the *last* line whose stripped content equals `FILES:`.
+
+    The cardinality cap applies to *paths*, which is what the pre-registration
+    freezes, so tokens are normalized and resolved first and only then counted.
+    Counting raw tokens instead is not equivalent and is not arm-neutral: Graft's
+    shipped `Stop` hook appends a token-savings footer after the answer, whose
+    words would otherwise be counted as answer entries and push every Graft cell
+    over the cap. A block that still names more than :data:`ANSWER_PATH_CAP` real
+    repository files is `answer_over_broad` and scores zero, because the primary
+    is a pure recall measure and an uncapped list would let breadth alone reach
+    `1.0`.
     """
     lines = final_text.splitlines()
     marker_index: int | None = None
@@ -549,19 +556,18 @@ def extract_answer_paths(
     if marker_index is None:
         return [], ProductLoopAnswerFlag.ANSWER_UNPARSED
 
-    tokens: list[str] = []
+    paths: list[str] = []
     for line in lines[marker_index + 1 :]:
         if not line.strip():
             continue
-        tokens.extend(part for part in re.split(r"[,\s]+", line.strip()) if part)
-    if len(tokens) > ANSWER_PATH_CAP:
+        for token in re.split(r"[,\s]+", line.strip()):
+            if not token:
+                continue
+            normalized = normalize_answer_path(token, repo_root=repo_root)
+            if normalized is not None and normalized not in paths:
+                paths.append(normalized)
+    if len(paths) > ANSWER_PATH_CAP:
         return [], ProductLoopAnswerFlag.ANSWER_OVER_BROAD
-
-    paths: list[str] = []
-    for token in tokens:
-        normalized = normalize_answer_path(token, repo_root=repo_root)
-        if normalized is not None and normalized not in paths:
-            paths.append(normalized)
     return paths, ProductLoopAnswerFlag.SCORED
 
 
