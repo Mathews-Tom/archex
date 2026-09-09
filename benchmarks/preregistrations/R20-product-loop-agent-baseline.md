@@ -151,20 +151,32 @@ The install is not offline-capable: a transitive `tree-sitter-cli` install scrip
 **Arm `archex_product_loop`, setup (timed as `setup_seconds`):**
 
 ```bash
-archex init "$REPO"
+archex init "$REPO" --no-index
 archex install-client claude-code "$REPO" --scope project -y
 archex install-client claude-code "$REPO" --scope project --hooks -y
+# the hook recorder rewrites .claude/settings.json here, before the commit
 git -C "$REPO" -c core.excludesFile=/dev/null add -A
 git -C "$REPO" -c core.excludesFile=/dev/null commit -m "wire archex"
+archex index "$REPO"
 ```
 
 **Arm `graft_product_loop`, setup (timed as `setup_seconds`):**
 
 ```bash
 CI=1 DO_NOT_TRACK=1 graft init --no-agents "$REPO"
+# the MCP repin and the hook recorder rewrite .mcp.json and .claude/settings.json here
 git -C "$REPO" -c core.excludesFile=/dev/null add -A
 git -C "$REPO" -c core.excludesFile=/dev/null commit -m "wire graft"
 ```
+
+The step order in the Archex arm is load-bearing, not cosmetic. `archex init`
+indexes by default; an index taken before the wiring commit sits behind `HEAD`,
+so `archex status` reports `stale` and the shipped `PreToolUse` hook no-ops on
+every call. Instrumenting hooks after the commit has the same effect through a
+different route, because the recorder rewrites the tracked
+`.claude/settings.json` and leaves the tree dirty. Wire, instrument, commit,
+then index is the only order that leaves both the tree clean and the index at
+the committed `HEAD`.
 
 **Per cell, the measured invocation (identical on both arms except the MCP config):**
 
@@ -188,15 +200,15 @@ CI=1 DO_NOT_TRACK=1 graft check --json "$REPO"   # arm graft_product_loop
 
 Frozen protocol decisions, each verified against the shipped products and the pinned agent before this document merged:
 
-- **The wiring is committed.** Both products write into the checkout during setup: Archex creates `.archex/` and edits `.gitignore`; Graft creates `graft/`, `.ignore`, `.claude/`, and edits `.gitignore`. Left uncommitted, Archex's index state reports `dirty` and its `PreToolUse` hook no-ops on every call, which would silently run the Archex arm with its hook disabled. Committing each arm's own wiring in its throwaway checkout is what makes both arms competent, and it is applied symmetrically.
+- **The wiring is committed, and the order is fixed.** Both products write into the checkout during setup: Archex creates `.archex/` and edits `.gitignore`; Graft creates `graft/`, `.ignore`, `.claude/`, and edits `.gitignore`. Left uncommitted — or left dirty by instrumenting hooks after the commit, or left behind `HEAD` by indexing before it — Archex's index state reports `dirty` or `stale` and its `PreToolUse` hook no-ops on every call, which would silently run the Archex arm with its hook disabled while still producing a plausible scored cell. The frozen order is wire, instrument, commit, then index, applied symmetrically to both arms. A no-spend end-to-end probe confirms the resulting cells report `freshness_state: fresh` and a hook invocation that actually augmented.
 - **Both products' graphs are built during setup.** `archex init` builds and embeds the index. `graft init` runs `graft build` itself and reports `built the graph (graft build)`, so no graph construction happens lazily inside the measured invocation on either arm. Neither arm pays index construction inside its wall time or against its deadline.
 - **Graft's cards are Grep-visible and Archex's index is not.** Both arms grant the agent `Read`, `Grep`, and `Glob` over the working tree. `graft build` gitignores `graft/` but also writes an `.ignore` file containing `!graft/`, whose own comment states the cards "should stay greppable"; ripgrep reads `.ignore` before `.gitignore`, so Graft's generated markdown cards are deliberately exposed to the agent's `Grep` and `Glob`. Archex writes no comparable agent-readable file — `.archex/` is index state. This is a real asymmetry, it is part of measuring each product as shipped, it is disclosed here rather than raised later as an unmodelled confound, and the cardinality cap above bounds how far breadth alone can carry a completeness score. Whether `graft/` is git-tracked and whether `.ignore` exists are recorded per cell.
 - **`--strict-mcp-config` with an explicit `--mcp-config`.** Verified live: without `--mcp-config` the `init` event reports `mcp_servers: []`, proving ambient servers are excluded; with the arm's project `.mcp.json` passed explicitly it reports exactly that one server as `connected`. This is simultaneously the isolation mechanism and the arm-identity proof at session start.
-- **The Graft MCP command is repinned.** `graft init` writes `"command": "npx", "args": ["-y", "@nanonets/graft", "mcp"]`, which resolves the *latest* published package at call time and would silently break the pin. The runner rewrites that entry to the absolute pinned binary with `CI=1` and `DO_NOT_TRACK=1`, records both the original and the rewritten command shape in the artifact, and changes nothing else. This is the only deviation from either product's literal output, and it exists to preserve R19's pinned identity.
+- **The Graft MCP command is repinned.** `graft init` writes `"command": "npx", "args": ["-y", "@nanonets/graft", "mcp"]`, which resolves the *latest* published package at call time and would silently break the pin. The runner rewrites that entry to the pinned released binary with `CI=1` and `DO_NOT_TRACK=1`, and changes nothing else. The artifact records the original command verbatim and the rewritten one as `{"command": "<pinned-graft-binary>", "args": ["mcp"], "env": ["CI", "DO_NOT_TRACK"]}` — the identity, not the install path, because an absolute binary path would violate the privacy contract. This is the only deviation from either product's literal output, and it exists to preserve R19's pinned identity.
 - **Explicit base tool allowlist and denylist.** `--allowedTools` and `--disallowedTools` are frozen above. The resulting `init` tool list is asserted per cell against the arm's expected set: `Read`, `Grep`, `Glob`, plus `mcp__archex__context` and `mcp__archex__query_repo` for the control, or the six `mcp__graft__*` tools for the treatment. Archex advertises 2 of its 20 tools until retrieval opens its disclosure gate; that shipped behavior is measured, not bypassed.
 - **No write tools on either arm.** The task family asks questions, so `Write`, `Edit`, `MultiEdit`, and `Bash` are denied. This makes the run cheaper and safer, and it means the frozen family performs no edits.
 - **Stale-index events are recorded but expected to be zero.** With no write tools, neither index can go stale from agent activity, so this metric is structurally near-zero here. It is still recorded because the freshness probe is real and the field must exist for the later paired re-measurement, which will need an edit-bearing family to make it informative. It is reported as recorded-and-vacuous rather than as evidence of freshness parity.
-- **Hook invocation is measured at an instrumented boundary.** Verified live: Claude Code surfaces `system`/`hook_started` and `hook_response` events for `SessionStart` only. Neither Archex's `PreToolUse` hook nor Graft's `UserPromptSubmit` and `PostToolUse` hooks appear in the transcript, so transcript counting would under-report both arms. The runner therefore rewrites every hook `command` the product installed to a recorder that appends one JSONL record — timestamp, hook event, matcher, tool name, stdin and stdout byte lengths, exit code, latency — and then executes the original command with the same stdin, passing stdout and the exit code through unchanged. The original command shape is recorded in the artifact. The recorder is applied identically to both arms and is covered by a fixture test asserting byte-identical stdout and exit code with and without it.
+- **Hook invocation is measured at an instrumented boundary.** Verified live: Claude Code surfaces `system`/`hook_started` and `hook_response` events for `SessionStart` only. Neither Archex's `PreToolUse` hook nor Graft's `UserPromptSubmit` and `PostToolUse` hooks appear in the transcript, so transcript counting would under-report both arms. The runner therefore rewrites every hook `command` the product installed to a recorder that appends one JSONL record — timestamp, hook event, matcher, tool name, stdin and stdout byte lengths, exit code, latency, and whether any `additionalContext` was returned — and then executes the original command with the same stdin, passing stdout and the exit code through unchanged. Claude Code accepts two hook shapes and runs them differently: a bare `command` string goes through a shell, a `command` plus `args` list is exec'd. Archex ships the second and Graft the first, so the recorder reproduces whichever shape it wrapped; exec'ing a shell-shaped command would record zero invocations for the entire Graft arm. A recorder that cannot start the wrapped command records the failure rather than staying silent, so an instrumentation problem can never be mistaken for a hook that never fired. The original command shape is recorded in the artifact. The recorder is applied identically to both arms and is covered by fixture tests asserting byte-identical stdout and exit code with and without it, in both shapes.
 - **External deadline.** The pinned agent exposes no turn or time cap, so the runner enforces a 300-second per-cell deadline by terminating the process group. A terminated cell is a recorded failure with reason `deadline_exceeded`; its partial receipt is retained and its cost counts against the ceiling.
 - **Ceiling and abort.** Cumulative modelled cost across completed cells is checked before each new cell against a **`$25`** ceiling. Reaching it aborts the run.
 - **Telemetry off.** `DO_NOT_TRACK=1` and `CI=1` are set for the Graft install and every Graft invocation; `graft telemetry` must report telemetry off in the run log. Archex usage metrics are left at their shipped default and the resolved setting is recorded.
@@ -224,6 +236,15 @@ Identify the files in this repository that are required to answer the question a
 
 End your reply with a line containing exactly `FILES:` and nothing else, followed by one repository-relative path per line, most relevant first. Name at most 6 paths, and name only files that are required to answer the question.
 ```
+
+## Pre-data corrections
+
+Changes made after this document first merged but **before any cell existed**. Each is recorded here rather than applied silently. None of them could have been chosen to favour a result, because no result existed: the whole population was still unrun, and every correction makes an arm more competent or an artifact more honest rather than more favourable.
+
+- **2026-09-10 — Archex-arm setup order.** A no-spend end-to-end probe against a local stub endpoint showed the originally frozen order produced `freshness_state: stale` and a `PreToolUse` hook that no-oped on every call, so the Archex arm would have run with its shipped hook silently disabled. Corrected to `archex init --no-index` → wire clients → instrument hooks → commit → `archex index`, and the reasoning is now stated in the run boundary. Re-probed: the arm reports `fresh` and a hook invocation that returned `additionalContext`.
+- **2026-09-10 — Hook recorder execution shape.** The same probe recorded zero hook invocations for the Graft arm. Claude Code runs a bare `command` string through a shell and a `command` plus `args` list directly; Graft ships the former, Archex the latter, and the recorder originally only exec'd. Corrected so the recorder reproduces whichever shape it wrapped, and so a command it cannot start leaves a visible `recorder_error` row. Re-probed: the Graft arm records its `SessionStart`, `UserPromptSubmit`, `PostToolUse`, and `Stop` invocations, two of which returned `additionalContext`.
+- **2026-09-10 — Rewritten Graft MCP command is recorded by identity.** Recording the repinned entry verbatim embedded the absolute install path of the pinned binary, which the privacy contract forbids and which the artifact leak guard correctly refused to publish. The artifact now records `{"command": "<pinned-graft-binary>", "args": ["mcp"], "env": ["CI", "DO_NOT_TRACK"]}`; the original `npx` command is still recorded verbatim because it carries no machine path.
+- **2026-09-10 — Stub-endpoint cells are structurally unpublishable.** So the harness can be exercised without a hosted call, the runner honours `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` when present and records `provider_endpoint_overridden: true` on any cell that used them. The registered validator refuses any directory containing such a cell, so no stub-produced artifact can reach published evidence.
 
 ## Post-hoc changes
 
