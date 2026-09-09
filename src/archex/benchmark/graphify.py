@@ -28,7 +28,8 @@ from archex.benchmark.graph_memory import (
     GraphMemoryUnavailableError,
     artifact_digest,
     result_from_graph_memory_artifact,
-    validate_graph_memory_artifact,
+    validate_graph_memory_cost_semantics,
+    validate_graph_memory_identity,
 )
 
 if TYPE_CHECKING:
@@ -52,13 +53,14 @@ def _validate_artifact(
     *,
     source: str,
 ) -> None:
-    validate_graph_memory_artifact(
+    validate_graph_memory_identity(
         config,
         artifact,
         source=source,
         package=artifact.graphify_package,
         version=artifact.graphify_version,
     )
+    validate_graph_memory_cost_semantics(config, artifact, source=source)
 
 
 def _result_from_artifact(

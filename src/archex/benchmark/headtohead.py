@@ -11,6 +11,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from archex.benchmark.external_mcp import reset_external_tool_config, set_external_tool_config
+from archex.benchmark.graft import load_graft_artifact
 from archex.benchmark.graph_memory import GraphMemoryAdapterError
 from archex.benchmark.graphify import load_graphify_artifact
 from archex.benchmark.loader import load_tasks
@@ -350,6 +351,7 @@ class _GraphMemoryArtifactLoader(Protocol):
 
 _GRAPH_MEMORY_ARTIFACT_LOADERS: dict[GraphMemoryTool, _GraphMemoryArtifactLoader] = {
     GraphMemoryTool.GRAPHIFY: load_graphify_artifact,
+    GraphMemoryTool.GRAFT: load_graft_artifact,
 }
 
 
