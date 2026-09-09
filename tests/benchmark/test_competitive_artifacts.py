@@ -9,15 +9,16 @@ from archex.benchmark.competitive import format_competitive_markdown, load_compr
 from archex.benchmark.headtohead import (
     load_headtohead_manifest,
     load_headtohead_results,
-    reports_with_graphify_lanes,
+    reports_with_graph_memory_lanes,
 )
 from archex.benchmark.models import (
     BenchmarkReport,
     BenchmarkResult,
     CompressionLayerConfig,
     ExternalToolBenchmarkConfig,
-    GraphifyLaneConfig,
-    GraphifyLaneName,
+    GraphMemoryLaneConfig,
+    GraphMemoryLaneMode,
+    GraphMemoryTool,
     HeadToHeadManifest,
     Strategy,
 )
@@ -129,7 +130,7 @@ def _write_graphify_artifact(
     (artifact_dir / "httpx_pooling.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_reports_with_graphify_lanes_imports_artifacts() -> None:
+def test_reports_with_graph_memory_lanes_imports_artifacts() -> None:
     build_dir = _RESULTS_DIR.parent / "tmp-graphify-build"
     warm_dir = _RESULTS_DIR.parent / "tmp-graphify-warm"
     try:
@@ -156,19 +157,21 @@ def test_reports_with_graphify_lanes_imports_artifacts() -> None:
                     embedder="Snowflake/snowflake-arctic-embed-xs",
                 )
             ],
-            graphify_lanes=[
-                GraphifyLaneConfig(
-                    name=GraphifyLaneName.GRAPHIFY_BUILD_PLUS_QUERY,
+            graph_memory_lanes=[
+                GraphMemoryLaneConfig(
+                    tool=GraphMemoryTool.GRAPHIFY,
+                    mode=GraphMemoryLaneMode.BUILD_PLUS_QUERY,
+                    package_name="graphifyy",
                     version="0.8.44",
                     command="graphify",
-                    includes_build_cost=True,
                     artifact_dir=str(build_dir),
                 ),
-                GraphifyLaneConfig(
-                    name=GraphifyLaneName.GRAPHIFY_QUERY_WARM,
+                GraphMemoryLaneConfig(
+                    tool=GraphMemoryTool.GRAPHIFY,
+                    mode=GraphMemoryLaneMode.QUERY_WARM,
+                    package_name="graphifyy",
                     version="0.8.44",
                     command="graphify",
-                    includes_build_cost=False,
                     artifact_dir=str(warm_dir),
                 ),
             ],
@@ -187,7 +190,7 @@ def test_reports_with_graphify_lanes_imports_artifacts() -> None:
             )
         ]
 
-        augmented = reports_with_graphify_lanes(manifest, reports)
+        augmented = reports_with_graph_memory_lanes(manifest, reports)
         output = format_competitive_markdown(manifest, augmented)
 
         assert "| graphify_build_plus_query | graph-memory |" in output
@@ -259,7 +262,7 @@ def test_checked_in_headtohead_artifacts_validate_and_render() -> None:
     # The competitive report renders the checked-in artifacts without error and
     # carries every lane plus the per-repo and aggregate sections docs reference.
     manifest = load_headtohead_manifest(_RESULTS_DIR / "manifest.yaml")
-    augmented = reports_with_graphify_lanes(manifest, reports)
+    augmented = reports_with_graph_memory_lanes(manifest, reports)
     output = format_competitive_markdown(manifest, augmented)
 
     assert "| archex | retrieval |" in output

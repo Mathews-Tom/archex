@@ -367,9 +367,10 @@ class ComparisonLayerType(StrEnum):
     """Where a comparison lane operates.
 
     ``retrieval`` lanes are retrieval/selection engines (archex, cocoindex-code).
-    ``graph-memory`` lanes are graph/memory-layer workflows (Graphify); they may
-    include retrieval-like answers, but the comparison must keep their build/query
-    semantics explicit instead of presenting them as direct retrieval equivalents.
+    ``graph-memory`` lanes are tools whose product is a persistent code graph that
+    is queried after a build step; they may return retrieval-like answers, but the
+    comparison must keep build cost and warm query cost explicit instead of
+    presenting them as direct retrieval equivalents.
     ``compression`` lanes are post-selection context-management layers (Headroom);
     they are not retrieval engines. ``baseline`` is the raw filesystem read/grep lane.
     """
@@ -392,9 +393,28 @@ class CompressionLayerMode(StrEnum):
     ARCHEX_PLUS_HEADROOM = "archex_plus_headroom"
 
 
-class GraphifyLaneName(StrEnum):
-    GRAPHIFY_BUILD_PLUS_QUERY = "graphify_build_plus_query"
-    GRAPHIFY_QUERY_WARM = "graphify_query_warm"
+class GraphMemoryTool(StrEnum):
+    """A graph-memory tool with a modeled comparison lane family."""
+
+    GRAPHIFY = "graphify"
+
+
+class GraphMemoryLaneMode(StrEnum):
+    """Which cost a graph-memory lane measures.
+
+    ``build_plus_query`` includes graph construction/setup plus the first
+    graph-backed answer. ``query_warm`` measures only the warm graph-query path
+    against a graph that was already built.
+    """
+
+    BUILD_PLUS_QUERY = "build_plus_query"
+    QUERY_WARM = "query_warm"
+
+
+GRAPH_MEMORY_TOOL_PACKAGES: dict[GraphMemoryTool, str] = {
+    GraphMemoryTool.GRAPHIFY: "graphifyy",
+}
+"""Released distribution package that each graph-memory tool must be pinned to."""
 
 
 class ExternalToolCommandConfig(BenchmarkSpecModel):
@@ -452,45 +472,52 @@ class CompressionLayerConfig(BenchmarkSpecModel):
     artifact_dir: str | None = None
 
 
-class GraphifyLaneConfig(BenchmarkSpecModel):
-    """One Graphify public lane in the competitive comparison manifest.
+class GraphMemoryLaneConfig(BenchmarkSpecModel):
+    """One graph-memory lane in the competitive comparison manifest.
 
-    Graphify is modeled separately from retrieval engines because the public
-    comparison must keep graph-build cost distinct from warm graph-query cost.
-    ``artifact_dir`` selects operator-artifact import mode. Without it, the
-    adapter executes ``command``/``args`` locally and expects a lane-result JSON
-    document on stdout.
+    Graph-memory tools are modeled separately from retrieval engines because the
+    public comparison must keep graph-build cost distinct from warm graph-query
+    cost. A lane is identified by ``tool`` plus ``mode``; its public label is
+    ``<tool>_<mode>`` and its build-cost semantics follow from ``mode`` alone, so a
+    lane cannot declare a mode and a contradicting cost basis.
+
+    ``artifact_dir`` selects operator-artifact import mode. Without it, the adapter
+    executes ``command``/``args`` locally and expects a lane-result JSON document
+    on stdout.
     """
 
-    name: GraphifyLaneName
-    package_name: str = "graphifyy"
+    tool: GraphMemoryTool
+    mode: GraphMemoryLaneMode
+    package_name: str
     version: str
     command: str
     args: list[str] = []
     layer_type: ComparisonLayerType = ComparisonLayerType.GRAPH_MEMORY
-    includes_build_cost: bool
     env: dict[str, str] = {}
     timeout_seconds: float = Field(default=600.0, gt=0)
     artifact_dir: str | None = None
     operational_notes: str | None = None
 
+    @property
+    def name(self) -> str:
+        """Public lane label, e.g. ``graphify_build_plus_query``."""
+        return f"{self.tool.value}_{self.mode.value}"
+
+    @property
+    def includes_build_cost(self) -> bool:
+        """Whether this lane's cost includes graph construction."""
+        return self.mode is GraphMemoryLaneMode.BUILD_PLUS_QUERY
+
     @model_validator(mode="after")
-    def _validate_lane_semantics(self) -> GraphifyLaneConfig:
+    def _validate_lane_semantics(self) -> GraphMemoryLaneConfig:
         if not self.package_name.strip():
-            msg = "graphify package_name must not be empty"
+            msg = "graph-memory package_name must not be empty"
             raise ValueError(msg)
         if not self.command.strip():
-            msg = "graphify command must not be empty"
+            msg = "graph-memory command must not be empty"
             raise ValueError(msg)
         if self.artifact_dir is not None and not self.artifact_dir.strip():
-            msg = "graphify artifact_dir must not be empty"
-            raise ValueError(msg)
-        expected = self.name is GraphifyLaneName.GRAPHIFY_BUILD_PLUS_QUERY
-        if self.includes_build_cost is not expected:
-            if expected:
-                msg = "graphify_build_plus_query must include build cost"
-            else:
-                msg = "graphify_query_warm must not include build cost"
+            msg = "graph-memory artifact_dir must not be empty"
             raise ValueError(msg)
         return self
 
@@ -514,7 +541,7 @@ class HeadToHeadManifest(BenchmarkSpecModel):
     raw_read_strategy: Strategy = Strategy.RAW_RIPGREP
     external_tools: list[ExternalToolBenchmarkConfig]
     compression_layers: list[CompressionLayerConfig] = []
-    graphify_lanes: list[GraphifyLaneConfig] = []
+    graph_memory_lanes: list[GraphMemoryLaneConfig] = []
 
 
 class TaskCompletionResult(StrEnum):

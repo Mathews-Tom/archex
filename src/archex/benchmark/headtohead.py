@@ -5,21 +5,25 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
 import yaml
 from pydantic import BaseModel, ValidationError
 
 from archex.benchmark.external_mcp import reset_external_tool_config, set_external_tool_config
-from archex.benchmark.graphify import load_graphify_results
+from archex.benchmark.graph_memory import GraphMemoryAdapterError
+from archex.benchmark.graphify import load_graphify_artifact
 from archex.benchmark.loader import load_tasks
 from archex.benchmark.models import (
+    GRAPH_MEMORY_TOOL_PACKAGES,
     BenchmarkReport,
     BenchmarkResult,
     BenchmarkRetrievalOptions,
     BenchmarkTask,
     ComparisonLayerType,
-    GraphifyLaneName,
+    GraphMemoryLaneConfig,
+    GraphMemoryLaneMode,
+    GraphMemoryTool,
     HeadToHeadManifest,
     Strategy,
     TaskCategory,
@@ -128,34 +132,29 @@ def _validate_compression_layers(path: Path, manifest: HeadToHeadManifest) -> No
         seen.add(layer.name)
 
 
-def _validate_graphify_lanes(path: Path, manifest: HeadToHeadManifest) -> None:
-    seen: set[GraphifyLaneName] = set()
-    for lane in manifest.graphify_lanes:
-        prefix = f"graphify_lanes.{lane.name.value}"
+def _validate_graph_memory_lanes(path: Path, manifest: HeadToHeadManifest) -> None:
+    seen: set[tuple[GraphMemoryTool, GraphMemoryLaneMode]] = set()
+    for lane in manifest.graph_memory_lanes:
+        prefix = f"graph_memory_lanes.{lane.name}"
         _reject_empty_text(path, f"{prefix}.package_name", lane.package_name)
         _reject_empty_text(path, f"{prefix}.command", lane.command)
         _reject_unpinned_version(path, f"{prefix}.version", lane.version)
-        if lane.package_name != "graphifyy":
+        expected_package = GRAPH_MEMORY_TOOL_PACKAGES[lane.tool]
+        if lane.package_name != expected_package:
             raise HeadToHeadManifestError(
                 "Invalid head-to-head manifest in "
-                f"{path}: {prefix}.package_name must be 'graphifyy'"
+                f"{path}: {prefix}.package_name must be {expected_package!r}"
             )
         if lane.layer_type is not ComparisonLayerType.GRAPH_MEMORY:
             raise HeadToHeadManifestError(
                 f"Invalid head-to-head manifest in {path}: {prefix}.layer_type must be graph-memory"
             )
-        expected_build = lane.name is GraphifyLaneName.GRAPHIFY_BUILD_PLUS_QUERY
-        if lane.includes_build_cost is not expected_build:
-            message = "must include build cost" if expected_build else "must not include build cost"
+        if (lane.tool, lane.mode) in seen:
             raise HeadToHeadManifestError(
-                f"Invalid head-to-head manifest in {path}: {prefix}.includes_build_cost {message}"
+                f"Invalid head-to-head manifest in {path}: duplicate graph-memory lane "
+                f"{lane.name!r}"
             )
-        if lane.name in seen:
-            raise HeadToHeadManifestError(
-                f"Invalid head-to-head manifest in {path}: duplicate graphify lane "
-                f"{lane.name.value!r}"
-            )
-        seen.add(lane.name)
+        seen.add((lane.tool, lane.mode))
 
 
 def _validate_manifest_shape(path: Path, manifest: HeadToHeadManifest) -> None:
@@ -207,7 +206,7 @@ def _validate_manifest_shape(path: Path, manifest: HeadToHeadManifest) -> None:
         seen_tools.add(tool.name)
     _validate_archex_candidate_lanes(path, manifest)
     _validate_compression_layers(path, manifest)
-    _validate_graphify_lanes(path, manifest)
+    _validate_graph_memory_lanes(path, manifest)
 
 
 def load_headtohead_manifest(path: Path) -> HeadToHeadManifest:
@@ -221,16 +220,17 @@ def comparison_lane_layers(manifest: HeadToHeadManifest) -> dict[str, Comparison
     """Map each modeled comparison lane label to its layer type.
 
     Distinguishes retrieval engines (archex default + candidate lanes, external
-    retrieval tools) from compression layers (Headroom modes) and the raw baseline,
-    so reports never present a compression layer as a retrieval engine.
+    retrieval tools) from graph-memory lanes, compression layers (Headroom modes),
+    and the raw baseline, so reports never present a non-retrieval layer as a
+    retrieval engine.
     """
     layers: dict[str, ComparisonLayerType] = {"archex": ComparisonLayerType.RETRIEVAL}
     for candidate in manifest.archex.candidate_strategies:
         layers[candidate.value] = ComparisonLayerType.RETRIEVAL
     for tool in manifest.external_tools:
         layers[tool.name] = tool.layer_type
-    for lane in manifest.graphify_lanes:
-        layers[lane.name.value] = lane.layer_type
+    for lane in manifest.graph_memory_lanes:
+        layers[lane.name] = lane.layer_type
     for layer in manifest.compression_layers:
         for mode in layer.modes:
             layers[mode.value] = layer.layer_type
@@ -338,15 +338,60 @@ def merge_results_by_task(
     return [merged[report.task_id] for report in reports]
 
 
-def reports_with_graphify_lanes(
+class _GraphMemoryArtifactLoader(Protocol):
+    def __call__(
+        self,
+        config: GraphMemoryLaneConfig,
+        *,
+        task_id: str,
+        artifact_dir: Path,
+    ) -> BenchmarkResult: ...
+
+
+_GRAPH_MEMORY_ARTIFACT_LOADERS: dict[GraphMemoryTool, _GraphMemoryArtifactLoader] = {
+    GraphMemoryTool.GRAPHIFY: load_graphify_artifact,
+}
+
+
+def load_graph_memory_results(
+    lanes: list[GraphMemoryLaneConfig], task_ids: list[str]
+) -> list[BenchmarkResult]:
+    """Import every artifact-backed graph-memory result for ``task_ids``.
+
+    A lane with no artifacts is simply absent from the comparison. A lane with
+    some artifacts must have all of them: partial coverage is a missing cell, and
+    a missing cell is never silently dropped from a published comparison.
+    """
+    results: list[BenchmarkResult] = []
+    for config in lanes:
+        if config.artifact_dir is None:
+            continue
+        artifact_dir = Path(config.artifact_dir)
+        present = [task_id for task_id in task_ids if (artifact_dir / f"{task_id}.json").is_file()]
+        if not present:
+            continue
+        missing = [task_id for task_id in task_ids if task_id not in set(present)]
+        if missing:
+            raise GraphMemoryAdapterError(
+                f"graph-memory lane {config.name!r} has incomplete coverage in {artifact_dir}: "
+                f"missing artifacts for {', '.join(missing)}"
+            )
+        load_artifact = _GRAPH_MEMORY_ARTIFACT_LOADERS[config.tool]
+        results.extend(
+            load_artifact(config, task_id=task_id, artifact_dir=artifact_dir) for task_id in present
+        )
+    return results
+
+
+def reports_with_graph_memory_lanes(
     manifest: HeadToHeadManifest, reports: list[BenchmarkReport]
 ) -> list[BenchmarkReport]:
-    """Augment loaded reports with any artifact-backed Graphify lane results."""
-    graphify_results = load_graphify_results(
-        manifest.graphify_lanes,
+    """Augment loaded reports with any artifact-backed graph-memory lane results."""
+    graph_memory_results = load_graph_memory_results(
+        manifest.graph_memory_lanes,
         [report.task_id for report in reports],
     )
-    return merge_results_by_task(reports, graphify_results)
+    return merge_results_by_task(reports, graph_memory_results)
 
 
 def lane_label(result: BenchmarkResult) -> str:
@@ -360,7 +405,7 @@ def lane_label(result: BenchmarkResult) -> str:
 
 
 def result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> str:
-    graphify_by_name = {lane.name.value: lane for lane in manifest.graphify_lanes}
+    graph_memory_by_name = {lane.name: lane for lane in manifest.graph_memory_lanes}
     if result.strategy is Strategy.ARCHEX_QUERY:
         return f"manifest={manifest.name}; lane=archex; embedder={manifest.archex.embedder}"
     if result.strategy is Strategy.RAW_RIPGREP:
@@ -374,12 +419,12 @@ def result_provenance(result: BenchmarkResult, manifest: HeadToHeadManifest) -> 
             f"embedder={manifest.archex.embedder}"
         )
     tool = result.provenance.get("external_tool", result.strategy_label or "external")
-    if tool in graphify_by_name:
-        lane = graphify_by_name[tool]
-        package = result.provenance.get("graphify_package", lane.package_name)
+    if tool in graph_memory_by_name:
+        lane = graph_memory_by_name[tool]
+        package = result.provenance.get("graph_memory_package", lane.package_name)
         version = result.provenance.get("external_tool_version", lane.version)
         mode = "build+query" if lane.includes_build_cost else "warm-query"
-        run_mode = result.provenance.get("graphify_run_mode", "local")
+        run_mode = result.provenance.get("graph_memory_run_mode", "local")
         return (
             f"manifest={manifest.name}; lane={tool}; package={package}; "
             f"version={version}; mode={mode}; run={run_mode}"

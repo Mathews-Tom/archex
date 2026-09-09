@@ -1,9 +1,11 @@
-"""Run one Graphify competitive lane from the PR2 stdin contract.
+"""Run one Graphify graph-memory comparison lane from the adapter stdin contract.
 
 Reads a JSON payload on stdin with:
 - ``task``: BenchmarkTask JSON
 - ``repo_path``: checked-out repository path
 - ``lane``: graphify_build_plus_query | graphify_query_warm
+- ``tool``: graph-memory tool id (``graphify``)
+- ``mode``: build_plus_query | query_warm
 - ``graphify``: {package_name, version, includes_build_cost}
 
 Writes one GraphifyArtifact JSON document to stdout.
@@ -22,7 +24,7 @@ import time
 from pathlib import Path
 
 from archex.benchmark.graphify import GraphifyArtifact
-from archex.benchmark.models import BenchmarkTask, GraphifyLaneName
+from archex.benchmark.models import BenchmarkTask
 from archex.benchmark.region_metrics import ReturnedRegion, compute_region_metrics
 from archex.benchmark.strategies import (
     completion_result_from_missing,
@@ -128,7 +130,7 @@ def main() -> int:
     payload = json.loads(sys.stdin.read())
     task = BenchmarkTask.model_validate(payload["task"])
     repo_path = Path(payload["repo_path"]).resolve()
-    lane = GraphifyLaneName(str(payload["lane"]))
+    lane = str(payload["lane"])
     graphify = payload["graphify"]
     package_name = str(graphify["package_name"])
     version = str(graphify["version"])
