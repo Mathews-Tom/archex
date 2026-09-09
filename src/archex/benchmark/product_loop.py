@@ -124,8 +124,28 @@ DENIED_TOOLS: tuple[str, ...] = (
     "CronCreate",
     "CronDelete",
     "CronList",
+    "Monitor",
+    "PushNotification",
+    "RemoteTrigger",
+    "ShareOnboardingGuide",
+    "ToolSearch",
 )
-"""Explicit denylist; the frozen tool set is asserted per cell from the receipt."""
+"""Explicit denylist; the frozen tool set is asserted per cell from the receipt.
+
+The last five are plugin-provided tools that survive ``--setting-sources
+project`` on an operator machine with plugins installed. Naming them is what
+reduces the advertised non-MCP set to exactly :data:`BASE_TOOLS`.
+"""
+
+SETTING_SOURCES = "project"
+"""Only the cell checkout's own settings are loaded.
+
+Subscription auth breaks whenever ``HOME`` or ``CLAUDE_CONFIG_DIR`` is
+redirected, so the agent runs with the operator's real home. This flag is what
+excludes the operator's user settings and ``CLAUDE.md`` instead; measured, it
+takes the model from quoting the operator's memory file to reporting none, and
+cuts the system prompt from 18 397 to 6 969 cache-creation tokens.
+"""
 
 _PATH_LEAK_MARKERS = ("/Users/", "/home/", "/private/", "/tmp/")
 
@@ -322,6 +342,10 @@ class ProductLoopCellArtifact(BaseModel):
     graft_cards_greppable: bool | None = None
     mcp_command_original: str | None = None
     mcp_command_used: str | None = None
+    quota_utilization: float | None = None
+    """Subscription five-hour window utilization at the end of the cell, when reported."""
+    ambient_tool_fingerprint: str
+    """SHA-256 of the advertised non-MCP tool list, which must not vary across cells."""
     provider_endpoint_overridden: bool = False
     """True when the cell ran against a stub endpoint; such cells are never publishable."""
 
@@ -370,6 +394,9 @@ class ProductLoopCellArtifact(BaseModel):
                 f"expected {sorted(self.arm.expected_tools)}"
             )
             raise ValueError(msg)
+        if self.ambient_tool_fingerprint != ambient_tool_fingerprint(self.tools_advertised):
+            msg = "ambient_tool_fingerprint does not match the advertised tool list"
+            raise ValueError(msg)
         if self.mcp_status != "connected" or self.mcp_dropped:
             msg = "an ok cell requires a connected MCP server that never dropped"
             raise ValueError(msg)
@@ -400,6 +427,19 @@ class ProductLoopCellArtifact(BaseModel):
         if self.hook_invocations != len(self.hook_records):
             msg = "hook_invocations must equal the number of recorded hook rows"
             raise ValueError(msg)
+
+
+def ambient_tool_fingerprint(tools_advertised: Sequence[str]) -> str:
+    """Fingerprint the non-MCP tools the client advertised.
+
+    Subscription auth forces the agent to run under the operator's real home, so
+    the built-in and plugin surface is not fully excludable. Fingerprinting what
+    each cell actually saw is what makes the residual auditable: the validator
+    requires one value across the whole run, so an install that changes
+    mid-campaign is a visible failure rather than a silent confound.
+    """
+    non_mcp = sorted(name for name in tools_advertised if not name.startswith("mcp__"))
+    return hashlib.sha256("\n".join(non_mcp).encode("utf-8")).hexdigest()
 
 
 def build_prompt(question: str) -> str:
@@ -558,6 +598,8 @@ class TranscriptSummary(BaseModel):
     error_text: str | None
     saw_result: bool
     rate_limited: bool
+    quota_utilization: float | None = None
+    """Fraction of the subscription's five-hour window in use, when reported."""
 
 
 def summarize_transcript(lines: Iterable[str], *, arm: ProductLoopArm) -> TranscriptSummary:
@@ -580,6 +622,7 @@ def summarize_transcript(lines: Iterable[str], *, arm: ProductLoopArm) -> Transc
     error_text: str | None = None
     saw_result = False
     rate_limited = False
+    quota_utilization: float | None = None
     server = arm.mcp_server
 
     for raw in lines:
@@ -610,7 +653,14 @@ def summarize_transcript(lines: Iterable[str], *, arm: ProductLoopArm) -> Transc
                 if later is not None and later != "connected":
                     mcp_dropped = True
         elif kind == "rate_limit_event":
-            rate_limited = True
+            # Claude Code emits this routinely as quota telemetry, with
+            # `status: "allowed"`. Treating every occurrence as a failure would
+            # turn an entirely healthy run into 114 recorded failures.
+            info = as_json_object(event.get("rate_limit_info"))
+            status = as_json_text(info.get("status")) if info is not None else None
+            if status is not None and status != "allowed":
+                rate_limited = True
+            quota_utilization = _five_hour_utilization(info) or quota_utilization
         elif kind == "assistant":
             message = as_json_object(event.get("message"))
             if message is None:
@@ -663,7 +713,22 @@ def summarize_transcript(lines: Iterable[str], *, arm: ProductLoopArm) -> Transc
         error_text=error_text,
         saw_result=saw_result,
         rate_limited=rate_limited,
+        quota_utilization=quota_utilization,
     )
+
+
+def _five_hour_utilization(info: dict[str, JsonValue] | None) -> float | None:
+    """Read the five-hour window utilization from a rate-limit telemetry event."""
+    if info is None:
+        return None
+    windows = as_json_object(info.get("unifiedWindows"))
+    five_hour = as_json_object(windows.get("five_hour")) if windows is not None else None
+    if five_hour is None:
+        return None
+    value = five_hour.get("utilization")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def _as_number(value: JsonValue) -> float:
@@ -823,6 +888,7 @@ def build_cell_artifact(
         "mcp_command_original": mcp_command_original,
         "mcp_command_used": mcp_command_used,
         "provider_endpoint_overridden": provider_endpoint_overridden,
+        "ambient_tool_fingerprint": ambient_tool_fingerprint([]),
     }
     if summary is not None:
         common |= {
@@ -830,6 +896,7 @@ def build_cell_artifact(
             "mcp_status": summary.mcp_status,
             "mcp_dropped": summary.mcp_dropped,
             "tools_advertised": sorted(summary.tools_advertised),
+            "ambient_tool_fingerprint": ambient_tool_fingerprint(summary.tools_advertised),
             "tool_calls": summary.tool_calls,
             "tool_call_mix": summary.tool_call_mix,
             "product_tool_calls": summary.product_tool_calls,
@@ -840,6 +907,7 @@ def build_cell_artifact(
             "cache_creation_tokens": summary.cache_creation_tokens,
             "modelled_cost_usd": summary.modelled_cost_usd,
             "num_turns": summary.num_turns,
+            "quota_utilization": summary.quota_utilization,
         }
 
     if reason is not None:
@@ -978,6 +1046,7 @@ def validate_product_loop_directory(
         for repetition in range(1, repetitions + 1)
     }
     seen: dict[tuple[ProductLoopArm, str, int], Path] = {}
+    fingerprints: set[str] = set()
     costs: list[float] = []
     total_cost = 0.0
     ok_cells = 0
@@ -1011,9 +1080,16 @@ def validate_product_loop_directory(
             total_cost += artifact.modelled_cost_usd
             costs.append(artifact.modelled_cost_usd)
             if artifact.status is ProductLoopCellStatus.OK:
+                fingerprints.add(artifact.ambient_tool_fingerprint)
+            if artifact.status is ProductLoopCellStatus.OK:
                 ok_cells += 1
             else:
                 failed_cells += 1
+
+    if len(fingerprints) > 1:
+        # The client surface changed mid-run, so the cells are not comparable.
+        msg = f"scored cells report {len(fingerprints)} different ambient tool surfaces"
+        raise ProductLoopError(msg)
 
     missing = planned - set(seen)
     if missing and require_complete:

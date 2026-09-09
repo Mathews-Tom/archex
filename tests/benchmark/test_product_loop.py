@@ -40,6 +40,7 @@ from archex.benchmark.product_loop import (  # noqa: E402
     ProductLoopError,
     ProductLoopFailureReason,
     TranscriptSummary,
+    ambient_tool_fingerprint,
     assert_frozen_prompt,
     build_cell_artifact,
     build_prompt,
@@ -88,6 +89,9 @@ def _cell_payload(**overrides: Any) -> dict[str, Any]:
         "mcp_status": "connected",
         "mcp_dropped": False,
         "tools_advertised": sorted(ProductLoopArm.ARCHEX.expected_tools),
+        "ambient_tool_fingerprint": ambient_tool_fingerprint(
+            sorted(ProductLoopArm.ARCHEX.expected_tools)
+        ),
         "expected_file_count": 3,
         "matched_file_count": 3,
         "completeness": 1.0,
@@ -285,10 +289,29 @@ class TestTranscriptSummary:
         assert summary.final_text.endswith("pkg/service.py")
         assert summary.saw_result
 
-    def test_rate_limit_event_is_visible(self) -> None:
+    def test_routine_quota_telemetry_is_not_a_rate_limit(self) -> None:
+        # Claude Code emits this event on healthy turns with status "allowed".
+        # Treating every occurrence as a failure would turn an entirely healthy
+        # run into 114 recorded failures.
         lines = self._transcript(
             {"type": "system", "subtype": "init", "tools": [], "mcp_servers": []},
-            {"type": "rate_limit_event"},
+            {
+                "type": "rate_limit_event",
+                "rate_limit_info": {
+                    "status": "allowed",
+                    "unifiedWindows": {"five_hour": {"utilization": 0.04}},
+                },
+            },
+            {"type": "result", "is_error": False, "total_cost_usd": 0.01},
+        )
+        summary = summarize_transcript(lines, arm=ProductLoopArm.ARCHEX)
+        assert summary.rate_limited is False
+        assert summary.quota_utilization == pytest.approx(0.04)  # pyright: ignore[reportUnknownMemberType]
+
+    def test_a_real_rate_limit_is_visible(self) -> None:
+        lines = self._transcript(
+            {"type": "system", "subtype": "init", "tools": [], "mcp_servers": []},
+            {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected"}},
             {"type": "result", "is_error": True, "result": "stopped", "total_cost_usd": 0.0},
         )
         summary = summarize_transcript(lines, arm=ProductLoopArm.ARCHEX)
@@ -349,6 +372,17 @@ class TestArtifactContract:
         )
         with pytest.raises(ValidationError, match="advertised"):
             ProductLoopCellArtifact.model_validate(payload)
+
+    def test_fingerprint_must_describe_the_recorded_tool_list(self) -> None:
+        with pytest.raises(ValidationError, match="ambient_tool_fingerprint"):
+            ProductLoopCellArtifact.model_validate(_cell_payload(ambient_tool_fingerprint="0" * 64))
+
+    def test_fingerprint_ignores_mcp_tools(self) -> None:
+        # The arms advertise different MCP tools by design, so only the shared
+        # non-MCP surface may enter the fingerprint the validator compares.
+        assert ambient_tool_fingerprint(
+            ["Read", "Grep", "Glob", "mcp__archex__context"]
+        ) == ambient_tool_fingerprint(["Glob", "Grep", "Read", "mcp__graft__graft_find_code"])
 
     def test_disconnected_mcp_cannot_be_a_scored_cell(self) -> None:
         with pytest.raises(ValidationError, match="connected MCP"):
@@ -608,6 +642,9 @@ class TestDirectoryValidation:
                         repetition=repetition,
                         mcp_server=arm.mcp_server,
                         tools_advertised=sorted(arm.expected_tools),
+                        ambient_tool_fingerprint=ambient_tool_fingerprint(
+                            sorted(arm.expected_tools)
+                        ),
                         tool_call_mix={f"mcp__{arm.mcp_server}__x": 1},
                         **overrides,
                     )
@@ -654,6 +691,34 @@ class TestDirectoryValidation:
         path.write_text(json.dumps(payload), encoding="utf-8")
         with pytest.raises(ProductLoopError, match="overridden provider endpoint"):
             validate_product_loop_directory(tmp_path, task_ids=["alpha"])
+
+    def test_a_changed_client_surface_mid_run_is_rejected(self, tmp_path: Path) -> None:
+        # Subscription auth forces the operator's real home, so the built-in and
+        # plugin surface is not fully excludable. An install that changes
+        # mid-campaign must be a visible failure, not a silent confound.
+        self._write(tmp_path, ["alpha"], modelled_cost_usd=0.01)
+        path = tmp_path / ProductLoopArm.ARCHEX.value / cell_filename("alpha", 1)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["tools_advertised"] = [*payload["tools_advertised"], "Bash"]
+        payload["ambient_tool_fingerprint"] = ambient_tool_fingerprint(payload["tools_advertised"])
+        payload["status"] = ProductLoopCellStatus.FAILED.value
+        payload["failure_reason"] = ProductLoopFailureReason.TOOL_PARITY_VIOLATION.value
+        payload["matched_file_count"] = 0
+        payload["completeness"] = 0.0
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        # A failed cell does not contribute a fingerprint, so this still passes.
+        validate_product_loop_directory(tmp_path, task_ids=["alpha"])
+
+        other = tmp_path / ProductLoopArm.GRAFT.value / cell_filename("alpha", 1)
+        payload = json.loads(other.read_text(encoding="utf-8"))
+        payload["tools_advertised"] = ["Glob", "Grep", *sorted(ProductLoopArm.GRAFT.mcp_tools)]
+        payload["ambient_tool_fingerprint"] = ambient_tool_fingerprint(payload["tools_advertised"])
+        payload["status"] = ProductLoopCellStatus.FAILED.value
+        payload["failure_reason"] = ProductLoopFailureReason.TOOL_PARITY_VIOLATION.value
+        payload["matched_file_count"] = 0
+        payload["completeness"] = 0.0
+        other.write_text(json.dumps(payload), encoding="utf-8")
+        validate_product_loop_directory(tmp_path, task_ids=["alpha"])
 
     def test_missing_arm_directory_is_rejected(self, tmp_path: Path) -> None:
         (tmp_path / ProductLoopArm.ARCHEX.value).mkdir(parents=True)

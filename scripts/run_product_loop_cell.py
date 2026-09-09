@@ -39,6 +39,7 @@ from archex.benchmark.product_loop import (
     BASE_TOOLS,
     CELL_DEADLINE_SECONDS,
     DENIED_TOOLS,
+    SETTING_SOURCES,
     ProductLoopArm,
     ProductLoopError,
     TranscriptSummary,
@@ -71,6 +72,8 @@ def _agent_command(*, arm: ProductLoopArm, prompt: str, repo_path: Path, binary:
         "--mcp-config",
         str(repo_path / ".mcp.json"),
         "--strict-mcp-config",
+        "--setting-sources",
+        SETTING_SOURCES,
         "--allowedTools",
         *sorted(BASE_TOOLS),
         f"mcp__{arm.mcp_server}",
@@ -85,16 +88,26 @@ def _agent_command(*, arm: ProductLoopArm, prompt: str, repo_path: Path, binary:
 def _cell_env(*, cell_dir: Path, path: str, arm: ProductLoopArm) -> tuple[dict[str, str], bool]:
     """A scrubbed environment, plus whether the provider endpoint was overridden.
 
-    Nothing ambient reaches the agent. The two `ANTHROPIC_*` overrides are the
-    single exception: they exist so the whole harness can be exercised against a
-    local stub endpoint without a hosted call. A cell that used them records the
-    fact, and the validator refuses to publish it as evidence.
+    The environment is built from nothing rather than inherited, but `HOME` is
+    the operator's real home and `CLAUDE_CONFIG_DIR` is deliberately unset.
+    Subscription auth refuses to work otherwise: every isolated variant tried —
+    redirected `HOME`, redirected `CLAUDE_CONFIG_DIR`, a seeded home carrying
+    `.credentials.json` — returns `Not logged in`. `USER` and `LOGNAME` are
+    required for the same reason. Ambient settings and `CLAUDE.md` are excluded
+    by `--setting-sources project` instead, and the residual surface is
+    fingerprinted per cell rather than assumed away.
+
+    The two `ANTHROPIC_*` overrides are the single deliberate exception: they
+    let the whole harness be exercised against a local stub endpoint without a
+    hosted call. A cell that used them records the fact, and the validator
+    refuses to publish it as evidence.
     """
-    home = cell_dir / "home"
+    del cell_dir
     env = {
         "PATH": path,
-        "HOME": str(home),
-        "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+        "HOME": os.environ.get("HOME", ""),
+        "USER": os.environ.get("USER", ""),
+        "LOGNAME": os.environ.get("LOGNAME", os.environ.get("USER", "")),
         "LANG": "C.UTF-8",
         "TERM": "dumb",
     }

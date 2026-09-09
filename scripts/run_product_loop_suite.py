@@ -262,11 +262,20 @@ def _freshness_command(arm: ProductLoopArm, repo_path: Path, *, graft_binary: st
 
 
 def _cell_env(cell_dir: Path, *, path: str, arm: ProductLoopArm) -> dict[str, str]:
-    home = cell_dir / "home"
+    """Setup runs under the same home the agent will use.
+
+    It has to: the Archex hook executes as a child of the agent, so an index
+    written under a different `HOME` would be invisible to it. Subscription auth
+    pins that home to the operator's real one, which means `~/.archex` is shared
+    across cells. Cells stay distinct because each has its own checkout path,
+    and the sharing is disclosed rather than hidden.
+    """
+    del cell_dir
     env = {
         "PATH": path,
-        "HOME": str(home),
-        "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+        "HOME": os.environ.get("HOME", ""),
+        "USER": os.environ.get("USER", ""),
+        "LOGNAME": os.environ.get("LOGNAME", os.environ.get("USER", "")),
         "LANG": "C.UTF-8",
         "TERM": "dumb",
     }
