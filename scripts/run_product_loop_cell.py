@@ -36,7 +36,7 @@ from archex.benchmark.models import BenchmarkTask
 from archex.benchmark.product_loop import (
     AGENT_MODEL,
     AGENT_NAME,
-    BASE_TOOLS,
+    BASE_TOOL_ORDER,
     CELL_DEADLINE_SECONDS,
     DENIED_TOOLS,
     SETTING_SOURCES,
@@ -53,6 +53,7 @@ from archex.benchmark.product_loop import (
     classify_cell_failure,
     decode_json,
     read_hook_records,
+    salvage_modelled_cost,
     sanitize_document,
     summarize_transcript,
 )
@@ -75,7 +76,9 @@ def _agent_command(*, arm: ProductLoopArm, prompt: str, repo_path: Path, binary:
         "--setting-sources",
         SETTING_SOURCES,
         "--allowedTools",
-        *sorted(BASE_TOOLS),
+        # Frozen textual order, so the emitted command line matches the
+        # pre-registered one literally and not merely as a set.
+        *BASE_TOOL_ORDER,
         f"mcp__{arm.mcp_server}",
         "--disallowedTools",
         *DENIED_TOOLS,
@@ -244,6 +247,7 @@ def main() -> int:
         summary=summary,
         reason=reason,
         detail=detail,
+        salvaged_cost_usd=(salvage_modelled_cost(stdout) if summary is None else 0.0),
         repo_path=repo_path,
         setup_seconds=as_json_float(payload.get("setup_seconds")),
         wall_seconds=wall_seconds,

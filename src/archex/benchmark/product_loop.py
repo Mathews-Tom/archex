@@ -94,8 +94,11 @@ INSTRUCTION_BLOCK = (
 INSTRUCTION_BLOCK_SHA256 = "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d"
 """SHA-256 of :data:`INSTRUCTION_BLOCK`, also recorded in the pre-registration."""
 
-BASE_TOOLS: frozenset[str] = frozenset({"Read", "Grep", "Glob"})
-"""Base tool allowlist, identical on both arms."""
+BASE_TOOL_ORDER: tuple[str, ...] = ("Read", "Grep", "Glob")
+"""Base tool allowlist in the order the pre-registered command line writes it."""
+
+BASE_TOOLS: frozenset[str] = frozenset(BASE_TOOL_ORDER)
+"""Base tool allowlist as a set, identical on both arms."""
 
 DENIED_TOOLS: tuple[str, ...] = (
     "Write",
@@ -151,6 +154,7 @@ _PATH_LEAK_MARKERS = ("/Users/", "/home/", "/private/", "/tmp/")
 
 _LINE_SUFFIX = re.compile(r":L\d+-L\d+$|:\d+$")
 _MARKDOWN_LINK = re.compile(r"^\[(?P<label>[^\]]*)\]\((?P<target>[^)]*)\)$")
+_COST_IN_TEXT = re.compile(r'"total_cost_usd"\s*:\s*([0-9]+(?:\.[0-9]+)?)')
 
 JsonValue: TypeAlias = "str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]"
 
@@ -851,6 +855,24 @@ def classify_cell_failure(
     return None
 
 
+def salvage_modelled_cost(transcript: str) -> float:
+    """Recover a cell's recorded cost from a transcript the parser rejected.
+
+    Killing the process group at the deadline truncates the stream, so the
+    terminal result object may be unreadable as JSON while the cost it reports
+    is still present in the bytes. The frozen deadline rule says a terminated
+    cell's cost counts against the ceiling, so a best-effort scan is better than
+    silently charging the run zero for tokens it actually spent.
+    """
+    matches = _COST_IN_TEXT.findall(transcript)
+    if not matches:
+        return 0.0
+    try:
+        return max(float(value) for value in matches)
+    except ValueError:  # pragma: no cover - findall only yields numeric text
+        return 0.0
+
+
 def build_cell_artifact(
     *,
     task: BenchmarkTask,
@@ -859,6 +881,7 @@ def build_cell_artifact(
     summary: TranscriptSummary | None,
     reason: ProductLoopFailureReason | None,
     detail: str | None,
+    salvaged_cost_usd: float = 0.0,
     repo_path: Path,
     setup_seconds: float,
     wall_seconds: float,
@@ -929,7 +952,7 @@ def build_cell_artifact(
             "output_tokens": 0,
             "cache_read_tokens": 0,
             "cache_creation_tokens": 0,
-            "modelled_cost_usd": 0.0,
+            "modelled_cost_usd": salvaged_cost_usd,
             "num_turns": 0,
         }
         return ProductLoopCellArtifact.model_validate(

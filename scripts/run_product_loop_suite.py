@@ -180,9 +180,9 @@ def _repin_graft_mcp(repo_path: Path, *, binary: str) -> tuple[str, str]:
         message = f"{config_path} has no graft MCP server entry to repin"
         raise SuiteAbortError(message)
 
-    original = json.dumps(
-        {"command": entry.get("command"), "args": entry.get("args")}, sort_keys=True
-    )
+    # Verbatim, not a reconstruction: a future graft template could add fields,
+    # and dropping them would quietly weaken the provenance record.
+    original = json.dumps(entry, sort_keys=True)
     entry["command"] = binary
     entry["args"] = ["mcp"]
     existing_env = as_json_object(entry.get("env")) or {}
@@ -284,15 +284,45 @@ def _cell_env(cell_dir: Path, *, path: str, arm: ProductLoopArm) -> dict[str, st
     return env
 
 
-def _assert_agent(binary: str) -> None:
-    """Refuse to run against anything but the frozen agent version."""
+def _assert_agent(binary: str) -> str:
+    """Refuse to run against anything but the frozen agent version.
+
+    Checked before *every* cell, not once per sweep: Claude Code auto-updates in
+    place, and an update between cells would otherwise leave half the campaign
+    measured on a different agent while every artifact still recorded the pin.
+    """
     completed = subprocess.run(  # noqa: S603 - binary comes from the operator's own flag
         [binary, "--version"], capture_output=True, text=True, check=False, timeout=60
     )
     reported = completed.stdout.strip()
-    if completed.returncode != 0 or AGENT_VERSION not in reported:
+    if completed.returncode != 0 or not reported.startswith(f"{AGENT_VERSION} "):
         message = f"agent is {reported or 'unavailable'}, not the frozen {AGENT_VERSION}"
         raise SuiteAbortError(message)
+    return reported
+
+
+def _assert_clean_source_tree() -> str:
+    """Return the archex source revision, refusing to run from a dirty tree.
+
+    The pre-registration records the source revision per run and refuses a dirty
+    tree, so evidence can always be tied to the build that produced it.
+    """
+    status = subprocess.run(  # noqa: S603 - fixed argv
+        ["git", "status", "--porcelain"], capture_output=True, text=True, check=False, timeout=60
+    )
+    if status.returncode != 0:
+        message = "cannot determine archex working-tree state"
+        raise SuiteAbortError(message)
+    if status.stdout.strip():
+        message = "archex working tree is dirty; evidence must come from a clean tree"
+        raise SuiteAbortError(message)
+    revision = subprocess.run(  # noqa: S603 - fixed argv
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False, timeout=60
+    )
+    if revision.returncode != 0:
+        message = "cannot determine archex source revision"
+        raise SuiteAbortError(message)
+    return revision.stdout.strip()
 
 
 def _run_cell(
@@ -419,7 +449,8 @@ def main() -> int:
         print(f"frozen-prompt check failed: {exc}", file=sys.stderr)
         return 1
     if not args.dry_run:
-        _assert_agent(args.agent_binary)
+        source_revision = _assert_clean_source_tree()
+        print(f"archex source revision {source_revision}", flush=True)
 
     manifest = load_headtohead_manifest(args.manifest)
     tasks = select_headtohead_tasks(manifest, args.tasks_dir)
@@ -456,6 +487,8 @@ def main() -> int:
                         )
                         raise SuiteAbortError(message)
 
+                    if not args.dry_run:
+                        _assert_agent(args.agent_binary)
                     cell_dir = workspace / arm.value / task.task_id / f"rep{repetition}"
                     cell_dir.mkdir(parents=True, exist_ok=True)
                     repo_path, setup_seconds, extra = _prepare_cell(

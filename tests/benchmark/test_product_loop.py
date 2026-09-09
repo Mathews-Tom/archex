@@ -51,6 +51,7 @@ from archex.benchmark.product_loop import (  # noqa: E402
     normalize_answer_path,
     preregistered_instruction_block,
     read_hook_records,
+    salvage_modelled_cost,
     sanitize_document,
     score_completeness,
     summarize_transcript,
@@ -522,6 +523,40 @@ class TestCellFailurePaths:
         assert artifact.completeness == 0.0
         assert artifact.modelled_cost_usd == 0.0
         assert artifact.no_product_use is True
+
+    def test_truncated_transcript_still_charges_its_cost(self, tmp_path: Path) -> None:
+        # The frozen deadline rule says a terminated cell's cost counts against
+        # the ceiling. The terminal object is unreadable as JSON after a kill,
+        # but the cost it reported is still in the bytes, so a run must not be
+        # charged zero for tokens it actually spent.
+        truncated = (
+            '{"type":"assistant","message":{"model":"m","content":[]}}\n'
+            '{"type":"result","is_error":false,"total_cost_usd":0.0731,"usage":{"in'
+        )
+        assert salvage_modelled_cost(truncated) == pytest.approx(0.0731)  # pyright: ignore[reportUnknownMemberType]
+        artifact = build_cell_artifact(
+            task=self._task(),
+            arm=ProductLoopArm.ARCHEX,
+            repetition=1,
+            summary=None,
+            reason=ProductLoopFailureReason.DEADLINE_EXCEEDED,
+            detail="truncated",
+            salvaged_cost_usd=salvage_modelled_cost(truncated),
+            repo_path=tmp_path,
+            setup_seconds=1.0,
+            wall_seconds=300.0,
+            hook_records=[],
+            freshness_state=None,
+            stale_index_event=False,
+            graft_cards_greppable=None,
+            mcp_command_original=None,
+            mcp_command_used=None,
+            provider_endpoint_overridden=False,
+        )
+        assert artifact.modelled_cost_usd == pytest.approx(0.0731)  # pyright: ignore[reportUnknownMemberType]
+
+    def test_salvage_returns_zero_when_no_cost_was_reported(self) -> None:
+        assert salvage_modelled_cost('{"type":"system","subtype":"init"}') == 0.0
 
     def test_partial_hook_log_line_is_skipped(self, tmp_path: Path) -> None:
         (tmp_path / "hooks.jsonl").write_text(
