@@ -90,6 +90,10 @@ from archex.benchmark.models import (
     Strategy,
 )
 from archex.benchmark.preflight import warm_benchmark_models
+from archex.benchmark.product_loop import (
+    ProductLoopError,
+    validate_product_loop_directory,
+)
 from archex.benchmark.progress import BenchmarkProgress
 from archex.benchmark.readiness import (
     build_readiness_report,
@@ -886,7 +890,8 @@ def determinism_economics_cmd(sessions: Path, output: Path, preregistration_comm
     type=click.Path(file_okay=True, dir_okay=True),
     help=(
         "Evidence directory to validate with --kind evidence, "
-        "or replication artifact file to validate with --kind replication."
+        "replication artifact file to validate with --kind replication, "
+        "or product-loop artifact directory to validate with --kind product-loop."
     ),
 )
 @click.option(
@@ -902,6 +907,7 @@ def determinism_economics_cmd(sessions: Path, output: Path, preregistration_comm
             "replication",
             "corpus-audit",
             "determinism-economics-r6-1",
+            "product-loop",
         ]
     ),
     show_default=True,
@@ -917,10 +923,29 @@ def validate_cmd(
     """Validate benchmark task definitions."""
     repo_root = Path.cwd()
     target: Path | None = None
-    if kind in {"evidence", "replication", "corpus-audit", "determinism-economics-r6-1"}:
+    if kind in {
+        "evidence",
+        "replication",
+        "corpus-audit",
+        "determinism-economics-r6-1",
+        "product-loop",
+    }:
         if input_path is None:
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
+    if kind == "product-loop" and target is not None:
+        manifest_path = Path("benchmarks/headtohead/manifest.yaml")
+        try:
+            manifest = load_headtohead_manifest(manifest_path)
+            coverage = validate_product_loop_directory(target, task_ids=manifest.task_subset)
+        except (HeadToHeadManifestError, ProductLoopError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Valid R20 product-loop evidence: {coverage.cells}/{coverage.planned_cells} cells, "
+            f"{coverage.ok_cells} scored, {coverage.failed_cells} recorded failure(s), "
+            f"modelled cost ${coverage.total_modelled_cost_usd:.4f}."
+        )
+        return
     if kind == "determinism-economics-r6-1" and target is not None:
         try:
             artifact = load_artifact(target)

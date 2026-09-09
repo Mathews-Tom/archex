@@ -1,0 +1,861 @@
+"""Paired product-as-shipped agent-loop benchmark (R20).
+
+Two arms drive the *same* agent — Claude Code — over the same frozen task
+population. Only the wired context product differs: `archex_product_loop` uses
+Archex's shipped project wiring, `graft_product_loop` uses the pinned Graft
+release's. The comparison is descriptive by construction; the load-bearing
+output is the Archex-arm baseline that later workflow milestones re-run against.
+
+Everything here follows the frozen protocol in
+`benchmarks/preregistrations/R20-product-loop-agent-baseline.md`:
+
+* the measured prompt is the task `question`, one blank line, then
+  :data:`INSTRUCTION_BLOCK` verbatim — pinned by SHA-256 so its wording cannot be
+  tuned after a pilot;
+* the answer's file list may name at most :data:`ANSWER_PATH_CAP` paths, because
+  the primary is a pure recall measure and an uncapped list is gameable by
+  breadth alone;
+* path normalization is specified step by step and applied identically to both
+  arms, because matching is exact and Graft's native pointers carry
+  `:L<start>-L<end>` suffixes that exact matching would otherwise reject;
+* a cell that could not be measured is retained as an explicit failure and
+  enters the primary mean as `0.0`; no cell is ever dropped;
+* cost is Claude Code's list-price `total_cost_usd` under subscription auth, so
+  it is modelled rather than billed, and the ceiling is enforced against it;
+* artifacts carry no prompt text, no source, and no absolute machine paths.
+
+The module fails closed: an artifact that contradicts the frozen identities, the
+tool policy, or the cost ceiling is rejected rather than published.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from enum import StrEnum
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Self, TypeAlias, cast
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+PREREGISTRATION_PATH = "benchmarks/preregistrations/R20-product-loop-agent-baseline.md"
+"""Tracked contract this module implements; its commit precedes every cell."""
+
+AGENT_NAME = "claude"
+"""Frozen agent executable."""
+
+AGENT_VERSION = "2.1.266"
+"""Frozen Claude Code version; a mismatch stops the run rather than substituting."""
+
+AGENT_MODEL = "claude-haiku-4-5"
+"""Frozen model, identical on both arms."""
+
+BILLING_MODE = "oauth_subscription"
+"""No dollars are charged; `total_cost_usd` is list-price arithmetic, not a bill."""
+
+REPETITIONS = 3
+"""Repetitions per task and arm; they estimate agent nondeterminism."""
+
+ANSWER_PATH_CAP = 6
+"""Maximum paths a `FILES:` block may name — twice the largest denominator."""
+
+CELL_DEADLINE_SECONDS = 300
+"""Per-cell wall-clock deadline; the agent exposes no turn or time cap."""
+
+COST_CEILING_USD = 25.0
+"""Frozen modelled-cost ceiling for the whole run."""
+
+BOOTSTRAP_RESAMPLES = 10_000
+"""Cluster bootstrap resamples, frozen with the seed below."""
+
+BOOTSTRAP_SEED = 20260909
+"""Cluster bootstrap seed, inherited from R19 so the scales are comparable."""
+
+ANSWER_MARKER = "FILES:"
+"""The line that opens the answer's file list."""
+
+INSTRUCTION_BLOCK = (
+    "Identify the files in this repository that are required to answer the "
+    "question above. Use the tools available to you.\n"
+    "\n"
+    "End your reply with a line containing exactly `FILES:` and nothing else, "
+    "followed by one repository-relative path per line, most relevant first. "
+    "Name at most 6 paths, and name only files that are required to answer the "
+    "question.\n"
+)
+"""Frozen instruction block appended to every cell's prompt, byte for byte."""
+
+INSTRUCTION_BLOCK_SHA256 = "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d"
+"""SHA-256 of :data:`INSTRUCTION_BLOCK`, also recorded in the pre-registration."""
+
+BASE_TOOLS: frozenset[str] = frozenset({"Read", "Grep", "Glob"})
+"""Base tool allowlist, identical on both arms."""
+
+DENIED_TOOLS: tuple[str, ...] = (
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit",
+    "Bash",
+    "Task",
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "TaskUpdate",
+    "WebSearch",
+    "WebFetch",
+    "Skill",
+    "Workflow",
+    "DesignSync",
+    "EnterWorktree",
+    "ExitWorktree",
+    "ListAgents",
+    "ReportFindings",
+    "ScheduleWakeup",
+    "SendMessage",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+)
+"""Explicit denylist; the frozen tool set is asserted per cell from the receipt."""
+
+_PATH_LEAK_MARKERS = ("/Users/", "/home/", "/private/", "/tmp/")
+
+_LINE_SUFFIX = re.compile(r":L\d+-L\d+$|:\d+$")
+_MARKDOWN_LINK = re.compile(r"^\[(?P<label>[^\]]*)\]\((?P<target>[^)]*)\)$")
+
+JsonValue: TypeAlias = "str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]"
+
+
+def as_json_object(value: JsonValue) -> dict[str, JsonValue] | None:
+    """Narrow a decoded JSON value to an object, or None."""
+    return value if isinstance(value, dict) else None
+
+
+def as_json_array(value: JsonValue) -> list[JsonValue] | None:
+    """Narrow a decoded JSON value to an array, or None."""
+    return value if isinstance(value, list) else None
+
+
+def as_json_text(value: JsonValue) -> str | None:
+    """Narrow a decoded JSON value to a string, or None."""
+    return value if isinstance(value, str) else None
+
+
+def decode_json(document: str) -> JsonValue:
+    """Decode a JSON document as an explicitly typed value, not `Any`."""
+    raw: Any = json.loads(document)
+    return cast("JsonValue", raw)
+
+
+class ProductLoopError(Exception):
+    """A product-loop artifact or directory contradicts the frozen protocol."""
+
+
+class ProductLoopArm(StrEnum):
+    """Which product's shipped wiring the agent ran with."""
+
+    ARCHEX = "archex_product_loop"
+    GRAFT = "graft_product_loop"
+
+    @property
+    def mcp_server(self) -> str:
+        """Name of the single MCP server this arm registers."""
+        return _ARM_MCP_SERVER[self]
+
+    @property
+    def mcp_tools(self) -> frozenset[str]:
+        """Exact MCP tool names this arm's server advertises at session start."""
+        return _ARM_MCP_TOOLS[self]
+
+    @property
+    def expected_tools(self) -> frozenset[str]:
+        """Frozen `system`/`init` tool set for this arm."""
+        return BASE_TOOLS | self.mcp_tools
+
+
+_ARM_MCP_SERVER: dict[ProductLoopArm, str] = {
+    ProductLoopArm.ARCHEX: "archex",
+    ProductLoopArm.GRAFT: "graft",
+}
+
+_ARM_MCP_TOOLS: dict[ProductLoopArm, frozenset[str]] = {
+    # Archex ships 20 MCP tools but advertises only its retrieval core until a
+    # successful retrieval call opens its disclosure gate. That shipped
+    # behaviour is measured, not bypassed.
+    ProductLoopArm.ARCHEX: frozenset({"mcp__archex__context", "mcp__archex__query_repo"}),
+    ProductLoopArm.GRAFT: frozenset(
+        {
+            "mcp__graft__graft_check_freshness",
+            "mcp__graft__graft_file_api",
+            "mcp__graft__graft_find_all",
+            "mcp__graft__graft_find_code",
+            "mcp__graft__graft_repo_map",
+            "mcp__graft__graft_trace_calls",
+        }
+    ),
+}
+
+
+class ProductLoopCellStatus(StrEnum):
+    """Whether a planned cell produced a measurement or a recorded failure."""
+
+    OK = "ok"
+    FAILED = "failed"
+
+
+class ProductLoopFailureReason(StrEnum):
+    """Why a planned cell became a recorded failure.
+
+    Every one of these enters the primary completeness mean as ``0.0``. None of
+    them is ever dropped from the denominator.
+    """
+
+    DEADLINE_EXCEEDED = "deadline_exceeded"
+    RATE_LIMITED = "rate_limited"
+    TOOL_PARITY_VIOLATION = "tool_parity_violation"
+    MCP_DISCONNECTED = "mcp_disconnected"
+    AGENT_ERROR = "agent_error"
+    TRANSCRIPT_UNPARSABLE = "transcript_unparsable"
+
+
+class ProductLoopAnswerFlag(StrEnum):
+    """How the answer's file list was read."""
+
+    SCORED = "scored"
+    ANSWER_UNPARSED = "answer_unparsed"
+    ANSWER_OVER_BROAD = "answer_over_broad"
+
+
+class HookRecord(BaseModel):
+    """One invocation of a product's shipped hook, observed at the recorder.
+
+    Claude Code surfaces hook events for `SessionStart` only, so neither
+    Archex's `PreToolUse` hook nor Graft's `UserPromptSubmit`/`PostToolUse`
+    hooks appear in the transcript. The recorder wraps each hook command the
+    product installed, records this row, and passes the original command's
+    stdout and exit code through unchanged.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event: str
+    matcher: str | None = None
+    tool_name: str | None = None
+    stdin_bytes: int = Field(ge=0)
+    stdout_bytes: int = Field(ge=0)
+    exit_code: int
+    latency_ms: float = Field(ge=0.0)
+    augmented: bool
+    """Whether the hook returned any `additionalContext` payload."""
+
+
+class ProductLoopCellArtifact(BaseModel):
+    """One planned cell: a scored measurement or a recorded failure.
+
+    Field set is the pre-registration's privacy contract. There is no prompt
+    text, no repository source, no tool input or output, and no absolute machine
+    path; the prompt is fully determined by the task `question` already in the
+    repository plus :data:`INSTRUCTION_BLOCK_SHA256`.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    artifact_version: int = Field(default=1, ge=1, le=1)
+    preregistration: str = PREREGISTRATION_PATH
+    instruction_block_sha256: str
+    task_id: str
+    repo: str
+    commit: str
+    arm: ProductLoopArm
+    repetition: int = Field(ge=1)
+    status: ProductLoopCellStatus
+    failure_reason: ProductLoopFailureReason | None = None
+    failure_detail: str | None = None
+
+    agent_name: str
+    agent_version: str
+    model_requested: str
+    models_observed: list[str] = Field(default_factory=list)
+    billing_mode: str
+
+    mcp_server: str
+    mcp_status: str | None = None
+    mcp_dropped: bool = False
+    tools_advertised: list[str] = Field(default_factory=list)
+
+    expected_file_count: int = Field(ge=1)
+    matched_file_count: int = Field(ge=0)
+    completeness: float = Field(ge=0.0, le=1.0)
+    answer_flag: ProductLoopAnswerFlag
+    answer_paths: list[str] = Field(default_factory=list)
+    answer_path_count: int = Field(ge=0)
+    answer_precision: float = Field(ge=0.0, le=1.0)
+
+    tool_calls: int = Field(ge=0)
+    tool_call_mix: dict[str, int] = Field(default_factory=dict)
+    product_tool_calls: int = Field(ge=0)
+    no_product_use: bool
+
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cache_read_tokens: int = Field(ge=0)
+    cache_creation_tokens: int = Field(ge=0)
+    modelled_cost_usd: float = Field(ge=0.0)
+
+    setup_seconds: float = Field(ge=0.0)
+    wall_seconds: float = Field(ge=0.0)
+    num_turns: int = Field(ge=0)
+
+    freshness_state: str | None = None
+    stale_index_event: bool = False
+    hook_records: list[HookRecord] = Field(default_factory=list[HookRecord])
+    hook_invocations: int = Field(default=0, ge=0)
+    graft_cards_greppable: bool | None = None
+    mcp_command_original: str | None = None
+    mcp_command_used: str | None = None
+    provider_endpoint_overridden: bool = False
+    """True when the cell ran against a stub endpoint; such cells are never publishable."""
+
+    @model_validator(mode="after")
+    def _validate_cell(self) -> Self:
+        if self.instruction_block_sha256 != INSTRUCTION_BLOCK_SHA256:
+            msg = (
+                "instruction_block_sha256 does not match the frozen prompt "
+                f"({self.instruction_block_sha256!r})"
+            )
+            raise ValueError(msg)
+        if self.agent_name != AGENT_NAME or self.agent_version != AGENT_VERSION:
+            msg = f"agent identity is not the frozen {AGENT_NAME} {AGENT_VERSION}"
+            raise ValueError(msg)
+        if self.model_requested != AGENT_MODEL:
+            msg = f"model_requested is not the frozen {AGENT_MODEL}"
+            raise ValueError(msg)
+        if self.billing_mode != BILLING_MODE:
+            msg = f"billing_mode is not the frozen {BILLING_MODE}"
+            raise ValueError(msg)
+        if self.repetition > REPETITIONS:
+            msg = f"repetition {self.repetition} exceeds the frozen {REPETITIONS}"
+            raise ValueError(msg)
+        if self.mcp_server != self.arm.mcp_server:
+            msg = f"{self.arm.value} must register the {self.arm.mcp_server!r} MCP server"
+            raise ValueError(msg)
+        self._validate_status()
+        self._validate_scoring()
+        return self
+
+    def _validate_status(self) -> None:
+        if self.status is ProductLoopCellStatus.FAILED:
+            if self.failure_reason is None:
+                msg = "a failed cell must record a failure reason"
+                raise ValueError(msg)
+            if self.completeness != 0.0 or self.matched_file_count != 0:
+                msg = "a failed cell enters the mean as 0.0 and matches no files"
+                raise ValueError(msg)
+            return
+        if self.failure_reason is not None:
+            msg = "an ok cell must not record a failure reason"
+            raise ValueError(msg)
+        if sorted(self.tools_advertised) != sorted(self.arm.expected_tools):
+            msg = (
+                f"{self.arm.value} advertised {sorted(self.tools_advertised)}, "
+                f"expected {sorted(self.arm.expected_tools)}"
+            )
+            raise ValueError(msg)
+        if self.mcp_status != "connected" or self.mcp_dropped:
+            msg = "an ok cell requires a connected MCP server that never dropped"
+            raise ValueError(msg)
+
+    def _validate_scoring(self) -> None:
+        if self.matched_file_count > self.expected_file_count:
+            msg = "matched_file_count cannot exceed expected_file_count"
+            raise ValueError(msg)
+        if self.answer_path_count != len(self.answer_paths):
+            msg = "answer_path_count must equal the number of recorded answer paths"
+            raise ValueError(msg)
+        if self.answer_flag is not ProductLoopAnswerFlag.SCORED and self.completeness != 0.0:
+            msg = f"{self.answer_flag.value} cells score 0.0"
+            raise ValueError(msg)
+        expected = self.matched_file_count / self.expected_file_count
+        if abs(self.completeness - expected) > 1e-9:
+            msg = (
+                f"completeness {self.completeness} does not equal "
+                f"{self.matched_file_count}/{self.expected_file_count}"
+            )
+            raise ValueError(msg)
+        if self.no_product_use != (self.product_tool_calls == 0):
+            msg = "no_product_use must equal product_tool_calls == 0"
+            raise ValueError(msg)
+        if self.product_tool_calls > self.tool_calls:
+            msg = "product_tool_calls cannot exceed tool_calls"
+            raise ValueError(msg)
+        if self.hook_invocations != len(self.hook_records):
+            msg = "hook_invocations must equal the number of recorded hook rows"
+            raise ValueError(msg)
+
+
+def build_prompt(question: str) -> str:
+    """Return the frozen measured prompt for a task's question.
+
+    Exactly the `question`, one blank line, then :data:`INSTRUCTION_BLOCK`.
+    """
+    return f"{question.strip()}\n\n{INSTRUCTION_BLOCK}"
+
+
+def instruction_block_digest(block: str = INSTRUCTION_BLOCK) -> str:
+    """SHA-256 of an instruction block, over its exact bytes."""
+    return hashlib.sha256(block.encode("utf-8")).hexdigest()
+
+
+def preregistered_instruction_block(preregistration: Path) -> str:
+    """Extract the instruction block the pre-registration froze.
+
+    The pre-registration's Appendix A fenced block is the authoritative bytes.
+    Reading it back is what makes drift between document and code detectable
+    instead of a silent protocol change.
+    """
+    text = preregistration.read_text(encoding="utf-8")
+    marker = "## Appendix A"
+    start = text.find(marker)
+    if start < 0:
+        msg = f"{preregistration} has no Appendix A instruction block"
+        raise ProductLoopError(msg)
+    fence = text.find("```text\n", start)
+    if fence < 0:
+        msg = f"{preregistration} Appendix A has no fenced text block"
+        raise ProductLoopError(msg)
+    body_start = fence + len("```text\n")
+    end = text.find("```", body_start)
+    if end < 0:
+        msg = f"{preregistration} Appendix A fence is unterminated"
+        raise ProductLoopError(msg)
+    return text[body_start:end]
+
+
+def assert_frozen_prompt(preregistration: Path) -> None:
+    """Fail closed unless code, document, and recorded hash all agree."""
+    digest = instruction_block_digest()
+    if digest != INSTRUCTION_BLOCK_SHA256:
+        msg = f"INSTRUCTION_BLOCK hashes to {digest}, not the frozen {INSTRUCTION_BLOCK_SHA256}"
+        raise ProductLoopError(msg)
+    document_block = preregistered_instruction_block(preregistration)
+    if document_block != INSTRUCTION_BLOCK:
+        msg = "INSTRUCTION_BLOCK does not match the pre-registration's Appendix A block"
+        raise ProductLoopError(msg)
+
+
+def normalize_answer_path(token: str, *, repo_root: Path) -> str | None:
+    """Normalize one answer token to a repository-relative POSIX path.
+
+    Applied identically on both arms, in the pre-registered order: strip
+    markdown link syntax and surrounding backticks; strip a trailing
+    `:L<start>-L<end>` or `:<line>` suffix, because Graft's native pointers
+    carry one; convert `\\` to `/`; strip a leading `./`; rebase an absolute
+    path under the checkout root; discard anything that does not resolve inside
+    the checkout.
+    """
+    candidate = token.strip().strip("\"'").rstrip(".,;")
+    link = _MARKDOWN_LINK.match(candidate)
+    if link is not None:
+        candidate = link.group("target").strip() or link.group("label").strip()
+    candidate = candidate.strip("`").strip()
+    if not candidate:
+        return None
+    candidate = _LINE_SUFFIX.sub("", candidate)
+    candidate = candidate.replace("\\", "/")
+    while candidate.startswith("./"):
+        candidate = candidate[2:]
+    if not candidate or candidate.endswith("/"):
+        return None
+
+    root = repo_root.resolve()
+    raw = Path(candidate)
+    absolute = raw if raw.is_absolute() else root / raw
+    try:
+        resolved = absolute.resolve()
+        relative = resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    if not resolved.is_file():
+        return None
+    text = relative.as_posix()
+    return text or None
+
+
+def extract_answer_paths(
+    final_text: str, *, repo_root: Path
+) -> tuple[list[str], ProductLoopAnswerFlag]:
+    """Read the answer's file list from the final assistant text.
+
+    Returns the normalized paths and how the list was read. The list is taken
+    from the *last* line whose stripped content equals `FILES:`. A list naming
+    more than :data:`ANSWER_PATH_CAP` paths is `answer_over_broad` and scores
+    zero: the primary is a pure recall measure, so an uncapped list would let
+    breadth alone reach `1.0`.
+    """
+    lines = final_text.splitlines()
+    marker_index: int | None = None
+    for index, line in enumerate(lines):
+        if line.strip() == ANSWER_MARKER:
+            marker_index = index
+    if marker_index is None:
+        return [], ProductLoopAnswerFlag.ANSWER_UNPARSED
+
+    tokens: list[str] = []
+    for line in lines[marker_index + 1 :]:
+        if not line.strip():
+            continue
+        tokens.extend(part for part in re.split(r"[,\s]+", line.strip()) if part)
+    if len(tokens) > ANSWER_PATH_CAP:
+        return [], ProductLoopAnswerFlag.ANSWER_OVER_BROAD
+
+    paths: list[str] = []
+    for token in tokens:
+        normalized = normalize_answer_path(token, repo_root=repo_root)
+        if normalized is not None and normalized not in paths:
+            paths.append(normalized)
+    return paths, ProductLoopAnswerFlag.SCORED
+
+
+def score_completeness(answer_paths: Sequence[str], expected_files: Sequence[str]) -> int:
+    """Count the task's labeled required files named in the answer.
+
+    Matching is exact on the normalized path — no prefix, basename, or fuzzy
+    matching, on either arm.
+    """
+    named = set(answer_paths)
+    return sum(1 for expected in set(expected_files) if expected in named)
+
+
+class TranscriptSummary(BaseModel):
+    """What one cell's `stream-json` transcript establishes about the run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tools_advertised: list[str]
+    mcp_status: str | None
+    mcp_dropped: bool
+    models_observed: list[str]
+    tool_call_mix: dict[str, int]
+    tool_calls: int
+    product_tool_calls: int
+    final_text: str
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+    modelled_cost_usd: float
+    num_turns: int
+    is_error: bool
+    error_text: str | None
+    saw_result: bool
+    rate_limited: bool
+
+
+def summarize_transcript(lines: Iterable[str], *, arm: ProductLoopArm) -> TranscriptSummary:
+    """Reduce a Claude Code `stream-json` transcript to the recorded fields.
+
+    Unknown event types are ignored, but a malformed JSON line is a hard error:
+    a transcript the harness cannot read must become a recorded failure rather
+    than a silently short-counted cell.
+    """
+    tools_advertised: list[str] = []
+    mcp_status: str | None = None
+    mcp_dropped = False
+    models: list[str] = []
+    mix: dict[str, int] = {}
+    final_text = ""
+    usage: dict[str, int] = {}
+    cost = 0.0
+    turns = 0
+    is_error = False
+    error_text: str | None = None
+    saw_result = False
+    rate_limited = False
+    server = arm.mcp_server
+
+    for raw in lines:
+        line = raw.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            decoded = decode_json(line)
+        except json.JSONDecodeError as exc:
+            msg = f"transcript line is not JSON: {exc}"
+            raise ProductLoopError(msg) from exc
+        event = as_json_object(decoded)
+        if event is None:
+            msg = "transcript line is not a JSON object"
+            raise ProductLoopError(msg)
+
+        kind = as_json_text(event.get("type"))
+        if kind == "system":
+            subtype = as_json_text(event.get("subtype"))
+            if subtype == "init":
+                names = as_json_array(event.get("tools")) or []
+                tools_advertised = [
+                    text for text in (as_json_text(name) for name in names) if text is not None
+                ]
+                mcp_status = _mcp_status(event.get("mcp_servers"), server=server)
+            elif subtype == "mcp_status":
+                later = _mcp_status(event.get("mcp_servers"), server=server)
+                if later is not None and later != "connected":
+                    mcp_dropped = True
+        elif kind == "rate_limit_event":
+            rate_limited = True
+        elif kind == "assistant":
+            message = as_json_object(event.get("message"))
+            if message is None:
+                continue
+            model = as_json_text(message.get("model"))
+            if model is not None and model not in models:
+                models.append(model)
+            for raw_block in as_json_array(message.get("content")) or []:
+                block = as_json_object(raw_block)
+                if block is None:
+                    continue
+                block_type = as_json_text(block.get("type"))
+                if block_type == "tool_use":
+                    name = as_json_text(block.get("name"))
+                    if name:
+                        mix[name] = mix.get(name, 0) + 1
+                elif block_type == "text":
+                    final_text = as_json_text(block.get("text")) or ""
+        elif kind == "user":
+            mcp_dropped = mcp_dropped or _reports_mcp_error(event, server=server)
+        elif kind == "result" or "total_cost_usd" in event:
+            saw_result = True
+            cost = _as_number(event.get("total_cost_usd"))
+            turns = int(_as_number(event.get("num_turns")))
+            is_error = event.get("is_error") is True
+            usage = _usage_counts(event.get("usage"))
+            result_text = as_json_text(event.get("result"))
+            if is_error:
+                error_text = result_text
+            if result_text is not None and "rate limit" in result_text.lower():
+                rate_limited = True
+
+    product_calls = sum(count for name, count in mix.items() if name.startswith(f"mcp__{server}__"))
+    return TranscriptSummary(
+        tools_advertised=tools_advertised,
+        mcp_status=mcp_status,
+        mcp_dropped=mcp_dropped,
+        models_observed=models,
+        tool_call_mix=mix,
+        tool_calls=sum(mix.values()),
+        product_tool_calls=product_calls,
+        final_text=final_text,
+        input_tokens=usage.get("input_tokens", 0),
+        output_tokens=usage.get("output_tokens", 0),
+        cache_read_tokens=usage.get("cache_read_input_tokens", 0),
+        cache_creation_tokens=usage.get("cache_creation_input_tokens", 0),
+        modelled_cost_usd=cost,
+        num_turns=turns,
+        is_error=is_error,
+        error_text=error_text,
+        saw_result=saw_result,
+        rate_limited=rate_limited,
+    )
+
+
+def _as_number(value: JsonValue) -> float:
+    if isinstance(value, bool) or value is None:
+        return 0.0
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _mcp_status(servers: JsonValue, *, server: str) -> str | None:
+    for raw_entry in as_json_array(servers) or []:
+        entry = as_json_object(raw_entry)
+        if entry is not None and as_json_text(entry.get("name")) == server:
+            return as_json_text(entry.get("status"))
+    return None
+
+
+def _reports_mcp_error(event: dict[str, JsonValue], *, server: str) -> bool:
+    """Whether a tool result shows the arm's MCP server failing after start.
+
+    The `init` event only proves the server was connected at t=0. A server that
+    dies afterwards leaves the agent silently falling back to file tools, and
+    the cell would otherwise still be attributed to the product.
+    """
+    message = as_json_object(event.get("message"))
+    if message is None:
+        return False
+    for raw_block in as_json_array(message.get("content")) or []:
+        block = as_json_object(raw_block)
+        if block is None or as_json_text(block.get("type")) != "tool_result":
+            continue
+        if block.get("is_error") is not True:
+            continue
+        text = json.dumps(block.get("content", ""))
+        if f"mcp__{server}__" in text or f"MCP server {server}" in text:
+            return True
+    return False
+
+
+def _usage_counts(usage: JsonValue) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    fields = as_json_object(usage)
+    if fields is None:
+        return counts
+    for key in (
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    ):
+        value = fields.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        counts[key] = int(value)
+    return counts
+
+
+def sanitize_document(document: str, *, replacements: Sequence[tuple[Path, str]]) -> str:
+    """Replace machine paths with placeholders and refuse residual leaks.
+
+    Sanitization is not best-effort: a residual absolute path aborts the run
+    rather than being published, because a leaked path is a privacy-contract
+    violation and the artifact is the published surface.
+    """
+    sanitized = document
+    for path, placeholder in replacements:
+        for variant in {str(path), str(path.resolve())}:
+            sanitized = sanitized.replace(variant, placeholder)
+    for marker in _PATH_LEAK_MARKERS:
+        if marker in sanitized:
+            msg = f"artifact leaks an absolute path containing {marker!r}"
+            raise ProductLoopError(msg)
+    return sanitized
+
+
+def cell_filename(task_id: str, repetition: int) -> str:
+    """Stable per-cell artifact filename."""
+    return f"{task_id}__rep{repetition}.json"
+
+
+def load_product_loop_artifact(path: Path) -> ProductLoopCellArtifact:
+    """Load and validate one cell artifact, failing closed on any mismatch."""
+    try:
+        payload: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        msg = f"{path} is not readable product-loop JSON: {exc}"
+        raise ProductLoopError(msg) from exc
+    try:
+        return ProductLoopCellArtifact.model_validate(payload)
+    except ValidationError as exc:
+        msg = f"{path} is not a valid product-loop artifact: {exc}"
+        raise ProductLoopError(msg) from exc
+
+
+class ProductLoopCoverage(BaseModel):
+    """What a frozen artifact directory actually contains."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    cells: int = Field(ge=0)
+    planned_cells: int = Field(ge=0)
+    ok_cells: int = Field(ge=0)
+    failed_cells: int = Field(ge=0)
+    total_modelled_cost_usd: float = Field(ge=0.0)
+    arms: list[ProductLoopArm]
+    task_ids: list[str]
+
+    @property
+    def complete(self) -> bool:
+        """Whether every planned cell exists as a result or a recorded failure."""
+        return self.cells == self.planned_cells
+
+
+def validate_product_loop_directory(
+    directory: Path,
+    *,
+    task_ids: Sequence[str],
+    repetitions: int = REPETITIONS,
+    cost_ceiling_usd: float = COST_CEILING_USD,
+    require_complete: bool = True,
+) -> ProductLoopCoverage:
+    """Validate a whole product-loop artifact directory.
+
+    Proves exact population, arm, and repetition coverage; identical agent,
+    model, and billing identity across every cell; per-arm tool parity on every
+    scored cell; and that recorded cost stays within the pre-registered ceiling.
+    """
+    if not task_ids:
+        msg = "product-loop validation requires a task population"
+        raise ProductLoopError(msg)
+    if not directory.is_dir():
+        msg = f"{directory} is not a product-loop artifact directory"
+        raise ProductLoopError(msg)
+
+    arms = list(ProductLoopArm)
+    planned = {
+        (arm, task_id, repetition)
+        for arm in arms
+        for task_id in task_ids
+        for repetition in range(1, repetitions + 1)
+    }
+    seen: dict[tuple[ProductLoopArm, str, int], Path] = {}
+    total_cost = 0.0
+    ok_cells = 0
+    failed_cells = 0
+
+    for arm in arms:
+        arm_dir = directory / arm.value
+        if not arm_dir.is_dir():
+            msg = f"{directory} is missing the {arm.value} arm directory"
+            raise ProductLoopError(msg)
+        for path in sorted(arm_dir.glob("*.json")):
+            artifact = load_product_loop_artifact(path)
+            if artifact.arm is not arm:
+                msg = f"{path} records arm {artifact.arm.value} under {arm.value}"
+                raise ProductLoopError(msg)
+            if path.name != cell_filename(artifact.task_id, artifact.repetition):
+                msg = f"{path} filename does not match its task and repetition"
+                raise ProductLoopError(msg)
+            key = (arm, artifact.task_id, artifact.repetition)
+            if key in seen:
+                msg = f"{path} duplicates the cell already recorded at {seen[key]}"
+                raise ProductLoopError(msg)
+            if key not in planned:
+                msg = f"{path} is outside the frozen population"
+                raise ProductLoopError(msg)
+            if artifact.provider_endpoint_overridden:
+                # A no-spend stub run must never be publishable as evidence.
+                msg = f"{path} was produced against an overridden provider endpoint"
+                raise ProductLoopError(msg)
+            seen[key] = path
+            total_cost += artifact.modelled_cost_usd
+            if artifact.status is ProductLoopCellStatus.OK:
+                ok_cells += 1
+            else:
+                failed_cells += 1
+
+    missing = planned - set(seen)
+    if missing and require_complete:
+        example = sorted(f"{arm.value}/{task}#{rep}" for arm, task, rep in missing)[:5]
+        msg = f"{len(missing)} planned cells are missing, for example {example}"
+        raise ProductLoopError(msg)
+    if total_cost > cost_ceiling_usd + 1e-9:
+        msg = (
+            f"recorded modelled cost {total_cost:.4f} exceeds the pre-registered "
+            f"ceiling {cost_ceiling_usd:.2f}"
+        )
+        raise ProductLoopError(msg)
+
+    return ProductLoopCoverage(
+        cells=len(seen),
+        planned_cells=len(planned),
+        ok_cells=ok_cells,
+        failed_cells=failed_cells,
+        total_modelled_cost_usd=total_cost,
+        arms=arms,
+        task_ids=sorted(task_ids),
+    )
