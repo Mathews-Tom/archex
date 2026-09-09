@@ -1,0 +1,155 @@
+{
+  "bootstrap": {
+    "resamples": 10000,
+    "seed": 20260909,
+    "unit": "repository"
+  },
+  "control_lane": "archex",
+  "coverage": {
+    "graft_build_plus_query_cells": 19,
+    "graft_query_warm_cells": 19,
+    "recorded_failures": 0
+  },
+  "evidence_class": "original",
+  "exploratory": {
+    "graft_build_plus_query": {
+      "all_required_files_present_rate": 0.8421052631578947,
+      "cold_start_ms_mean": 758.2170043361226,
+      "extraction_tiers": {
+        "breadth": 2,
+        "depth": 17
+      },
+      "f1_score": 0.4613114955220218,
+      "freshness_correct_rate": 1.0,
+      "freshness_latency_ms_mean": 644.7674671040946,
+      "map_score": 0.6835213032581454,
+      "mrr": 0.793859649122807,
+      "ndcg": 0.7899078094606427,
+      "precision": 0.3120718462823726,
+      "query_modes": [
+        "lexical"
+      ],
+      "recall": 0.9298245614035089,
+      "required_file_recall": 0.9298245614035089,
+      "returned_source_units_total": 148,
+      "returned_units_total": 190,
+      "statuses": {
+        "failed": 0,
+        "ok": 19
+      },
+      "symbol_hits_total": 148,
+      "token_efficiency": 0.8907212753472343,
+      "token_efficiency_with_completion": 0.8831005830123445,
+      "tokens_output_mean": 2187.4210526315787,
+      "warm_latency_p50_ms": 224.82620796654373,
+      "warm_latency_p95_ms": 398.24195799883455,
+      "whole_file_hits_total": 42
+    },
+    "graft_query_warm": {
+      "all_required_files_present_rate": 0.8421052631578947,
+      "cold_start_ms_mean": 0.0,
+      "extraction_tiers": {
+        "breadth": 2,
+        "depth": 17
+      },
+      "f1_score": 0.4613114955220218,
+      "freshness_correct_rate": 1.0,
+      "freshness_latency_ms_mean": 633.4514124380229,
+      "map_score": 0.6835213032581454,
+      "mrr": 0.793859649122807,
+      "ndcg": 0.7899078094606427,
+      "precision": 0.3120718462823726,
+      "query_modes": [
+        "lexical"
+      ],
+      "recall": 0.9298245614035089,
+      "required_file_recall": 0.9298245614035089,
+      "returned_source_units_total": 148,
+      "returned_units_total": 190,
+      "statuses": {
+        "failed": 0,
+        "ok": 19
+      },
+      "symbol_hits_total": 148,
+      "token_efficiency": 0.8907212753472343,
+      "token_efficiency_with_completion": 0.8831005830123445,
+      "tokens_output_mean": 2187.4210526315787,
+      "warm_latency_p50_ms": 235.74558307882398,
+      "warm_latency_p95_ms": 391.6229580063373,
+      "whole_file_hits_total": 42
+    }
+  },
+  "margins": {
+    "equivalence": 0.03,
+    "minimum_worthwhile_gain": 0.05,
+    "non_inferiority": -0.05
+  },
+  "preregistration": "benchmarks/preregistrations/R19-graft-graph-memory-comparison.md",
+  "primary": {
+    "ci95_high": 0.0634920634920635,
+    "ci95_low": -0.12280701754385966,
+    "clusters": 15,
+    "control_mean": 0.9473684210526315,
+    "mean_difference": -0.01754385964912281,
+    "minimum_worthwhile_gain_met": false,
+    "non_inferior": false,
+    "per_task_difference": {
+      "celery_task_dispatch": -0.6666666666666667,
+      "click_decorators": 0.33333333333333337,
+      "django_middleware": 0.33333333333333337,
+      "django_orm_queries": 0.0,
+      "express_error_handling": 0.0,
+      "express_middleware": 0.0,
+      "fastapi_dependency_injection": 0.0,
+      "fastapi_routing": 0.0,
+      "flask_blueprints": 0.0,
+      "gin_routing": 0.0,
+      "go_gin_middleware": 0.0,
+      "httpx_pooling": 0.0,
+      "mini_redis_async": 0.0,
+      "pydantic_validators": -0.33333333333333337,
+      "pytest_fixtures": 0.0,
+      "react_hooks": 0.0,
+      "requests_sessions": 0.0,
+      "rust_tokio_runtime": 0.0,
+      "sqlalchemy_sessions": 0.0
+    },
+    "practically_equivalent": false,
+    "tasks": 19,
+    "treatment_mean": 0.9298245614035089
+  },
+  "primary_metric": "mean required-file recall over the 19 tasks",
+  "secondary_depth_tier_only": {
+    "ci95_high": 0.07142857142857142,
+    "ci95_low": -0.13333333333333333,
+    "clusters": 13,
+    "control_mean": 0.9411764705882353,
+    "mean_difference": -0.019607843137254905,
+    "minimum_worthwhile_gain_met": false,
+    "non_inferior": false,
+    "per_task_difference": {
+      "celery_task_dispatch": -0.6666666666666667,
+      "click_decorators": 0.33333333333333337,
+      "django_middleware": 0.33333333333333337,
+      "django_orm_queries": 0.0,
+      "express_error_handling": 0.0,
+      "express_middleware": 0.0,
+      "fastapi_dependency_injection": 0.0,
+      "fastapi_routing": 0.0,
+      "flask_blueprints": 0.0,
+      "gin_routing": 0.0,
+      "go_gin_middleware": 0.0,
+      "httpx_pooling": 0.0,
+      "pydantic_validators": -0.33333333333333337,
+      "pytest_fixtures": 0.0,
+      "react_hooks": 0.0,
+      "requests_sessions": 0.0,
+      "sqlalchemy_sessions": 0.0
+    },
+    "practically_equivalent": false,
+    "tasks": 17,
+    "treatment_mean": 0.9215686274509803
+  },
+  "spike_id": "R19",
+  "treatment_lane": "graft_query_warm"
+}

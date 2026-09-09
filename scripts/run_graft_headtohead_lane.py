@@ -123,19 +123,14 @@ def _returned_regions(ask: GraftAskOutput) -> list[ReturnedRegion]:
     return regions
 
 
-def _command_text(
-    *,
-    binary: str,
-    question: str,
-    cardinality: int,
-    includes_build_cost: bool,
-) -> str:
+def _command_text(*, question: str, cardinality: int, includes_build_cost: bool) -> str:
+    """The sanitized command shape, naming the pinned tool rather than a local path."""
     ask = (
-        f"{binary} --dir <graph-dir> ask {shlex.quote(question)} -n {cardinality} "
+        f"graft --dir <graph-dir> ask {shlex.quote(question)} -n {cardinality} "
         "--source --no-refresh --json <repo>"
     )
     if includes_build_cost:
-        return f"{binary} --dir <graph-dir> build --no-gitignore --no-ignore <repo> && {ask}"
+        return f"graft --dir <graph-dir> build --no-gitignore --no-ignore <repo> && {ask}"
     return ask
 
 
@@ -219,7 +214,6 @@ def main() -> int:
         )
 
     command_text = _command_text(
-        binary=binary,
         question=task.question,
         cardinality=cardinality,
         includes_build_cost=includes_build_cost,
