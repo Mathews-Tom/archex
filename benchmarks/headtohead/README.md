@@ -28,7 +28,7 @@ uv run archex benchmark headtohead competitive --input benchmarks/headtohead/res
 
 It models lanes by `layer_type` (`retrieval`/`graph-memory`/`compression`/`baseline`) so graph/memory and compression layers are never presented as direct retrieval engines. The checked-in public artifact set now includes the benchmark-only archex candidate lanes (`archex_query_compressed`, `archex_query_efficiency_packed`), both Graphify follow-up lanes, and the original `archex` / `ccc` / raw-ripgrep/read lanes. Headroom-style compression lanes appear in the public report when operator artifacts are present.
 
-## Graphify follow-up lanes
+## Graph-memory lanes
 
 Graphify is modeled under `graphify_lanes`, not `external_tools`. The checked-in public set uses two explicit lanes pinned to `graphifyy 0.8.44`:
 
@@ -40,6 +40,18 @@ Both lanes point at checked-in artifact directories (`benchmarks/headtohead/resu
 Local reproduction of one lane uses the adapter contract introduced in `scripts/run_graphify_headtohead_lane.py`: it reads the PR2 stdin payload (`task`, `repo_path`, `lane`, `graphify`) and emits one artifact JSON on stdout. The checked-in public artifacts were produced with that script and then copied into the two directories above. No new public claim should be added unless the corresponding Graphify artifact JSON exists in git.
 
 Graphify token-efficiency cells in the public reports count the graph reference listing returned by `graphify query`, not returned source code. They are useful as within-lane efficiency signals, but they are not bundle-for-bundle comparisons against archex or `ccc`.
+
+A graph-memory lane is any tool whose product is a persistent code graph queried after a build step, so the comparison must keep build cost and warm query cost separate instead of collapsing them into one latency number. Graphify is currently the only graph-memory tool with checked-in artifacts, and the lane family is still named after it in code: the manifest key is `graphify_lanes` and the lane names are fixed to `graphify_build_plus_query` and `graphify_query_warm`. The information a lane actually carries is not Graphify-specific — tool identity, pinned released version, whether the cell includes build cost, and the artifact directory holding one JSON per task — so R19 generalizes the naming and reuses that contract for a second tool rather than adding a parallel lane family. Adding a second tool therefore requires that generalization first; it does not slot into `graphify_lanes` unchanged.
+
+### Pinned Graft comparison protocol (pre-registered, not yet run)
+
+Graft is the second graph-memory tool queued for this harness. Its protocol is frozen in [`benchmarks/preregistrations/R19-graft-graph-memory-comparison.md`](../preregistrations/R19-graft-graph-memory-comparison.md), which merges before any Graft cell is generated. **No Graft lane, artifact, or number exists yet**; this section records the frozen protocol so the commit order proves the protocol predates the data.
+
+The pin is the released package `@nanonets/graft@0.16.0` (npm integrity `sha512-L3E5F1aDYJDCARgfR7O2VaMt8xwO1XNYyHiW2n1WhKnj87gPqoxoZJGNbGXfw6XeA9JSJX3naA36RZ+jDf4AcQ==`, MIT), whose `gitHead` `aa1e2bb0f6326068ac64886da1e67fa25a7804de` is the commit tagged `v0.16.0`. A source checkout declaring an unpublished version is not a released artifact and is not pinnable.
+
+The measured protocol, in short: structural mode only (`build` without `--deep`, so no API key and no spend); the graph directory outside the task repository with `--no-gitignore --no-ignore`, so the checkout the other lanes measure stays pristine; `ask --no-refresh` for every measured query, because a default `ask` silently repairs graph drift and would fold synchronization into query latency; freshness read only from `check --json`'s `graph` section, since context cards are a `--deep` artifact and are always absent here; rank taken from the emitted `hits` order rather than `hits[].score`, which is not monotonically descending; `-n 10` to match the external retrieval lane's frozen limit; a per-task extraction tier, because Graft covers the two Rust tasks through a signature-only WASM tier rather than its native tier; and `DO_NOT_TRACK=1` plus `CI=1` on install and every invocation.
+
+Graft, like Graphify, will be reported as a graph-memory lane and never as a direct retrieval-equivalent winner, and no result from it may change an archex retrieval default.
 
 ## Headroom is a compression layer, not a retrieval engine
 
