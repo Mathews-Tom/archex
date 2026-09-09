@@ -1,0 +1,171 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 5,
+  "answer_paths": [
+    "pydantic/functional_validators.py",
+    "pydantic/_internal/_decorators.py",
+    "pydantic/_internal/_generate_schema.py",
+    "pydantic/_internal/_validators.py",
+    "pydantic/_internal/_fields.py"
+  ],
+  "answer_precision": 0.4,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 29790,
+  "cache_read_tokens": 210173,
+  "commit": "v2.10.5",
+  "completeness": 0.6666666666666666,
+  "expected_file_count": 3,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 10,
+  "hook_records": [
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 367.42420797236264,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 792,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 332.00916601344943,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 792,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 379.440457909368,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 842,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 363.12699993140996,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 866,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 361.8474170798436,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 872,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 375.1107499701902,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 868,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 405.8440829394385,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 920,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 395.48908406868577,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 890,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 423.7336249789223,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 913,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": true,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 457.97970797866583,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 897,
+      "stdout_bytes": 337,
+      "tool_name": "Grep"
+    }
+  ],
+  "input_tokens": 91,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 2,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.1021573,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": false,
+  "num_turns": 17,
+  "output_tokens": 4082,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 1,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.23,
+  "repetition": 1,
+  "repo": "pydantic/pydantic",
+  "setup_seconds": 4.884034542017616,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "pydantic_validators",
+  "tool_call_mix": {
+    "Glob": 2,
+    "Grep": 8,
+    "Read": 5,
+    "mcp__archex__context": 1
+  },
+  "tool_calls": 16,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 57.83539979206398
+}

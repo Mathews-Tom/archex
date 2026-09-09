@@ -1,0 +1,192 @@
+{
+  "agent_name": "claude",
+  "agent_version": "2.1.266",
+  "ambient_tool_fingerprint": "9a5ba15ca42e20cafe8f56a7905378e0197af05520f56e5010775469354e812e",
+  "answer_flag": "scored",
+  "answer_path_count": 6,
+  "answer_paths": [
+    "django/db/models/query.py",
+    "django/db/models/sql/query.py",
+    "django/db/models/sql/compiler.py",
+    "django/db/backends/base/base.py",
+    "django/db/models/manager.py",
+    "django/db/models/sql/where.py"
+  ],
+  "answer_precision": 0.5,
+  "arm": "archex_product_loop",
+  "artifact_version": 1,
+  "billing_mode": "oauth_subscription",
+  "cache_creation_tokens": 20165,
+  "cache_read_tokens": 346256,
+  "commit": "5.1.4",
+  "completeness": 1.0,
+  "expected_file_count": 3,
+  "failure_detail": null,
+  "failure_reason": null,
+  "freshness_state": "fresh",
+  "graft_cards_greppable": null,
+  "hook_invocations": 12,
+  "hook_records": [
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 318.3330410392955,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 789,
+      "stdout_bytes": 0,
+      "tool_name": "Glob"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 441.9341669417918,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 831,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 398.0949579272419,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 834,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 371.3110410608351,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 828,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 373.33354202564806,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 830,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 372.5106669589877,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 838,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 374.26966696511954,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 857,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 482.2301669046283,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 867,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 518.063334049657,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 878,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 472.42958401329815,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 864,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 366.1447500344366,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 865,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    },
+    {
+      "augmented": false,
+      "event": "PreToolUse",
+      "exit_code": 0,
+      "latency_ms": 527.9835000401363,
+      "matcher": "Glob|Grep",
+      "stdin_bytes": 883,
+      "stdout_bytes": 0,
+      "tool_name": "Grep"
+    }
+  ],
+  "input_tokens": 177,
+  "instruction_block_sha256": "39acce3ce7bff054ee09b52414c9fede8807da77ccc683b211bd16129ee1007d",
+  "matched_file_count": 3,
+  "mcp_command_original": null,
+  "mcp_command_used": null,
+  "mcp_dropped": false,
+  "mcp_server": "archex",
+  "mcp_status": "connected",
+  "model_requested": "claude-haiku-4-5",
+  "modelled_cost_usd": 0.10107159999999998,
+  "models_observed": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "no_product_use": false,
+  "num_turns": 22,
+  "output_tokens": 4977,
+  "preregistration": "benchmarks/preregistrations/R20-product-loop-agent-baseline.md",
+  "product_tool_calls": 1,
+  "provider_endpoint_overridden": false,
+  "quota_utilization": 0.13,
+  "repetition": 3,
+  "repo": "django/django",
+  "setup_seconds": 6.4055100419791415,
+  "stale_index_event": false,
+  "status": "ok",
+  "task_id": "django_orm_queries",
+  "tool_call_mix": {
+    "Glob": 1,
+    "Grep": 11,
+    "Read": 8,
+    "mcp__archex__context": 1
+  },
+  "tool_calls": 21,
+  "tools_advertised": [
+    "Glob",
+    "Grep",
+    "Read",
+    "mcp__archex__context",
+    "mcp__archex__query_repo"
+  ],
+  "wall_seconds": 75.97841012501158
+}
