@@ -528,7 +528,17 @@ class IndexStore:
         new_edges: list[Edge],
         new_surrogates: list[ChunkSurrogate] | None = None,
     ) -> None:
-        """Atomically replace chunks and edges for the given files."""
+        """Atomically replace chunks and edges for the given files.
+
+        Edges are deleted by ``source`` only, never by ``target``. An edge is
+        produced by parsing its source file, so reparsing that file
+        regenerates every edge it owns. Deleting by target would instead
+        discard edges owned by files this call does not reparse -- the
+        inbound dependencies of every modified file -- and nothing here would
+        rebuild them, emptying the graph one delta at a time. Removing a
+        file's inbound edges is correct only once the file itself is gone,
+        which is ``delete_edges_for_files``' job.
+        """
         try:
             if file_paths:
                 placeholders = ",".join("?" for _ in file_paths)
@@ -550,9 +560,8 @@ class IndexStore:
                     file_paths,
                 )
                 self._conn.execute(
-                    f"DELETE FROM edges WHERE source IN ({placeholders}) "
-                    f"OR target IN ({placeholders})",
-                    file_paths + file_paths,
+                    f"DELETE FROM edges WHERE source IN ({placeholders})",
+                    file_paths,
                 )
             self._insert_chunks_no_commit(new_chunks)
             self._insert_edges_no_commit(new_edges)
