@@ -207,7 +207,7 @@ def test_clients_without_a_persistent_status_surface_are_refused(tmp_path: Path)
     )
 
     assert result.exit_code != 0
-    assert "claude-code" in result.output
+    assert "no persistent status surface" in result.output
 
 
 def test_statusline_cannot_be_combined_with_another_surface(tmp_path: Path) -> None:
@@ -256,5 +256,5 @@ def test_cli_install_reports_both_artifacts(
     )
 
     assert result.exit_code == 0, result.output
-    assert "Installed archex status line for claude-code" in result.output
+    assert "Installed archex status surface for claude-code" in result.output
     assert STATUSLINE_SCRIPT_FILENAME in result.output

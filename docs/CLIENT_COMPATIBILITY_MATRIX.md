@@ -31,6 +31,8 @@ This matrix separates config-shape verification from actual client smoke tests. 
 | Cursor `beforeSubmitPrompt` hook (opt-in, diagnostics-only, prompt-level) | Config-shape tested end-to-end (install, remove, idempotent reinstall, preserves unrelated `hooks.json` content, `beforeReadFile`-never-wired assertion); no live Cursor UI smoke | `archex install-client cursor --hooks` writes `~/.cursor/hooks.json` (global) or `.cursor/hooks.json` (project) — a different file from the MCP config above. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#cursor-beforesubmitprompt-hook-opt-in-diagnostics-only) for the full contract and the confirmation-spike findings. | N/A — one subprocess per submitted prompt, not a warm process | Diagnostics-only — no injected context, ever (see limitations); a missing/stale index degrades to no diagnostic, or the same `index_not_fresh`/`status_error` diagnostic the other hooks log. | Prompt-level, not per-tool-call: fires on every submitted prompt regardless of whether a lookup is relevant. Cursor's `beforeSubmitPrompt` output schema has no context-injection field at all (confirmed against Cursor's own docs), so this is diagnostics-only, unlike the augmenting Claude Code/omp/Pi/OpenCode hooks above. | 2026-07-06 |
 | Cursor post-edit impact hook | **Not supported** — `archex install-client cursor --post-edit-hooks` fails with the reason rather than writing anything | N/A | N/A | N/A | `afterFileEdit` is Cursor's only event carrying an edited file path (`{file_path, edits}`) and its documented schema has **no output fields at all**, so it cannot return impact to the agent. `postToolUse` does document an `additional_context` output and lists `Write` among its matchers, but documents no path field for that tool's input, so edited paths cannot be extracted from the one event that could surface text. Archex ships no adapter it cannot show to work. | 2026-09-10 |
 | Claude Code status line (opt-in) | Config-shape tested end-to-end (install, remove, idempotent reinstall, foreign-statusLine refusal, coexistence with all three hook surfaces) and the installed renderer executed for real against every snapshot state under an empty `PATH` | `archex install-client claude-code --statusline` writes `~/.claude/settings.json` (global) or `.claude/settings.json` (project) plus the renderer script `archex-statusline.sh` beside it. `--dry-run` previews; `--remove-statusline` uninstalls. See [below](#persistent-status-surfaces-opt-in). | N/A — reports whether a watch refresh was observed; starts no watcher | Renders the cached snapshot only: `fresh`, `dirty`, `pending`, `stale`, `missing`, `corrupt`, and `unsupported` are distinct. Never opens the index, runs a parser, or starts an archex process on repaint. | Opt-in. `statusLine` is a scalar settings key, so a status line archex did not install is refused rather than replaced. The `stale` label needs a shell clock (`$EPOCHSECONDS`, bash 5+/zsh); under macOS `/bin/sh` (bash 3.2) the renderer reports the measured state without an age instead of forking `date`. Never reports token savings. | 2026-09-10 |
+| oh-my-pi (omp) / Pi status extension (opt-in) | Config-shape tested end-to-end (per-host placement, byte-identical modules, idempotent reinstall, independence from the search and post-edit modules in the same directory) **and executed under Bun**: the rendered module was loaded in a real runtime, all three events dispatched, and every snapshot state rendered through a captured `ctx.ui.setStatus` | `archex install-client omp --statusline` writes `.omp/extensions/archex-status.ts` (project) or `~/.omp/agent/extensions/archex-status.ts` (user); `archex install-client pi --statusline` writes `.pi/extensions/archex-status.ts` or `~/.pi/agent/extensions/archex-status.ts`. `--dry-run` previews; `--remove-statusline` uninstalls. | N/A — reports whether a watch refresh was observed; starts no watcher | Same cached-snapshot contract as the Claude Code row, including `stale`, which this renderer can always compute because it has a real clock. | Opt-in. Refreshes on `turn_start`, `tool_result`, and `turn_end`; a host with `hasUI` false (print/RPC mode) receives no call. Verified against `@oh-my-pi/pi-coding-agent` 18.1.16 and `@mariozechner/pi-coding-agent` 0.68.1, whose `ExtensionUIContext` both declare `setStatus(key, text)`. No live TUI session was driven: the status refresh fires on turn events, and running one would require a hosted model call. | 2026-09-10 |
+| Status surfaces for codex, cursor, and opencode | **Not supported** — `archex install-client <client> --statusline` fails with the reason rather than writing anything | N/A | N/A | N/A | The Codex CLI exposes no status-line configuration and no persistently rendered hook output field. Cursor's configuration surface is hooks only, with no status or footer API. OpenCode's plugin surface exposes tool and chat hooks plus observable TUI events whose only status-shaped member is the transient `tui.toast.show`; a toast disappears, so it cannot carry a persistent freshness indicator. Use `archex status --cached`. | 2026-09-10 |
 | Dockerized MCP server | Server path tested; client smoke unverified | Run `docker run -d --name archex-mcp -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim sleep infinity` then point the client to `docker exec -i archex-mcp archex mcp`. | Yes — run the MCP process with `--watch`. | Same server-side freshness semantics as stdio. | Client-specific Docker registration varies; use the same client config shapes above, but replace the command with `docker` / `exec`. | 2026-06-16 |
 
 ## First-party bootstrap command
@@ -410,7 +412,7 @@ Tests in the affected set (1):
 
 ## Persistent status surfaces (opt-in)
 
-Installed separately from every other archex surface with `--statusline`, removed with `--remove-statusline`. Never installed by default.
+Installed separately from every other archex surface with `--statusline`, removed with `--remove-statusline`. Never installed by default. Supported on `claude-code` (a `statusLine` command), `omp`, and `pi` (a status extension module); `codex`, `cursor`, and `opencode` have no persistent status surface and are refused explicitly.
 
 Archex publishes a bounded, versioned status snapshot to `.archex/status-snapshot.json` whenever indexing establishes that the store describes the current tree (a full, delta, or unchanged-tree publication, and the validated cache hit every warm query takes), whenever a post-edit hook records or synchronizes an edit, and whenever `archex status` runs. Renderers only read that file. **No renderer opens the index, runs a parser, or starts an archex process on repaint.**
 
@@ -492,13 +494,51 @@ Claude Code re-runs the status-line command on every repaint, debounced at 300 m
 
 One consequence is handled rather than hidden: computing the `stale` label needs a clock, and POSIX `sh` has no builtin one. The renderer reads `$EPOCHSECONDS`, which bash 5+ provides natively and zsh provides after the builtin `zmodload zsh/datetime`, and the installer therefore picks a clock-bearing interpreter when the host has one. On a host where none does, the renderer reports the measured state without an age or `stale` label instead of spending a `date` fork on every repaint, and `archex status --cached` — which always has a clock — remains the surface that always reports `stale`.
 
-### Verification performed
+### Verification performed for the Claude Code status line
 
 - The installed script was executed through `/bin/sh` **with an empty `PATH`** against `fresh`, `dirty` (both variants), `pending` (complete and truncated views), `missing`, `corrupt` (unparsable bytes and an unknown state value), and `unsupported` snapshots. Every run printed the expected line, exited 0, and wrote nothing to stderr — which no renderer that shelled out to `jq`, `python`, `date`, or `archex` could do.
 - The `stale`, age, and watch segments were exercised under `/bin/zsh`, the local shell that can read a clock without forking.
 - Session-directory resolution was exercised three ways: the stdin `cwd` payload from an unrelated working directory, a subdirectory of the session repository, and an unrelated directory (which reports `missing` rather than another repository's status).
 - `archex status --cached` was verified to render every state, to resolve the snapshot from a subdirectory, and to work with `IndexStore.__init__` patched to raise.
 - A refused install (a `statusLine` archex did not write) was verified to leave no renderer script behind.
+
+### oh-my-pi (omp) and Pi status extension
+
+```bash
+archex install-client omp --statusline                    # user: ~/.omp/agent/extensions/archex-status.ts
+archex install-client omp . --statusline --scope project  # repo-local: .omp/extensions/archex-status.ts
+archex install-client pi --statusline                     # user: ~/.pi/agent/extensions/archex-status.ts
+archex install-client omp --remove-statusline             # clean uninstall
+```
+
+Both hosts receive a byte-identical TypeScript module, a different file from the search hook's `archex-hook.ts` and the post-edit hook's `archex-post-edit-hook.ts`, so all three surfaces install and remove independently.
+
+Unlike the Claude Code status line — a command the client re-runs per repaint — this is a module the host already has loaded. It registers `turn_start`, `tool_result`, and `turn_end` handlers, and each one reads the snapshot with `readFileSync` and pushes the rendered line through `ctx.ui.setStatus("archex", …)`, which both hosts render in the footer and in the `status` status-line segment. A repaint therefore launches nothing at all: no subprocess, no index, no parser. A host reporting `hasUI: false` (print and RPC modes, where `setStatus` is a documented no-op) receives no call.
+
+Because the module runs in a JavaScript runtime it always has a clock, so it reports `stale` on every platform, and it reads `ARCHEX_STATUS_STALE_AFTER_SECONDS` like the other two renderers, so a tuned freshness budget cannot make the three surfaces disagree about one snapshot.
+
+The snapshot version, freshness budget, watch TTL, and artifact path are substituted into the module from the Python constants at install time, so this renderer cannot drift from the document it reads.
+
+### Clients with no persistent status surface
+
+`archex install-client <client> --statusline` fails with the upstream reason and writes nothing for `codex`, `cursor`, and `opencode`:
+
+| Client | Upstream reason |
+| --- | --- |
+| codex | The Codex CLI exposes no status-line configuration, and no hook output field that renders persistently — its hooks surface text only as `additional_context` on a tool event. |
+| cursor | Cursor's configuration surface is hooks only; there is no status or footer API for an extension to write into. |
+| opencode | The plugin surface exposes tool and chat hooks plus observable TUI events, whose only status-shaped member is the transient `tui.toast.show`. A toast disappears, so it cannot carry a persistent freshness indicator. |
+
+`archex status --cached` is the supported surface for those clients. Archex ships no adapter it cannot show to work.
+
+### Verification performed for the omp/Pi module
+
+- The rendered module was loaded under Bun in a real runtime, all three events were dispatched, and every published status was captured from `ctx.ui.setStatus`: `fresh`, `pending` (complete and truncated views), `dirty` (both variants), `stale`, `missing`, `corrupt` (unparsable bytes and an unknown state value), `unsupported`, and the watch segment all rendered distinctly.
+- Snapshot discovery was exercised through the real upward walk from the process working directory, not only through the test override. A present-but-unreadable snapshot classifies as `corrupt` rather than being walked past to a parent repository's document.
+- The `ARCHEX_STATUS_STALE_AFTER_SECONDS` override was exercised: the same snapshot renders `fresh` under the default budget and `stale` under a tightened one.
+- A host reporting `hasUI: false` received no `setStatus` call.
+- Placement, byte identity between the two hosts, idempotent reinstall, and independence from the post-edit module in the same directory are covered by `tests/cli/test_install_client_status_adapters.py`; the Bun execution lives in `tests/integrations/test_status_extension_module.py` and skips where `bun` is absent.
+- No live omp or Pi TUI session was driven: the refresh fires on turn events, and producing one would require a hosted model call. Upstream support rests on each host's own type declarations (`ExtensionUIContext.setStatus`, plus the `turn_start`/`tool_result`/`turn_end` event declarations) at the installed versions, and on the executed module.
 
 ## Cursor `beforeSubmitPrompt` hook (opt-in, diagnostics-only)
 
