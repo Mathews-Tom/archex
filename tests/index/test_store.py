@@ -929,6 +929,68 @@ class TestStoreBatchOperations:
         assert len(edges) == 1
         assert edges[0].target == "z.py"
 
+    def test_reparse_preserves_inbound_edges_from_untouched_files(self, store: IndexStore) -> None:
+        """A modified file must not lose the edges other files point at it with.
+
+        Only the modified file is reparsed, so it can only regenerate its own
+        outgoing edges. Deleting by target here discarded another file's
+        edge permanently, which emptied the dependency graph one delta at a
+        time and made impact analysis report no dependents.
+        """
+        _init_bm25(store)
+        store.insert_edges(
+            [
+                Edge(source="consumer.py", target="core.py", kind=EdgeKind.IMPORTS),
+                Edge(source="other.py", target="core.py", kind=EdgeKind.IMPORTS),
+            ]
+        )
+
+        store.delete_and_insert_for_files(["core.py"], [], [])
+
+        assert {(edge.source, edge.target) for edge in store.get_edges()} == {
+            ("consumer.py", "core.py"),
+            ("other.py", "core.py"),
+        }
+
+    def test_reparse_replaces_only_the_reparsed_files_outgoing_edges(
+        self, store: IndexStore
+    ) -> None:
+        """Reparsing a file replaces its own edges and no others.
+
+        `downstream.py -> consumer.py` is the discriminating case: it points
+        *at* the reparsed file, so a delete matching on `target` destroys it
+        even though `downstream.py` was never reparsed and nothing will
+        regenerate it.
+        """
+        _init_bm25(store)
+        store.insert_edges(
+            [
+                Edge(source="consumer.py", target="core.py", kind=EdgeKind.IMPORTS),
+                Edge(source="other.py", target="core.py", kind=EdgeKind.IMPORTS),
+                Edge(source="downstream.py", target="consumer.py", kind=EdgeKind.IMPORTS),
+            ]
+        )
+
+        store.delete_and_insert_for_files(
+            ["consumer.py"],
+            [],
+            [Edge(source="consumer.py", target="helper.py", kind=EdgeKind.IMPORTS)],
+        )
+
+        assert {(edge.source, edge.target) for edge in store.get_edges()} == {
+            ("consumer.py", "helper.py"),
+            ("other.py", "core.py"),
+            ("downstream.py", "consumer.py"),
+        }
+
+    def test_deleting_a_file_still_removes_its_inbound_edges(self, store: IndexStore) -> None:
+        _init_bm25(store)
+        store.insert_edges([Edge(source="consumer.py", target="core.py", kind=EdgeKind.IMPORTS)])
+
+        store.delete_edges_for_files(["core.py"])
+
+        assert store.get_edges() == []
+
     def test_delete_and_insert_empty_new_chunks(self, store: IndexStore) -> None:
         _init_bm25(store)
         old = [
