@@ -8,12 +8,14 @@ from archex.explorer.render import (
     render_health_page,
     render_module_map_page,
     render_neighborhood_page,
+    render_node_search_page,
     render_page,
     render_receipt_page,
 )
 from archex.explorer.viewmodel import (
     DiffFileRow,
     DiffView,
+    EdgeTypeFacet,
     HealthView,
     ManifestView,
     ModuleMapView,
@@ -21,6 +23,8 @@ from archex.explorer.viewmodel import (
     NeighborEdgeRow,
     NeighborhoodView,
     NeighborNodeRow,
+    NodeSearchRow,
+    NodeSearchView,
     ReceiptView,
 )
 
@@ -176,6 +180,9 @@ def test_render_neighborhood_page_reports_unavailable_without_graph() -> None:
         hubs=[],
         truncated=False,
         omitted_edges=0,
+        edge_type_facets=[],
+        selected_edge_types=[],
+        filtered_edges=0,
     )
 
     html = render_neighborhood_page(_manifest(), view)
@@ -203,11 +210,15 @@ def test_render_neighborhood_page_escapes_node_and_edge_ids() -> None:
                 target_id="file:b.py",
                 type="imports",
                 confidence="extracted",
+                orientation="out",
             )
         ],
         hubs=[],
         truncated=False,
         omitted_edges=0,
+        edge_type_facets=[EdgeTypeFacet(type="imports", count=1, selected=False)],
+        selected_edge_types=[],
+        filtered_edges=0,
     )
 
     html = render_neighborhood_page(_manifest(), view)
@@ -230,6 +241,9 @@ def test_render_neighborhood_page_reports_unresolved_query_error() -> None:
         hubs=[],
         truncated=False,
         omitted_edges=0,
+        edge_type_facets=[],
+        selected_edge_types=[],
+        filtered_edges=0,
     )
 
     html = render_neighborhood_page(_manifest(), view)
@@ -249,3 +263,167 @@ def test_render_health_page_shows_identity_fields() -> None:
 
     assert "gen1" in html
     assert "tree-sitter-python" in html
+
+
+def _oriented_neighborhood(
+    *,
+    selected: list[str] | None = None,
+    filtered_edges: int = 0,
+) -> NeighborhoodView:
+    seed = NeighborNodeRow(id="file:a.py", type="file", label="a.py", path="a.py", degree=2)
+    far = NeighborNodeRow(id="file:b.py", type="file", label="b.py", path="b.py", degree=1)
+    return NeighborhoodView(
+        available=True,
+        query="file:a.py",
+        error=None,
+        seed=seed,
+        direction="both",
+        depth=1,
+        limit=25,
+        nodes=[seed, far],
+        edges=[
+            NeighborEdgeRow(
+                source_id="file:a.py",
+                target_id="file:b.py",
+                type="imports",
+                confidence="extracted",
+                orientation="out",
+            ),
+            NeighborEdgeRow(
+                source_id="file:z.py",
+                target_id="file:a.py",
+                type="imports",
+                confidence="extracted",
+                orientation="in",
+            ),
+        ],
+        hubs=[],
+        truncated=False,
+        omitted_edges=0,
+        edge_type_facets=[
+            EdgeTypeFacet(type="contains", count=1, selected="contains" in (selected or [])),
+            EdgeTypeFacet(type="imports", count=2, selected="imports" in (selected or [])),
+        ],
+        selected_edge_types=selected or [],
+        filtered_edges=filtered_edges,
+    )
+
+
+def test_render_neighborhood_page_marks_each_edge_with_its_orientation() -> None:
+    html = render_neighborhood_page(_manifest(), _oriented_neighborhood())
+
+    assert '<tr class="orientation-out">' in html
+    assert '<tr class="orientation-in">' in html
+    assert "<th>Orientation</th>" in html
+    # The legend must say what each direction means, not just colour the row.
+    assert "the seed side depends on the far side" in html
+    assert "the far side depends on the seed side" in html
+
+
+def test_render_neighborhood_page_offers_a_checkbox_per_edge_type_with_counts() -> None:
+    html = render_neighborhood_page(_manifest(), _oriented_neighborhood())
+
+    assert 'name="edge_type" value="contains"> contains (1)' in html
+    assert 'name="edge_type" value="imports"> imports (2)' in html
+
+
+def test_render_neighborhood_page_checks_and_reports_the_active_filter() -> None:
+    view = _oriented_neighborhood(selected=["imports"], filtered_edges=1)
+
+    html = render_neighborhood_page(_manifest(), view)
+
+    assert 'value="imports" checked' in html
+    assert "1 of this neighborhood's edges hidden" in html
+    # The filter must not be misread as narrowing the whole graph.
+    assert "not the whole graph" in html
+
+
+def test_render_neighborhood_page_links_nodes_to_their_own_neighborhood() -> None:
+    html = render_neighborhood_page(_manifest(), _oriented_neighborhood())
+
+    assert 'href="/view/neighborhood?node=file%3Ab.py"' in html
+
+
+def test_render_node_search_page_links_matches_to_their_neighborhood() -> None:
+    view = NodeSearchView(
+        available=True,
+        query="a.py",
+        match_kind="fuzzy",
+        limit=100,
+        matches=[
+            NodeSearchRow(
+                id="file:a.py",
+                type="file",
+                label="a.py",
+                path="a.py",
+                module="pkg",
+                degree=2,
+            )
+        ],
+        truncated=False,
+        omitted=0,
+    )
+
+    html = render_node_search_page(_manifest(), view)
+
+    assert 'href="/view/neighborhood?node=file%3Aa.py"' in html
+    assert "match kind: fuzzy" in html
+
+
+def test_render_node_search_page_escapes_the_query_and_match_fields() -> None:
+    view = NodeSearchView(
+        available=True,
+        query="<script>x</script>",
+        match_kind="fuzzy",
+        limit=100,
+        matches=[
+            NodeSearchRow(
+                id="<script>y</script>",
+                type="file",
+                label="a.py",
+                path=None,
+                module=None,
+                degree=0,
+            )
+        ],
+        truncated=False,
+        omitted=0,
+    )
+
+    html = render_node_search_page(_manifest(), view)
+
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_render_node_search_page_reports_no_match_without_claiming_one() -> None:
+    view = NodeSearchView(
+        available=True,
+        query="nope",
+        match_kind=None,
+        limit=100,
+        matches=[],
+        truncated=False,
+        omitted=0,
+    )
+
+    html = render_node_search_page(_manifest(), view)
+
+    assert "No node matches nope" in html
+    assert "<table" not in html
+
+
+def test_render_node_search_page_reports_unavailable_without_graph() -> None:
+    view = NodeSearchView(
+        available=False,
+        query="a.py",
+        match_kind=None,
+        limit=100,
+        matches=[],
+        truncated=False,
+        omitted=0,
+    )
+
+    html = render_node_search_page(_manifest(), view)
+
+    assert "No graph artifact provided" in html

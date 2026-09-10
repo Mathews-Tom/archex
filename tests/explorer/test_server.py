@@ -22,6 +22,8 @@ from archex.explorer.loader import ExplorerData, load_explorer_data
 from archex.explorer.server import ExplorerSecurityError, ExplorerServer, create_server
 from archex.graph_artifact import (
     ArchGraph,
+    GraphEdge,
+    GraphEdgeType,
     GraphExportMetadata,
     GraphNode,
     GraphNodeType,
@@ -279,3 +281,101 @@ def test_neighborhood_view_finds_seed_with_graph(
 
     assert response.status == 200
     assert "file:a.py" in response.read().decode("utf-8")
+
+
+def _linked_graph() -> ArchGraph:
+    return ArchGraph(
+        project=GraphProject(name="widget", total_files=2),
+        metadata=GraphExportMetadata(archex_version="0.22.0"),
+        nodes=[
+            GraphNode(id="file:a.py", type=GraphNodeType.FILE, label="a.py", module="pkg"),
+            GraphNode(id="file:b.py", type=GraphNodeType.FILE, label="b.py", module="pkg"),
+            GraphNode(
+                id="symbol:a.py::f#function",
+                type=GraphNodeType.SYMBOL,
+                label="f",
+                module="pkg",
+            ),
+        ],
+        edges=[
+            GraphEdge(source="file:a.py", target="file:b.py", type=GraphEdgeType.IMPORTS),
+            GraphEdge(
+                source="file:a.py",
+                target="symbol:a.py::f#function",
+                type=GraphEdgeType.CONTAINS,
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def running_server_with_linked_graph(tmp_path: Path) -> Iterator[ExplorerServer]:
+    data = ExplorerData(
+        artifact=load_explorer_data(_artifact_json(tmp_path)).artifact, graph=_linked_graph()
+    )
+    server = create_server(data, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def _body(server: ExplorerServer, path_and_query: str) -> str:
+    port = server.server_address[1]
+    return _get(f"http://127.0.0.1:{port}{path_and_query}&token={server.token}").read().decode()
+
+
+def test_node_search_view_is_reachable_without_graph(running_server: ExplorerServer) -> None:
+    body = _body(running_server, "/view/search?q=a.py")
+
+    assert "No graph artifact provided" in body
+
+
+def test_node_search_view_resolves_a_query_over_http(
+    running_server_with_linked_graph: ExplorerServer,
+) -> None:
+    body = _body(running_server_with_linked_graph, "/view/search?q=b.py")
+
+    assert "file:b.py" in body
+    assert "/view/neighborhood?node=file%3Ab.py" in body
+
+
+def test_neighborhood_view_honors_the_edge_type_filter_over_http(
+    running_server_with_linked_graph: ExplorerServer,
+) -> None:
+    unfiltered = _body(running_server_with_linked_graph, "/view/neighborhood?node=file:a.py")
+    filtered = _body(
+        running_server_with_linked_graph,
+        "/view/neighborhood?node=file:a.py&edge_type=contains",
+    )
+
+    assert "file:b.py" in unfiltered
+    assert "symbol:a.py::f#function" in unfiltered
+    # The filter drops the imports edge and the node only it reached.
+    assert "file:b.py" not in filtered
+    assert "symbol:a.py::f#function" in filtered
+    assert "edges hidden" in filtered
+
+
+def test_neighborhood_view_renders_orientation_over_http(
+    running_server_with_linked_graph: ExplorerServer,
+) -> None:
+    body = _body(running_server_with_linked_graph, "/view/neighborhood?node=file:b.py")
+
+    assert '<tr class="orientation-in">' in body
+
+
+def test_search_and_neighborhood_pages_carry_no_script_or_remote_reference(
+    running_server_with_linked_graph: ExplorerServer,
+) -> None:
+    for path in ("/view/search?q=a.py", "/view/neighborhood?node=file:a.py"):
+        body = _body(running_server_with_linked_graph, path)
+
+        assert "<script" not in body
+        assert "http://" not in body.replace("http://127.0.0.1", "")
+        assert "https://" not in body
+        assert "//cdn" not in body

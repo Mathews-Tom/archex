@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from html import escape
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from archex.explorer.viewmodel import (
@@ -24,12 +25,14 @@ if TYPE_CHECKING:
         ManifestView,
         ModuleMapView,
         NeighborhoodView,
+        NodeSearchView,
         ReceiptView,
     )
 
 NAV_ITEMS: list[tuple[str, str]] = [
     ("Module Map", "/view/modules"),
     ("Diff Review", "/view/diff"),
+    ("Node Search", "/view/search"),
     ("Target Neighborhood", "/view/neighborhood"),
     ("Receipt Inspector", "/view/receipt"),
     ("Index Health", "/view/health"),
@@ -56,6 +59,24 @@ th { background: #f0f0f5; }
 .badge-low { background: #d1e7dd; color: #0f5132; }
 .note { color: #666; font-size: 0.8rem; font-style: italic; }
 .empty { color: #666; font-style: italic; }
+form.controls { margin-bottom: 1rem; font-size: 0.85rem; }
+form.controls input, form.controls select, form.controls button { font-size: 0.85rem;
+       margin-right: 0.4rem; }
+form.controls fieldset { border: 1px solid #ddd; margin: 0.5rem 0; padding: 0.4rem 0.6rem; }
+form.controls legend { font-size: 0.75rem; color: #666; }
+form.controls label.facet { margin-right: 0.75rem; white-space: nowrap; }
+tr.orientation-out { background: #eef6ff; }
+tr.orientation-in { background: #fff6ee; }
+tr.orientation-lateral { background: #f6f6f6; }
+td.orientation { font-weight: 600; }
+tr.orientation-out td.orientation { color: #0b57d0; }
+tr.orientation-in td.orientation { color: #a04a00; }
+tr.orientation-lateral td.orientation { color: #666; }
+.legend { font-size: 0.8rem; color: #444; margin-bottom: 0.75rem; }
+.legend span { margin-right: 1rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
+.legend .orientation-out { background: #eef6ff; color: #0b57d0; }
+.legend .orientation-in { background: #fff6ee; color: #a04a00; }
+.legend .orientation-lateral { background: #f6f6f6; color: #666; }
 """.strip()
 
 
@@ -348,10 +369,29 @@ def render_health_page(manifest: ManifestView, view: HealthView) -> str:
     return render_page("Index Health", manifest, body)
 
 
-def render_neighborhood_page(manifest: ManifestView, view: NeighborhoodView) -> str:
-    form = (
-        '<form method="get" action="/view/neighborhood">'
-        f'<input type="text" name="node" placeholder="file or symbol id" '
+def _neighborhood_link(node_id: str) -> str:
+    return f"/view/neighborhood?node={quote(node_id, safe='')}"
+
+
+def _edge_type_fieldset(view: NeighborhoodView) -> str:
+    if not view.edge_type_facets:
+        return ""
+    boxes = "".join(
+        '<label class="facet"><input type="checkbox" name="edge_type" '
+        f'value="{escape(facet.type)}"{" checked" if facet.selected else ""}> '
+        f"{escape(facet.type)} ({facet.count})</label>"
+        for facet in view.edge_type_facets
+    )
+    return (
+        "<fieldset><legend>Edge types in this neighborhood "
+        "(none checked shows every type)</legend>" + boxes + "</fieldset>"
+    )
+
+
+def _neighborhood_form(view: NeighborhoodView) -> str:
+    return (
+        '<form class="controls" method="get" action="/view/neighborhood">'
+        '<input type="text" name="node" placeholder="file or symbol id" '
         f'value="{escape(view.query or "")}">'
         '<select name="direction">'
         + "".join(
@@ -361,9 +401,22 @@ def render_neighborhood_page(manifest: ManifestView, view: NeighborhoodView) -> 
         + "</select>"
         f'<input type="number" name="depth" min="1" value="{view.depth}">'
         f'<input type="number" name="limit" min="1" value="{view.limit}">'
-        '<button type="submit">Find neighbors</button>'
-        "</form>"
+        '<button type="submit">Find neighbors</button>' + _edge_type_fieldset(view) + "</form>"
     )
+
+
+_ORIENTATION_LEGEND = (
+    '<p class="legend">'
+    '<span class="orientation-out">out</span> the seed side depends on the far side &middot; '
+    '<span class="orientation-in">in</span> the far side depends on the seed side &middot; '
+    '<span class="orientation-lateral">lateral</span> both endpoints sit the same distance '
+    "from the seed"
+    "</p>"
+)
+
+
+def render_neighborhood_page(manifest: ManifestView, view: NeighborhoodView) -> str:
+    form = _neighborhood_form(view)
     if not view.available:
         body = (
             "<h2>Target Neighborhood</h2>" + form + '<p class="empty">No graph artifact provided. '
@@ -380,17 +433,21 @@ def render_neighborhood_page(manifest: ManifestView, view: NeighborhoodView) -> 
             "<h2>Target Neighborhood</h2>"
             + form
             + '<p class="empty">Enter a file path or symbol id to see its bounded '
-            "neighborhood.</p>"
+            'neighborhood, or use <a href="/view/search">Node Search</a> to find one.</p>'
         )
         return render_page("Target Neighborhood", manifest, body)
 
     node_rows = "".join(
-        f"<tr><td>{escape(node.id)}</td><td>{escape(node.type)}</td>"
+        f'<tr><td><a href="{_neighborhood_link(node.id)}">{escape(node.id)}</a></td>'
+        f"<td>{escape(node.type)}</td>"
         f"<td>{escape(node.label)}</td><td>{node.degree}</td></tr>"
         for node in view.nodes
     )
     edge_rows = "".join(
-        f"<tr><td>{escape(edge.source_id)}</td><td>{escape(edge.type)}</td>"
+        f'<tr class="orientation-{escape(edge.orientation)}">'
+        f"<td>{escape(edge.source_id)}</td>"
+        f'<td class="orientation">{escape(edge.orientation)}</td>'
+        f"<td>{escape(edge.type)}</td>"
         f"<td>{escape(edge.target_id)}</td><td>{escape(edge.confidence)}</td></tr>"
         for edge in view.edges
     )
@@ -402,19 +459,84 @@ def render_neighborhood_page(manifest: ManifestView, view: NeighborhoodView) -> 
         if view.truncated
         else ""
     )
+    filtered = (
+        f'<p class="note">Filtered to {escape(", ".join(view.selected_edge_types))}: '
+        f"{view.filtered_edges} of this neighborhood's edges hidden. The filter narrows the "
+        "bounded traversal above, not the whole graph.</p>"
+        if view.selected_edge_types
+        else ""
+    )
     body = (
         "<h2>Target Neighborhood</h2>" + form + f"<p>Seed: <code>{escape(view.seed.id)}</code> "
         f"({escape(view.seed.type)}, degree {view.seed.degree}) &middot; "
         f"direction: {escape(view.direction)} &middot; depth: {view.depth}</p>"
         + truncation
+        + filtered
         + "<h3>Nodes</h3>"
         "<table><tr><th>ID</th><th>Type</th><th>Label</th><th>Degree</th></tr>"
         + node_rows
         + "</table>"
         "<h3>Edges</h3>"
-        "<table><tr><th>Source</th><th>Type</th><th>Target</th><th>Confidence</th></tr>"
-        + edge_rows
-        + "</table>"
+        + _ORIENTATION_LEGEND
+        + "<table><tr><th>Source</th><th>Orientation</th><th>Type</th><th>Target</th>"
+        "<th>Confidence</th></tr>" + edge_rows + "</table>"
         "<h3>Hubs skipped (high fan-out)</h3><ul>" + hub_rows + "</ul>"
     )
     return render_page("Target Neighborhood", manifest, body)
+
+
+def render_node_search_page(manifest: ManifestView, view: NodeSearchView) -> str:
+    form = (
+        '<form class="controls" method="get" action="/view/search">'
+        '<input type="text" name="q" placeholder="id, label, or path substring" '
+        f'value="{escape(view.query or "")}">'
+        f'<input type="number" name="limit" min="1" value="{view.limit}">'
+        '<button type="submit">Search nodes</button>'
+        "</form>"
+    )
+    if not view.available:
+        body = (
+            "<h2>Node Search</h2>" + form + '<p class="empty">No graph artifact provided. '
+            "Pass <code>--graph</code> to <code>archex explore</code> to enable this view.</p>"
+        )
+        return render_page("Node Search", manifest, body)
+
+    if not view.query:
+        body = (
+            "<h2>Node Search</h2>"
+            + form
+            + '<p class="empty">Search the exported graph by node id, symbol label, or file '
+            "path. Matches link straight to their bounded neighborhood.</p>"
+        )
+        return render_page("Node Search", manifest, body)
+
+    if not view.matches:
+        body = (
+            "<h2>Node Search</h2>"
+            + form
+            + f'<p class="empty">No node matches {escape(view.query)}.</p>'
+        )
+        return render_page("Node Search", manifest, body)
+
+    rows = "".join(
+        f'<tr><td><a href="{_neighborhood_link(match.id)}">{escape(match.id)}</a></td>'
+        f"<td>{escape(match.type)}</td><td>{escape(match.label)}</td>"
+        f"<td>{escape(match.path or '-')}</td><td>{escape(match.module or '-')}</td>"
+        f"<td>{match.degree}</td></tr>"
+        for match in view.matches
+    )
+    truncation = (
+        f'<p class="note">Truncated: {view.omitted} further matches omitted at limit '
+        f"{view.limit}.</p>"
+        if view.truncated
+        else ""
+    )
+    body = (
+        "<h2>Node Search</h2>" + form + f'<p class="note">{len(view.matches)} match(es) for '
+        f"<code>{escape(view.query)}</code> &middot; match kind: "
+        f"{escape(view.match_kind or 'none')}</p>"
+        + truncation
+        + "<table><tr><th>ID</th><th>Type</th><th>Label</th><th>Path</th><th>Module</th>"
+        "<th>Degree</th></tr>" + rows + "</table>"
+    )
+    return render_page("Node Search", manifest, body)

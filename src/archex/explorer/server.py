@@ -27,6 +27,7 @@ from archex.explorer.render import (
     render_health_page,
     render_module_map_page,
     render_neighborhood_page,
+    render_node_search_page,
     render_page,
     render_receipt_page,
 )
@@ -44,18 +45,20 @@ from archex.explorer.security import (
 from archex.explorer.viewmodel import (
     DEFAULT_NEIGHBORHOOD_DEPTH,
     DEFAULT_NEIGHBORHOOD_LIMIT,
+    MAX_NODE_SEARCH_ROWS,
     build_diff_view,
     build_health_view,
     build_manifest_view,
     build_module_map_view,
     build_neighborhood_view,
+    build_node_search_view,
     build_receipt_view,
 )
 from archex.graph_query import GraphQuery
 
 if TYPE_CHECKING:
     from archex.explorer.loader import ExplorerData
-    from archex.explorer.viewmodel import ManifestView, NeighborhoodView
+    from archex.explorer.viewmodel import ManifestView, NeighborhoodView, NodeSearchView
     from archex.graph_query import GraphDirection
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})
@@ -183,6 +186,8 @@ class _ExplorerRequestHandler(BaseHTTPRequestHandler):
             return render_health_page(manifest, build_health_view(server.data))
         if route == "/view/neighborhood":
             return render_neighborhood_page(manifest, self._neighborhood_view(params, server))
+        if route == "/view/search":
+            return render_node_search_page(manifest, self._node_search_view(params, server))
         return None
 
     def _neighborhood_view(
@@ -203,6 +208,17 @@ class _ExplorerRequestHandler(BaseHTTPRequestHandler):
             direction=direction,
             depth=depth,
             limit=limit,
+            edge_types=params.get("edge_type", []),
+            graph_query=server.graph_query,
+        )
+
+    def _node_search_view(
+        self, params: dict[str, list[str]], server: ExplorerServer
+    ) -> NodeSearchView:
+        return build_node_search_view(
+            server.data,
+            params.get("q", [None])[0],
+            limit=_parse_positive_int(params.get("limit", [None])[0], MAX_NODE_SEARCH_ROWS),
             graph_query=server.graph_query,
         )
 
