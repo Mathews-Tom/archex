@@ -6,6 +6,13 @@ fresh clone runs `archex init --from-artifact <path>` to bootstrap their
 local index from that snapshot instead of paying a full cold-start reindex,
 then delta-syncs to their current working tree.
 
+An artifact travels between *machines*. A linked worktree on the same
+machine needs neither the compression nor the version negotiation, so it has
+its own path — see
+[Worktree Index Seeding](WORKTREE_INDEX_SEEDING.md), which reuses the
+delta-sync and staleness-fallback rules described below but copies from a
+verified same-repository checkout instead of a file.
+
 This mirrors the highest-leverage team-workflow feature observed in
 `DeusData/codebase-memory-mcp`'s committed `.codebase-memory/graph.db.zst`
 artifact, adapted to archex's SQLite + FTS5 index and stdlib-only dependency

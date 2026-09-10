@@ -10,6 +10,7 @@ from archex.config import load_config, load_index_config, persist_project_index_
 from archex.index.artifact import ensure_artifact_gitattributes, export_artifact
 from archex.models import PipelineTiming, RepoSource
 from archex.project import uses_project_cache_layout
+from archex.utils import printable
 
 
 def _language_counts(file_metadata: list[dict[str, str | int]]) -> dict[str, int]:
@@ -90,7 +91,7 @@ def run_indexing_and_get_summary(
         ephemeral_untracked = cached_path is None and store.ephemeral
         index_path = None if ephemeral_untracked else (cached_path or store.db_path)
 
-        summary = {
+        summary: dict[str, Any] = {
             "repo_root": str(repo_root),
             "index_path": str(index_path) if index_path is not None else None,
             "commit_hash": store.get_metadata("commit_hash") or "",
@@ -102,6 +103,16 @@ def run_indexing_and_get_summary(
             "embedding_cache_hits": int(store.get_metadata("embedding_cache_hits") or "0"),
             "embedding_cache_misses": int(store.get_metadata("embedding_cache_misses") or "0"),
         }
+
+        # Present only when a worktree seed was actually considered, so the
+        # summary does not grow a permanently-null section for the ordinary
+        # checkout that can never be seeded.
+        if timing.seed_disposition is not None:
+            summary["seed_disposition"] = timing.seed_disposition
+            summary["seed_source"] = timing.seed_source
+            summary["seed_strategy"] = timing.seed_strategy
+            summary["seed_files_changed"] = timing.seed_files_changed
+            summary["seed_time_ms"] = round(timing.seed_time_ms, 1)
 
         if export_artifact_path is not None:
             artifact_header = export_artifact(store, export_artifact_path)
@@ -115,3 +126,23 @@ def run_indexing_and_get_summary(
         return summary
     finally:
         store.close()
+
+
+def format_worktree_seed(summary: dict[str, Any]) -> str | None:
+    """Render the worktree-seed line for a summary, or None if none applies.
+
+    A refusal is reported as explicitly as a success: the seed either
+    happened, in which case the source and synchronization strategy are
+    named, or it did not, in which case the disposition says why and
+    ordinary indexing produced the index instead.
+    """
+    disposition = summary.get("seed_disposition")
+    if disposition is None:
+        return None
+    if disposition != "seeded":
+        return f"not used ({disposition}); indexed normally"
+    return (
+        f"seeded from {printable(str(summary['seed_source']))} "
+        f"({summary['seed_strategy']}, {summary['seed_files_changed']} file(s) "
+        f"synchronized in {summary['seed_time_ms']} ms)"
+    )

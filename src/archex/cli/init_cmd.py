@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from archex.cli.indexing import run_indexing_and_get_summary
+from archex.cli.indexing import format_worktree_seed, run_indexing_and_get_summary
 from archex.config import load_config, load_index_config
 from archex.exceptions import ArchexError
 from archex.index.artifact import import_artifact, sync_imported_artifact
@@ -137,6 +137,9 @@ def init_cmd(
 
         click.echo(f"Indexed repository: {summary['repo_root']}")
         click.echo(f"Strategy:           {summary['strategy']}")
+        seed_line = format_worktree_seed(summary)
+        if seed_line is not None:
+            click.echo(f"Worktree seed:      {seed_line}")
         click.echo(f"Files indexed:      {summary['files_indexed']}")
         click.echo(f"Chunks indexed:     {summary['chunks_indexed']}")
         if summary["languages"]:

@@ -240,6 +240,14 @@ class Config(BaseModel):
     parallel: bool = True
     strict: bool = False
     delta_threshold: float = 0.5
+    worktree_seed: bool = True
+    """Whether a fresh linked worktree may bootstrap from a same-repository index.
+
+    Seeding only ever reuses an index from a checkout sharing this
+    repository's verified Git common directory, and falls back to ordinary
+    full indexing for any uncertainty. Set false to always index a new
+    worktree from scratch.
+    """
 
     @model_validator(mode="after")
     def _validate_config(self) -> Config:
@@ -1125,7 +1133,20 @@ class PipelineTiming:
     vector_used: bool = False
     vector_build_ms: float = 0.0
     vector_index_ms: float = 0.0
-    strategy: str = ""  # "full", "cached", "delta"
+    strategy: str = ""  # "full", "cached", "delta", "seeded"
+    seed_strategy: str | None = None
+    """How a successful worktree seed synchronized: "clean" or "delta"."""
+
+    seed_source: str | None = None
+    """The checkout a worktree seed came from, or was considered from."""
+
+    seed_files_changed: int = 0
+    """How many destination files a successful seed had to synchronize."""
+
+    seed_disposition: str | None = None
+    """Why seeding was or was not used; set only when a seed was considered."""
+
+    seed_time_ms: float = 0.0
 
 
 # ---------------------------------------------------------------------------
