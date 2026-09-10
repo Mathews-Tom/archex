@@ -113,7 +113,11 @@ def init_cmd(
             config = load_config(source)
             index_config = load_index_config(source)
             sync_result = sync_imported_artifact(
-                result.state.repo_root, result.state.index_path, config, index_config
+                result.state.repo_root,
+                result.state.index_path,
+                config,
+                index_config,
+                source_identity=source,
             )
         except ArchexError as exc:
             raise click.ClickException(str(exc)) from exc

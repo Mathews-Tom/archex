@@ -430,9 +430,23 @@ def test_status_command_strict_fails_on_dirty_index(python_simple_repo: Path) ->
 
 
 def test_status_command_fails_on_corrupt_index(python_simple_repo: Path) -> None:
+    """A legitimately published index whose bytes went bad reports `corrupt`.
+
+    The index is built (so it carries this machine's cache marker) and then
+    truncated: an unmarked garbage file is a different, earlier state
+    (`unprovenanced`), refused before the store is opened.
+    """
+    from archex.api import index_repository
+    from archex.models import Config, IndexConfig, RepoSource
     from archex.project import init_project
 
     init_project(python_simple_repo)
+    store = index_repository(
+        RepoSource(local_path=str(python_simple_repo)),
+        config=Config(cache=True, cache_dir=str(python_simple_repo / ".archex")),
+        index_config=IndexConfig(),
+    )
+    store.close()
     index_path = python_simple_repo / ".archex" / "index.db"
     index_path.write_text("not sqlite", encoding="utf-8")
     runner = CliRunner()

@@ -235,11 +235,20 @@ class CacheManager:
     # ------------------------------------------------------------------
 
     def get(self, key: str) -> Path | None:
-        """Return cached db Path if it exists, else None."""
+        """Return the cached db for `key`, or None if there is none to trust.
+
+        A database is only served when a marker archex wrote on this machine
+        names the same key. That applies to a keyed cache directory too, not
+        just a repository's `.archex`: `cache_dir` is configurable — a
+        repository's own settings can point it at a directory the repository
+        also ships — so the layout cannot decide whether the contents are
+        trustworthy. An entry written before markers were authenticated is
+        re-indexed once.
+        """
         db = self.db_path(key)
         if not db.exists():
             return None
-        if self._project_layout and self.get_meta(key).get("cache_key") != key:
+        if not self.marker_matches(key):
             return None
         return db
 

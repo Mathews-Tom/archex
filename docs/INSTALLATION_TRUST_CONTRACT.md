@@ -315,6 +315,33 @@ Index and artifact locations:
 - global default cache layout before project initialization: `~/.archex/cache`
 - configured cache layout: value of `cache_dir` in config or `ARCHEX_CACHE_DIR`
 
+Reuse of **any** cached index requires archex's own cache marker
+(`.archex/index.meta`, or `<key>.meta` in a keyed cache directory), which
+records `sha256("<resolved absolute path>@<commit>")` together with an
+HMAC of that key under a machine-local secret kept at
+`~/.archex/machine-id`. A `.archex/index.db` that
+arrived any other way — committed by whoever published the repository, for
+instance — has no marker for the directory it is being read in, and archex
+indexes the repository normally instead of reusing it. Everything an index
+database says about itself is stored inside that database, so the marker,
+not the database's own claims, is what establishes where an index came
+from. The HMAC is what makes the marker evidence rather than a hint: both
+halves of the key are guessable — the commit can be the publisher's own, and
+checkout paths are fixed on CI runners and in container images — so without
+a machine-local secret, committed content could carry a matching marker.
+Surfaces that read the index without going through the cache (`archex
+status`, `doctor`, `setup`, the session primer, the tool-call hook) apply the
+same rule and report `unprovenanced` instead of reading an index of unknown
+origin. Importing a portable artifact writes the marker as part of the
+import, because that import is explicitly requested by the operator. The
+cache directory is not a trust boundary: `cache_dir` is configurable, so the
+requirement applies to every layout, and an index cached before markers were
+authenticated is re-indexed once.
+
+For the same reason, `worktree_seed` is a machine-level setting only: it is
+read from `~/.archex/config.toml` or `ARCHEX_WORKTREE_SEED`, and a
+repository's own committed `.archex/settings.toml` cannot turn it on.
+
 ## Watch and freshness semantics
 
 - `archex index .` performs an explicit full or delta refresh.

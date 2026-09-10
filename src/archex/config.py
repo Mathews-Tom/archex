@@ -112,6 +112,14 @@ def _resolve_project_path(value: Any, repo_root: Path) -> Any:
     return str(repo_root / path)
 
 
+#: `Config` keys a repository's own `.archex/settings.toml` may not set.
+#: `settings.toml` is ordinary repository content, so a published
+#: repository can ship one; a switch that decides whether archex *consumes*
+#: repository content must not be flippable by that content. These stay
+#: machine-level: `~/.archex/config.toml` or `ARCHEX_*`.
+_MACHINE_ONLY_CONFIG_KEYS = frozenset({"worktree_seed"})
+
+
 def load_config(source: RepoSource | str | Path | None = None) -> Config:
     """Load Config from TOML files and ARCHEX_* environment variables.
 
@@ -125,7 +133,11 @@ def load_config(source: RepoSource | str | Path | None = None) -> Config:
     project_settings = _project_index_settings(source)
     if project_settings is not None:
         state, index_settings = project_settings
-        project_overrides = _config_overrides_from_mapping(index_settings)
+        project_overrides = {
+            key: value
+            for key, value in _config_overrides_from_mapping(index_settings).items()
+            if key not in _MACHINE_ONLY_CONFIG_KEYS
+        }
         if "cache_dir" in project_overrides:
             project_overrides["cache_dir"] = _resolve_project_path(
                 project_overrides["cache_dir"],

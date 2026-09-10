@@ -7,12 +7,13 @@ import pytest
 from click.testing import CliRunner
 
 from archex import doctor
+from archex.api import index_repository
 from archex.cli.main import cli
 from archex.doctor import DoctorCheck, DoctorReport, render_doctor_text
 from archex.languages import LanguageSupport
 from archex.metrics.health import record_metrics_failure
 from archex.metrics.storage import metrics_db_path
-from archex.models import LanguageTier
+from archex.models import Config, IndexConfig, LanguageTier, RepoSource
 from archex.project import init_project
 
 
@@ -46,10 +47,25 @@ def test_doctor_json_reports_healthy_project(python_simple_repo: Path) -> None:
     assert checks["model_security"]["details"]["embedding"]["enabled"] is False
 
 
+def _corrupt_a_marked_index(repo: Path) -> None:
+    """Build a real index, then corrupt its bytes but keep its cache marker.
+
+    Truncating the database is what corruption looks like for an index this
+    machine legitimately published; a garbage file with no marker at all is a
+    different state (`unprovenanced`), checked before the store is opened.
+    """
+    store = index_repository(
+        RepoSource(local_path=str(repo)),
+        config=Config(cache=True, cache_dir=str(repo / ".archex")),
+        index_config=IndexConfig(),
+    )
+    store.close()
+    (repo / ".archex" / "index.db").write_text("not sqlite", encoding="utf-8")
+
+
 def test_doctor_json_fails_on_corrupt_index(python_simple_repo: Path) -> None:
     init_project(python_simple_repo)
-    index_path = python_simple_repo / ".archex" / "index.db"
-    index_path.write_text("not sqlite", encoding="utf-8")
+    _corrupt_a_marked_index(python_simple_repo)
     runner = CliRunner()
 
     result = runner.invoke(cli, ["doctor", str(python_simple_repo), "--format", "json"])

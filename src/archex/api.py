@@ -702,6 +702,25 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
         return None
 
     db_path, cached_commit = existing
+    if not attempt.cache.marker_matches(
+        attempt.cache.cache_key(source, head_override=cached_commit)
+    ):
+        # A cache directory can be repository *content*: `.archex/index.db`
+        # and `.archex/settings.toml` are ordinary files a published
+        # repository can commit, and `cache_dir` is itself a repo-settable
+        # key, so "is this the project layout?" is not a safe precondition
+        # for trusting what is in it. The identity a store declares lives
+        # inside the same database, so archex's own marker — keyed on the
+        # resolved path and revision, authenticated with this machine's
+        # secret — is the only thing here that repository content cannot
+        # produce. Without it, index normally rather than reusing a store of
+        # unknown origin.
+        logger.warning(
+            "Ignoring the index at %s: it carries no archex cache marker for this "
+            "checkout, so its origin cannot be established. Indexing normally.",
+            db_path,
+        )
+        return None
     effective_index_config = attempt.index_config or IndexConfig()
     candidate_store = IndexStore(db_path)
     try:

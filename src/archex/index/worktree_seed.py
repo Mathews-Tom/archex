@@ -46,6 +46,7 @@ from urllib.parse import quote
 
 from archex.cache import CacheManager
 from archex.exceptions import ArchexError
+from archex.index.adopt import stamp_project_index_identity
 from archex.index.compat import INDEX_CONFIG_METADATA_KEYS, index_config_metadata_mismatch
 from archex.index.store import CURRENT_SCHEMA_VERSION, IndexStore
 from archex.models import RepoSource
@@ -720,18 +721,17 @@ def _stamp_destination_identity(
     A copied index still carries the source checkout's identity metadata.
     Left that way the destination's own cache lookup would reject it and
     re-index from scratch on the very next command, so the seed would buy
-    nothing. These are the same fields, written in the same order, that the
-    ordinary full-index path records when it publishes a store.
+    nothing. The artifact-import path needs exactly the same treatment, so
+    the fields live in `archex.index.adopt`.
     """
-    from archex.index.delta import compute_working_tree_signature
-    from archex.serve.generation import finalize_generation_id
-
-    store.set_metadata("commit_hash", destination_head)
-    store.set_metadata("source_identity", source_identity)
-    store.set_metadata("indexed_at", str(time.time()))
-    store.set_metadata("working_tree_signature", compute_working_tree_signature(repo_root, config))
-    finalize_generation_id(store, index_config)
-    store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+    stamp_project_index_identity(
+        store,
+        repo_root=repo_root,
+        source_identity=source_identity,
+        commit_hash=destination_head,
+        config=config,
+        index_config=index_config,
+    )
 
 
 @dataclass(frozen=True)
