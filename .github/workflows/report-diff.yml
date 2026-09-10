@@ -48,6 +48,30 @@ jobs:
           uv run archex report diff . --base "origin/${{ github.base_ref || 'main' }}" \
             --format json > report-diff.json
 
+      - name: Export the architecture graph
+        run: uv run archex graph export . --output arch-graph.json
+
+      # The uploaded bundle is a projection of the two canonical artifacts
+      # above, produced by the same view models and renderers the local
+      # `archex explore` server uses. It is static HTML with no script, no
+      # remote reference, and no session token, so a reviewer opens it from a
+      # `file://` URL after downloading the artifact.
+      - name: Export the offline review explorer
+        run: |
+          uv run archex explore report-diff.json --graph arch-graph.json \
+            --export explorer-site
+          {
+            echo ""
+            echo "### Offline review explorer"
+            echo ""
+            echo "Download the \`report-diff\` artifact and open"
+            echo "\`explorer-site/index.html\` in a browser. It renders the diff review,"
+            echo "module map, node index, per-node dependency neighborhoods with inbound"
+            echo "and outbound orientation, the context receipt, and index health from the"
+            echo "uploaded \`report-diff.json\` and \`arch-graph.json\` -- offline, with no"
+            echo "script and no network access."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload report artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -56,3 +80,5 @@ jobs:
             report-delta.json
             report-delta.md
             report-diff.json
+            arch-graph.json
+            explorer-site

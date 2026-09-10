@@ -3,6 +3,12 @@ name: Dogfood
 on:
   workflow_dispatch:
 
+# Declared explicitly rather than inherited: an omitted `permissions` block
+# silently takes the repository's default token scope. This workflow only
+# reads the checkout and uploads its own report as a build artifact.
+permissions:
+  contents: read
+
 jobs:
   dogfood:
     runs-on: ubuntu-latest

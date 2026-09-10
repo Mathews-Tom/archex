@@ -16,25 +16,36 @@ a page whose rendered content contains an objectively correct answer
 by this script).
 
 Scenario (`tests/fixtures/impact_diff`, also used by
-`tests/test_report_artifact.py` and friends): `hub.py` is imported by four
-files (`leaf.py`, `consumer_a.py`, `consumer_b.py`, `consumer_c.py`) and is
-transitively reachable from the entry point `main.py` -- a deliberate hub.
-Editing `hub.py` makes it the diff's own single changed file and its
-riskiest symbol candidate (public-interface change, high fan-in). A
-contributor who just cloned this repository and asks "what changed, and
-what does it affect?" should be able to answer "hub.py, and its four
-importers" from the explorer alone.
+`tests/test_report_artifact.py` and friends): `hub.py` is imported directly
+by five files -- `leaf.py`, `consumer_a.py`, `consumer_b.py` and
+`consumer_c.py` each import `shared_helper`, and the entry point `main.py`
+imports `other_helper` -- a deliberate hub. `EXPECTED_IMPORTERS` below is
+the four `shared_helper` importers, the set that exercises the shared-symbol
+fan-in the risk classifier keys on; `main.py` is the fifth direct importer
+and is why the inbound-edge counts read five, not four. Editing `hub.py`
+makes it the diff's own single changed file and its riskiest symbol
+candidate (public-interface change, high fan-in). A contributor who just
+cloned this repository and asks "what changed, and what does it affect?"
+should be able to answer "hub.py, and the files that import it" from the
+explorer alone.
 
-Two navigation paths are timed:
+Five navigation paths are timed:
 
 1. Diff Review: does the rendered `/view/diff` page name `hub.py` as the
    changed file and (if the risk classifier flagged one) surfaces it as a
    symbol risk candidate?
 2. Target Neighborhood: does searching `/view/neighborhood?node=file:hub.py`
    surface all four real importers?
+3. Node Search (R25): does `/view/search?q=hub` find `hub.py` without the
+   reader already knowing its exact node id -- the step that previously had
+   no surface at all?
+4. Inbound-only Neighborhood (R25): does `direction=in` report exactly the
+   files that depend on `hub.py`, each marked inbound, and nothing outbound?
+5. Static export (R25): does the offline bundle answer the same question
+   from a `file://` path with no server running at all?
 
-Both are graded pass/fail against the fixture's documented ground truth to
-keep "correct" objective, not just fast.
+Every path is graded pass/fail against the fixture's documented ground truth
+to keep "correct" objective, not just fast.
 """
 
 from __future__ import annotations
@@ -47,6 +58,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+from archex.explorer.export import NODES_FILE, export_explorer_site, node_page_name
 from archex.explorer.loader import ExplorerData
 from archex.explorer.server import create_server
 from archex.graph_artifact import build_arch_graph_from_store
@@ -114,20 +126,66 @@ def main() -> int:
             neighborhood_correct = all(
                 importer in neighborhood_html for importer in EXPECTED_IMPORTERS
             )
+
+            # R25: reaching the node without already knowing its id.
+            start = time.perf_counter()
+            search_html = _get(f"http://127.0.0.1:{port}/view/search?q=hub&token={server.token}")
+            search_elapsed = time.perf_counter() - start
+            search_correct = (
+                "file:hub.py" in search_html
+                and "/view/neighborhood?node=file%3Ahub.py" in search_html
+            )
+
+            # R25: "what depends on my change" answered directionally.
+            start = time.perf_counter()
+            inbound_html = _get(
+                f"http://127.0.0.1:{port}/view/neighborhood"
+                f"?node=file:hub.py&direction=in&token={server.token}"
+            )
+            inbound_elapsed = time.perf_counter() - start
+            inbound_correct = (
+                all(importer in inbound_html for importer in EXPECTED_IMPORTERS)
+                and '<tr class="orientation-in">' in inbound_html
+                and '<tr class="orientation-out">' not in inbound_html
+            )
         finally:
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
 
-    print("Scenario: tests/fixtures/impact_diff, hub.py edited (deliberate hub, 4 importers)\n")
-    print(f"{'path':<28} {'elapsed':>10}  {'correct':>8}")
-    print(f"{'Diff Review (/view/diff)':<28} {diff_elapsed:>9.3f}s  {diff_correct!s:>8}")
-    print(f"{'Target Neighborhood':<28} {neighborhood_elapsed:>9.3f}s  {neighborhood_correct!s:>8}")
+        # R25: the same question, offline, with no server running.
+        export_dir = Path(tmp) / "explorer-site"
+        start = time.perf_counter()
+        export_explorer_site(data, export_dir)
+        export_elapsed = time.perf_counter() - start
+        hub_page = (export_dir / node_page_name("file:hub.py")).read_text(encoding="utf-8")
+        index_page = (export_dir / NODES_FILE).read_text(encoding="utf-8")
+        export_correct = (
+            all(importer in hub_page for importer in EXPECTED_IMPORTERS)
+            and '<tr class="orientation-in">' in hub_page
+            and "file:hub.py" in index_page
+            and "<script" not in hub_page
+            and "token=" not in hub_page
+        )
 
-    if not (diff_correct and neighborhood_correct):
+    print(
+        "Scenario: tests/fixtures/impact_diff, hub.py edited (deliberate hub, 5 direct importers)\n"
+    )
+    rows = (
+        ("Diff Review (/view/diff)", diff_elapsed, diff_correct),
+        ("Target Neighborhood", neighborhood_elapsed, neighborhood_correct),
+        ("Node Search (/view/search)", search_elapsed, search_correct),
+        ("Inbound-only Neighborhood", inbound_elapsed, inbound_correct),
+        ("Static export (offline)", export_elapsed, export_correct),
+    )
+    print(f"{'path':<28} {'elapsed':>10}  {'correct':>8}")
+    for label, elapsed, correct in rows:
+        print(f"{label:<28} {elapsed:>9.3f}s  {correct!s:>8}")
+
+    if not all(correct for _, _, correct in rows):
         print("\nFAILED: the explorer did not surface the objectively correct answer.")
         return 1
-    print("\nPASSED: both navigation paths reached the correct file/symbol.")
+    print("\nPASSED: every navigation path reached the correct file/symbol.")
     print(
         "\nNote: this is an automated, deterministic proxy measuring real HTTP wall-clock "
         "time against a real server -- not a live human trial. No self-reported satisfaction "
