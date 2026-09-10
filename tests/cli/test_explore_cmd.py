@@ -5,11 +5,16 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
 from archex.cli.main import cli
+from archex.explorer import loader
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _artifact_json(path: Path) -> Path:
@@ -69,3 +74,48 @@ def test_explore_prints_the_loopback_url_and_stops_on_interrupt(tmp_path: Path) 
     assert "archex explorer listening at http://127.0.0.1:" in result.output
     assert "?token=" in result.output
     assert threading.active_count() == before
+
+
+def test_explore_export_writes_offline_html_and_starts_no_server(tmp_path: Path) -> None:
+    artifact_path = _artifact_json(tmp_path)
+    destination = tmp_path / "site"
+    runner = CliRunner()
+
+    def _must_not_serve(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("--export must not start a server")
+
+    with patch("archex.cli.explore_cmd.create_server", _must_not_serve):
+        result = runner.invoke(cli, ["explore", str(artifact_path), "--export", str(destination)])
+
+    assert result.exit_code == 0, result.output
+    assert "wrote" in result.output
+    index = destination / "index.html"
+    assert index.is_file()
+    html = index.read_text(encoding="utf-8")
+    assert "<script" not in html
+    assert "token=" not in html
+
+
+def test_explore_export_reports_a_clean_error_for_an_unusable_destination(tmp_path: Path) -> None:
+    artifact_path = _artifact_json(tmp_path)
+    occupied = tmp_path / "occupied"
+    occupied.write_text("x")
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["explore", str(artifact_path), "--export", str(occupied)])
+
+    assert result.exit_code != 0
+    assert "Invalid value for '--export'" in result.output
+
+
+def test_explore_reports_a_clean_error_for_an_oversized_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact_path = _artifact_json(tmp_path)
+    monkeypatch.setattr(loader, "MAX_ARTIFACT_BYTES", 4)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["explore", str(artifact_path)])
+
+    assert result.exit_code != 0
+    assert "above the explorer's 4-byte limit" in result.output

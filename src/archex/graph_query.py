@@ -163,6 +163,18 @@ class GraphQuery:
         with IndexStore(path) as store:
             return cls.from_store(store, repo_root=repo_root, hub_degree=hub_degree)
 
+    def node_summaries(self) -> list[GraphNodeSummary]:
+        """Every deduplicated node with the degree this engine computed for it.
+
+        A read-only accessor over state built in `__init__`: no traversal, no
+        ranking, no query. It exists so a caller that needs to enumerate nodes
+        (the explorer's static node index) reports the same identity and the
+        same degree as every other surface, instead of re-counting edge
+        endpoints and disagreeing on graphs with duplicate node ids or edges
+        whose other endpoint is not a node.
+        """
+        return [self._summarize_node(node) for node in self._nodes]
+
     def lookup(self, query: str, *, limit: int = DEFAULT_GRAPH_LIMIT) -> GraphNodeLookupResult:
         self._validate_limit(limit)
         node, match_kind = self._resolve_exact(query)

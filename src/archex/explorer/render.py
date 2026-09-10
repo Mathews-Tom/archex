@@ -14,11 +14,14 @@ any).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from html import escape
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from archex.explorer.viewmodel import (
         DiffView,
         HealthView,
@@ -28,15 +31,6 @@ if TYPE_CHECKING:
         NodeSearchView,
         ReceiptView,
     )
-
-NAV_ITEMS: list[tuple[str, str]] = [
-    ("Module Map", "/view/modules"),
-    ("Diff Review", "/view/diff"),
-    ("Node Search", "/view/search"),
-    ("Target Neighborhood", "/view/neighborhood"),
-    ("Receipt Inspector", "/view/receipt"),
-    ("Index Health", "/view/health"),
-]
 
 _STYLE = """
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -80,16 +74,64 @@ tr.orientation-lateral td.orientation { color: #666; }
 """.strip()
 
 
+@dataclass(frozen=True)
+class LinkScheme:
+    """Where this rendering's links point, and whether a server can answer forms.
+
+    The server renders absolute routes and can service `<form method="get">`
+    submissions; a static export is a set of sibling files opened over
+    `file://` with no server behind them, so it renders relative filenames and
+    omits every control that would submit to nothing.
+    """
+
+    modules: str
+    diff: str
+    search: str
+    neighborhood: str
+    receipt: str
+    health: str
+    interactive: bool
+    node_pages: Mapping[str, str] = field(default_factory=dict[str, str])
+
+    def nav(self) -> list[tuple[str, str]]:
+        return [
+            ("Module Map", self.modules),
+            ("Diff Review", self.diff),
+            ("Node Search" if self.interactive else "Node Index", self.search),
+            ("Target Neighborhood", self.neighborhood),
+            ("Receipt Inspector", self.receipt),
+            ("Index Health", self.health),
+        ]
+
+    def node_link(self, node_id: str) -> str | None:
+        """The href for NODE_ID's neighborhood, or None when there is no page for it."""
+        if self.interactive:
+            return f"{self.neighborhood}?node={quote(node_id, safe='')}"
+        return self.node_pages.get(node_id)
+
+
+SERVER_LINKS = LinkScheme(
+    modules="/view/modules",
+    diff="/view/diff",
+    search="/view/search",
+    neighborhood="/view/neighborhood",
+    receipt="/view/receipt",
+    health="/view/health",
+    interactive=True,
+)
+
+NAV_ITEMS: list[tuple[str, str]] = SERVER_LINKS.nav()
+
+
 def render_page(
     title: str,
     manifest: ManifestView,
     body: str,
     *,
-    nav: list[tuple[str, str]] | None = None,
+    links: LinkScheme = SERVER_LINKS,
 ) -> str:
-    nav_items = NAV_ITEMS if nav is None else nav
     nav_html = " ".join(
-        f'<a href="{escape(path)}">{escape(label)}</a>' for label, path in nav_items
+        f'<a href="{escape(path)}">{escape(label)}</a>' for label, path in links.nav()
     )
     return (
         "<!DOCTYPE html>\n"
@@ -122,7 +164,9 @@ def _manifest_banner(manifest: ManifestView) -> str:
     )
 
 
-def render_diff_page(manifest: ManifestView, view: DiffView) -> str:
+def render_diff_page(
+    manifest: ManifestView, view: DiffView, *, links: LinkScheme = SERVER_LINKS
+) -> str:
     body = "".join(
         [
             _diff_summary(view),
@@ -133,7 +177,7 @@ def render_diff_page(manifest: ManifestView, view: DiffView) -> str:
             _unsupported_files_list(view),
         ]
     )
-    return render_page(f"Diff Review: {view.base_ref}", manifest, body)
+    return render_page(f"Diff Review: {view.base_ref}", manifest, body, links=links)
 
 
 def _risk_badge(level: str) -> str:
@@ -261,7 +305,9 @@ def render_error_page(status: int, title: str, message: str) -> str:
     )
 
 
-def render_module_map_page(manifest: ManifestView, view: ModuleMapView) -> str:
+def render_module_map_page(
+    manifest: ManifestView, view: ModuleMapView, *, links: LinkScheme = SERVER_LINKS
+) -> str:
     if not view.available:
         body = (
             "<h2>Module Map</h2>"
@@ -269,11 +315,11 @@ def render_module_map_page(manifest: ManifestView, view: ModuleMapView) -> str:
             "Pass <code>--graph</code> (an <code>archex graph export</code> output) "
             "to <code>archex explore</code> to enable this view.</p>"
         )
-        return render_page("Module Map", manifest, body)
+        return render_page("Module Map", manifest, body, links=links)
 
     if not view.modules:
         body = '<h2>Module Map</h2><p class="empty">The graph has no nodes.</p>'
-        return render_page("Module Map", manifest, body)
+        return render_page("Module Map", manifest, body, links=links)
 
     rows = "".join(
         "<tr>"
@@ -290,10 +336,12 @@ def render_module_map_page(manifest: ManifestView, view: ModuleMapView) -> str:
         "<table><tr><th>Module</th><th>Nodes</th><th>Files</th>"
         "<th>Symbols</th><th>Interfaces</th></tr>" + rows + "</table>" + note
     )
-    return render_page("Module Map", manifest, body)
+    return render_page("Module Map", manifest, body, links=links)
 
 
-def render_receipt_page(manifest: ManifestView, view: ReceiptView) -> str:
+def render_receipt_page(
+    manifest: ManifestView, view: ReceiptView, *, links: LinkScheme = SERVER_LINKS
+) -> str:
     evidence_rows_html = "".join(
         "<tr>"
         f"<td>{escape(item.path)}</td>"
@@ -340,10 +388,12 @@ def render_receipt_page(manifest: ManifestView, view: ReceiptView) -> str:
             else '<p class="empty">none</p>'
         )
     )
-    return render_page("Receipt Inspector", manifest, body)
+    return render_page("Receipt Inspector", manifest, body, links=links)
 
 
-def render_health_page(manifest: ManifestView, view: HealthView) -> str:
+def render_health_page(
+    manifest: ManifestView, view: HealthView, *, links: LinkScheme = SERVER_LINKS
+) -> str:
     parser_rows = (
         "".join(
             f"<li>{escape(language)}: {escape(version)}</li>"
@@ -366,11 +416,15 @@ def render_health_page(manifest: ManifestView, view: HealthView) -> str:
         "</ul>"
         "<h2>Parser versions</h2><ul>" + parser_rows + "</ul>"
     )
-    return render_page("Index Health", manifest, body)
+    return render_page("Index Health", manifest, body, links=links)
 
 
-def _neighborhood_link(node_id: str) -> str:
-    return f"/view/neighborhood?node={quote(node_id, safe='')}"
+def _node_cell(node_id: str, links: LinkScheme) -> str:
+    """A node id, linked to its own neighborhood when a page for it exists."""
+    href = links.node_link(node_id)
+    if href is None:
+        return escape(node_id)
+    return f'<a href="{escape(href)}">{escape(node_id)}</a>'
 
 
 def _edge_type_fieldset(view: NeighborhoodView) -> str:
@@ -388,9 +442,17 @@ def _edge_type_fieldset(view: NeighborhoodView) -> str:
     )
 
 
-def _neighborhood_form(view: NeighborhoodView) -> str:
+def _neighborhood_form(view: NeighborhoodView, links: LinkScheme) -> str:
+    """The interactive controls, or a note explaining their absence offline."""
+    if not links.interactive:
+        return (
+            '<p class="note">This is a static export: node search, direction, depth, and '
+            "edge-type filtering need the local <code>archex explore</code> server. Every "
+            "exported neighborhood below is the default both-direction, depth-1 view, and its "
+            "orientation column still distinguishes inbound from outbound edges.</p>"
+        )
     return (
-        '<form class="controls" method="get" action="/view/neighborhood">'
+        f'<form class="controls" method="get" action="{escape(links.neighborhood)}">'
         '<input type="text" name="node" placeholder="file or symbol id" '
         f'value="{escape(view.query or "")}">'
         '<select name="direction">'
@@ -415,30 +477,33 @@ _ORIENTATION_LEGEND = (
 )
 
 
-def render_neighborhood_page(manifest: ManifestView, view: NeighborhoodView) -> str:
-    form = _neighborhood_form(view)
+def render_neighborhood_page(
+    manifest: ManifestView, view: NeighborhoodView, *, links: LinkScheme = SERVER_LINKS
+) -> str:
+    form = _neighborhood_form(view, links)
     if not view.available:
         body = (
             "<h2>Target Neighborhood</h2>" + form + '<p class="empty">No graph artifact provided. '
             "Pass <code>--graph</code> to <code>archex explore</code> to enable this view.</p>"
         )
-        return render_page("Target Neighborhood", manifest, body)
+        return render_page("Target Neighborhood", manifest, body, links=links)
 
     if view.error is not None:
         body = "<h2>Target Neighborhood</h2>" + form + f'<p class="empty">{escape(view.error)}</p>'
-        return render_page("Target Neighborhood", manifest, body)
+        return render_page("Target Neighborhood", manifest, body, links=links)
 
     if view.seed is None:
         body = (
             "<h2>Target Neighborhood</h2>"
             + form
             + '<p class="empty">Enter a file path or symbol id to see its bounded '
-            'neighborhood, or use <a href="/view/search">Node Search</a> to find one.</p>'
+            "neighborhood, or use "
+            f'<a href="{escape(links.search)}">Node Search</a> to find one.</p>'
         )
-        return render_page("Target Neighborhood", manifest, body)
+        return render_page("Target Neighborhood", manifest, body, links=links)
 
     node_rows = "".join(
-        f'<tr><td><a href="{_neighborhood_link(node.id)}">{escape(node.id)}</a></td>'
+        f"<tr><td>{_node_cell(node.id, links)}</td>"
         f"<td>{escape(node.type)}</td>"
         f"<td>{escape(node.label)}</td><td>{node.degree}</td></tr>"
         for node in view.nodes
@@ -482,61 +547,70 @@ def render_neighborhood_page(manifest: ManifestView, view: NeighborhoodView) -> 
         "<th>Confidence</th></tr>" + edge_rows + "</table>"
         "<h3>Hubs skipped (high fan-out)</h3><ul>" + hub_rows + "</ul>"
     )
-    return render_page("Target Neighborhood", manifest, body)
+    return render_page("Target Neighborhood", manifest, body, links=links)
 
 
-def render_node_search_page(manifest: ManifestView, view: NodeSearchView) -> str:
-    form = (
-        '<form class="controls" method="get" action="/view/search">'
+def render_node_search_page(
+    manifest: ManifestView, view: NodeSearchView, *, links: LinkScheme = SERVER_LINKS
+) -> str:
+    heading = "Node Search" if links.interactive else "Node Index"
+    controls = (
+        f'<form class="controls" method="get" action="{escape(links.search)}">'
         '<input type="text" name="q" placeholder="id, label, or path substring" '
         f'value="{escape(view.query or "")}">'
         f'<input type="number" name="limit" min="1" value="{view.limit}">'
         '<button type="submit">Search nodes</button>'
         "</form>"
+        if links.interactive
+        else (
+            '<p class="note">This is a static export: the index below lists every exported '
+            "node, so the browser's own find-in-page reaches any of them. Incremental search "
+            "needs the local <code>archex explore</code> server.</p>"
+        )
     )
+
     if not view.available:
         body = (
-            "<h2>Node Search</h2>" + form + '<p class="empty">No graph artifact provided. '
+            f"<h2>{heading}</h2>" + controls + '<p class="empty">No graph artifact provided. '
             "Pass <code>--graph</code> to <code>archex explore</code> to enable this view.</p>"
         )
-        return render_page("Node Search", manifest, body)
-
-    if not view.query:
-        body = (
-            "<h2>Node Search</h2>"
-            + form
-            + '<p class="empty">Search the exported graph by node id, symbol label, or file '
-            "path. Matches link straight to their bounded neighborhood.</p>"
-        )
-        return render_page("Node Search", manifest, body)
+        return render_page(heading, manifest, body, links=links)
 
     if not view.matches:
-        body = (
-            "<h2>Node Search</h2>"
-            + form
-            + f'<p class="empty">No node matches {escape(view.query)}.</p>'
+        message = (
+            f'<p class="empty">No node matches {escape(view.query)}.</p>'
+            if view.query
+            else '<p class="empty">Search the exported graph by node id, symbol label, or file '
+            "path. Matches link straight to their bounded neighborhood.</p>"
         )
-        return render_page("Node Search", manifest, body)
+        return render_page(heading, manifest, f"<h2>{heading}</h2>{controls}{message}", links=links)
 
     rows = "".join(
-        f'<tr><td><a href="{_neighborhood_link(match.id)}">{escape(match.id)}</a></td>'
+        f"<tr><td>{_node_cell(match.id, links)}</td>"
         f"<td>{escape(match.type)}</td><td>{escape(match.label)}</td>"
         f"<td>{escape(match.path or '-')}</td><td>{escape(match.module or '-')}</td>"
         f"<td>{match.degree}</td></tr>"
         for match in view.matches
     )
+    summary = (
+        f'<p class="note">{len(view.matches)} match(es) for '
+        f"<code>{escape(view.query)}</code> &middot; match kind: "
+        f"{escape(view.match_kind or 'none')}</p>"
+        if view.query
+        else f'<p class="note">{len(view.matches)} node(s), highest degree first.</p>'
+    )
     truncation = (
-        f'<p class="note">Truncated: {view.omitted} further matches omitted at limit '
+        f'<p class="note">Truncated: {view.omitted} further node(s) omitted at limit '
         f"{view.limit}.</p>"
         if view.truncated
         else ""
     )
     body = (
-        "<h2>Node Search</h2>" + form + f'<p class="note">{len(view.matches)} match(es) for '
-        f"<code>{escape(view.query)}</code> &middot; match kind: "
-        f"{escape(view.match_kind or 'none')}</p>"
+        f"<h2>{heading}</h2>"
+        + controls
+        + summary
         + truncation
         + "<table><tr><th>ID</th><th>Type</th><th>Label</th><th>Path</th><th>Module</th>"
         "<th>Degree</th></tr>" + rows + "</table>"
     )
-    return render_page("Node Search", manifest, body)
+    return render_page(heading, manifest, body, links=links)
