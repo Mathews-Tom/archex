@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Literal, cast
 
 from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
+from archex.integrations.codex_post_edit_hook import POST_EDIT_MATCHER as CODEX_POST_EDIT_MATCHER
 from archex.integrations.hook import HOOK_MATCHER
 from archex.integrations.mcp import resolve_tool_scope
+from archex.integrations.post_edit_hook import POST_EDIT_MATCHER
 from archex.integrations.session_hook import SESSION_START_MATCHER
 
 ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
@@ -1380,17 +1382,24 @@ def _read_json_object(path: Path) -> dict[str, object]:
     return cast("dict[str, object]", payload_obj)
 
 
-def _apply_hook_action(
-    payload: dict[str, object], plan: ClaudeCodeHookInstallPlan
+def _apply_claude_event_hook_action(
+    payload: dict[str, object],
+    *,
+    event: str,
+    marker: str,
+    matcher: str,
+    hook_entry: dict[str, object],
+    action: HookAction,
 ) -> tuple[dict[str, object], bool]:
     """Return ``(updated_payload, changed)`` without mutating ``payload``.
 
-    Both install and remove start by stripping every archex-owned hook entry
-    (identified by ``_HOOK_ARGS_MARKER``) out of ``hooks.PreToolUse``, then
-    install re-adds exactly one canonical entry. That makes a second install
-    (even after ``sys.executable`` changed, e.g. a venv move) converge on the
-    same representation instead of accumulating duplicates, and never touches
-    hook entries archex does not own.
+    Both install and remove start by stripping every archex-owned handler
+    (identified by ``marker``) out of ``hooks.<event>``, then install re-adds
+    exactly one canonical entry. That makes a second install (even after
+    ``sys.executable`` changed, e.g. a venv move) converge on the same
+    representation instead of accumulating duplicates, and never touches
+    hook entries archex does not own. Each archex hook owns a distinct
+    ``event``/``marker`` pair, so installing one never disturbs another.
     """
     updated = copy.deepcopy(payload)
     hooks_root_obj = updated.get("hooks")
@@ -1402,66 +1411,57 @@ def _apply_hook_action(
     else:
         raise ValueError("expected object at 'hooks' in existing settings")
 
-    pre_tool_use_obj = hooks_root.get("PreToolUse")
-    if pre_tool_use_obj is None:
-        pre_tool_use: list[object] = []
-    elif isinstance(pre_tool_use_obj, list):
-        pre_tool_use = cast("list[object]", pre_tool_use_obj)
+    group_obj = hooks_root.get(event)
+    if group_obj is None:
+        groups: list[object] = []
+    elif isinstance(group_obj, list):
+        groups = cast("list[object]", group_obj)
     else:
-        raise ValueError("expected array at 'hooks.PreToolUse' in existing settings")
+        raise ValueError(f"expected array at 'hooks.{event}' in existing settings")
 
-    stripped_groups = _strip_archex_hook_entries(pre_tool_use)
+    stripped_groups = _strip_archex_hook_entries(groups, marker=marker)
     merged_groups = (
-        _merge_hook_entry(stripped_groups, plan.hook_entry)
-        if plan.action == "install"
+        _merge_hook_entry(stripped_groups, hook_entry, matcher=matcher)
+        if action == "install"
         else stripped_groups
     )
 
     if merged_groups:
-        hooks_root["PreToolUse"] = merged_groups
+        hooks_root[event] = merged_groups
     else:
-        hooks_root.pop("PreToolUse", None)
+        hooks_root.pop(event, None)
     if not hooks_root:
         updated.pop("hooks", None)
 
     return updated, updated != payload
+
+
+def _apply_hook_action(
+    payload: dict[str, object], plan: ClaudeCodeHookInstallPlan
+) -> tuple[dict[str, object], bool]:
+    """Merge one owned PreToolUse search handler into Claude Code settings."""
+    return _apply_claude_event_hook_action(
+        payload,
+        event="PreToolUse",
+        marker=_HOOK_ARGS_MARKER,
+        matcher=HOOK_MATCHER,
+        hook_entry=plan.hook_entry,
+        action=plan.action,
+    )
 
 
 def _apply_session_primer_action(
     payload: dict[str, object], plan: ClaudeCodeSessionPrimerInstallPlan
 ) -> tuple[dict[str, object], bool]:
     """Merge one owned SessionStart handler without touching other settings."""
-    updated = copy.deepcopy(payload)
-    hooks_root_obj = updated.get("hooks")
-    if hooks_root_obj is None:
-        hooks_root: dict[str, object] = {}
-        updated["hooks"] = hooks_root
-    elif isinstance(hooks_root_obj, dict):
-        hooks_root = cast("dict[str, object]", hooks_root_obj)
-    else:
-        raise ValueError("expected object at 'hooks' in existing settings")
-
-    session_start_obj = hooks_root.get("SessionStart")
-    if session_start_obj is None:
-        session_start: list[object] = []
-    elif isinstance(session_start_obj, list):
-        session_start = cast("list[object]", session_start_obj)
-    else:
-        raise ValueError("expected array at 'hooks.SessionStart' in existing settings")
-
-    stripped_groups = _strip_archex_hook_entries(session_start, marker=_SESSION_PRIMER_ARGS_MARKER)
-    merged_groups = (
-        _merge_hook_entry(stripped_groups, plan.hook_entry, matcher=SESSION_START_MATCHER)
-        if plan.action == "install"
-        else stripped_groups
+    return _apply_claude_event_hook_action(
+        payload,
+        event="SessionStart",
+        marker=_SESSION_PRIMER_ARGS_MARKER,
+        matcher=SESSION_START_MATCHER,
+        hook_entry=plan.hook_entry,
+        action=plan.action,
     )
-    if merged_groups:
-        hooks_root["SessionStart"] = merged_groups
-    else:
-        hooks_root.pop("SessionStart", None)
-    if not hooks_root:
-        updated.pop("hooks", None)
-    return updated, updated != payload
 
 
 def _strip_archex_hook_entries(
@@ -1659,3 +1659,800 @@ def _tested_status(client: ClientName) -> str:
     if client == "omp":
         return "config-shape verified; client smoke unverified"
     return "config-shape verified; client smoke unverified"
+
+
+# ---------------------------------------------------------------------------
+# R21 — post-edit impact hooks
+#
+# A separate, independently installable and removable surface from the
+# PreToolUse search hook above. It owns its own event, its own ownership
+# marker, and its own module filename on every client, so installing or
+# removing one never disturbs the other.
+#
+# Client dispositions are evidence-based, not aspirational:
+#   claude-code  PostToolUse, matcher `Edit|Write`, additionalContext output
+#   codex        PostToolUse, matcher `^apply_patch$`, additionalContext output
+#   omp / pi     tool_result on `edit`/`write`, content patch
+#   opencode     tool.execute.after on `edit`/`write`, output.output mutation
+#   cursor       UNSUPPORTED — see `POST_EDIT_UNSUPPORTED_CLIENTS`
+# ---------------------------------------------------------------------------
+
+#: Substring in a PostToolUse handler's ``args`` identifying it as the
+#: archex post-edit hook. Distinct from ``_HOOK_ARGS_MARKER`` (and not a
+#: superstring of it), so the two installers cannot strip each other.
+_POST_EDIT_ARGS_MARKER = "archex.integrations.post_edit_hook"
+_CODEX_POST_EDIT_ARGS_MARKER = "archex.integrations.codex_post_edit_hook"
+
+_CODEX_POST_EDIT_BLOCK_START = "# archex:codex-post-edit-hook start"
+_CODEX_POST_EDIT_BLOCK_END = "# archex:codex-post-edit-hook end"
+
+_TS_POST_EDIT_MODULE_FILENAME = "archex-post-edit-hook.ts"
+
+#: Clients with no post-edit adapter, and the upstream reason. Surfaced by
+#: the CLI so an unsupported client gets an explicit refusal rather than a
+#: silent no-op or a fabricated success message.
+POST_EDIT_UNSUPPORTED_CLIENTS: dict[ClientName, str] = {
+    "cursor": (
+        "Cursor's afterFileEdit is the only event carrying an edited file path "
+        "and its documented schema has no output fields at all, so it cannot "
+        "return impact to the agent; postToolUse does document an "
+        "additional_context output but documents no path field for its Write "
+        "tool input, so edited paths cannot be extracted from it. Archex will "
+        "not ship a post-edit adapter that cannot be shown to work."
+    ),
+}
+
+
+@dataclass(frozen=True)
+class ClaudeCodePostEditHookInstallPlan:
+    """Install or remove the Claude Code PostToolUse post-edit hook (R21)."""
+
+    client: ClientName
+    scope: ClientScope
+    target_path: Path
+    action: HookAction
+    hook_entry: dict[str, object]
+
+
+@dataclass(frozen=True)
+class CodexPostEditHookInstallPlan:
+    """Install or remove the Codex CLI PostToolUse post-edit hook (R21).
+
+    Appends a marker-delimited ``[[hooks.PostToolUse]]`` block to the same
+    ``config.toml`` the MCP registration and the M21 ``PreToolUse`` block
+    already write to, using its own marker pair so the three coexist.
+    """
+
+    client: ClientName
+    scope: ClientScope
+    target_path: Path
+    action: HookAction
+    block_content: str
+
+
+@dataclass(frozen=True)
+class TsPostEditHookInstallPlan:
+    """Install or remove the standalone TS post-edit module (R21).
+
+    omp and pi share a ``tool_result`` module; opencode uses a structurally
+    different ``tool.execute.after`` plugin that mutates its output argument
+    in place. Both are written under a filename distinct from the search
+    hook's, so the two surfaces install and remove independently.
+    """
+
+    client: ClientName
+    scope: ClientScope
+    target_path: Path
+    action: HookAction
+    module_content: str
+
+
+PostEditHookInstallPlan = (
+    ClaudeCodePostEditHookInstallPlan | CodexPostEditHookInstallPlan | TsPostEditHookInstallPlan
+)
+
+
+def build_post_edit_hook_install_plan(
+    client: ClientName,
+    source: str | Path | None = None,
+    *,
+    scope: ClientScope | None = None,
+    action: HookAction,
+) -> PostEditHookInstallPlan:
+    """Build a post-edit hook plan, refusing clients with no proven event."""
+    if client in POST_EDIT_UNSUPPORTED_CLIENTS:
+        raise ValueError(
+            f"{client} has no supported post-edit event. {POST_EDIT_UNSUPPORTED_CLIENTS[client]}"
+        )
+    repo_root = Path(source if source is not None else ".").expanduser().resolve()
+    selected_scope = _resolve_hook_scope(source, scope)
+    if client == "claude-code":
+        return ClaudeCodePostEditHookInstallPlan(
+            client=client,
+            scope=selected_scope,
+            target_path=_hook_settings_path(repo_root, selected_scope),
+            action=action,
+            hook_entry=_render_post_edit_hook_entry(),
+        )
+    if client == "codex":
+        return CodexPostEditHookInstallPlan(
+            client=client,
+            scope=selected_scope,
+            target_path=_target_path(client, repo_root, selected_scope),
+            action=action,
+            block_content=_render_codex_post_edit_block(),
+        )
+    if client in {"omp", "pi", "opencode"}:
+        return TsPostEditHookInstallPlan(
+            client=client,
+            scope=selected_scope,
+            target_path=_ts_post_edit_module_path(client, repo_root, selected_scope),
+            action=action,
+            module_content=_render_ts_post_edit_module(client),
+        )
+    raise ValueError(
+        f"post-edit hooks are supported for claude-code, codex, omp, pi, and opencode; got {client}"
+    )
+
+
+def write_post_edit_hook_install_plan(plan: PostEditHookInstallPlan) -> Path:
+    """Apply a post-edit hook plan, leaving unrelated configuration intact."""
+    if isinstance(plan, TsPostEditHookInstallPlan):
+        target = plan.target_path
+        if plan.action == "remove":
+            if target.exists():
+                target.unlink()
+            return target
+        existing = target.read_text(encoding="utf-8") if target.exists() else None
+        if existing != plan.module_content:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(plan.module_content, encoding="utf-8")
+        return target
+    if isinstance(plan, CodexPostEditHookInstallPlan):
+        target = plan.target_path
+        existing_toml = target.read_text(encoding="utf-8") if target.exists() else ""
+        updated_toml = _apply_codex_post_edit_block(existing_toml, plan)
+        if updated_toml == existing_toml:
+            return target
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(updated_toml, encoding="utf-8")
+        return target
+    target = plan.target_path
+    existing_json = _read_json_object(target) if target.exists() else {}
+    updated_json, changed = _apply_post_edit_hook_action(existing_json, plan)
+    if not changed:
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(updated_json, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+def render_post_edit_hook_install_preview(plan: PostEditHookInstallPlan) -> str:
+    """Render a no-write preview of exactly what the plan would change."""
+    action_label = "Install" if plan.action == "install" else "Remove"
+    header = [
+        f"Client: {plan.client}",
+        f"Scope: {plan.scope}",
+        f"Target: {plan.target_path}",
+    ]
+    if isinstance(plan, TsPostEditHookInstallPlan):
+        event = (
+            "tool.execute.after plugin" if plan.client == "opencode" else "tool_result hook module"
+        )
+        header.append(f"Action: {action_label} post-edit {event}")
+        existing = (
+            plan.target_path.read_text(encoding="utf-8") if plan.target_path.exists() else None
+        )
+        if plan.action == "install" and existing == plan.module_content:
+            header.append("No change: module already installed (idempotent no-op).")
+        elif plan.action == "remove" and existing is None:
+            header.append("No change: no archex post-edit module is installed.")
+        else:
+            header.append("Dry run. Re-run without --dry-run to write this module.")
+        body = "" if plan.action == "remove" else plan.module_content
+        return "\n".join([*header, "", body]).rstrip("\n") + "\n"
+    if isinstance(plan, CodexPostEditHookInstallPlan):
+        header.append(
+            f"Action: {action_label} PostToolUse hook block (matcher: {CODEX_POST_EDIT_MATCHER!r})"
+        )
+        existing_toml = (
+            plan.target_path.read_text(encoding="utf-8") if plan.target_path.exists() else ""
+        )
+        updated_toml = _apply_codex_post_edit_block(existing_toml, plan)
+        if updated_toml == existing_toml:
+            header.append(
+                "No change: hook already in the requested state (idempotent no-op)."
+                if plan.action == "install"
+                else "No change: no archex post-edit hook block is installed."
+            )
+        else:
+            header.append("Dry run. Re-run without --dry-run to write this config.")
+        return "\n".join([*header, "", updated_toml]).rstrip("\n") + "\n"
+    header.append(f"Action: {action_label} PostToolUse hook (matcher: {POST_EDIT_MATCHER!r})")
+    existing_json = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
+    updated_json, changed = _apply_post_edit_hook_action(existing_json, plan)
+    if not changed:
+        header.append(
+            "No change: hook already in the requested state (idempotent no-op)."
+            if plan.action == "install"
+            else "No change: no archex post-edit hook is installed."
+        )
+    else:
+        header.append("Dry run. Re-run without --dry-run to write this config.")
+    return "\n".join([*header, "", json.dumps(updated_json, indent=2)]) + "\n"
+
+
+def _apply_post_edit_hook_action(
+    payload: dict[str, object], plan: ClaudeCodePostEditHookInstallPlan
+) -> tuple[dict[str, object], bool]:
+    return _apply_claude_event_hook_action(
+        payload,
+        event="PostToolUse",
+        marker=_POST_EDIT_ARGS_MARKER,
+        matcher=POST_EDIT_MATCHER,
+        hook_entry=plan.hook_entry,
+        action=plan.action,
+    )
+
+
+def _render_post_edit_hook_entry() -> dict[str, object]:
+    return {
+        "type": "command",
+        "command": sys.executable,
+        "args": ["-m", _POST_EDIT_ARGS_MARKER],
+    }
+
+
+def _render_codex_post_edit_block() -> str:
+    command = f"{sys.executable} -m {_CODEX_POST_EDIT_ARGS_MARKER}"
+    return (
+        "\n".join(
+            [
+                _CODEX_POST_EDIT_BLOCK_START,
+                "[[hooks.PostToolUse]]",
+                f'matcher = "{CODEX_POST_EDIT_MATCHER}"',
+                "",
+                "[[hooks.PostToolUse.hooks]]",
+                'type = "command"',
+                f'command = "{command}"',
+                "timeout = 15",
+                _CODEX_POST_EDIT_BLOCK_END,
+            ]
+        )
+        + "\n"
+    )
+
+
+def _strip_codex_post_edit_block(existing: str) -> str:
+    start = existing.find(_CODEX_POST_EDIT_BLOCK_START)
+    if start == -1:
+        return existing
+    end = existing.find(_CODEX_POST_EDIT_BLOCK_END, start)
+    if end == -1:
+        return existing  # malformed marker pair -- leave untouched rather than guess
+    end += len(_CODEX_POST_EDIT_BLOCK_END)
+    if end < len(existing) and existing[end] == "\n":
+        end += 1
+    before, after = existing[:start], existing[end:]
+    if before.endswith("\n\n"):
+        before = before[:-1]
+    return before + after
+
+
+def _apply_codex_post_edit_block(existing: str, plan: CodexPostEditHookInstallPlan) -> str:
+    without_block = _strip_codex_post_edit_block(existing)
+    if plan.action == "remove":
+        return without_block
+    if not without_block.strip():
+        return plan.block_content
+    return without_block.rstrip("\n") + "\n\n" + plan.block_content
+
+
+def _ts_post_edit_module_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:
+    if client == "omp":
+        return (
+            repo_root / ".omp" / "extensions" / _TS_POST_EDIT_MODULE_FILENAME
+            if scope == "project"
+            else Path.home() / ".omp" / "agent" / "extensions" / _TS_POST_EDIT_MODULE_FILENAME
+        )
+    if client == "pi":
+        return (
+            repo_root / ".pi" / "extensions" / _TS_POST_EDIT_MODULE_FILENAME
+            if scope == "project"
+            else Path.home() / ".pi" / "agent" / "extensions" / _TS_POST_EDIT_MODULE_FILENAME
+        )
+    if client == "opencode":
+        return (
+            repo_root / ".opencode" / "plugins" / _TS_POST_EDIT_MODULE_FILENAME
+            if scope == "project"
+            else Path.home() / ".config" / "opencode" / "plugins" / _TS_POST_EDIT_MODULE_FILENAME
+        )
+    raise ValueError(f"unsupported TS post-edit client: {client}")
+
+
+def _render_ts_post_edit_module(client: ClientName) -> str:
+    template = (
+        _OPENCODE_POST_EDIT_MODULE_TEMPLATE
+        if client == "opencode"
+        else _TS_POST_EDIT_MODULE_TEMPLATE
+    )
+    return template.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(sys.executable)).replace(
+        "__ARCHEX_CLIENT__", client
+    )
+
+
+_TS_POST_EDIT_MODULE_TEMPLATE = r"""/**
+ * archex shared post-edit `tool_result` module (R21 — oh-my-pi / Pi).
+ *
+ * Installed by `archex install-client omp --post-edit-hooks` /
+ * `archex install-client pi --post-edit-hooks` (opt-in; never installed by
+ * default). A separate file from the search hook's `archex-hook.ts`, so the
+ * two surfaces install and remove independently.
+ *
+ * Upstream contract (verified against each host's own source, not docs):
+ * - Both hosts expose `pi.on("tool_result", handler)`, fired after a tool
+ *   executes, with `{ toolName, input, content, details, isError }` and a
+ *   partial-patch return. `isError` is the explicit success signal — this
+ *   module records an edit only when it is not `true`.
+ * - `tool_result` fires after execution and cannot block or fail the edit;
+ *   the blocking event is the separate pre-execution `tool_call`.
+ * - Both hosts' `edit` and `write` schemas carry the target in `path`
+ *   (oh-my-pi `dist/types/edit/schemas.d.ts` and `dist/types/tools/write.d.ts`;
+ *   Pi `dist/core/tools/edit.d.ts` and `.../write.d.ts`).
+ *
+ * Every path resolves without throwing. A spawn failure, a timeout, a stale
+ * index, or a malformed response all degrade to returning `undefined` (no
+ * content patch), logged to the same diagnostics file the Python hooks use.
+ */
+import { spawn } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+// --- Baked in at install time (`archex install-client <client> --post-edit-hooks`) ---
+
+/** Python interpreter active when the installer ran, so this always runs in
+ * the environment archex was installed into. */
+const ARCHEX_PYTHON_COMMAND = __ARCHEX_PYTHON_COMMAND__;
+const ARCHEX_PYTHON_ARGS = ["-m", "archex.integrations.post_edit_hook"];
+
+/** Wall-clock kill timer for the subprocess. Deliberately larger than the
+ * search hook's 500ms — a post-edit cycle reparses changed files — and
+ * larger than the Python side's own DEFAULT_POST_EDIT_TIMEOUT_SECONDS so
+ * the Python deadline, which logs a diagnostic, normally fires first. */
+const ARCHEX_POST_EDIT_TIMEOUT_MS = 15000;
+
+const ARCHEX_DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG";
+
+/** Native edit tool name -> the Claude Code tool name the Python subprocess
+ * expects. Verified against each host's own tool definitions, not docs. */
+const ARCHEX_EDIT_TOOLS: Readonly<Record<string, "Edit" | "Write">> = {
+  edit: "Edit",
+  write: "Write",
+};
+
+/** Input fields that can hold the edited path, most-specific first. Both
+ * oh-my-pi's and Pi's `edit`/`write` schemas name it `path`; OpenCode's name
+ * it `filePath`. The others are accepted defensively — the Python side
+ * rejects anything that is not a real path inside the repository, so a wrong
+ * guess degrades to no output rather than a wrong claim. */
+const ARCHEX_PATH_FIELDS = ["filePath", "path", "file_path", "notebook_path"] as const;
+
+/** Declared to the Python subprocess as `archex_client` so the emitted
+ * receipt names the host that actually ran the edit. The subprocess
+ * allowlists this value; an unknown one falls back to `claude-code`. */
+const ARCHEX_CLIENT = "__ARCHEX_CLIENT__";
+
+function firstPath(args: Record<string, unknown> | undefined): string | null {
+  if (!args) return null;
+  for (const field of ARCHEX_PATH_FIELDS) {
+    const value = args[field];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
+}
+
+// --- Diagnostics (parity with hook.py's `log_diagnostic`) ---
+
+function diagnosticsLogPath(): string {
+  const override = process.env[ARCHEX_DIAGNOSTICS_LOG_ENV_VAR];
+  if (override && override.trim().length > 0) return override;
+  return join(homedir(), ".archex", "hook-diagnostics.log");
+}
+
+function logDiagnostic(kind: string, detail: string, cwd?: string): void {
+  try {
+    const path = diagnosticsLogPath();
+    mkdirSync(dirname(path), { recursive: true });
+    const entry: Record<string, string> = {
+      timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+      kind,
+      detail,
+    };
+    if (cwd) entry.cwd = cwd;
+    appendFileSync(path, `${JSON.stringify(entry)}\n`, "utf-8");
+  } catch {
+    // Diagnostics logging must never raise into the host's edit path.
+  }
+}
+
+// --- Subprocess call: `python -m archex.integrations.post_edit_hook` ---
+
+function runArchexPostEditSubprocess(
+  payload: Record<string, unknown>,
+  cwd: string,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(ARCHEX_PYTHON_COMMAND, ARCHEX_PYTHON_ARGS, {
+        cwd,
+        stdio: ["pipe", "pipe", "ignore"],
+      });
+    } catch (err) {
+      logDiagnostic("ts_post_edit_spawn_error", String(err), cwd);
+      finish(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      logDiagnostic(
+        "ts_post_edit_timeout",
+        `post-edit cycle exceeded ${ARCHEX_POST_EDIT_TIMEOUT_MS}ms`,
+        cwd,
+      );
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Already exited.
+      }
+      finish(null);
+    }, ARCHEX_POST_EDIT_TIMEOUT_MS);
+
+    let stdout = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf-8");
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      logDiagnostic("ts_post_edit_spawn_error", String(err), cwd);
+      finish(null);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      finish(stdout.length > 0 ? stdout : null);
+    });
+
+    try {
+      child.stdin?.write(JSON.stringify(payload));
+      child.stdin?.end();
+    } catch (err) {
+      clearTimeout(timer);
+      logDiagnostic("ts_post_edit_stdin_error", String(err), cwd);
+      finish(null);
+    }
+  });
+}
+
+function extractAdditionalContext(rawStdout: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(rawStdout);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const hookSpecificOutput = (parsed as Record<string, unknown>).hookSpecificOutput;
+    if (typeof hookSpecificOutput !== "object" || hookSpecificOutput === null) return null;
+    const context = (hookSpecificOutput as Record<string, unknown>).additionalContext;
+    return typeof context === "string" && context.length > 0 ? context : null;
+  } catch {
+    return null;
+  }
+}
+
+// --- Minimal structural types for the `tool_result` contract ---
+//
+// Declared locally (never imported from either host package) so this module
+// has zero import-resolution dependency on which host loaded it.
+
+interface ToolResultEventLike {
+  toolName: string;
+  input?: Record<string, unknown>;
+  content?: unknown[];
+  details?: unknown;
+  isError?: boolean;
+}
+
+interface ToolResultPatch {
+  content?: unknown[];
+  details?: unknown;
+  isError?: boolean;
+}
+
+type ToolResultHandler = (
+  event: ToolResultEventLike,
+  ctx: unknown,
+) => Promise<ToolResultPatch | undefined>;
+
+interface HookHost {
+  on(event: "tool_result", handler: ToolResultHandler): unknown;
+}
+
+// --- Extension entry point ---
+
+export default function archexPostEditHook(pi: HookHost): void {
+  pi.on("tool_result", async (event) => {
+    try {
+      const claudeToolName = ARCHEX_EDIT_TOOLS[event.toolName];
+      if (!claudeToolName) return undefined; // never touches read/grep/glob/bash
+      if (event.isError === true) return undefined; // only successful edits count
+
+      const filePath = firstPath(event.input);
+      if (filePath === null) return undefined;
+
+      const cwd = process.cwd();
+      const rawStdout = await runArchexPostEditSubprocess(
+        {
+          tool_name: claudeToolName,
+          tool_input: { file_path: filePath },
+          cwd,
+          archex_client: ARCHEX_CLIENT,
+        },
+        cwd,
+      );
+      if (rawStdout === null) return undefined;
+
+      const context = extractAdditionalContext(rawStdout);
+      if (context === null) return undefined;
+
+      const existingContent = Array.isArray(event.content) ? event.content : [];
+      return {
+        content: [...existingContent, { type: "text", text: `\n\n${context}` }],
+      };
+    } catch (err) {
+      logDiagnostic("ts_post_edit_internal_error", String(err));
+      return undefined;
+    }
+  });
+}
+"""
+
+
+_OPENCODE_POST_EDIT_MODULE_TEMPLATE = r"""/**
+ * archex OpenCode post-edit `tool.execute.after` plugin (R21).
+ *
+ * Installed by `archex install-client opencode --post-edit-hooks` (opt-in).
+ * A separate plugin file from the search hook's `archex-hook.ts`, so the two
+ * surfaces install and remove independently. OpenCode auto-loads plugin
+ * files from `.opencode/plugins/` and `~/.config/opencode/plugins/`, so no
+ * `opencode.json` entry is written or needed.
+ *
+ * Upstream contract (verified against `packages/plugin/src/index.ts`):
+ * - `"tool.execute.after"` receives `input { tool, sessionID, callID, args }`
+ *   and a mutable `output { title, output, metadata }`. It runs after the
+ *   tool executed and has no documented way to block or fail it.
+ * - The hook exposes no error flag, so a failed edit is not distinguishable
+ *   here; the Python side revalidates every recorded path against the real
+ *   working tree before anything is emitted, so a phantom path simply
+ *   produces no output.
+ * - Text reaches the agent only by appending to `output.output`; there is no
+ *   additional-context field on this event.
+ * - `packages/opencode/src/tool/edit.ts` and `.../write.ts` define the
+ *   built-in `edit` and `write` tools, both parameterised by `filePath`.
+ *
+ * Every path resolves without throwing and leaves `output` untouched when
+ * archex has nothing fresh to add.
+ */
+import { spawn } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+// --- Baked in at install time (`archex install-client <client> --post-edit-hooks`) ---
+
+/** Python interpreter active when the installer ran, so this always runs in
+ * the environment archex was installed into. */
+const ARCHEX_PYTHON_COMMAND = __ARCHEX_PYTHON_COMMAND__;
+const ARCHEX_PYTHON_ARGS = ["-m", "archex.integrations.post_edit_hook"];
+
+/** Wall-clock kill timer for the subprocess. Deliberately larger than the
+ * search hook's 500ms — a post-edit cycle reparses changed files — and
+ * larger than the Python side's own DEFAULT_POST_EDIT_TIMEOUT_SECONDS so
+ * the Python deadline, which logs a diagnostic, normally fires first. */
+const ARCHEX_POST_EDIT_TIMEOUT_MS = 15000;
+
+const ARCHEX_DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG";
+
+/** Native edit tool name -> the Claude Code tool name the Python subprocess
+ * expects. Verified against each host's own tool definitions, not docs. */
+const ARCHEX_EDIT_TOOLS: Readonly<Record<string, "Edit" | "Write">> = {
+  edit: "Edit",
+  write: "Write",
+};
+
+/** Input fields that can hold the edited path, most-specific first. Both
+ * oh-my-pi's and Pi's `edit`/`write` schemas name it `path`; OpenCode's name
+ * it `filePath`. The others are accepted defensively — the Python side
+ * rejects anything that is not a real path inside the repository, so a wrong
+ * guess degrades to no output rather than a wrong claim. */
+const ARCHEX_PATH_FIELDS = ["filePath", "path", "file_path", "notebook_path"] as const;
+
+/** Declared to the Python subprocess as `archex_client` so the emitted
+ * receipt names the host that actually ran the edit. The subprocess
+ * allowlists this value; an unknown one falls back to `claude-code`. */
+const ARCHEX_CLIENT = "__ARCHEX_CLIENT__";
+
+function firstPath(args: Record<string, unknown> | undefined): string | null {
+  if (!args) return null;
+  for (const field of ARCHEX_PATH_FIELDS) {
+    const value = args[field];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
+}
+
+// --- Diagnostics (parity with hook.py's `log_diagnostic`) ---
+
+function diagnosticsLogPath(): string {
+  const override = process.env[ARCHEX_DIAGNOSTICS_LOG_ENV_VAR];
+  if (override && override.trim().length > 0) return override;
+  return join(homedir(), ".archex", "hook-diagnostics.log");
+}
+
+function logDiagnostic(kind: string, detail: string, cwd?: string): void {
+  try {
+    const path = diagnosticsLogPath();
+    mkdirSync(dirname(path), { recursive: true });
+    const entry: Record<string, string> = {
+      timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+      kind,
+      detail,
+    };
+    if (cwd) entry.cwd = cwd;
+    appendFileSync(path, `${JSON.stringify(entry)}\n`, "utf-8");
+  } catch {
+    // Diagnostics logging must never raise into the host's edit path.
+  }
+}
+
+// --- Subprocess call: `python -m archex.integrations.post_edit_hook` ---
+
+function runArchexPostEditSubprocess(
+  payload: Record<string, unknown>,
+  cwd: string,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(ARCHEX_PYTHON_COMMAND, ARCHEX_PYTHON_ARGS, {
+        cwd,
+        stdio: ["pipe", "pipe", "ignore"],
+      });
+    } catch (err) {
+      logDiagnostic("ts_post_edit_spawn_error", String(err), cwd);
+      finish(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      logDiagnostic(
+        "ts_post_edit_timeout",
+        `post-edit cycle exceeded ${ARCHEX_POST_EDIT_TIMEOUT_MS}ms`,
+        cwd,
+      );
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Already exited.
+      }
+      finish(null);
+    }, ARCHEX_POST_EDIT_TIMEOUT_MS);
+
+    let stdout = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf-8");
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      logDiagnostic("ts_post_edit_spawn_error", String(err), cwd);
+      finish(null);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      finish(stdout.length > 0 ? stdout : null);
+    });
+
+    try {
+      child.stdin?.write(JSON.stringify(payload));
+      child.stdin?.end();
+    } catch (err) {
+      clearTimeout(timer);
+      logDiagnostic("ts_post_edit_stdin_error", String(err), cwd);
+      finish(null);
+    }
+  });
+}
+
+function extractAdditionalContext(rawStdout: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(rawStdout);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const hookSpecificOutput = (parsed as Record<string, unknown>).hookSpecificOutput;
+    if (typeof hookSpecificOutput !== "object" || hookSpecificOutput === null) return null;
+    const context = (hookSpecificOutput as Record<string, unknown>).additionalContext;
+    return typeof context === "string" && context.length > 0 ? context : null;
+  } catch {
+    return null;
+  }
+}
+
+// --- Minimal structural types for the plugin contract ---
+
+interface ToolExecuteAfterInput {
+  tool: string;
+  sessionID?: string;
+  callID?: string;
+  args?: Record<string, unknown>;
+}
+
+interface ToolExecuteAfterOutput {
+  title?: string;
+  output?: string;
+  metadata?: unknown;
+}
+
+type Plugin = (context: { directory?: string }) => Promise<{
+  "tool.execute.after"?: (
+    input: ToolExecuteAfterInput,
+    output: ToolExecuteAfterOutput,
+  ) => Promise<void>;
+}>;
+
+// --- Plugin entry point ---
+
+export const ArchexPostEditPlugin: Plugin = async ({ directory }) => {
+  return {
+    "tool.execute.after": async (input, output) => {
+      try {
+        const claudeToolName = ARCHEX_EDIT_TOOLS[input.tool];
+        if (!claudeToolName) return; // never touches read/grep/glob/bash
+
+        const filePath = firstPath(input.args);
+        if (filePath === null) return;
+
+        const cwd = directory ?? process.cwd();
+        const rawStdout = await runArchexPostEditSubprocess(
+          {
+            tool_name: claudeToolName,
+            tool_input: { file_path: filePath },
+            cwd,
+            archex_client: ARCHEX_CLIENT,
+          },
+          cwd,
+        );
+        if (rawStdout === null) return;
+
+        const context = extractAdditionalContext(rawStdout);
+        if (context === null) return;
+
+        output.output = `${output.output ?? ""}\n\n${context}`;
+      } catch (err) {
+        logDiagnostic("ts_post_edit_internal_error", String(err));
+      }
+    },
+  };
+};
+
+export default ArchexPostEditPlugin;
+"""

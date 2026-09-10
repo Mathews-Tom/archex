@@ -14,13 +14,16 @@ from archex.client_setup import (
     append_agent_guidance,
     build_client_install_plan,
     build_hook_install_plan,
+    build_post_edit_hook_install_plan,
     build_session_primer_install_plan,
     render_agent_guidance_preview,
     render_client_install_preview,
     render_hook_install_preview,
+    render_post_edit_hook_install_preview,
     render_session_primer_install_preview,
     write_client_install_plan,
     write_hook_install_plan,
+    write_post_edit_hook_install_plan,
     write_session_primer_install_plan,
 )
 
@@ -100,6 +103,25 @@ def _is_interactive() -> bool:
     help="Remove the Archex Claude Code SessionStart primer hook.",
 )
 @click.option(
+    "--post-edit-hooks",
+    is_flag=True,
+    default=False,
+    help=(
+        "Install the opt-in post-edit impact hook (R21). After a successful "
+        "edit it records the changed paths, synchronizes the index through "
+        "the existing delta/full path, and surfaces affected files and tests "
+        "only from a fresh generation. Supported on claude-code, codex, omp, "
+        "pi, and opencode; cursor has no post-edit event that can both name "
+        "the edited file and return context, so it is refused explicitly."
+    ),
+)
+@click.option(
+    "--remove-post-edit-hooks",
+    is_flag=True,
+    default=False,
+    help="Remove the archex post-edit impact hook previously installed by --post-edit-hooks.",
+)
+@click.option(
     "--allow-missing-mcp",
     is_flag=True,
     default=False,
@@ -130,7 +152,7 @@ def _is_interactive() -> bool:
         "cost but never waits to see a tool."
     ),
 )
-def install_client_cmd(
+def install_client_cmd(  # noqa: PLR0913 - one flag per installable client surface
     client_or_source: str | None,
     source_opt: str | None,
     scope: str | None,
@@ -140,6 +162,8 @@ def install_client_cmd(
     remove_hooks: bool,
     session_primer: bool,
     remove_session_primer: bool,
+    post_edit_hooks: bool,
+    remove_post_edit_hooks: bool,
     allow_missing_mcp: bool,
     all_detected: bool,
     yes: bool,
@@ -153,9 +177,21 @@ def install_client_cmd(
         raise click.ClickException(
             "--session-primer and --remove-session-primer are mutually exclusive"
         )
-    if (hooks or remove_hooks) and (session_primer or remove_session_primer):
+    if post_edit_hooks and remove_post_edit_hooks:
         raise click.ClickException(
-            "Search hooks and session-primer hooks must be installed or removed separately"
+            "--post-edit-hooks and --remove-post-edit-hooks are mutually exclusive"
+        )
+    selected_surfaces = sum(
+        (
+            hooks or remove_hooks,
+            session_primer or remove_session_primer,
+            post_edit_hooks or remove_post_edit_hooks,
+        )
+    )
+    if selected_surfaces > 1:
+        raise click.ClickException(
+            "Search hooks, session-primer hooks, and post-edit hooks must be "
+            "installed or removed separately"
         )
     valid_clients = ["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
 
@@ -194,6 +230,18 @@ def install_client_cmd(
             scope=cast("ClientScope | None", scope),
             dry_run=dry_run,
             action="install" if hooks else "remove",
+        )
+        return
+
+    if post_edit_hooks or remove_post_edit_hooks:
+        if client is None:
+            raise click.ClickException("Must specify a client when using --post-edit-hooks")
+        _run_post_edit_hook_action(
+            cast("ClientName", client),
+            source,
+            scope=cast("ClientScope | None", scope),
+            dry_run=dry_run,
+            action="install" if post_edit_hooks else "remove",
         )
         return
     import importlib.util
@@ -389,3 +437,25 @@ def _run_session_primer_action(
         click.echo(f"Installed archex session-primer hook for claude-code: {target}")
     else:
         click.echo(f"Removed archex session-primer hook for claude-code (if present): {target}")
+
+
+def _run_post_edit_hook_action(
+    client: ClientName,
+    source: str | None,
+    *,
+    scope: ClientScope | None,
+    dry_run: bool,
+    action: HookAction,
+) -> None:
+    try:
+        plan = build_post_edit_hook_install_plan(client, source, scope=scope, action=action)
+        if dry_run:
+            click.echo(render_post_edit_hook_install_preview(plan), nl=False)
+            return
+        target = write_post_edit_hook_install_plan(plan)
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if action == "install":
+        click.echo(f"Installed archex post-edit hook for {client}: {target}")
+    else:
+        click.echo(f"Removed archex post-edit hook for {client} (if present): {target}")
