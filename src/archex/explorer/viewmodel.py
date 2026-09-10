@@ -703,3 +703,63 @@ def build_node_search_view(
         truncated=result.truncated,
         omitted=result.omitted,
     )
+
+
+MAX_NODE_INDEX_ROWS = 1000
+
+
+def build_node_index_view(
+    data: ExplorerData,
+    *,
+    limit: int = MAX_NODE_INDEX_ROWS,
+    graph_query: GraphQuery | None = None,
+) -> NodeSearchView:
+    """Every graph node as a bounded, degree-ranked `NodeSearchView`.
+
+    The static export has no server to answer an incremental search, so it
+    ships one index document instead.
+
+    Degree and identity come from `GraphQuery`, not from a second count over
+    the raw edge list. That matters because the two disagree on real graphs:
+    `GraphQuery` skips an edge unless *both* endpoints exist as nodes, and an
+    import to an unindexed or external file legitimately produces an edge whose
+    target has no node. Counting endpoints directly would inflate that source
+    node's degree, so the index page's degree column and its highest-degree
+    ordering would contradict the degree the same node's neighborhood page
+    shows. One source of truth, so the two agree by construction.
+    """
+    capped = max(limit, 0)
+    if data.graph is None:
+        return NodeSearchView(
+            available=False,
+            query=None,
+            match_kind=None,
+            limit=capped,
+            matches=[],
+            truncated=False,
+            omitted=0,
+        )
+
+    engine = graph_query if graph_query is not None else GraphQuery(data.graph)
+    summaries = engine.node_summaries()
+    ranked = sorted(summaries, key=lambda node: (-node.degree, node.id))
+    selected = ranked[:capped]
+    return NodeSearchView(
+        available=True,
+        query=None,
+        match_kind=None,
+        limit=capped,
+        matches=[
+            NodeSearchRow(
+                id=node.id,
+                type=node.type,
+                label=node.label,
+                path=node.path,
+                module=node.module,
+                degree=node.degree,
+            )
+            for node in selected
+        ],
+        truncated=len(ranked) > len(selected),
+        omitted=len(ranked) - len(selected),
+    )
