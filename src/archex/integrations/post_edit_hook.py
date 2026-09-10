@@ -41,6 +41,7 @@ from archex.integrations.hook import log_diagnostic
 from archex.post_edit import PostEditOutcome, build_event, record_edit
 from archex.post_edit.impact import synchronize_and_report_with_timeout
 from archex.project import ProjectState
+from archex.status_snapshot import refresh_edit_overlay
 
 POST_EDIT_EVENT_NAME = "PostToolUse"
 
@@ -225,8 +226,14 @@ def run_post_edit_cycle(
     if not event.paths:
         return None
     record_edit(project.repo_root, event)
+    # Publish the pending state before the refresh runs: an edit changes what
+    # the status surface should say without changing what the index contains,
+    # and the refresh below can time out or fail. Both calls are index-free
+    # overlays over the last index measurement.
+    refresh_edit_overlay(project.repo_root)
 
     feedback = synchronize_and_report_with_timeout(project.repo_root, client=client)
+    refresh_edit_overlay(project.repo_root)
     if feedback.outcome is not PostEditOutcome.EMITTED:
         log_diagnostic(
             "post_edit_withheld",

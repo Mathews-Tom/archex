@@ -66,6 +66,11 @@ class ProjectState:
         return self.project_dir / "post-edit-state.json"
 
     @property
+    def status_snapshot_path(self) -> Path:
+        """Repo-local bounded cached status snapshot document (R23)."""
+        return self.project_dir / "status-snapshot.json"
+
+    @property
     def vector_dir(self) -> Path:
         return self.project_dir / "vectors"
 
@@ -206,6 +211,10 @@ def _generated_state_paths(state: ProjectState) -> list[Path]:
         state.index_path.with_name(f"{state.index_path.name}-shm"),
         state.project_dir / "index.meta",
         state.vector_dir,
+        # A cached status snapshot describes an index. Deleting the index
+        # without it would leave a surface reporting `fresh` for a store that
+        # no longer exists; removing it makes the surface report `missing`.
+        state.status_snapshot_path,
     ]
     if state.project_dir.exists():
         paths.extend(state.project_dir.glob("*.db"))

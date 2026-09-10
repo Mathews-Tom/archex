@@ -13,16 +13,15 @@ diagnostics line; a lock that cannot be acquired inside the deadline abandons
 the write rather than delaying the agent. Callers therefore never need a
 try/except around these functions to keep a hook non-blocking.
 
-POSIX only: locking uses ``fcntl.flock``. archex publishes no Windows wheel
-classifier and its CI matrix is Linux plus macOS.
+POSIX only: locking uses ``fcntl.flock`` through :mod:`archex.state_file`,
+which owns the lock and atomic-publication primitives this module and R23's
+status snapshot both use. archex publishes no Windows wheel classifier and
+its CI matrix is Linux plus macOS.
 """
 
 from __future__ import annotations
 
-import fcntl
 import json
-import os
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -40,6 +39,12 @@ from archex.post_edit.models import (
     PostEditStatus,
 )
 from archex.project import ProjectState
+from archex.state_file import (
+    ExclusiveLock,
+    StateFileDiagnostics,
+    ensure_parent_dir,
+    write_text_atomic,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -52,7 +57,13 @@ LOCK_FILENAME = "post-edit-state.lock"
 #: this means a stuck peer, and delaying the agent is worse than skipping one
 #: state update the working-tree delta would re-derive anyway.
 LOCK_TIMEOUT_SECONDS = 2.0
-_LOCK_POLL_SECONDS = 0.01
+
+#: Diagnostic kind names for this document's lock and write failures.
+_DIAGNOSTICS = StateFileDiagnostics(
+    lock_error="post_edit_lock_error",
+    lock_timeout="post_edit_lock_timeout",
+    write_error="post_edit_state_write_error",
+)
 
 
 def post_edit_state_path(repo_root: Path) -> Path:
@@ -281,10 +292,7 @@ def _mutate(
     repo_root: Path, transform: Callable[[PostEditState], PostEditState]
 ) -> PostEditState | None:
     path = post_edit_state_path(repo_root)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        log_diagnostic("post_edit_state_write_error", detail=repr(exc), cwd=str(repo_root))
+    if not ensure_parent_dir(path, cwd=repo_root, diagnostics=_DIAGNOSTICS):
         return None
 
     with _state_lock(repo_root) as acquired:
@@ -298,73 +306,13 @@ def _mutate(
 
 def _write_atomic(path: Path, state: PostEditState, repo_root: Path) -> bool:
     payload = json.dumps(state.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
-    temp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    try:
-        temp_path.write_text(payload, encoding="utf-8")
-        temp_path.replace(path)
-    except OSError as exc:
-        log_diagnostic("post_edit_state_write_error", detail=repr(exc), cwd=str(repo_root))
-        temp_path.unlink(missing_ok=True)
-        return False
-    return True
+    return write_text_atomic(path, payload, cwd=repo_root, diagnostics=_DIAGNOSTICS)
 
 
-class _StateLock:
-    """Context manager yielding whether the exclusive lock was acquired."""
-
-    def __init__(self, repo_root: Path, timeout: float) -> None:
-        self._repo_root = repo_root
-        self._timeout = timeout
-        self._fd: int | None = None
-
-    def __enter__(self) -> bool:
-        lock_path = _lock_path(self._repo_root)
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-        except OSError as exc:
-            log_diagnostic("post_edit_lock_error", detail=repr(exc), cwd=str(self._repo_root))
-            return False
-        deadline = time.monotonic() + self._timeout
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                if time.monotonic() >= deadline:
-                    _close_quietly(fd, self._repo_root)
-                    log_diagnostic(
-                        "post_edit_lock_timeout",
-                        detail=f"waited {self._timeout}s for {lock_path}",
-                        cwd=str(self._repo_root),
-                    )
-                    return False
-                time.sleep(_LOCK_POLL_SECONDS)
-                continue
-            self._fd = fd
-            return True
-
-    def __exit__(self, *_exc: object) -> None:
-        """Release the lock without ever raising into the caller's edit path.
-
-        Every syscall in this module is guarded; acquisition and release are
-        the two places that would otherwise let an ``OSError`` (a closed or
-        reused descriptor) escape the ``with`` block that owns it.
-        """
-        fd, self._fd = self._fd, None
-        if fd is None:
-            return
-        try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        except OSError as exc:
-            log_diagnostic("post_edit_lock_error", detail=repr(exc), cwd=str(self._repo_root))
-        _close_quietly(fd, self._repo_root)
-
-
-def _close_quietly(fd: int, repo_root: Path) -> None:
-    try:
-        os.close(fd)
-    except OSError as exc:
-        log_diagnostic("post_edit_lock_error", detail=repr(exc), cwd=str(repo_root))
-
-
-def _state_lock(repo_root: Path, timeout: float | None = None) -> _StateLock:
-    return _StateLock(repo_root, LOCK_TIMEOUT_SECONDS if timeout is None else timeout)
+def _state_lock(repo_root: Path, timeout: float | None = None) -> ExclusiveLock:
+    return ExclusiveLock(
+        _lock_path(repo_root),
+        timeout=LOCK_TIMEOUT_SECONDS if timeout is None else timeout,
+        cwd=repo_root,
+        diagnostics=_DIAGNOSTICS,
+    )

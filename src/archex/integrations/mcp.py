@@ -2706,6 +2706,22 @@ def _ignored_watch_path(path: str) -> bool:
     return any(part in {".git", ".archex", "__pycache__", ".pytest_cache"} for part in parts)
 
 
+def _record_watch_observation(repo_path: Path) -> None:
+    """Stamp a watch-driven refresh into the cached status snapshot (R23).
+
+    The stamp is what lets a status surface say `watch active` from evidence
+    rather than assertion. It decays: an idle watcher publishes nothing
+    because nothing changed, so `unobserved` means "no refresh seen
+    recently", never "no watcher is running".
+    """
+    from archex.status_snapshot import publish_status_watch_observation
+
+    try:
+        publish_status_watch_observation(repo_path)
+    except Exception:  # noqa: BLE001 - watch refresh must survive a status write
+        logger.debug("could not stamp watch observation into status snapshot", exc_info=True)
+
+
 def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
     try:
         from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -2753,6 +2769,7 @@ def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
                     logger.info("MCP watch refreshed %s via %s", repo_path, timing.strategy)
                 finally:
                     store.close()
+                _record_watch_observation(repo_path)
             finally:
                 with self._lock:
                     self._refreshing = False
