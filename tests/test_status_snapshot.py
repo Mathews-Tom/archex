@@ -471,6 +471,30 @@ def test_worst_case_document_stays_inside_the_declared_size_bound(tmp_path: Path
     assert len(document["generation_id"]) == 64
 
 
+def test_published_document_puts_every_scalar_on_its_own_line(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _publish(repo)
+
+    lines = status_snapshot_path(repo).read_text(encoding="utf-8").splitlines()
+
+    # The POSIX `sh` status-line renderer has no JSON parser: it reads this
+    # document with shell builtins, one `  "key": value` line at a time. That
+    # layout is therefore part of the versioned contract, and changing it
+    # silently would break every non-Python renderer.
+    assert lines[0] == "{"
+    assert lines[-1] == "}"
+    body = lines[1:-1]
+    keys = [line.split('"')[1] for line in body]
+    assert keys == sorted(keys), "keys must be sorted so the layout is deterministic"
+    assert len(keys) == len(set(keys))
+    for line in body:
+        assert line.startswith('  "'), line
+        key, _, value = line.partition('": ')
+        assert value, f"no scalar on its own line: {line}"
+        assert '": ' not in value.rstrip(","), f"more than one field on a line: {line}"
+        assert key.count('"') == 1
+
+
 def test_client_reported_names_are_clipped_rather_than_stored_whole(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _publish(repo)
