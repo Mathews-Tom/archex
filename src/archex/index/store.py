@@ -41,6 +41,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import TracebackType
 
+#: Schema version this build writes into every store's metadata. A store
+#: recording a different value was built by a different schema generation
+#: and cannot be reused without a migration pass.
+CURRENT_SCHEMA_VERSION = "5"
+
 _SEMANTIC_PROVIDER_RECEIPTS_KEY = "semantic_provider_receipts"
 _RUNTIME_PROVIDER_RECEIPTS_KEY = "runtime_provider_receipts"
 _RUNTIME_COVERAGE_EVIDENCE_KEY = "runtime_coverage_evidence"
@@ -1141,7 +1146,7 @@ class IndexStore:
             self._conn.execute("ALTER TABLE file_states ADD COLUMN token_count INTEGER")
 
         # Set schema version and detect stale data needing re-index
-        self.set_metadata("schema_version", "5")
+        self.set_metadata("schema_version", CURRENT_SCHEMA_VERSION)
         cur = self._conn.execute("SELECT COUNT(*) FROM chunks WHERE symbol_id IS NULL")
         null_count = cur.fetchone()[0]
         if null_count > 0:

@@ -64,6 +64,7 @@ from archex.context_facade import (
 )
 from archex.exceptions import ArchexIndexError, DeltaIndexError
 from archex.index.bm25 import BM25Index
+from archex.index.compat import INDEX_CONFIG_METADATA_KEYS, index_config_metadata_mismatch
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
 from archex.languages import UNKNOWN_LANGUAGE_ID
@@ -157,29 +158,8 @@ def _cache_manager_for_source(source: RepoSource, config: Config) -> CacheManage
 
 
 def _index_config_metadata_matches(store: IndexStore, index_config: IndexConfig) -> bool:
-    if store.get_metadata("chunker") != index_config.chunker or store.get_metadata(
-        "chunker_revision"
-    ) != chunker_revision(index_config.chunker):
-        return False
-    stored_quantize = store.get_metadata("quantize_vectors")
-    stored_quantize_enabled = stored_quantize == "True" if stored_quantize is not None else False
-    if stored_quantize_enabled != index_config.quantize_vectors:
-        return False
-    if index_config.quantize_vectors and store.get_metadata("quantize_bits") != str(
-        index_config.quantize_bits
-    ):
-        return False
-    stored_semantic_providers = store.get_metadata("semantic_evidence_providers") or ""
-    if stored_semantic_providers != ",".join(index_config.semantic_evidence_providers):
-        return False
-    stored_runtime_providers = store.get_metadata("runtime_evidence_providers") or ""
-    if stored_runtime_providers != ",".join(index_config.runtime_evidence_providers):
-        return False
-    stored_history_providers = store.get_metadata("history_evidence_providers") or ""
-    if stored_history_providers != ",".join(index_config.history_evidence_providers):
-        return False
-    stored_documentation_providers = store.get_metadata("documentation_evidence_providers") or ""
-    return stored_documentation_providers == ",".join(index_config.documentation_evidence_providers)
+    metadata = {key: store.get_metadata(key) for key in INDEX_CONFIG_METADATA_KEYS}
+    return index_config_metadata_mismatch(metadata, index_config) is None
 
 
 def _set_index_config_metadata(store: IndexStore, index_config: IndexConfig) -> None:
