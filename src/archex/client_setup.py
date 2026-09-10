@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,13 @@ from archex.integrations.hook import HOOK_MATCHER
 from archex.integrations.mcp import resolve_tool_scope
 from archex.integrations.post_edit_hook import POST_EDIT_MATCHER
 from archex.integrations.session_hook import SESSION_START_MATCHER
+from archex.project import PROJECT_DIR_NAME
+from archex.status_snapshot import (
+    DEFAULT_STALE_AFTER_SECONDS,
+    SNAPSHOT_FILENAME,
+    STATUS_SNAPSHOT_VERSION,
+    WATCH_OBSERVATION_TTL_SECONDS,
+)
 
 ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
 ClientScope = Literal["project", "user"]
@@ -2455,4 +2463,514 @@ export const ArchexPostEditPlugin: Plugin = async ({ directory }) => {
 };
 
 export default ArchexPostEditPlugin;
+"""
+
+
+# ---------------------------------------------------------------------------
+# Persistent status surfaces (R23)
+# ---------------------------------------------------------------------------
+
+#: Filename of the installed Claude Code status-line renderer. Doubles as the
+#: ownership marker: ``statusLine`` is a single settings key rather than a
+#: list, so install and remove only ever touch an entry whose command
+#: references this filename. Any other configured status line is a user's own
+#: and is refused rather than replaced.
+STATUSLINE_SCRIPT_FILENAME = "archex-statusline.sh"
+
+#: Marker comment inside the script, so an installed file is identifiable as
+#: archex-owned even after it is moved or copied.
+STATUSLINE_SCRIPT_MARKER = "archex:statusline"
+
+#: How often Claude Code re-runs the command in addition to its event-driven
+#: repaints. The renderer's freshness and age segments are time-based, so
+#: without a timer a snapshot would appear fresh through an idle session.
+STATUSLINE_REFRESH_INTERVAL_SECONDS = 10
+
+
+@dataclass(frozen=True)
+class ClaudeCodeStatuslineInstallPlan:
+    """Install or remove the Claude Code status-line renderer (R23).
+
+    Two artifacts, one plan: the renderer script beside the client's other
+    archex-owned files, and the ``statusLine`` entry in the same
+    ``settings.json`` the hook installers merge into.
+    """
+
+    client: ClientName
+    scope: ClientScope
+    target_path: Path
+    script_path: Path
+    action: HookAction
+    script_content: str
+    statusline_entry: dict[str, object]
+
+
+def build_statusline_install_plan(
+    client: ClientName,
+    source: str | Path | None = None,
+    *,
+    scope: ClientScope | None = None,
+    action: HookAction,
+) -> ClaudeCodeStatuslineInstallPlan:
+    """Build a status-line plan, refusing clients with no such surface."""
+    if client != "claude-code":
+        message = (
+            f"status-line installation is implemented for claude-code; got {client}. "
+            "Run `archex status --cached` for a client without a persistent status surface."
+        )
+        raise ValueError(message)
+    repo_root = Path(source if source is not None else ".").expanduser().resolve()
+    selected_scope = _resolve_hook_scope(source, scope)
+    script_path = _statusline_script_path(repo_root, selected_scope)
+    return ClaudeCodeStatuslineInstallPlan(
+        client=client,
+        scope=selected_scope,
+        target_path=_hook_settings_path(repo_root, selected_scope),
+        script_path=script_path,
+        action=action,
+        script_content=render_statusline_script(),
+        statusline_entry=_render_statusline_entry(script_path),
+    )
+
+
+def write_statusline_install_plan(plan: ClaudeCodeStatuslineInstallPlan) -> Path:
+    """Apply a status-line plan, leaving unrelated configuration intact."""
+    target = plan.target_path
+    existing = _read_json_object(target) if target.exists() else {}
+    # Decided before anything is written: a foreign status line raises here,
+    # and a refused install must leave no renderer script behind.
+    updated, changed = _apply_statusline_action(existing, plan)
+
+    if plan.action == "install":
+        plan.script_path.parent.mkdir(parents=True, exist_ok=True)
+        existing_script = (
+            plan.script_path.read_text(encoding="utf-8") if plan.script_path.exists() else None
+        )
+        if existing_script != plan.script_content:
+            plan.script_path.write_text(plan.script_content, encoding="utf-8")
+        plan.script_path.chmod(0o755)
+    elif plan.script_path.exists() and _is_archex_statusline_script(plan.script_path):
+        plan.script_path.unlink()
+
+    if not changed:
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+def render_statusline_install_preview(plan: ClaudeCodeStatuslineInstallPlan) -> str:
+    """Render a no-write preview of exactly what the plan would change."""
+    action_label = "Install" if plan.action == "install" else "Remove"
+    existing = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
+    updated, changed = _apply_statusline_action(existing, plan)
+    lines = [
+        f"Client: {plan.client}",
+        f"Scope: {plan.scope}",
+        f"Target: {plan.target_path}",
+        f"Renderer: {plan.script_path}",
+        f"Action: {action_label} statusLine command",
+    ]
+    if not changed:
+        lines.append(
+            "No change: status line already in the requested state (idempotent no-op)."
+            if plan.action == "install"
+            else "No change: no archex status line is installed."
+        )
+    else:
+        lines.append("Dry run. Re-run without --dry-run to write this config.")
+    body = json.dumps(updated, indent=2)
+    return "\n".join([*lines, "", body]).rstrip("\n") + "\n"
+
+
+def _statusline_script_path(repo_root: Path, scope: ClientScope) -> Path:
+    return (
+        repo_root / ".claude" / STATUSLINE_SCRIPT_FILENAME
+        if scope == "project"
+        else Path.home() / ".claude" / STATUSLINE_SCRIPT_FILENAME
+    )
+
+
+def statusline_interpreter() -> str:
+    """Shell to run the renderer with, preferring one that can read a clock.
+
+    The renderer reports `stale` and an age only when the shell exposes a
+    builtin clock, because forking `date` on every repaint is what R23
+    excludes. `sh` is bash 3.2 on macOS and dash on many Linux images, and
+    neither has one -- so the interpreter is chosen at install time from the
+    shells present on the host, and `sh` remains the fallback. Probing costs
+    one subprocess per install, never per repaint.
+    """
+    for candidate, probe in (
+        ("/bin/zsh", "zmodload zsh/datetime 2>/dev/null; echo ${EPOCHSECONDS:-}"),
+        ("/opt/homebrew/bin/bash", "echo ${EPOCHSECONDS:-}"),
+        ("/usr/local/bin/bash", "echo ${EPOCHSECONDS:-}"),
+        ("/bin/bash", "echo ${EPOCHSECONDS:-}"),
+    ):
+        if not Path(candidate).exists():
+            continue
+        try:
+            result = subprocess.run(  # noqa: S603 - fixed argv, absolute path
+                [candidate, "-c", probe],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.stdout.strip().isdigit():
+            return candidate
+    return "sh"
+
+
+def _render_statusline_entry(script_path: Path) -> dict[str, object]:
+    # The path is quoted rather than interpolated bare: a home or repository
+    # directory containing a space would otherwise split into two arguments.
+    # Invoking through an interpreter also keeps the entry working if the
+    # executable bit is lost (a copied dotfiles tree, a restored backup).
+    return {
+        "type": "command",
+        "command": f'{statusline_interpreter()} "{script_path}"',
+        "padding": 0,
+        "refreshInterval": STATUSLINE_REFRESH_INTERVAL_SECONDS,
+    }
+
+
+def _is_archex_statusline(entry: object) -> bool:
+    """Whether a configured ``statusLine`` value is the archex-owned one."""
+    if not isinstance(entry, dict):
+        return False
+    command = cast("dict[str, object]", entry).get("command")
+    return isinstance(command, str) and STATUSLINE_SCRIPT_FILENAME in command
+
+
+def _is_archex_statusline_script(path: Path) -> bool:
+    """Whether the file at ``path`` is an archex-owned renderer script."""
+    try:
+        return STATUSLINE_SCRIPT_MARKER in path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _apply_statusline_action(
+    payload: dict[str, object], plan: ClaudeCodeStatuslineInstallPlan
+) -> tuple[dict[str, object], bool]:
+    """Return ``(updated_payload, changed)`` without mutating ``payload``.
+
+    ``statusLine`` is a scalar key, so there is no matcher group to merge
+    into and no way to coexist with another status line. A foreign entry is
+    therefore refused rather than replaced -- the same rule the MCP installer
+    applies to a foreign ``archex`` server entry -- and remove leaves a
+    foreign entry alone.
+    """
+    existing = payload.get("statusLine")
+    if plan.action == "remove":
+        if existing is None or not _is_archex_statusline(existing):
+            return payload, False
+        updated = copy.deepcopy(payload)
+        del updated["statusLine"]
+        return updated, True
+    if existing is not None and not _is_archex_statusline(existing):
+        message = (
+            f"{plan.target_path} already configures a different statusLine command. "
+            "Remove it first, or install into the other scope; archex will not overwrite it."
+        )
+        raise ValueError(message)
+    if existing == plan.statusline_entry:
+        return payload, False
+    updated = copy.deepcopy(payload)
+    updated["statusLine"] = plan.statusline_entry
+    return updated, True
+
+
+def render_statusline_script() -> str:
+    """Render the status-line script with the snapshot contract baked in."""
+    return (
+        _STATUSLINE_SCRIPT_TEMPLATE.replace(
+            "__ARCHEX_SNAPSHOT_VERSION__", str(STATUS_SNAPSHOT_VERSION)
+        )
+        .replace("__ARCHEX_STALE_DEFAULT__", str(DEFAULT_STALE_AFTER_SECONDS))
+        .replace("__ARCHEX_WATCH_TTL__", str(WATCH_OBSERVATION_TTL_SECONDS))
+        .replace("__ARCHEX_SNAPSHOT_RELATIVE_PATH__", f"{PROJECT_DIR_NAME}/{SNAPSHOT_FILENAME}")
+    )
+
+
+_STATUSLINE_SCRIPT_TEMPLATE = r"""#!/bin/sh
+# archex:statusline - Claude Code status line renderer (R23).
+#
+# Installed by `archex install-client claude-code --statusline`, removed by
+# `--remove-statusline`. Renders the bounded status snapshot archex publishes
+# at <repo>/__ARCHEX_SNAPSHOT_RELATIVE_PATH__.
+#
+# Claude Code re-runs this command on every repaint (debounced at 300ms, and
+# it cancels an in-flight script when a new update arrives), so the renderer
+# uses shell builtins exclusively: no `jq`, no `python`, no `date`, no
+# `archex`, and no command substitution anywhere. It therefore forks no
+# process, opens no index, and parses no source. The test suite proves that
+# by running it with an empty PATH.
+#
+# Snapshot version this renderer understands: __ARCHEX_SNAPSHOT_VERSION__.
+# A different version prints `unsupported` rather than guessing at fields.
+
+set -u
+
+archex_version_supported=__ARCHEX_SNAPSHOT_VERSION__
+archex_stale_default=__ARCHEX_STALE_DEFAULT__
+archex_watch_ttl=__ARCHEX_WATCH_TTL__
+
+# --- Locate the snapshot ----------------------------------------------------
+# Claude Code writes one line of session JSON to stdin, carrying the session
+# directory as "cwd". Extracting it by parameter expansion avoids a JSON
+# parser; an unreadable payload falls back to the process working directory,
+# and the upward walk then handles being started in a subdirectory.
+payload=""
+IFS= read -r payload 2>/dev/null || :
+
+archex_dir=""
+case $payload in
+*'"cwd":'*)
+	archex_rest=${payload#*'"cwd":'}
+	while :; do
+		case $archex_rest in
+		' '*) archex_rest=${archex_rest# } ;;
+		*) break ;;
+		esac
+	done
+	case $archex_rest in
+	'"'*)
+		archex_rest=${archex_rest#\"}
+		archex_dir=${archex_rest%%\"*}
+		;;
+	esac
+	;;
+esac
+# Only an absolute, existing directory is trusted. A payload whose earlier
+# values happen to contain the literal `"cwd":` text, or a relative or
+# nonexistent path, falls back to the process working directory rather than
+# steering the walk below somewhere else.
+case $archex_dir in
+/*) ;;
+*) archex_dir="" ;;
+esac
+if [ -z "$archex_dir" ] || [ ! -d "$archex_dir" ]; then
+	archex_dir=$PWD
+fi
+
+archex_snapshot=${ARCHEX_STATUS_SNAPSHOT:-}
+if [ -z "$archex_snapshot" ]; then
+	archex_probe=$archex_dir
+	while [ -n "$archex_probe" ]; do
+		if [ -f "$archex_probe/__ARCHEX_SNAPSHOT_RELATIVE_PATH__" ]; then
+			archex_snapshot="$archex_probe/__ARCHEX_SNAPSHOT_RELATIVE_PATH__"
+			break
+		fi
+		case $archex_probe in
+		*/?*) archex_probe=${archex_probe%/*} ;;
+		*) archex_probe="" ;;
+		esac
+	done
+fi
+
+if [ -z "$archex_snapshot" ] || [ ! -f "$archex_snapshot" ]; then
+	printf 'archex missing - no status snapshot - run: archex index\n'
+	exit 0
+fi
+
+# --- Read it ----------------------------------------------------------------
+# The document is written with sorted keys and two-space indentation, so every
+# scalar occupies one line as `  "key": value,`. Splitting that with
+# parameter expansion is exact for this writer and degrades to an empty field
+# (hence `corrupt`) for anything else.
+archex_field_version=""
+archex_field_state=""
+archex_field_revision=""
+archex_field_files=0
+archex_field_chunks=0
+archex_field_pending=0
+archex_field_pending_complete=""
+archex_field_reindex=""
+archex_field_epoch=0
+archex_field_watch_epoch=0
+
+archex_line=""
+while IFS= read -r archex_line || [ -n "$archex_line" ]; do
+	case $archex_line in
+	*'": '*) ;;
+	*) continue ;;
+	esac
+	archex_key=${archex_line#*\"}
+	archex_key=${archex_key%%\"*}
+	archex_value=${archex_line#*\": }
+	archex_value=${archex_value%,}
+	case $archex_value in
+	\"*\")
+		archex_value=${archex_value#\"}
+		archex_value=${archex_value%\"}
+		;;
+	esac
+	case $archex_key in
+	version) archex_field_version=$archex_value ;;
+	state) archex_field_state=$archex_value ;;
+	index_revision) archex_field_revision=$archex_value ;;
+	files_indexed) archex_field_files=$archex_value ;;
+	chunks_indexed) archex_field_chunks=$archex_value ;;
+	pending_delta_files) archex_field_pending=$archex_value ;;
+	pending_view_complete) archex_field_pending_complete=$archex_value ;;
+	reindex_required) archex_field_reindex=$archex_value ;;
+	written_at_epoch) archex_field_epoch=$archex_value ;;
+	watch_observed_epoch) archex_field_watch_epoch=$archex_value ;;
+	esac
+done < "$archex_snapshot"
+
+# Numeric fields are normalized before any arithmetic. Non-digits become 0,
+# and a leading zero is stripped: POSIX arithmetic reads `08` as octal and
+# aborts the whole script on the invalid digit, which would replace a
+# `corrupt` line with an error on stderr and no status at all.
+for archex_numeric in files chunks pending epoch watch_epoch; do
+	case $archex_numeric in
+	files) archex_probe_value=$archex_field_files ;;
+	chunks) archex_probe_value=$archex_field_chunks ;;
+	pending) archex_probe_value=$archex_field_pending ;;
+	epoch) archex_probe_value=$archex_field_epoch ;;
+	*) archex_probe_value=$archex_field_watch_epoch ;;
+	esac
+	case $archex_probe_value in
+	'' | *[!0-9]*) archex_probe_value=0 ;;
+	*)
+		while :; do
+			case $archex_probe_value in
+			0?*) archex_probe_value=${archex_probe_value#0} ;;
+			*) break ;;
+			esac
+		done
+		;;
+	esac
+	case $archex_numeric in
+	files) archex_field_files=$archex_probe_value ;;
+	chunks) archex_field_chunks=$archex_probe_value ;;
+	pending) archex_field_pending=$archex_probe_value ;;
+	epoch) archex_field_epoch=$archex_probe_value ;;
+	*) archex_field_watch_epoch=$archex_probe_value ;;
+	esac
+done
+
+# --- Classify ---------------------------------------------------------------
+# `corrupt` and `unsupported` are deliberately separate: a document that is
+# unparsable or carries no usable version needs re-publishing, while a
+# document from a schema this build does not read needs an archex upgrade.
+# The Python reader and the omp/Pi module classify identically.
+case $archex_field_version in
+'' | *[!0-9]*)
+	printf 'archex corrupt - unreadable snapshot - run: archex status\n'
+	exit 0
+	;;
+esac
+if [ "$archex_field_version" != "$archex_version_supported" ]; then
+	printf 'archex unsupported - snapshot v%s - upgrade archex\n' "$archex_field_version"
+	exit 0
+fi
+case $archex_field_state in
+fresh | dirty | pending) ;;
+*)
+	printf 'archex corrupt - unreadable snapshot - run: archex status\n'
+	exit 0
+	;;
+esac
+
+# `EPOCHSECONDS` is a shell builtin variable in bash 5+ and zsh, and absent in
+# dash and bash 3.2 (macOS `/bin/sh`). Where it is absent this renderer has no
+# clock it can read without forking `date`, so it reports the measured state
+# and its measurement time and leaves the `stale` judgement to
+# `archex status --cached`, which has a clock. Paying a fork on every repaint
+# to gain one label is the wrong trade.
+if [ -n "${ZSH_VERSION:-}" ]; then
+	# `zmodload` is a zsh builtin, so this costs no process. Guarded on
+	# ZSH_VERSION because under sh/dash the word would be an external
+	# command, which is exactly what this renderer refuses to launch.
+	zmodload zsh/datetime 2>/dev/null || :
+fi
+archex_now=${EPOCHSECONDS:-}
+case $archex_now in
+'' | *[!0-9]*) archex_now="" ;;
+esac
+
+archex_age=""
+if [ -n "$archex_now" ] && [ "$archex_field_epoch" -gt 0 ]; then
+	archex_age=$((archex_now - archex_field_epoch))
+	if [ "$archex_age" -lt 0 ]; then
+		archex_age=0
+	fi
+fi
+
+archex_budget=${ARCHEX_STATUS_STALE_AFTER_SECONDS:-$archex_stale_default}
+case $archex_budget in
+'' | *[!0-9]*) archex_budget=$archex_stale_default ;;
+esac
+if [ -n "$archex_age" ] && [ "$archex_age" -gt "$archex_budget" ]; then
+	archex_field_state=stale
+fi
+
+archex_watch=""
+if [ -n "$archex_now" ] && [ "$archex_field_watch_epoch" -gt 0 ]; then
+	if [ $((archex_now - archex_field_watch_epoch)) -le "$archex_watch_ttl" ]; then
+		archex_watch=" - watch"
+	fi
+fi
+
+# --- Render -----------------------------------------------------------------
+archex_detail=""
+case $archex_field_state in
+fresh) archex_detail=" - $archex_field_files files, $archex_field_chunks chunks" ;;
+pending)
+	# The model's field defaults to true, so an absent field means a complete
+	# view here too; only an explicit `false` marks the count as a lower bound.
+	if [ "$archex_field_pending_complete" = "false" ]; then
+		archex_detail=" - $archex_field_pending+ awaiting sync"
+	else
+		archex_detail=" - $archex_field_pending awaiting sync"
+	fi
+	;;
+dirty)
+	if [ "$archex_field_reindex" = "true" ]; then
+		archex_detail=" - reindex required"
+	else
+		archex_detail=" - index behind tree"
+	fi
+	;;
+stale) archex_detail=" - unverified since measurement" ;;
+esac
+
+archex_revision_segment=""
+if [ -n "$archex_field_revision" ]; then
+	archex_revision_short=$archex_field_revision
+	# Trim to the first eight characters, but only when there are more than
+	# eight: for a shorter value the `????????` pattern does not match and the
+	# suffix trim would collapse the whole string to empty.
+	case $archex_field_revision in
+	?????????*)
+		archex_revision_tail=${archex_field_revision#????????}
+		archex_revision_short=${archex_field_revision%"$archex_revision_tail"}
+		;;
+	esac
+	archex_revision_segment=" - rev $archex_revision_short"
+fi
+
+archex_age_segment=""
+if [ -n "$archex_age" ]; then
+	if [ "$archex_age" -lt 60 ]; then
+		archex_age_segment=" - ${archex_age}s ago"
+	elif [ "$archex_age" -lt 3600 ]; then
+		archex_age_segment=" - $((archex_age / 60))m ago"
+	else
+		archex_age_segment=" - $((archex_age / 3600))h ago"
+	fi
+fi
+
+printf 'archex %s%s%s%s%s\n' \
+	"$archex_field_state" \
+	"$archex_detail" \
+	"$archex_revision_segment" \
+	"$archex_age_segment" \
+	"$archex_watch"
 """

@@ -12,6 +12,8 @@ from archex.index.delta import compute_working_tree_signature
 from archex.index.store import IndexStore
 from archex.metrics.storage import MetricsStore, metrics_db_path
 from archex.project import ProjectState
+from archex.receipt import index_revision_from_store
+from archex.serve.generation import read_generation_id
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,12 @@ class ProjectStatus:
     dogfood_latest_path: Path | None = None
     error: str = ""
     metrics_savings: dict[str, int | float] | None = None
+    #: Persisted generation identity and index revision of the inspected
+    #: store, empty when there is no readable index. Carried so a caller can
+    #: refresh the cached status snapshot (R23) with the same receipt fields
+    #: indexing publishes, instead of downgrading it to "unknown".
+    generation_id: str = ""
+    index_revision: str = ""
 
 
 def inspect_project_status(source: str | Path) -> ProjectStatus:
@@ -105,6 +113,8 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
         languages = _language_counts(store.get_file_metadata())
         chunks_fts = store.get_fts_chunk_count()
         needs_reindex = store.needs_reindex()
+        generation_id = read_generation_id(store) or ""
+        index_revision = index_revision_from_store(store)
     except Exception as exc:
         return ProjectStatus(
             repo_root=project.repo_root,
@@ -149,6 +159,8 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
         vector_index_available=_vector_index_available(project),
         dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
         metrics_savings=_metrics_savings(project.repo_root),
+        generation_id=generation_id,
+        index_revision=index_revision,
     )
 
 

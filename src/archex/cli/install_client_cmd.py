@@ -16,15 +16,18 @@ from archex.client_setup import (
     build_hook_install_plan,
     build_post_edit_hook_install_plan,
     build_session_primer_install_plan,
+    build_statusline_install_plan,
     render_agent_guidance_preview,
     render_client_install_preview,
     render_hook_install_preview,
     render_post_edit_hook_install_preview,
     render_session_primer_install_preview,
+    render_statusline_install_preview,
     write_client_install_plan,
     write_hook_install_plan,
     write_post_edit_hook_install_plan,
     write_session_primer_install_plan,
+    write_statusline_install_plan,
 )
 
 
@@ -122,6 +125,23 @@ def _is_interactive() -> bool:
     help="Remove the archex post-edit impact hook previously installed by --post-edit-hooks.",
 )
 @click.option(
+    "--statusline",
+    is_flag=True,
+    default=False,
+    help=(
+        "Install the opt-in persistent status surface (R23). Renders the "
+        "cached freshness snapshot in the client's own status line, reading "
+        "only that snapshot -- it opens no index and starts no archex "
+        "process on repaint. claude-code only."
+    ),
+)
+@click.option(
+    "--remove-statusline",
+    is_flag=True,
+    default=False,
+    help="Remove the archex status line previously installed by --statusline.",
+)
+@click.option(
     "--allow-missing-mcp",
     is_flag=True,
     default=False,
@@ -164,6 +184,8 @@ def install_client_cmd(  # noqa: PLR0913 - one flag per installable client surfa
     remove_session_primer: bool,
     post_edit_hooks: bool,
     remove_post_edit_hooks: bool,
+    statusline: bool,
+    remove_statusline: bool,
     allow_missing_mcp: bool,
     all_detected: bool,
     yes: bool,
@@ -181,17 +203,20 @@ def install_client_cmd(  # noqa: PLR0913 - one flag per installable client surfa
         raise click.ClickException(
             "--post-edit-hooks and --remove-post-edit-hooks are mutually exclusive"
         )
+    if statusline and remove_statusline:
+        raise click.ClickException("--statusline and --remove-statusline are mutually exclusive")
     selected_surfaces = sum(
         (
             hooks or remove_hooks,
             session_primer or remove_session_primer,
             post_edit_hooks or remove_post_edit_hooks,
+            statusline or remove_statusline,
         )
     )
     if selected_surfaces > 1:
         raise click.ClickException(
-            "Search hooks, session-primer hooks, and post-edit hooks must be "
-            "installed or removed separately"
+            "Search hooks, session-primer hooks, post-edit hooks, and the status "
+            "line must be installed or removed separately"
         )
     valid_clients = ["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
 
@@ -242,6 +267,18 @@ def install_client_cmd(  # noqa: PLR0913 - one flag per installable client surfa
             scope=cast("ClientScope | None", scope),
             dry_run=dry_run,
             action="install" if post_edit_hooks else "remove",
+        )
+        return
+
+    if statusline or remove_statusline:
+        if client is None:
+            raise click.ClickException("Must specify a client when using --statusline")
+        _run_statusline_action(
+            cast("ClientName", client),
+            source,
+            scope=cast("ClientScope | None", scope),
+            dry_run=dry_run,
+            action="install" if statusline else "remove",
         )
         return
     import importlib.util
@@ -459,3 +496,26 @@ def _run_post_edit_hook_action(
         click.echo(f"Installed archex post-edit hook for {client}: {target}")
     else:
         click.echo(f"Removed archex post-edit hook for {client} (if present): {target}")
+
+
+def _run_statusline_action(
+    client: ClientName,
+    source: str | None,
+    *,
+    scope: ClientScope | None,
+    dry_run: bool,
+    action: HookAction,
+) -> None:
+    try:
+        plan = build_statusline_install_plan(client, source, scope=scope, action=action)
+        if dry_run:
+            click.echo(render_statusline_install_preview(plan), nl=False)
+            return
+        target = write_statusline_install_plan(plan)
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if action == "install":
+        click.echo(f"Installed archex status line for {client}: {target}")
+        click.echo(f"Renderer: {plan.script_path}")
+    else:
+        click.echo(f"Removed archex status line for {client} (if present): {target}")
