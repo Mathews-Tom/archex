@@ -430,6 +430,8 @@ Archex publishes a bounded, versioned status snapshot to `.archex/status-snapsho
 
 `working_tree_dirty` is reported as its own field and never drives the state: a synchronized index describes a tree with uncommitted edits exactly as well as a clean one. Status never reports estimated token savings.
 
+The snapshot's serialized layout is part of its versioned contract: sorted keys and two-space indentation, so every scalar sits on its own `  "key": value` line. That is what lets the POSIX `sh` renderer read it with shell builtins and no JSON parser, and a test pins it. A document that archex did not write — hand-edited, or reformatted — may therefore read as `corrupt` in that renderer even where a JSON parser would accept it; `archex status` re-publishes it in the canonical form.
+
 ### CLI
 
 ```bash

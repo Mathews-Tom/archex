@@ -8,7 +8,7 @@ index open, a parse, or a cold Python start per repaint. This module is the
 cheap side of that split: lifecycle code that already holds the expensive
 state *publishes* a small document, and every renderer only *reads* it.
 
-Two invariants make that safe:
+Three invariants make that safe:
 
 - **The writer decides what is true; the reader decides what is current.**
   A persisted document carries one of three states (:class:`SnapshotState`:
@@ -22,6 +22,13 @@ Two invariants make that safe:
   token-savings figure. Its serialized size therefore has a provable ceiling
   (:data:`MAX_SNAPSHOT_BYTES`) that does not depend on repository size or on a
   truncation rule that could be forgotten.
+- **The serialized form is part of the contract, not an implementation
+  detail.** The document is written with sorted keys and two-space
+  indentation, which puts every scalar on its own ``  "key": value`` line.
+  That is what lets a renderer with no JSON parser -- the POSIX ``sh`` status
+  line -- read it with shell builtins alone. A future schema may add or
+  remove fields, but changing this layout is a breaking change for those
+  renderers and requires a version bump, so a test pins it.
 
 Nothing here raises into a caller. Publication happens on an agent's edit path
 and inside indexing; a status write that fails is a display defect, never a
