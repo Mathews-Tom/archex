@@ -8,6 +8,16 @@ allowed to claim freshness.
 
 from __future__ import annotations
 
+from archex.post_edit.impact import (
+    DEFAULT_POST_EDIT_TIMEOUT_SECONDS,
+    PostEditFeedback,
+    PostEditOutcome,
+    current_state,
+    post_edit_timeout_seconds,
+    render_post_edit_block,
+    synchronize_and_report,
+    synchronize_and_report_with_timeout,
+)
 from archex.post_edit.models import (
     MAX_EVENT_PATHS,
     MAX_PATH_LENGTH,
@@ -30,20 +40,28 @@ from archex.post_edit.state import (
 )
 
 __all__ = [
+    "DEFAULT_POST_EDIT_TIMEOUT_SECONDS",
     "LOCK_TIMEOUT_SECONDS",
     "MAX_EVENT_PATHS",
     "MAX_PATH_LENGTH",
     "MAX_PENDING_PATHS",
     "POST_EDIT_STATE_VERSION",
     "PostEditEvent",
+    "PostEditFeedback",
+    "PostEditOutcome",
     "PostEditState",
     "PostEditStatus",
     "build_event",
     "clear_state",
+    "current_state",
     "mark_synchronized",
     "normalize_paths",
     "post_edit_state_path",
+    "post_edit_timeout_seconds",
     "read_state",
     "record_edit",
+    "render_post_edit_block",
+    "synchronize_and_report",
+    "synchronize_and_report_with_timeout",
     "utc_now_iso",
 ]
