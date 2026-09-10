@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# Declared explicitly rather than inherited: this workflow runs on every pull
+# request, and an omitted `permissions` block silently takes the repository's
+# default token scope, which may include write access. It only needs to read
+# the checkout.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

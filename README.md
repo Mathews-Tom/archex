@@ -306,7 +306,8 @@ The mounted repository owns `.archex/`, so indexes survive container restarts an
 | Local usage metrics | Calculation rules, privacy boundaries, default-off versus opt-in behavior, export/delete controls, and retention live in [LOCAL_METRICS](docs/LOCAL_METRICS.md). |
 | `archex report status-card` | Opt-in, dimensioned documentation/release status summary: doc-link, ADR, and CODEOWNERS-style ownership evidence (each disabled unless its `documentation_evidence_providers` entry is configured) plus local CHANGELOG/CI-workflow evidence. Every dimension links to immutable local evidence; there is no composite score or letter grade, and the output is never written back into the repository automatically — paste it into your own README by hand if you want to publish it. |
 | `archex report release-artifact` | Per-release compatibility + benchmark evidence bundle: archex's own installed version, supported Python range, report/index schema versions, a pointer to any checked-in benchmark manifest, and an embedded status card, as one read-only JSON document suitable for attaching to a GitHub release. |
-| Read-only CI examples | `.github/workflows/report-diff.yml` and `.github/workflows/status-card.yml` grant only `contents: read`, pin every Action to a full commit SHA (never a floating tag), and upload only their own declared report/status/compatibility outputs — verified by `tests/test_report_ci_workflow.py`. |
+| `archex explore` | Local review viewer over artifacts other commands already produced — one `AnalysisArtifactV1` and one optional exported graph. It performs no repository indexing, parses no source, and constructs no graph edge. The server binds loopback only, requires a per-process session token, answers `GET` only, and serves a CSP that grants no `script-src` at all, so every page is script-free and references nothing remote. Oversized report or graph artifacts are refused by byte size and by node/edge count rather than rendered partially. `--export DIR` writes the same views as offline HTML with no server and no token. |
+| Read-only CI examples | `.github/workflows/report-diff.yml` and `.github/workflows/status-card.yml` grant only `contents: read`, pin every Action to a full commit SHA (never a floating tag), and upload only their own declared report/status/compatibility outputs — including the `report-diff` bundle's exported graph and offline explorer site, which are projections of the uploaded canonical artifacts rather than a second analysis. Delivery is by build artifact and job summary only: no pull-request comment, no write scope, and therefore identical behavior on a fork's read-only token. Every workflow in the repository declares its `permissions:` explicitly so none inherits the repository default token scope, and the only write grant anywhere is `packages: write` on the image-publish workflow — all verified by `tests/test_report_ci_workflow.py`. |
 
 ## Measured results
 
@@ -363,6 +364,12 @@ archex report diff --base origin/main --format html > report.html
 archex report delta --base origin/main --format markdown
 archex report status-card --format markdown  # M9, opt-in: dimensioned doc/ADR/ownership + release evidence, disabled unless configured
 archex report release-artifact  # M9: per-release compatibility + benchmark evidence bundle (version, schema versions, status card)
+
+# Local review explorer — loopback-only, token-gated, script-free, artifact-only
+archex report diff --base origin/main --format json > report-diff.json
+archex graph export --output arch-graph.json
+archex explore report-diff.json --graph arch-graph.json                       # serve locally
+archex explore report-diff.json --graph arch-graph.json --export explorer-site  # offline bundle
 
 # Benchmarks and gates
 archex benchmark headtohead report --input .archex/headtohead --format markdown
@@ -449,6 +456,7 @@ Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs.
 - [Local Metrics](docs/LOCAL_METRICS.md) — token-savings math, privacy boundary, and default-off versus opt-in behavior
 - [Portable Index Artifact](docs/PORTABLE_INDEX_ARTIFACT.md) — export/import format, compression, staleness fallback, and `.gitattributes` handling for team-shared index bootstrap
 - [Language Promotion Gate](docs/LANGUAGE_PROMOTION_GATE.md) — the recall/ranking-stability regression gate every language-tier promotion runs against
+- [Explorer Usability Evidence](docs/EXPLORER_USABILITY_EVIDENCE.md) — the timed orientation paths, browser verification, and offline-export evidence behind `archex explore`
 
 ## License
 

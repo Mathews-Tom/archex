@@ -210,9 +210,10 @@ def monorepo_simple_repo(tmp_path: Path) -> Path:
 def impact_diff_repo(tmp_path: Path) -> Path:
     """Copy tests/fixtures/impact_diff to a temp dir and initialise a git repo.
 
-    Graph shape: hub.py is imported by four files (leaf.py, consumer_a/b/c.py)
-    plus transitively reachable from the entry point main.py -- a deliberate
-    hub for diff-scoped risk classification tests. leaf.py has zero importers
-    and is unreachable from any entry point within a bounded distance.
+    Graph shape: hub.py is imported directly by five files -- leaf.py and
+    consumer_a/b/c.py all import `shared_helper`, and the entry point main.py
+    imports `other_helper` -- a deliberate hub for diff-scoped risk
+    classification tests. leaf.py has zero importers and is unreachable from
+    any entry point within a bounded distance.
     """
     return _init_fixture_repo(tmp_path, "impact_diff")
