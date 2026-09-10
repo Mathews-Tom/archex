@@ -61,6 +61,11 @@ class ProjectState:
         return self.project_dir / "session.db"
 
     @property
+    def post_edit_state_path(self) -> Path:
+        """Repo-local bounded post-edit edit-tracking state document (R21)."""
+        return self.project_dir / "post-edit-state.json"
+
+    @property
     def vector_dir(self) -> Path:
         return self.project_dir / "vectors"
 
