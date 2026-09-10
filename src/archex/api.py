@@ -420,7 +420,7 @@ def _full_index(
                 _set_working_tree_signature(store, repo_path, config)
                 from archex.serve.generation import finalize_generation_id
 
-                finalize_generation_id(store, effective_index_config)
+                generation_id = finalize_generation_id(store, effective_index_config)
                 store.conn.execute("PRAGMA wal_checkpoint(FULL)")
 
                 manifest = IndexGenerationManifest(
@@ -447,6 +447,11 @@ def _full_index(
                     sidecars=sidecars,
                     manifest=manifest.model_dump_json(),
                 )
+                # After `put`, not before: the snapshot describes an installed
+                # index, and this path builds into a temp directory the cache
+                # copies from. Publishing earlier would advertise a generation
+                # that a failed copy never delivered.
+                _publish_project_status(store, generation_id, config.cache_dir)
             if timing is not None:
                 timing.index_ms = _elapsed_ms(t_idx)
                 timing.strategy = "full"
@@ -457,6 +462,66 @@ def _full_index(
             raise
     finally:
         cleanup()
+
+
+def _publish_project_status(store: IndexStore, generation_id: str | None, cache_dir: str) -> None:
+    """Refresh the repo-local cached status snapshot (R23), never fatally.
+
+    Called at the four points where indexing establishes that a store
+    describes the current tree: the full, delta, and unchanged-tree
+    publications, plus the validated cache hit every warm query takes. The
+    store is already open and its identity metadata already written, so the
+    snapshot costs no extra index open and no extra working-tree signature
+    computation. Indexed and current commit are the same value at all four
+    points by construction, which also avoids a `git rev-parse` here.
+
+    ``generation_id`` is the value a caller just finalized; pass ``None`` to
+    read the store's persisted identity instead.
+
+    The publish target comes from the configured cache directory rather than
+    from the store's own path: the full-index path builds into a temp
+    directory that the cache copies into `.archex`, so the open store's path
+    is not where the index will live. Only a repo-local project layout
+    publishes; the shared global cache and remote checkouts have no `.archex`
+    directory to write into and no repository for a status surface to
+    describe.
+    """
+    from archex.serve.generation import read_generation_id
+    from archex.status_snapshot import project_repo_root, publish_status, republish_measurement
+
+    try:
+        repo_root = project_repo_root(cache_dir)
+        if repo_root is None:
+            return
+        reindex_required = store.needs_reindex()
+        if generation_id is None and not reindex_required:
+            # Warm path. A validated cache hit means the index still describes
+            # the tree, but nothing about it changed, so re-stamping the
+            # existing measurement is enough -- and it avoids the O(files)
+            # scan and hash `index_revision_from_store` would cost on what is
+            # the most frequent lifecycle event in a session. Falls through to
+            # a full publication when there is no re-stampable snapshot.
+            persisted = read_generation_id(store) or ""
+            if republish_measurement(repo_root, generation_id=persisted) is not None:
+                return
+        commit = store.get_metadata("commit_hash") or ""
+        signature = store.get_metadata("working_tree_signature") or ""
+        publish_status(
+            repo_root,
+            index_fresh=not reindex_required,
+            index_revision=index_revision_from_store(store),
+            generation_id=(
+                generation_id if generation_id is not None else read_generation_id(store)
+            ),
+            indexed_commit=commit,
+            current_commit=commit,
+            files_indexed=store.get_file_count(),
+            chunks_indexed=store.get_chunk_count(),
+            working_tree_dirty=signature not in {"", "clean"},
+            reindex_required=reindex_required,
+        )
+    except Exception:  # noqa: BLE001 - a status write never breaks indexing
+        logger.debug("could not publish cached status snapshot", exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -509,6 +574,11 @@ def _ensure_index(
                     timing.cached = True
                     timing.strategy = "cached"
                     timing.index_ms = _elapsed_ms(t_start)
+                # A validated cache hit is evidence that the index still
+                # describes the tree, and it is by far the most frequent
+                # lifecycle event (every warm query and hook takes it), so it
+                # is what keeps a status surface from decaying into `stale`.
+                _publish_project_status(store, None, config.cache_dir)
                 return store
             store.close()
             if needs_reindex or not metadata_matches:
@@ -609,7 +679,10 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                 clean_store.set_metadata("indexed_at", str(time.time()))
                 from archex.serve.generation import finalize_generation_id
 
-                finalize_generation_id(clean_store, attempt.index_config or IndexConfig())
+                clean_generation = finalize_generation_id(
+                    clean_store, attempt.index_config or IndexConfig()
+                )
+                _publish_project_status(clean_store, clean_generation, attempt.config.cache_dir)
                 if attempt.timing is not None:
                     attempt.timing.cached = True
                     attempt.timing.strategy = "cached"
@@ -708,8 +781,9 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                 store.set_metadata("working_tree_signature", attempt.working_tree_signature)
             from archex.serve.generation import finalize_generation_id
 
-            finalize_generation_id(store, index_config)
+            delta_generation = finalize_generation_id(store, index_config)
             store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+            _publish_project_status(store, delta_generation, attempt.config.cache_dir)
             attempt.cache.put(
                 attempt.cache_key,
                 db_path,
