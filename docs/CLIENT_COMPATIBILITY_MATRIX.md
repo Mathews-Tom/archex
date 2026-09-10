@@ -30,6 +30,7 @@ This matrix separates config-shape verification from actual client smoke tests. 
 | Cursor | Config shape verified; client smoke unverified | `archex install-client cursor` writes `~/.cursor/mcp.json` (global); `archex install-client cursor . --scope project` writes `.cursor/mcp.json` with `mcpServers.archex.command = "archex"`, `args = ["mcp"]`. `--dry-run` previews. | Yes — with a warm `archex mcp --watch --watch-path .` process. | Inline query refresh by default; watch keeps a warm process subscribed to file events. | No Cursor UI smoke in this stack. | 2026-06-16 |
 | Cursor `beforeSubmitPrompt` hook (opt-in, diagnostics-only, prompt-level) | Config-shape tested end-to-end (install, remove, idempotent reinstall, preserves unrelated `hooks.json` content, `beforeReadFile`-never-wired assertion); no live Cursor UI smoke | `archex install-client cursor --hooks` writes `~/.cursor/hooks.json` (global) or `.cursor/hooks.json` (project) — a different file from the MCP config above. `--dry-run` previews, `--remove-hooks` uninstalls. See [below](#cursor-beforesubmitprompt-hook-opt-in-diagnostics-only) for the full contract and the confirmation-spike findings. | N/A — one subprocess per submitted prompt, not a warm process | Diagnostics-only — no injected context, ever (see limitations); a missing/stale index degrades to no diagnostic, or the same `index_not_fresh`/`status_error` diagnostic the other hooks log. | Prompt-level, not per-tool-call: fires on every submitted prompt regardless of whether a lookup is relevant. Cursor's `beforeSubmitPrompt` output schema has no context-injection field at all (confirmed against Cursor's own docs), so this is diagnostics-only, unlike the augmenting Claude Code/omp/Pi/OpenCode hooks above. | 2026-07-06 |
 | Cursor post-edit impact hook | **Not supported** — `archex install-client cursor --post-edit-hooks` fails with the reason rather than writing anything | N/A | N/A | N/A | `afterFileEdit` is Cursor's only event carrying an edited file path (`{file_path, edits}`) and its documented schema has **no output fields at all**, so it cannot return impact to the agent. `postToolUse` does document an `additional_context` output and lists `Write` among its matchers, but documents no path field for that tool's input, so edited paths cannot be extracted from the one event that could surface text. Archex ships no adapter it cannot show to work. | 2026-09-10 |
+| Claude Code status line (opt-in) | Config-shape tested end-to-end (install, remove, idempotent reinstall, foreign-statusLine refusal, coexistence with all three hook surfaces) and the installed renderer executed for real against every snapshot state under an empty `PATH` | `archex install-client claude-code --statusline` writes `~/.claude/settings.json` (global) or `.claude/settings.json` (project) plus the renderer script `archex-statusline.sh` beside it. `--dry-run` previews; `--remove-statusline` uninstalls. See [below](#persistent-status-surfaces-opt-in). | N/A — reports whether a watch refresh was observed; starts no watcher | Renders the cached snapshot only: `fresh`, `dirty`, `pending`, `stale`, `missing`, `corrupt`, and `unsupported` are distinct. Never opens the index, runs a parser, or starts an archex process on repaint. | Opt-in. `statusLine` is a scalar settings key, so a status line archex did not install is refused rather than replaced. The `stale` label needs a shell clock (`$EPOCHSECONDS`, bash 5+/zsh); under macOS `/bin/sh` (bash 3.2) the renderer reports the measured state without an age instead of forking `date`. Never reports token savings. | 2026-09-10 |
 | Dockerized MCP server | Server path tested; client smoke unverified | Run `docker run -d --name archex-mcp -v "$PWD:/workspace" -w /workspace ghcr.io/mathews-tom/archex:slim sleep infinity` then point the client to `docker exec -i archex-mcp archex mcp`. | Yes — run the MCP process with `--watch`. | Same server-side freshness semantics as stdio. | Client-specific Docker registration varies; use the same client config shapes above, but replace the command with `docker` / `exec`. | 2026-06-16 |
 
 ## First-party bootstrap command
@@ -406,6 +407,98 @@ Tests in the affected set (1):
 - The Codex adapter, and the omp, pi, and OpenCode modules, were each executed against a live index: the Python hooks as real subprocesses driven by the installed configuration, the TypeScript modules loaded under Bun and dispatched with a real event. Each returned a fresh receipt naming the correct client.
 - A forced 1 ms budget produced exit 0, no output, a `post_edit_timeout` diagnostic, and a still-dirty state ready for the next event.
 - The Codex CLI itself was not driven end to end: the local OAuth refresh token was expired at verification time.
+
+## Persistent status surfaces (opt-in)
+
+Installed separately from every other archex surface with `--statusline`, removed with `--remove-statusline`. Never installed by default.
+
+Archex publishes a bounded, versioned status snapshot to `.archex/status-snapshot.json` whenever indexing establishes that the store describes the current tree (a full, delta, or unchanged-tree publication, and the validated cache hit every warm query takes), whenever a post-edit hook records or synchronizes an edit, and whenever `archex status` runs. Renderers only read that file. **No renderer opens the index, runs a parser, or starts an archex process on repaint.**
+
+### States
+
+| State | Meaning | Who determines it |
+| --- | --- | --- |
+| `fresh` | The index describes the working tree and nothing is awaiting synchronization. | Writer |
+| `dirty` | The index no longer describes the tree, or the store is flagged for a reindex. | Writer |
+| `pending` | An edit was recorded at or after the last index measurement and has not been synchronized. | Writer |
+| `stale` | The snapshot is valid but older than the freshness budget (`900s`, override with `ARCHEX_STATUS_STALE_AFTER_SECONDS`), so it is no longer evidence of freshness. | Reader, needs a clock |
+| `missing` | No snapshot has been published, or `archex reset` cleared it. | Reader |
+| `corrupt` | A snapshot exists but is unreadable, unparsable, or invalid. Remedy: re-publish with `archex status`. | Reader |
+| `unsupported` | A snapshot exists and parses but declares a schema version this build does not read. Remedy: upgrade archex. | Reader |
+
+`working_tree_dirty` is reported as its own field and never drives the state: a synchronized index describes a tree with uncommitted edits exactly as well as a clean one. Status never reports estimated token savings.
+
+### CLI
+
+```bash
+archex status .                      # authoritative: opens the index, and refreshes the snapshot
+archex status . --cached             # reads only the cached snapshot; never opens the index
+archex status . --cached --format json
+archex status . --cached --strict    # exit 1 unless the cached state is fresh
+```
+
+`--cached` exits 1 for `corrupt` and `unsupported`, and (with `--strict`) for anything but `fresh`. It is the mode for scripts and repeated calls; the default mode is the one to run when a client's status surface looks wrong, because it re-measures and republishes.
+
+Both modes work from a subdirectory. `--cached` walks up to the nearest published snapshot, exactly as the shell and TypeScript renderers do, so all three surfaces answer for the same document.
+
+### Claude Code status line
+
+```bash
+archex install-client claude-code --statusline                     # global: ~/.claude/settings.json
+archex install-client claude-code . --statusline --scope project    # repo-local: .claude/settings.json
+archex install-client claude-code --statusline --dry-run            # preview only, writes nothing
+archex install-client claude-code --remove-statusline               # clean uninstall
+```
+
+Two artifacts: the renderer script at `~/.claude/archex-statusline.sh` (or `.claude/archex-statusline.sh` for project scope), and a `statusLine` entry in the same `settings.json` the hook installers merge into:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "/bin/zsh \"/abs/path/.claude/archex-statusline.sh\"",
+    "padding": 0,
+    "refreshInterval": 10
+  }
+}
+```
+
+The interpreter is chosen at install time from the shells present on the host, preferring one that can read a clock without forking (`zsh` after the builtin `zmodload zsh/datetime`, or bash 5+); `sh` is the fallback where none can. That choice is what makes the `stale` label reachable on macOS, whose `/bin/sh` and `/bin/bash` are both bash 3.2.
+
+`statusLine` is a scalar settings key, not a matcher group, so there is no way for two status lines to coexist. Consequences, both tested:
+
+- A `statusLine` that archex did not install is **refused, not replaced** — the command fails and changes nothing. Remove it first, or install into the other scope.
+- `--remove-statusline` deletes only an archex-owned entry (its command names `archex-statusline.sh`) and only an archex-owned script (its body carries the `archex:statusline` marker). A foreign status line and a foreign script of the same name are both left untouched.
+
+Unrelated settings keys, the `PreToolUse` search hook, the `SessionStart` primer, and the `PostToolUse` post-edit hook all survive install and removal; each surface owns its own key or marker.
+
+Sample output:
+
+```text
+archex fresh - 1234 files, 5678 chunks - rev 01234567 - 12s ago
+archex pending - 3 awaiting sync - rev 01234567 - 4s ago
+archex dirty - reindex required - rev 01234567
+archex stale - unverified since measurement - rev 01234567 - 31m ago
+archex missing - no status snapshot - run: archex index
+archex corrupt - unreadable snapshot - run: archex status
+archex unsupported - snapshot v2 - upgrade archex
+```
+
+A trailing ` - watch` appears when a watch-driven refresh was observed within the last `300s`. Its absence means "no recent watch refresh", never "no watcher is running" — an idle watcher publishes nothing because nothing changed.
+
+### Why the renderer is a shell script
+
+Claude Code re-runs the status-line command on every repaint, debounced at 300 ms, and cancels an in-flight script when a new update arrives. A cold Python start per repaint is exactly what R23 excludes, so the renderer is POSIX `sh` using **shell builtins only**: no `jq`, no `python`, no `date`, no `archex`, and no command substitution anywhere. It reads the session directory out of the JSON payload Claude Code writes to stdin (falling back to `$PWD`), walks up to the nearest `.archex/status-snapshot.json`, and parses that document line by line with parameter expansion.
+
+One consequence is handled rather than hidden: computing the `stale` label needs a clock, and POSIX `sh` has no builtin one. The renderer reads `$EPOCHSECONDS`, which bash 5+ provides natively and zsh provides after the builtin `zmodload zsh/datetime`, and the installer therefore picks a clock-bearing interpreter when the host has one. On a host where none does, the renderer reports the measured state without an age or `stale` label instead of spending a `date` fork on every repaint, and `archex status --cached` — which always has a clock — remains the surface that always reports `stale`.
+
+### Verification performed
+
+- The installed script was executed through `/bin/sh` **with an empty `PATH`** against `fresh`, `dirty` (both variants), `pending` (complete and truncated views), `missing`, `corrupt` (unparsable bytes and an unknown state value), and `unsupported` snapshots. Every run printed the expected line, exited 0, and wrote nothing to stderr — which no renderer that shelled out to `jq`, `python`, `date`, or `archex` could do.
+- The `stale`, age, and watch segments were exercised under `/bin/zsh`, the local shell that can read a clock without forking.
+- Session-directory resolution was exercised three ways: the stdin `cwd` payload from an unrelated working directory, a subdirectory of the session repository, and an unrelated directory (which reports `missing` rather than another repository's status).
+- `archex status --cached` was verified to render every state, to resolve the snapshot from a subdirectory, and to work with `IndexStore.__init__` patched to raise.
+- A refused install (a `statusLine` archex did not write) was verified to leave no renderer script behind.
 
 ## Cursor `beforeSubmitPrompt` hook (opt-in, diagnostics-only)
 

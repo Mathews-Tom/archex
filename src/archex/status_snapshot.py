@@ -259,6 +259,25 @@ def project_repo_root(cache_dir: str | Path) -> Path | None:
     return root if ProjectState(repo_root=root).initialized() else None
 
 
+def resolve_status_root(source: str | Path) -> Path:
+    """Repository root whose snapshot describes ``source``.
+
+    A renderer is usually started somewhere inside a repository rather than at
+    its root, so it walks up to the nearest published snapshot. The shell and
+    TypeScript renderers do the same walk, so all three surfaces answer for
+    the same document. Falls back to the resolved source when no snapshot is
+    found, which then reads as ``missing`` at the place the caller named.
+
+    Deliberately not a `git rev-parse`: a renderer must stay subprocess-free,
+    and an upward walk is what the other two renderers can do.
+    """
+    start = Path(source).expanduser().resolve()
+    for candidate in (start, *start.parents):
+        if (candidate / PROJECT_DIR_NAME / SNAPSHOT_FILENAME).is_file():
+            return candidate
+    return start
+
+
 def pending_after_measurement(*, edit_state: PostEditState, index_measured_at: str) -> bool:
     """Whether recorded edits are newer than the last index measurement.
 
