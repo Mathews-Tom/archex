@@ -20,6 +20,7 @@ import pytest
 
 from archex.client_setup import (
     STATUSLINE_SCRIPT_FILENAME,
+    ClaudeCodeStatuslineInstallPlan,
     build_statusline_install_plan,
     write_statusline_install_plan,
 )
@@ -57,6 +58,7 @@ _FORBIDDEN_COMMANDS = (
 
 def _installed_script(repo: Path) -> Path:
     plan = build_statusline_install_plan("claude-code", repo, scope="project", action="install")
+    assert isinstance(plan, ClaudeCodeStatuslineInstallPlan)
     write_statusline_install_plan(plan)
     return plan.script_path
 

@@ -8,6 +8,7 @@ from typing import cast
 import click
 
 from archex.client_setup import (
+    ClaudeCodeStatuslineInstallPlan,
     ClientName,
     ClientScope,
     HookAction,
@@ -132,7 +133,9 @@ def _is_interactive() -> bool:
         "Install the opt-in persistent status surface (R23). Renders the "
         "cached freshness snapshot in the client's own status line, reading "
         "only that snapshot -- it opens no index and starts no archex "
-        "process on repaint. claude-code only."
+        "process on repaint. Supported on claude-code (a statusLine command), "
+        "omp, and pi (a status extension module); codex, cursor, and opencode "
+        "have no persistent status surface and are refused explicitly."
     ),
 )
 @click.option(
@@ -515,7 +518,8 @@ def _run_statusline_action(
     except (ValueError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     if action == "install":
-        click.echo(f"Installed archex status line for {client}: {target}")
-        click.echo(f"Renderer: {plan.script_path}")
+        click.echo(f"Installed archex status surface for {client}: {target}")
+        if isinstance(plan, ClaudeCodeStatuslineInstallPlan):
+            click.echo(f"Renderer: {plan.script_path}")
     else:
-        click.echo(f"Removed archex status line for {client} (if present): {target}")
+        click.echo(f"Removed archex status surface for {client} (if present): {target}")
