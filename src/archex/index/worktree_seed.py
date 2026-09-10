@@ -24,28 +24,35 @@ worktree may legitimately start from?* — and answers it conservatively:
   no name heuristics are involved.
 * **Every refusal is a named disposition.** Nothing is silently skipped.
 
-Selection stops at eligibility. Copying, delta synchronization, and
-installation are a separate concern.
+Once a source is eligible, its index is snapshotted into a staging
+directory, delta-synchronized against the *destination* working tree there,
+and only then published — so a failure at any earlier point leaves the
+destination exactly as it was, and ordinary full indexing remains the
+fallback for every disposition other than `seeded`.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sqlite3
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from archex.cache import CacheManager
+from archex.exceptions import ArchexError
 from archex.index.compat import INDEX_CONFIG_METADATA_KEYS, index_config_metadata_mismatch
-from archex.index.store import CURRENT_SCHEMA_VERSION
+from archex.index.store import CURRENT_SCHEMA_VERSION, IndexStore
 from archex.models import RepoSource
+from archex.state_file import ExclusiveLock, StateFileDiagnostics
 
 if TYPE_CHECKING:
-    from archex.models import IndexConfig
+    from archex.models import Config, IndexConfig
 
 logger = logging.getLogger(__name__)
 
@@ -567,4 +574,420 @@ def select_worktree_seed(
         reason="eligible",
         detail=f"seed source {best.root} at {best.commit_hash[:8]}",
         rejections=tuple(rejections),
+    )
+
+
+#: Name of the sibling lock that serializes seeding for one destination.
+SEED_LOCK_FILENAME = "index-seed.lock"
+
+#: Prefix of a staging directory inside the destination project directory.
+#: Staging lives beside the destination database so publication is a rename
+#: on the same filesystem; a leftover directory means a seeding process died
+#: and is removed by the next seeder while holding the lock.
+_STAGING_PREFIX = ".seed-"
+
+#: How long a seeding attempt waits for the seed lock. Seeding is an
+#: optimization over a full index that costs seconds, so a contended lock
+#: means another process is already doing this work and this one should get
+#: on with ordinary indexing instead of queueing behind a whole copy.
+_SEED_LOCK_TIMEOUT_SECONDS = 0.5
+
+_SEED_DIAGNOSTICS = StateFileDiagnostics(
+    lock_error="worktree-seed-lock-error",
+    lock_timeout="worktree-seed-lock-timeout",
+    write_error="worktree-seed-write-error",
+)
+
+
+@dataclass(frozen=True)
+class WorktreeSeedResult:
+    """Outcome of one seeding attempt for one destination worktree."""
+
+    installed: bool
+    """Whether the destination now holds an index published from a seed."""
+
+    reason: str
+    """`seeded` when installed, else the disposition that refused seeding."""
+
+    detail: str = ""
+    source_root: Path | None = None
+    sync_strategy: str | None = None
+    """`clean` or `delta` when installed; None otherwise."""
+
+    files_changed: int = 0
+    seed_time_ms: float = 0.0
+    rejections: tuple[SeedRejection, ...] = field(default_factory=tuple)
+
+
+def _snapshot_index(source_db: Path, dest_db: Path) -> None:
+    """Copy a candidate index into `dest_db` through SQLite's backup API.
+
+    A filesystem copy of a WAL-mode database without its write-ahead log can
+    omit committed transactions, and copying the log is forbidden — the
+    destination must never receive `-wal`/`-shm` state. `backup()` over a
+    read-only connection instead produces one consistent snapshot that
+    already includes whatever the log holds, while opening the source for
+    reading only. (SQLite may materialize empty `-wal`/`-shm` sidecars
+    beside the *source* for any WAL-mode reader; the source's own commands
+    do the same, and its database bytes are untouched.)
+    """
+    uri = f"file:{quote(str(source_db))}?mode=ro"
+    reader = sqlite3.connect(uri, uri=True, timeout=30.0)
+    try:
+        writer = sqlite3.connect(dest_db)
+        try:
+            reader.backup(writer)
+        finally:
+            writer.close()
+    finally:
+        reader.close()
+
+
+def _staged_copy_rejection(
+    staged_db: Path,
+    *,
+    candidate: SeedCandidate,
+    index_config: IndexConfig,
+) -> str | None:
+    """Re-validate the snapshot that will actually be installed, or None if sound.
+
+    Eligibility was decided against the candidate's database *by path*, and
+    the snapshot is taken from that path again later: between the two, the
+    file can be replaced — by another process publishing its own index over
+    it, or by anything else able to write there. Re-checking the staged
+    bytes makes the validated object and the installed object the same
+    object.
+
+    The schema-object check is separate from that: archex's schema declares
+    no view and no trigger, and both are the SQLite constructs that can
+    carry SQL expressions evaluated during ordinary reads and schema
+    migration. A snapshot that declares one was not written by this
+    program, whatever its metadata claims.
+    """
+    metadata = _read_store_metadata(staged_db, _REQUIRED_METADATA_KEYS)
+    if metadata is None:
+        return "staged snapshot could not be read"
+    if metadata.get("schema_version") != CURRENT_SCHEMA_VERSION:
+        return f"staged snapshot schema {metadata.get('schema_version')!r} is not supported"
+    if metadata.get("needs_reindex") == "true":
+        return "staged snapshot requires a re-index"
+    if metadata.get("commit_hash") != candidate.commit_hash:
+        return (
+            f"staged snapshot revision {metadata.get('commit_hash')!r} is not the "
+            f"{candidate.commit_hash!r} that was validated"
+        )
+    mismatch = index_config_metadata_mismatch(metadata, index_config)
+    if mismatch is not None:
+        return f"staged snapshot {mismatch} does not match the destination's index config"
+
+    conn = sqlite3.connect(f"file:{quote(str(staged_db))}?mode=ro", uri=True, timeout=5.0)
+    try:
+        unexpected = conn.execute(
+            "SELECT type, name FROM sqlite_master WHERE type IN ('view', 'trigger')"
+        ).fetchall()
+    except sqlite3.Error as exc:
+        return f"staged snapshot schema could not be read: {exc}"
+    finally:
+        conn.close()
+    if unexpected:
+        names = ", ".join(f"{row[0]} {row[1]}" for row in unexpected)
+        return f"staged snapshot declares unexpected schema objects: {names}"
+    return None
+
+
+def _remove_stale_staging(project_dir: Path) -> None:
+    """Delete staging directories left by a seeding process that died.
+
+    Only ever called while holding the seed lock, so any staging directory
+    present belongs to a process that is no longer running.
+    """
+    for path in project_dir.glob(f"{_STAGING_PREFIX}*"):
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path, ignore_errors=True)
+
+
+def _stamp_destination_identity(
+    store: IndexStore,
+    *,
+    repo_root: Path,
+    source_identity: str,
+    destination_head: str,
+    config: Config,
+    index_config: IndexConfig,
+) -> None:
+    """Make a seeded store describe the destination rather than its source.
+
+    A copied index still carries the source checkout's identity metadata.
+    Left that way the destination's own cache lookup would reject it and
+    re-index from scratch on the very next command, so the seed would buy
+    nothing. These are the same fields, written in the same order, that the
+    ordinary full-index path records when it publishes a store.
+    """
+    from archex.index.delta import compute_working_tree_signature
+    from archex.serve.generation import finalize_generation_id
+
+    store.set_metadata("commit_hash", destination_head)
+    store.set_metadata("source_identity", source_identity)
+    store.set_metadata("indexed_at", str(time.time()))
+    store.set_metadata("working_tree_signature", compute_working_tree_signature(repo_root, config))
+    finalize_generation_id(store, index_config)
+    store.conn.execute("PRAGMA wal_checkpoint(FULL)")
+
+
+@dataclass(frozen=True)
+class _StagedSync:
+    """Result of delta-syncing a staged seed against the destination tree."""
+
+    strategy: str
+    """`clean`, `delta`, or `too_stale` (nothing publishable)."""
+
+    files_changed: int
+
+
+def _sync_staged_seed(
+    staged_db: Path,
+    *,
+    repo_root: Path,
+    source_identity: str,
+    destination_head: str,
+    config: Config,
+    index_config: IndexConfig,
+) -> _StagedSync:
+    """Delta-sync a staged seed to the destination tree.
+
+    `strategy` is `clean` or `delta` when the staged copy is publishable,
+    and `too_stale` when the destination has drifted at or past
+    `config.delta_threshold` — the same knob ordinary delta indexing and
+    artifact import use. Past that point the staged copy is worth less than
+    a fresh build, so nothing is published and the caller falls back to full
+    indexing; `files_changed` is still reported so the disposition can say
+    how far the tree had moved.
+    """
+    from archex.acquire import discover_files
+    from archex.index.delta import apply_delta, compute_working_tree_delta
+    from archex.index.graph import DependencyGraph
+
+    store = IndexStore(staged_db)
+    try:
+        manifest = compute_working_tree_delta(repo_root, store, config)
+        manifest.base_commit = store.get_metadata("commit_hash") or manifest.base_commit
+        manifest.current_commit = destination_head
+
+        strategy = "clean"
+        files_changed = len(manifest.changes)
+        if manifest.changes:
+            total_files = len(
+                discover_files(
+                    repo_root,
+                    languages=config.languages,
+                    max_file_size=config.max_file_size,
+                ).files
+            )
+            change_ratio = files_changed / total_files if total_files > 0 else 1.0
+            if change_ratio >= config.delta_threshold:
+                logger.info(
+                    "Worktree seed is %.0f%% stale (delta_threshold=%.0f%%) — "
+                    "falling back to a full index.",
+                    change_ratio * 100,
+                    config.delta_threshold * 100,
+                )
+                return _StagedSync(strategy="too_stale", files_changed=files_changed)
+            graph = DependencyGraph.from_edges(store.get_edges())
+            apply_delta(store, graph, manifest, repo_root, config, index_config)
+            strategy = "delta"
+
+        _stamp_destination_identity(
+            store,
+            repo_root=repo_root,
+            source_identity=source_identity,
+            destination_head=destination_head,
+            config=config,
+            index_config=index_config,
+        )
+        return _StagedSync(strategy=strategy, files_changed=files_changed)
+    finally:
+        store.close()
+
+
+def seed_worktree_index(
+    repo_root: Path,
+    *,
+    cache: CacheManager,
+    cache_key: str,
+    source_identity: str,
+    config: Config,
+    index_config: IndexConfig,
+) -> WorktreeSeedResult:
+    """Bootstrap a linked worktree's index from a compatible same-repository seed.
+
+    Never raises for a seeding failure: seeding is an optimization over the
+    ordinary index path, so every refusal and every recoverable error
+    returns a named disposition with `installed=False` and the caller
+    proceeds to index normally. Publication happens once, through
+    `CacheManager.put`, which copies into a sibling temp file, renames it
+    over the destination database, and writes the `index.meta` validity
+    marker last — so an interrupted seed leaves either the previous state or
+    nothing at all, never a half-installed index.
+    """
+    started = time.perf_counter()
+    destination_db = cache.db_path(cache_key)
+    project_dir = destination_db.parent
+
+    if destination_db.exists():
+        return WorktreeSeedResult(
+            installed=False,
+            reason="destination_index_present",
+            detail=f"{destination_db} already exists",
+        )
+    if project_dir.is_symlink() or not project_dir.is_dir():
+        return WorktreeSeedResult(
+            installed=False,
+            reason="destination_unusable",
+            detail=f"{project_dir} is not a usable project directory",
+        )
+
+    destination_head = CacheManager.git_head(str(repo_root))
+    if not destination_head:
+        return WorktreeSeedResult(
+            installed=False,
+            reason="no_destination_revision",
+            detail=f"could not resolve HEAD for {repo_root}",
+        )
+
+    try:
+        selection = select_worktree_seed(
+            repo_root, destination_head=destination_head, index_config=index_config
+        )
+    except (OSError, sqlite3.Error, ArchexError) as exc:
+        # Selection reads directories and databases this process does not
+        # own. This function promises never to fail the indexing command
+        # that asked it for a seed, so the promise has to cover looking for
+        # one as well as installing it.
+        logger.warning(
+            "Looking for a worktree seed in %s failed (%s) — indexing normally.",
+            repo_root,
+            exc,
+        )
+        return WorktreeSeedResult(
+            installed=False,
+            reason="seed_failed",
+            detail=f"{type(exc).__name__}: {exc}",
+            seed_time_ms=round((time.perf_counter() - started) * 1000, 1),
+        )
+    candidate = selection.candidate
+    if candidate is None:
+        return WorktreeSeedResult(
+            installed=False,
+            reason=selection.reason,
+            detail=selection.detail,
+            rejections=selection.rejections,
+        )
+
+    lock = ExclusiveLock(
+        project_dir / SEED_LOCK_FILENAME,
+        timeout=_SEED_LOCK_TIMEOUT_SECONDS,
+        cwd=repo_root,
+        diagnostics=_SEED_DIAGNOSTICS,
+    )
+    with lock as acquired:
+        if not acquired:
+            return WorktreeSeedResult(
+                installed=False,
+                reason="seed_in_progress",
+                detail="another process holds the worktree seed lock",
+                source_root=candidate.root,
+                rejections=selection.rejections,
+            )
+        if destination_db.exists():
+            return WorktreeSeedResult(
+                installed=False,
+                reason="destination_index_present",
+                detail=f"{destination_db} was created while waiting for the seed lock",
+                source_root=candidate.root,
+            )
+
+        _remove_stale_staging(project_dir)
+        staging = project_dir / f"{_STAGING_PREFIX}{os.getpid()}-{time.time_ns()}"
+        try:
+            staging.mkdir(parents=True)
+            staged_db = staging / "index.db"
+            _snapshot_index(candidate.index_path, staged_db)
+            staged_rejection = _staged_copy_rejection(
+                staged_db, candidate=candidate, index_config=index_config
+            )
+            if staged_rejection is not None:
+                return WorktreeSeedResult(
+                    installed=False,
+                    reason="staged_copy_rejected",
+                    detail=staged_rejection,
+                    source_root=candidate.root,
+                    seed_time_ms=round((time.perf_counter() - started) * 1000, 1),
+                    rejections=selection.rejections,
+                )
+            synced = _sync_staged_seed(
+                staged_db,
+                repo_root=repo_root,
+                source_identity=source_identity,
+                destination_head=destination_head,
+                config=config,
+                index_config=index_config,
+            )
+            if synced.strategy == "too_stale":
+                return WorktreeSeedResult(
+                    installed=False,
+                    reason="large_delta",
+                    detail=(
+                        f"{synced.files_changed} file(s) changed, at or past "
+                        f"delta_threshold {config.delta_threshold}"
+                    ),
+                    source_root=candidate.root,
+                    files_changed=synced.files_changed,
+                    seed_time_ms=round((time.perf_counter() - started) * 1000, 1),
+                    rejections=selection.rejections,
+                )
+            cache.put(
+                cache_key,
+                staged_db,
+                resolved_commit=destination_head,
+                source_identity=source_identity,
+            )
+        except (OSError, sqlite3.Error, ArchexError) as exc:
+            logger.warning(
+                "Worktree seeding from %s failed (%s) — falling back to a full index.",
+                candidate.root,
+                exc,
+            )
+            return WorktreeSeedResult(
+                installed=False,
+                reason="seed_failed",
+                detail=f"{type(exc).__name__}: {exc}",
+                source_root=candidate.root,
+                seed_time_ms=round((time.perf_counter() - started) * 1000, 1),
+                rejections=selection.rejections,
+            )
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    # Installing another checkout's index is a cross-directory data import,
+    # so it is recorded here rather than only through the caller's optional
+    # timing object — a library or MCP caller that passes none would
+    # otherwise have it happen with no trace at all.
+    logger.info(
+        "Seeded %s from %s at %s (%s sync, %d file(s) changed, %.0fms)",
+        repo_root,
+        candidate.root,
+        candidate.commit_hash[:8],
+        synced.strategy,
+        synced.files_changed,
+        (time.perf_counter() - started) * 1000,
+    )
+    return WorktreeSeedResult(
+        installed=True,
+        reason="seeded",
+        detail=f"seeded from {candidate.root} at {candidate.commit_hash[:8]}",
+        source_root=candidate.root,
+        sync_strategy=synced.strategy,
+        files_changed=synced.files_changed,
+        seed_time_ms=round((time.perf_counter() - started) * 1000, 1),
+        rejections=selection.rejections,
     )
