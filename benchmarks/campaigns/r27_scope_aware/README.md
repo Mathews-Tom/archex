@@ -24,4 +24,14 @@ PYTHONHASHSEED=0 uv run python "$CAMPAIGN_CHECKOUT/benchmarks/campaigns/r27_scop
   --repo-cache "$REPO_CACHE"
 ```
 
-The complete immutable manifest and all eligible cells are added in the second R27 pull request. R28 implementation, R29 source binding, and R30 execution remain separate external-merge and authorization boundaries.
+## Immutable run manifest
+
+`manifest.json` binds every population, provenance, license, control, power, command, environment, candidate-interface, packing, inference, receipt, failure, and decision identity. `cells.json` enumerates every control/treatment pairing: 4,128 planned cells. Candidate source remains explicitly unbound until R29, after a separately authorized R28 implementation merges. Neither file is a result artifact.
+
+Run the cumulative R27 acceptance command:
+
+```console
+uv run archex benchmark validate --kind scope-aware-campaign --input benchmarks/campaigns/r27_scope_aware
+```
+
+R28 implementation, R29 source binding, and R30 execution remain separate external-merge and authorization boundaries.

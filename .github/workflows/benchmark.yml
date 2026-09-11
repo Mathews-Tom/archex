@@ -54,3 +54,8 @@ jobs:
         run: |
           uv run archex benchmark validate --kind scope-aware-population \
             --input benchmarks/campaigns/r27_scope_aware
+
+      - name: Validate the R27 scope-aware campaign
+        run: |
+          uv run archex benchmark validate --kind scope-aware-campaign \
+            --input benchmarks/campaigns/r27_scope_aware

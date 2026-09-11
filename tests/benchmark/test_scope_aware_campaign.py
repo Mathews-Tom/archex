@@ -14,6 +14,7 @@ from click.testing import CliRunner
 
 from archex.benchmark.scope_aware_campaign import (
     ScopeAwareCampaignError,
+    validate_scope_aware_campaign,
     validate_scope_aware_population,
 )
 from archex.cli.benchmark_cmd import benchmark_cmd
@@ -53,6 +54,20 @@ def _mutate_json(
             key: value for key, value in payload.items() if key != "population_sha256"
         }
         payload["population_sha256"] = _canonical_sha256(digest_payload)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _mutate_and_rehash(
+    directory: Path,
+    filename: str,
+    digest_field: str,
+    mutate: Callable[[dict[str, Any]], None],
+) -> None:
+    path = directory / filename
+    payload: dict[str, Any] = json.loads(path.read_text())
+    mutate(payload)
+    digest_payload = {key: value for key, value in payload.items() if key != digest_field}
+    payload[digest_field] = _canonical_sha256(digest_payload)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
@@ -131,3 +146,108 @@ def test_underpowered_result_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ScopeAwareCampaignError, match="power result drift"):
         validate_scope_aware_population(directory)
+
+
+def test_checked_in_campaign_and_cli_validate() -> None:
+    coverage = validate_scope_aware_campaign(CAMPAIGN_DIR)
+    assert coverage.repositories == 16
+    assert coverage.tasks == 2064
+    assert coverage.cells == 4128
+
+    result = CliRunner().invoke(
+        benchmark_cmd,
+        ["validate", "--kind", "scope-aware-campaign", "--input", str(CAMPAIGN_DIR)],
+    )
+    assert result.exit_code == 0
+    assert result.output == (
+        "Valid R27 scope-aware campaign: 16 repositories / 2,064 tasks / 4,128 cells.\n"
+    )
+
+
+def test_cell_matrix_digest_drift_is_rejected(tmp_path: Path) -> None:
+    directory = _campaign_copy(tmp_path)
+    _mutate_json(
+        directory,
+        "cells.json",
+        lambda payload: payload["cells"][0].update({"eligibility": "changed"}),
+    )
+
+    with pytest.raises(ScopeAwareCampaignError, match="eligibility|digest drift"):
+        validate_scope_aware_campaign(directory)
+
+
+def test_missing_cell_is_rejected_with_repaired_digest(tmp_path: Path) -> None:
+    directory = _campaign_copy(tmp_path)
+    _mutate_and_rehash(
+        directory,
+        "cells.json",
+        "cells_sha256",
+        lambda payload: payload["cells"].pop(),
+    )
+
+    with pytest.raises(ScopeAwareCampaignError, match="4,128 cells"):
+        validate_scope_aware_campaign(directory)
+
+
+def test_duplicate_cell_is_rejected_with_repaired_digest(tmp_path: Path) -> None:
+    directory = _campaign_copy(tmp_path)
+
+    def duplicate(payload: dict[str, Any]) -> None:
+        payload["cells"][-1] = payload["cells"][0]
+
+    _mutate_and_rehash(directory, "cells.json", "cells_sha256", duplicate)
+
+    with pytest.raises(ScopeAwareCampaignError, match="duplicate cell identity"):
+        validate_scope_aware_campaign(directory)
+
+
+def test_candidate_source_must_remain_unbound(tmp_path: Path) -> None:
+    directory = _campaign_copy(tmp_path)
+    _mutate_and_rehash(
+        directory,
+        "manifest.json",
+        "manifest_sha256",
+        lambda payload: payload["candidate_source_binding"].update({"revision": "1" * 40}),
+    )
+
+    with pytest.raises(ScopeAwareCampaignError, match="must remain unbound"):
+        validate_scope_aware_campaign(directory)
+
+
+def test_candidate_formula_drift_is_rejected(tmp_path: Path) -> None:
+    directory = _campaign_copy(tmp_path)
+    _mutate_and_rehash(
+        directory,
+        "manifest.json",
+        "manifest_sha256",
+        lambda payload: payload["candidate_interface"].update({"candidate_limit_per_scope": 151}),
+    )
+
+    with pytest.raises(ScopeAwareCampaignError, match="candidate interface drift"):
+        validate_scope_aware_campaign(directory)
+
+
+def test_inference_margin_drift_is_rejected(tmp_path: Path) -> None:
+    directory = _campaign_copy(tmp_path)
+    _mutate_and_rehash(
+        directory,
+        "manifest.json",
+        "manifest_sha256",
+        lambda payload: payload["inference"]["margins"].update({"MWG": 0.04}),
+    )
+
+    with pytest.raises(ScopeAwareCampaignError, match="inference contract drift"):
+        validate_scope_aware_campaign(directory)
+
+
+def test_unknown_manifest_field_is_rejected(tmp_path: Path) -> None:
+    directory = _campaign_copy(tmp_path)
+    _mutate_and_rehash(
+        directory,
+        "manifest.json",
+        "manifest_sha256",
+        lambda payload: payload.update({"post_hoc_note": "looks good"}),
+    )
+
+    with pytest.raises(ScopeAwareCampaignError, match="post_hoc_note"):
+        validate_scope_aware_campaign(directory)

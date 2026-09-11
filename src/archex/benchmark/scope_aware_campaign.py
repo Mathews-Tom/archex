@@ -16,6 +16,11 @@ CAMPAIGN_ID = "r27-scope-aware-monorepo-ranking"
 PROTOCOL_ID = "R26-CANDIDATE-A"
 CONTROL_REVISION = "1eda0c85de26b4950490062802b41da9f2e00e68"
 POPULATION_FILENAME = "population.json"
+MANIFEST_FILENAME = "manifest.json"
+CELLS_FILENAME = "cells.json"
+EXPECTED_MANIFEST_SHA256 = "20caed725c4091a4ad675ead0d09f8bbd8ee6fcd1844b631480658a862175ca2"
+EXPECTED_MANIFEST_FILE_SHA256 = "e4a35c04c468671b971dc920c250f0003ced0fbc036330aa80cd354998717e4b"
+EXPECTED_CELLS_SHA256 = "cf0fee569c373441875035ae325f47a244362854ec513eaf20c2fb50c313a7eb"
 CONTROL_RECEIPTS_FILENAME = "control_receipts.json"
 POWER_FILENAME = "power.json"
 
@@ -688,3 +693,327 @@ def validate_scope_aware_population(directory: Path) -> ScopeAwarePopulationCove
     _require(power.result.power >= power.result.threshold, "population misses the 0.80 power gate")
 
     return ScopeAwarePopulationCoverage(repositories=16, tasks=2064)
+
+
+class CampaignArtifactDigests(_FrozenModel):
+    population_file_sha256: str = Field(pattern=_HEX_64)
+    population_sha256: str = Field(pattern=_HEX_64)
+    control_receipts_file_sha256: str = Field(pattern=_HEX_64)
+    power_file_sha256: str = Field(pattern=_HEX_64)
+    cells_file_sha256: str = Field(pattern=_HEX_64)
+    cells_sha256: str = Field(pattern=_HEX_64)
+    repository_identity_sha256: str = Field(pattern=_HEX_64)
+    task_label_sha256: str = Field(pattern=_HEX_64)
+
+
+class ScopeAwareCell(_FrozenModel):
+    cell_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    repository_id: str = Field(min_length=1)
+    kind: Literal["single_scope_control", "treatment"]
+    family: Literal[
+        "cross_scope_dependency",
+        "lexical_collision",
+        "single_scope_control",
+        "weak_participation_control",
+    ]
+    arm: Literal["archex_query_control", "scope_aware_candidate"]
+    eligibility: Literal["planned"]
+
+
+class ScopeAwareCells(_FrozenModel):
+    schema_version: Literal[1]
+    campaign_id: Literal["r27-scope-aware-monorepo-ranking"]
+    protocol_id: Literal["R26-CANDIDATE-A"]
+    population_sha256: str = Field(pattern=_HEX_64)
+    arms: tuple[Literal["archex_query_control", "scope_aware_candidate"], ...]
+    planned_cells: Literal[4128]
+    cells: tuple[ScopeAwareCell, ...]
+    cells_sha256: str = Field(pattern=_HEX_64)
+
+
+class ScopeAwareManifest(_FrozenModel):
+    schema_version: Literal[1]
+    campaign_id: Literal["r27-scope-aware-monorepo-ranking"]
+    protocol_id: Literal["R26-CANDIDATE-A"]
+    status: Literal["frozen-before-candidate-source"]
+    frozen_at: str = Field(min_length=1)
+    control_archex_revision: Literal["1eda0c85de26b4950490062802b41da9f2e00e68"]
+    r26_preregistration: Literal[
+        "benchmarks/preregistrations/R26-graft-informed-retrieval-candidate-tests.md"
+    ]
+    graft_inspiration: dict[str, Any]
+    artifact_digests: CampaignArtifactDigests
+    population_contract: dict[str, Any]
+    repository_identity: tuple[dict[str, Any], ...]
+    control_payload_sha256: dict[str, str]
+    candidate_source_binding: dict[str, Any]
+    arms: tuple[dict[str, Any], ...]
+    commands: dict[str, Any]
+    candidate_interface: dict[str, Any]
+    indexing_and_packing: dict[str, Any]
+    determinism: dict[str, Any]
+    inference: dict[str, Any]
+    receipts: dict[str, Any]
+    binding_gates: dict[str, Any]
+    failure_policy: dict[str, Any]
+    decision_rules: dict[str, Any]
+    prohibitions: tuple[str, ...]
+    manifest_sha256: str = Field(pattern=_HEX_64)
+
+
+class ScopeAwareCampaignCoverage(_FrozenModel):
+    repositories: int
+    tasks: int
+    cells: int
+
+
+def _load_raw_model(path: Path, model: type[_ModelT]) -> tuple[dict[str, Any], _ModelT]:
+    try:
+        raw = cast("dict[str, Any]", json.loads(path.read_text()))
+        return raw, model.model_validate(raw)
+    except (OSError, json.JSONDecodeError, ValidationError) as exc:
+        raise ScopeAwareCampaignError(f"Invalid {path.name}: {exc}") from exc
+
+
+def _file_sha256(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ScopeAwareCampaignError(f"Cannot read {path.name}: {exc}") from exc
+
+
+def _expected_repository_identity(
+    repositories: tuple[RepositoryRecord, ...],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "repository_id": repository.repo_id,
+            "repository": repository.repository,
+            "url": repository.url,
+            "commit": repository.commit,
+            "license": repository.license.model_dump(mode="json"),
+            "eligible_source_digest_sha256": repository.eligible_source_digest_sha256,
+            "scope_set_id": repository.scope_set_id,
+        }
+        for repository in repositories
+    ]
+
+
+def _expected_task_labels(tasks: tuple[PopulationTask, ...]) -> list[dict[str, Any]]:
+    return [
+        {
+            "task_id": task.task_id,
+            "repository_id": task.repository_id,
+            "kind": task.kind,
+            "family": task.family,
+            "question": task.question,
+            "expected_files": list(task.expected_files),
+            "required_scopes": list(task.required_scopes),
+            "non_dominant_required_scopes": list(task.non_dominant_required_scopes),
+            "required_file_scopes": task.required_file_scopes,
+        }
+        for task in tasks
+    ]
+
+
+def validate_scope_aware_campaign(directory: Path) -> ScopeAwareCampaignCoverage:
+    """Validate the immutable R27 manifest and complete eligible cell matrix."""
+    population_coverage = validate_scope_aware_population(directory)
+    population = _load_model(directory / POPULATION_FILENAME, ScopeAwarePopulation)
+    receipts = _load_model(directory / CONTROL_RECEIPTS_FILENAME, ControlReceipts)
+    cells_raw, cells = _load_raw_model(directory / CELLS_FILENAME, ScopeAwareCells)
+    manifest_raw, manifest = _load_raw_model(directory / MANIFEST_FILENAME, ScopeAwareManifest)
+
+    cells_without_digest = {key: value for key, value in cells_raw.items() if key != "cells_sha256"}
+    _require(
+        _canonical_sha256(cells_without_digest) == cells.cells_sha256,
+        "cell-matrix digest drift",
+    )
+    manifest_without_digest = {
+        key: value for key, value in manifest_raw.items() if key != "manifest_sha256"
+    }
+    _require(
+        _canonical_sha256(manifest_without_digest) == manifest.manifest_sha256,
+        "manifest digest drift",
+    )
+
+    _require(
+        cells.population_sha256 == population.population_sha256,
+        "cell matrix population identity drift",
+    )
+    _require(
+        cells.arms == ("archex_query_control", "scope_aware_candidate"),
+        "cell arm order drift",
+    )
+    _require(len(cells.cells) == 4128, "cell matrix must contain 4,128 cells")
+    _require(
+        len({cell.cell_id for cell in cells.cells}) == 4128,
+        "duplicate cell identity",
+    )
+
+    tasks = {task.task_id: task for task in population.tasks}
+    expected_pairs = {
+        (task_id, arm)
+        for task_id in tasks
+        for arm in ("archex_query_control", "scope_aware_candidate")
+    }
+    observed_pairs = {(cell.task_id, cell.arm) for cell in cells.cells}
+    _require(observed_pairs == expected_pairs, "missing or undeclared campaign cell")
+    for cell in cells.cells:
+        task = tasks[cell.task_id]
+        _require(
+            cell.cell_id == f"{cell.task_id}::{cell.arm}",
+            f"{cell.cell_id}: non-canonical cell identity",
+        )
+        _require(
+            (
+                cell.repository_id,
+                cell.kind,
+                cell.family,
+            )
+            == (
+                task.repository_id,
+                task.kind,
+                task.family,
+            ),
+            f"{cell.cell_id}: task metadata drift",
+        )
+
+    expected_file_digests = {
+        "population_file_sha256": _file_sha256(directory / POPULATION_FILENAME),
+        "population_sha256": population.population_sha256,
+        "control_receipts_file_sha256": _file_sha256(directory / CONTROL_RECEIPTS_FILENAME),
+        "power_file_sha256": _file_sha256(directory / POWER_FILENAME),
+        "cells_file_sha256": _file_sha256(directory / CELLS_FILENAME),
+        "cells_sha256": cells.cells_sha256,
+        "repository_identity_sha256": _canonical_sha256(
+            _expected_repository_identity(population.repositories)
+        ),
+        "task_label_sha256": _canonical_sha256(_expected_task_labels(population.tasks)),
+    }
+    _require(
+        manifest.artifact_digests.model_dump() == expected_file_digests,
+        "manifest artifact identity drift",
+    )
+    _require(
+        list(manifest.repository_identity)
+        == _expected_repository_identity(population.repositories),
+        "manifest repository identity drift",
+    )
+    _require(
+        manifest.control_payload_sha256
+        == {
+            repository.repo_id: repository.control.payload_sha256
+            for repository in population.repositories
+        },
+        "manifest control payload identity drift",
+    )
+    _require(
+        manifest.determinism.get("operator_environment") == receipts.environment,
+        "manifest operator environment drift",
+    )
+    _require(
+        manifest.population_contract
+        == {
+            "repositories": 16,
+            "tasks_total": 2064,
+            "treatment_tasks": 2048,
+            "single_scope_controls": 16,
+            "tasks_per_repository": 129,
+            "family_counts": EXPECTED_FAMILY_COUNTS,
+            "r19_population_substitution": False,
+            "minimum_dominant_to_required_chunk_ratio": 4.0,
+            "primary_selector": {
+                "field": "kind",
+                "equals": "treatment",
+                "task_count": 2048,
+            },
+            "invariant_selector": {
+                "field": "kind",
+                "equals": "single_scope_control",
+                "task_count": 16,
+            },
+        },
+        "manifest population contract drift",
+    )
+    _require(
+        manifest.candidate_source_binding.get("status") == "unbound-until-r29"
+        and manifest.candidate_source_binding.get("revision") is None
+        and manifest.candidate_source_binding.get("identity_artifact") is None,
+        "candidate source identity must remain unbound until R29",
+    )
+    _require(
+        manifest.candidate_interface.get("candidate_limit_per_scope") == 150
+        and manifest.candidate_interface.get("normalization", {}).get("formula")
+        == "normalized_score = raw_score / repository_global_max_raw_score"
+        and manifest.candidate_interface.get("participation", {}).get("operator") == ">="
+        and manifest.candidate_interface.get("participation", {}).get("threshold") == 0.25
+        and manifest.candidate_interface.get("single_scope")
+        == (
+            "bypass candidate ranking and delegate retrieval, assembly, packing, "
+            "and payload serialization to unchanged archex_query"
+        )
+        and manifest.candidate_interface.get("serialization_delta")
+        == "none in ContextBundle; scope receipt is a separate benchmark sidecar",
+        "candidate interface drift",
+    )
+    _require(
+        manifest.inference.get("independent_unit") == "repository"
+        and manifest.inference.get("primary_selector")
+        == {
+            "kind": "treatment",
+            "paired_tasks": 2048,
+            "single_scope_controls_excluded": 16,
+        }
+        and manifest.inference.get("margins") == {"MWG": 0.05, "NIM": -0.02, "EQM": 0.02}
+        and manifest.inference.get("bootstrap")
+        == {
+            "method": "whole-repository percentile bootstrap",
+            "resamples": 10000,
+            "seed": 20260913,
+            "confidence_interval": 0.95,
+        },
+        "campaign inference contract drift",
+    )
+    _require(
+        manifest.binding_gates.get("warm_p95_milliseconds") == 3000
+        and manifest.binding_gates.get("complete_cells")
+        == "every declared cell appears exactly once as success or recorded failure",
+        "campaign binding gates drift",
+    )
+    _require(
+        manifest.failure_policy.get("planned_cells") == 4128
+        and manifest.failure_policy.get("success_or_recorded_failure") is True
+        and manifest.failure_policy.get("missing_cell") == "invalid campaign result"
+        and manifest.failure_policy.get("duplicate_cell") == "invalid campaign result"
+        and manifest.failure_policy.get("undeclared_cell") == "invalid campaign result"
+        and manifest.failure_policy.get("failed_cell_primary_score") == 0.0,
+        "campaign failure policy drift",
+    )
+    _require(
+        manifest.decision_rules.get("continuation_requires")
+        == [
+            "primary point estimate >= +0.05",
+            "95% interval lower bound > 0",
+            "every binding gate passes",
+        ]
+        and manifest.decision_rules.get("compatible_only_with_NIM_or_EQM") == "EVIDENCE NO-GO"
+        and manifest.decision_rules.get("any_binding_gate_failure") == "EVIDENCE NO-GO",
+        "terminal decision rules drift",
+    )
+    _require(cells.cells_sha256 == EXPECTED_CELLS_SHA256, "unexpected cell-matrix identity")
+    _require(
+        manifest.manifest_sha256 == EXPECTED_MANIFEST_SHA256,
+        "unexpected immutable manifest identity",
+    )
+    _require(
+        _file_sha256(directory / MANIFEST_FILENAME) == EXPECTED_MANIFEST_FILE_SHA256,
+        "unexpected manifest file identity",
+    )
+
+    return ScopeAwareCampaignCoverage(
+        repositories=population_coverage.repositories,
+        tasks=population_coverage.tasks,
+        cells=4128,
+    )
