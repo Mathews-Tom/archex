@@ -1,0 +1,894 @@
+{
+  "milestone": "R24",
+  "repository": "archex",
+  "graph_revision": "555157ddd1199cd9a02690511c9004bcbd3ad577",
+  "graph_archex_version": "0.29.0",
+  "indexed_files": 1182,
+  "graph_nodes": 17473,
+  "graph_edges": 20024,
+  "task_count": 16,
+  "task_ids": [
+    "archex_adapter_registry",
+    "archex_benchmark_gate_lifecycle",
+    "archex_delta_index_lifecycle",
+    "archex_delta_indexing",
+    "archex_graph_expansion",
+    "archex_mcp_query_lifecycle",
+    "archex_pattern_detection",
+    "archex_project_config_resolution",
+    "archex_project_index",
+    "archex_project_init",
+    "archex_project_reset",
+    "archex_project_status",
+    "archex_query_cache_lifecycle",
+    "archex_query_pipeline",
+    "archex_scoring",
+    "archex_vector_cache_lifecycle"
+  ],
+  "profiles": [
+    {
+      "profile": "full",
+      "token_budget": null,
+      "max_files": 40,
+      "context_tokens": 2859,
+      "expected_files": 58,
+      "exact_path_hits": 14,
+      "locatable_files": 44,
+      "unlocated_files": 0,
+      "completeness": 1.0,
+      "mean_locator_breadth": 197.4828,
+      "modeled_exploration_calls": 32,
+      "corpus_files": 1182,
+      "files_named": 127,
+      "files_not_named": 1055,
+      "self_reported_items": 0,
+      "self_reported_sections": 0,
+      "omissions": [
+        {
+          "section": "public_interfaces",
+          "omitted_items": 524,
+          "available_items": 609,
+          "unit": "files",
+          "reason": "section_cap",
+          "reported_by_tool": false
+        },
+        {
+          "section": "complexity_hotspots",
+          "omitted_items": 680,
+          "available_items": 757,
+          "unit": "files",
+          "reason": "section_cap",
+          "reported_by_tool": false
+        },
+        {
+          "section": "test_surface",
+          "omitted_items": 375,
+          "available_items": 417,
+          "unit": "files",
+          "reason": "section_cap",
+          "reported_by_tool": false
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "archex_adapter_registry",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_benchmark_gate_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 2,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 156.4,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_delta_index_lifecycle",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_delta_indexing",
+          "expected_files": 2,
+          "exact_path_hits": 0,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_graph_expansion",
+          "expected_files": 2,
+          "exact_path_hits": 1,
+          "locatable_files": 1,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 130.5,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_mcp_query_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 3,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 104.6,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_pattern_detection",
+          "expected_files": 2,
+          "exact_path_hits": 1,
+          "locatable_files": 1,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 130.5,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_config_resolution",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_index",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 208.2,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_init",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_reset",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_status",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_query_cache_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 208.2,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_query_pipeline",
+          "expected_files": 3,
+          "exact_path_hits": 2,
+          "locatable_files": 1,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 87.3333,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_scoring",
+          "expected_files": 3,
+          "exact_path_hits": 2,
+          "locatable_files": 1,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 87.3333,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_vector_cache_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 208.2,
+          "modeled_exploration_calls": 2
+        }
+      ]
+    },
+    {
+      "profile": "compact",
+      "token_budget": 400,
+      "max_files": null,
+      "context_tokens": 376,
+      "expected_files": 58,
+      "exact_path_hits": 0,
+      "locatable_files": 58,
+      "unlocated_files": 0,
+      "completeness": 1.0,
+      "mean_locator_breadth": 209.5862,
+      "modeled_exploration_calls": 41,
+      "corpus_files": 1182,
+      "files_named": 2,
+      "files_not_named": 1180,
+      "self_reported_items": 94,
+      "self_reported_sections": 7,
+      "omissions": [
+        {
+          "section": "directory_clusters",
+          "omitted_items": 21,
+          "available_items": 39,
+          "unit": "directories",
+          "reason": "folded_directories",
+          "reported_by_tool": true
+        },
+        {
+          "section": "directory_clusters",
+          "omitted_items": 8,
+          "available_items": 18,
+          "unit": "rows",
+          "reason": "token_budget",
+          "reported_by_tool": true
+        },
+        {
+          "section": "reading_order",
+          "omitted_items": 2,
+          "available_items": 16,
+          "unit": "items",
+          "reason": "section_cap",
+          "reported_by_tool": true
+        },
+        {
+          "section": "reading_order",
+          "omitted_items": 14,
+          "available_items": 14,
+          "unit": "rows",
+          "reason": "token_budget",
+          "reported_by_tool": true
+        },
+        {
+          "section": "test_surface",
+          "omitted_items": 33,
+          "available_items": 41,
+          "unit": "directories",
+          "reason": "folded_directories",
+          "reported_by_tool": true
+        },
+        {
+          "section": "test_surface",
+          "omitted_items": 8,
+          "available_items": 8,
+          "unit": "rows",
+          "reason": "token_budget",
+          "reported_by_tool": true
+        },
+        {
+          "section": "configuration_surface",
+          "omitted_items": 8,
+          "available_items": 8,
+          "unit": "rows",
+          "reason": "token_budget",
+          "reported_by_tool": true
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "archex_adapter_registry",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_benchmark_gate_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 0,
+          "locatable_files": 5,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 85.4,
+          "modeled_exploration_calls": 4
+        },
+        {
+          "task_id": "archex_delta_index_lifecycle",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_delta_indexing",
+          "expected_files": 2,
+          "exact_path_hits": 0,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_graph_expansion",
+          "expected_files": 2,
+          "exact_path_hits": 0,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_mcp_query_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 0,
+          "locatable_files": 5,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 169.0,
+          "modeled_exploration_calls": 4
+        },
+        {
+          "task_id": "archex_pattern_detection",
+          "expected_files": 2,
+          "exact_path_hits": 0,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_config_resolution",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_index",
+          "expected_files": 5,
+          "exact_path_hits": 0,
+          "locatable_files": 5,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 214.4,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_init",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 146.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_reset",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 108.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_status",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 203.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_query_cache_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 0,
+          "locatable_files": 5,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 214.4,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_query_pipeline",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_scoring",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_vector_cache_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 0,
+          "locatable_files": 5,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 260.0,
+          "modeled_exploration_calls": 2
+        }
+      ]
+    },
+    {
+      "profile": "compact",
+      "token_budget": 900,
+      "max_files": null,
+      "context_tokens": 830,
+      "expected_files": 58,
+      "exact_path_hits": 12,
+      "locatable_files": 46,
+      "unlocated_files": 0,
+      "completeness": 1.0,
+      "mean_locator_breadth": 103.2759,
+      "modeled_exploration_calls": 46,
+      "corpus_files": 1182,
+      "files_named": 17,
+      "files_not_named": 1165,
+      "self_reported_items": 61,
+      "self_reported_sections": 4,
+      "omissions": [
+        {
+          "section": "directory_clusters",
+          "omitted_items": 21,
+          "available_items": 39,
+          "unit": "directories",
+          "reason": "folded_directories",
+          "reported_by_tool": true
+        },
+        {
+          "section": "reading_order",
+          "omitted_items": 2,
+          "available_items": 16,
+          "unit": "items",
+          "reason": "section_cap",
+          "reported_by_tool": true
+        },
+        {
+          "section": "test_surface",
+          "omitted_items": 33,
+          "available_items": 41,
+          "unit": "directories",
+          "reason": "folded_directories",
+          "reported_by_tool": true
+        },
+        {
+          "section": "configuration_surface",
+          "omitted_items": 5,
+          "available_items": 8,
+          "unit": "rows",
+          "reason": "token_budget",
+          "reported_by_tool": true
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "archex_adapter_registry",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 29.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_benchmark_gate_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 79.2,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_delta_index_lifecycle",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 182.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_delta_indexing",
+          "expected_files": 2,
+          "exact_path_hits": 0,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 143.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_graph_expansion",
+          "expected_files": 2,
+          "exact_path_hits": 0,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 24.5,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_mcp_query_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 3,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 11.6,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_pattern_detection",
+          "expected_files": 2,
+          "exact_path_hits": 1,
+          "locatable_files": 1,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 130.5,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_config_resolution",
+          "expected_files": 4,
+          "exact_path_hits": 1,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 195.25,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_index",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 162.6,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_init",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 146.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_reset",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 108.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_status",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 144.5,
+          "modeled_exploration_calls": 4
+        },
+        {
+          "task_id": "archex_query_cache_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 162.6,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_query_pipeline",
+          "expected_files": 3,
+          "exact_path_hits": 1,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 16.6667,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_scoring",
+          "expected_files": 3,
+          "exact_path_hits": 1,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 16.6667,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_vector_cache_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 2,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 62.8,
+          "modeled_exploration_calls": 3
+        }
+      ]
+    },
+    {
+      "profile": "compact",
+      "token_budget": 1500,
+      "max_files": null,
+      "context_tokens": 877,
+      "expected_files": 58,
+      "exact_path_hits": 12,
+      "locatable_files": 46,
+      "unlocated_files": 0,
+      "completeness": 1.0,
+      "mean_locator_breadth": 103.2759,
+      "modeled_exploration_calls": 46,
+      "corpus_files": 1182,
+      "files_named": 22,
+      "files_not_named": 1160,
+      "self_reported_items": 56,
+      "self_reported_sections": 3,
+      "omissions": [
+        {
+          "section": "directory_clusters",
+          "omitted_items": 21,
+          "available_items": 39,
+          "unit": "directories",
+          "reason": "folded_directories",
+          "reported_by_tool": true
+        },
+        {
+          "section": "reading_order",
+          "omitted_items": 2,
+          "available_items": 16,
+          "unit": "items",
+          "reason": "section_cap",
+          "reported_by_tool": true
+        },
+        {
+          "section": "test_surface",
+          "omitted_items": 33,
+          "available_items": 41,
+          "unit": "directories",
+          "reason": "folded_directories",
+          "reported_by_tool": true
+        }
+      ],
+      "tasks": [
+        {
+          "task_id": "archex_adapter_registry",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 29.0,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_benchmark_gate_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 79.2,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_delta_index_lifecycle",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 182.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_delta_indexing",
+          "expected_files": 2,
+          "exact_path_hits": 0,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 143.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_graph_expansion",
+          "expected_files": 2,
+          "exact_path_hits": 0,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 24.5,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_mcp_query_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 3,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 11.6,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_pattern_detection",
+          "expected_files": 2,
+          "exact_path_hits": 1,
+          "locatable_files": 1,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 130.5,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_config_resolution",
+          "expected_files": 4,
+          "exact_path_hits": 1,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 195.25,
+          "modeled_exploration_calls": 2
+        },
+        {
+          "task_id": "archex_project_index",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 162.6,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_init",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 146.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_reset",
+          "expected_files": 3,
+          "exact_path_hits": 0,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 108.0,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_project_status",
+          "expected_files": 4,
+          "exact_path_hits": 0,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 144.5,
+          "modeled_exploration_calls": 4
+        },
+        {
+          "task_id": "archex_query_cache_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 1,
+          "locatable_files": 4,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 162.6,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_query_pipeline",
+          "expected_files": 3,
+          "exact_path_hits": 1,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 16.6667,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_scoring",
+          "expected_files": 3,
+          "exact_path_hits": 1,
+          "locatable_files": 2,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 16.6667,
+          "modeled_exploration_calls": 3
+        },
+        {
+          "task_id": "archex_vector_cache_lifecycle",
+          "expected_files": 5,
+          "exact_path_hits": 2,
+          "locatable_files": 3,
+          "unlocated_files": 0,
+          "completeness": 1.0,
+          "mean_locator_breadth": 62.8,
+          "modeled_exploration_calls": 3
+        }
+      ]
+    }
+  ]
+}
