@@ -26,11 +26,15 @@ from archex.cache import CacheManager
 from archex.index import worktree_seed
 from archex.index.store import CURRENT_SCHEMA_VERSION, IndexStore
 from archex.index.worktree_seed import (
+    SEED_LOCK_FILENAME,
+    WorktreeSeedResult,
     resolve_checkout_identity,
+    seed_worktree_index,
     select_worktree_seed,
 )
-from archex.models import Config, IndexConfig, RepoSource
+from archex.models import Config, IndexConfig, PipelineTiming, RepoSource
 from archex.project import init_project
+from archex.state_file import ExclusiveLock, StateFileDiagnostics
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
@@ -40,12 +44,20 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+#: Default corpus for a fixture repository. Wide enough that changing one
+#: file stays well below `Config.delta_threshold` (0.5), so a delta case in
+#: these tests exercises the delta path rather than the staleness fallback.
+_DEFAULT_FILES = {
+    f"mod_{index}.py": f"def value_{index}() -> int:\n    return {index}\n" for index in range(8)
+}
+
+
 def _init_repo(root: Path, *, files: dict[str, str] | None = None) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     _git(root, "init", "-b", "main")
     _git(root, "config", "user.email", "test@archex.test")
     _git(root, "config", "user.name", "archex-test")
-    for name, body in (files or {"a.py": "def a() -> int:\n    return 1\n"}).items():
+    for name, body in (files or _DEFAULT_FILES).items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
@@ -632,3 +644,370 @@ class TestSelectWorktreeSeed:
             assert store.get_chunk_count() > 0
         finally:
             store.close()
+
+
+def _destination_cache(repo: Path) -> tuple[CacheManager, str]:
+    """The project-layout cache manager and cache key a destination would use."""
+    cache = CacheManager(cache_dir=str(repo / ".archex"), project_layout=True)
+    return cache, cache.cache_key(RepoSource(local_path=str(repo)))
+
+
+def _seed(repo: Path, *, config: Config | None = None) -> WorktreeSeedResult:
+    """Run a seeding attempt exactly as the indexing path would."""
+    cache, cache_key = _destination_cache(repo)
+    return seed_worktree_index(
+        repo,
+        cache=cache,
+        cache_key=cache_key,
+        source_identity=str(repo),
+        config=config or Config(languages=["python"], cache=True, cache_dir=str(repo / ".archex")),
+        index_config=IndexConfig(),
+    )
+
+
+def _open_store_snapshot(store: IndexStore) -> tuple[list[str], list[str]]:
+    """Sorted chunk ids and indexed file paths of an open store."""
+    return (
+        sorted(chunk.id for chunk in store.get_chunks()),
+        sorted(store.get_file_states()),
+    )
+
+
+def _store_snapshot(index_path: Path) -> tuple[list[str], list[str]]:
+    """Sorted chunk ids and indexed file paths of a store on disk."""
+    store = IndexStore(index_path)
+    try:
+        return _open_store_snapshot(store)
+    finally:
+        store.close()
+
+
+@pytest.fixture
+def seed_destination(seeded_pair: tuple[Path, Path]) -> tuple[Path, Path]:
+    """A linked worktree with initialized project state but no index yet."""
+    main, linked = seeded_pair
+    init_project(linked)
+    assert not (linked / ".archex" / "index.db").exists()
+    return main, linked
+
+
+class TestSeedWorktreeIndex:
+    def test_clean_seed_publishes_a_usable_destination_index(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        main, linked = seed_destination
+        _cache, cache_key = _destination_cache(linked)
+
+        result = _seed(linked)
+
+        assert result.installed
+        assert result.reason == "seeded"
+        assert result.sync_strategy == "clean"
+        assert result.files_changed == 0
+        assert result.source_root == main.resolve()
+
+        index_path = linked / ".archex" / "index.db"
+        assert index_path.is_file()
+        meta = json.loads((linked / ".archex" / "index.meta").read_text(encoding="utf-8"))
+        assert meta["cache_key"] == cache_key
+        assert meta["resolved_commit"] == _head(linked)
+
+        store = IndexStore(index_path)
+        try:
+            assert store.get_chunk_count() > 0
+            assert store.get_metadata("source_identity") == str(linked)
+            assert store.get_metadata("commit_hash") == _head(linked)
+            assert store.get_metadata("working_tree_signature") == "clean"
+            assert store.get_metadata("generation_id")
+        finally:
+            store.close()
+
+    def test_seeded_index_is_reused_instead_of_rebuilt(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        """The point of stamping identity: the next index run must not rebuild."""
+        _main, linked = seed_destination
+        assert _seed(linked).installed
+
+        timing = PipelineTiming()
+        store = index_repository(
+            RepoSource(local_path=str(linked)),
+            config=Config(languages=["python"], cache=True, cache_dir=str(linked / ".archex")),
+            index_config=IndexConfig(),
+            timing=timing,
+        )
+        store.close()
+
+        assert timing.strategy == "cached"
+
+    def test_seeded_index_survives_a_new_destination_commit(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        """A new commit changes the cache key, so reuse then rests on stamped identity.
+
+        The `index.meta` marker is keyed on the destination's resolved path
+        *and* its HEAD, so the exact-hit path stops matching as soon as the
+        worktree commits. What keeps the seeded store from being thrown away
+        at that point is its `source_identity`, which the seed rewrote to the
+        destination — without it, the next run indexes from scratch.
+        """
+        _main, linked = seed_destination
+        assert _seed(linked).installed
+        (linked / "committed.py").write_text("def committed() -> int:\n    return 5\n")
+        _git(linked, "add", "-A")
+        _git(linked, "commit", "-m", "destination commit")
+
+        timing = PipelineTiming()
+        store = index_repository(
+            RepoSource(local_path=str(linked)),
+            config=Config(languages=["python"], cache=True, cache_dir=str(linked / ".archex")),
+            index_config=IndexConfig(),
+            timing=timing,
+        )
+        store.close()
+
+        assert timing.strategy == "delta"
+
+    def test_delta_seed_applies_destination_changes(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        _main, linked = seed_destination
+        (linked / "added.py").write_text("def added() -> int:\n    return 3\n", encoding="utf-8")
+
+        result = _seed(linked)
+
+        assert result.installed
+        assert result.sync_strategy == "delta"
+        assert result.files_changed == 1
+        chunks, files = _store_snapshot(linked / ".archex" / "index.db")
+        assert "added.py" in files
+        assert any("added.py" in chunk for chunk in chunks)
+
+    def test_seeded_and_clean_built_indexes_agree(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        """Retrieval equivalence: identical corpora and identical generation identity."""
+        _main, linked = seed_destination
+        (linked / "extra.py").write_text("def extra() -> int:\n    return 4\n", encoding="utf-8")
+        assert _seed(linked).installed
+        seeded_store = IndexStore(linked / ".archex" / "index.db")
+        try:
+            seeded = _open_store_snapshot(seeded_store)
+            seeded_generation = seeded_store.get_metadata("generation_id")
+        finally:
+            seeded_store.close()
+
+        # The comparison build gets a cache directory outside the repository:
+        # an untracked directory inside it would itself be discovered content.
+        clean_store = index_repository(
+            RepoSource(local_path=str(linked)),
+            config=Config(
+                languages=["python"], cache=True, cache_dir=str(linked.parent / "isolated")
+            ),
+            index_config=IndexConfig(),
+        )
+        try:
+            clean = _open_store_snapshot(clean_store)
+            clean_generation = clean_store.get_metadata("generation_id")
+        finally:
+            clean_store.close()
+
+        assert seeded == clean
+        assert seeded_generation == clean_generation
+
+    def test_large_delta_installs_nothing(self, seed_destination: tuple[Path, Path]) -> None:
+        _main, linked = seed_destination
+        for existing in linked.glob("*.py"):
+            existing.write_text("REWRITTEN = True\n", encoding="utf-8")
+
+        result = _seed(
+            linked,
+            config=Config(
+                languages=["python"],
+                cache=True,
+                cache_dir=str(linked / ".archex"),
+                delta_threshold=0.1,
+            ),
+        )
+
+        assert not result.installed
+        assert result.reason == "large_delta"
+        assert not (linked / ".archex" / "index.db").exists()
+        assert not (linked / ".archex" / "index.meta").exists()
+
+    def test_incompatible_source_installs_nothing(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        main, linked = seed_destination
+        _set_metadata(main / ".archex" / "index.db", "needs_reindex", "true")
+
+        result = _seed(linked)
+
+        assert not result.installed
+        assert result.reason == "no_eligible_seed"
+        assert [rejection.reason for rejection in result.rejections] == ["needs_reindex"]
+        assert not (linked / ".archex" / "index.db").exists()
+
+    def test_second_attempt_reports_the_existing_index(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        _main, linked = seed_destination
+        assert _seed(linked).installed
+
+        result = _seed(linked)
+
+        assert not result.installed
+        assert result.reason == "destination_index_present"
+
+    def test_a_concurrent_seeder_is_not_queued_behind(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        _main, linked = seed_destination
+        holder = ExclusiveLock(
+            linked / ".archex" / SEED_LOCK_FILENAME,
+            timeout=1.0,
+            cwd=linked,
+            diagnostics=StateFileDiagnostics(
+                lock_error="test-lock-error",
+                lock_timeout="test-lock-timeout",
+                write_error="test-write-error",
+            ),
+        )
+        with holder as acquired:
+            assert acquired
+            result = _seed(linked)
+
+        assert not result.installed
+        assert result.reason == "seed_in_progress"
+        assert not (linked / ".archex" / "index.db").exists()
+
+    def test_failure_mid_seed_leaves_the_destination_untouched(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        _main, linked = seed_destination
+
+        with patch(
+            "archex.index.worktree_seed._sync_staged_seed",
+            side_effect=sqlite3.DatabaseError("staged copy is corrupt"),
+        ):
+            result = _seed(linked)
+
+        assert not result.installed
+        assert result.reason == "seed_failed"
+        assert "staged copy is corrupt" in result.detail
+        assert not (linked / ".archex" / "index.db").exists()
+        assert not (linked / ".archex" / "index.meta").exists()
+        assert list((linked / ".archex").glob(".seed-*")) == []
+
+    def test_snapshot_swapped_after_validation_is_refused(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        """The database that was validated must be the database that is installed.
+
+        Eligibility is decided against the candidate's path; the snapshot is
+        taken from that path again afterwards. Anything able to write there
+        in between — another process publishing its own index, say — would
+        otherwise get unvalidated bytes installed.
+        """
+        _main, linked = seed_destination
+        foreign = _init_repo(linked.parent / "foreign", files={"f.py": "F = 1\n"})
+        _build_project_index(foreign)
+
+        original = worktree_seed._snapshot_index  # pyright: ignore[reportPrivateUsage]
+
+        def swapped(source_db: Path, dest_db: Path) -> None:
+            del source_db
+            original(foreign / ".archex" / "index.db", dest_db)
+
+        with patch.object(worktree_seed, "_snapshot_index", swapped):
+            result = _seed(linked)
+
+        assert not result.installed
+        assert result.reason == "staged_copy_rejected"
+        assert "revision" in result.detail
+        assert not (linked / ".archex" / "index.db").exists()
+
+    def test_snapshot_declaring_a_trigger_is_refused(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        """archex's schema declares no trigger; a snapshot that does is not ours."""
+        _main, linked = seed_destination
+        original = worktree_seed._snapshot_index  # pyright: ignore[reportPrivateUsage]
+
+        def with_trigger(source_db: Path, dest_db: Path) -> None:
+            original(source_db, dest_db)
+            conn = sqlite3.connect(dest_db)
+            try:
+                conn.execute(
+                    "CREATE TRIGGER poison AFTER INSERT ON chunks BEGIN SELECT randomblob(1); END"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        with patch.object(worktree_seed, "_snapshot_index", with_trigger):
+            result = _seed(linked)
+
+        assert not result.installed
+        assert result.reason == "staged_copy_rejected"
+        assert "trigger poison" in result.detail
+        assert not (linked / ".archex" / "index.db").exists()
+
+    def test_a_failure_while_looking_for_a_seed_never_fails_indexing(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        """Looking for a seed reads other checkouts; that must not fail the command."""
+        _main, linked = seed_destination
+
+        with patch.object(
+            worktree_seed, "select_worktree_seed", side_effect=OSError(5, "I/O error")
+        ):
+            result = _seed(linked)
+
+        assert not result.installed
+        assert result.reason == "seed_failed"
+        assert "I/O error" in result.detail
+        assert not (linked / ".archex" / "index.db").exists()
+
+    def test_staging_left_by_a_dead_seeder_is_reclaimed(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        _main, linked = seed_destination
+        abandoned = linked / ".archex" / ".seed-999999-1"
+        abandoned.mkdir()
+        (abandoned / "index.db").write_text("partial", encoding="utf-8")
+
+        result = _seed(linked)
+
+        assert result.installed
+        assert not abandoned.exists()
+        assert list((linked / ".archex").glob(".seed-*")) == []
+
+    def test_only_index_state_crosses_over(self, seed_destination: tuple[Path, Path]) -> None:
+        """Locks, WAL/SHM, sessions, metrics, and settings must never be copied."""
+        main, linked = seed_destination
+        source_project = main / ".archex"
+        excluded = (
+            "index.db-wal",
+            "index.db-shm",
+            "status-snapshot.json",
+            "status-snapshot.lock",
+            "post-edit-state.json",
+            "session.db",
+        )
+        for name in excluded:
+            (source_project / name).write_text("source-only", encoding="utf-8")
+        (source_project / "metrics").mkdir(exist_ok=True)
+        (source_project / "metrics" / "events.jsonl").write_text("{}\n", encoding="utf-8")
+        source_settings = (source_project / "settings.toml").read_text(encoding="utf-8")
+        (source_project / "settings.toml").write_text(
+            source_settings + '\n[marker]\nfrom_source = "yes"\n', encoding="utf-8"
+        )
+
+        assert _seed(linked).installed
+
+        destination_names = {path.name for path in (linked / ".archex").iterdir()}
+        assert destination_names.isdisjoint({*excluded, "metrics"})
+        assert "from_source" not in (linked / ".archex" / "settings.toml").read_text(
+            encoding="utf-8"
+        )
