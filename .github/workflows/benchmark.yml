@@ -1,6 +1,13 @@
 name: Benchmark contract
 
 on:
+  pull_request:
+    paths:
+      - "benchmarks/campaigns/r27_scope_aware/**"
+      - "src/archex/benchmark/scope_aware_campaign.py"
+      - "src/archex/cli/benchmark_cmd.py"
+      - "tests/benchmark/test_scope_aware_campaign.py"
+      - ".github/workflows/benchmark.yml"
   workflow_dispatch:
   schedule:
     - cron: "0 6 * * 1"
@@ -42,3 +49,8 @@ jobs:
           uv run archex benchmark validate --kind replication \
             --input benchmarks/evidence/s0-cast-replication.json
           uv run pytest --no-cov tests/benchmark/test_s0_replication_artifacts.py
+
+      - name: Validate the R27 scope-aware population
+        run: |
+          uv run archex benchmark validate --kind scope-aware-population \
+            --input benchmarks/campaigns/r27_scope_aware

@@ -1,0 +1,415 @@
+{
+  "campaign_id": "r27-scope-aware-monorepo-ranking",
+  "control_archex_revision": "1eda0c85de26b4950490062802b41da9f2e00e68",
+  "environment": {
+    "archex": "0.30.0",
+    "architecture": "arm64",
+    "cpu": "Apple M1 Pro",
+    "index_config": {
+      "allow_remote_code": false,
+      "bm25": true,
+      "chunk_max_tokens": 500,
+      "chunk_min_tokens": 50,
+      "chunker": "default",
+      "documentation_evidence_providers": [],
+      "embedder": null,
+      "history_evidence_providers": [],
+      "identifier_fragment_tokenization": false,
+      "module_prefilter": false,
+      "quantize_bits": 4,
+      "quantize_vectors": true,
+      "rerank": false,
+      "rerank_candidate_limit": 4,
+      "rerank_model": null,
+      "retrieval_policy": "auto",
+      "runtime_evidence_providers": [],
+      "semantic_evidence_providers": [],
+      "splade": false,
+      "surrogate_version": "v1",
+      "token_encoding": "cl100k_base",
+      "vector": false,
+      "vector_mode": "raw"
+    },
+    "kernel": "Darwin 25.6.0",
+    "os": "darwin",
+    "python": "3.11.11",
+    "query": {
+      "explicit_token_budget": true,
+      "lifecycle": "one unmeasured index/query warm-up followed by two measured warm queries in one process",
+      "parallel": false,
+      "python_hash_seed": 0,
+      "refresh": false,
+      "token_budget": 4000
+    },
+    "uv": "0.6.14"
+  },
+  "measured_at": "2026-09-11T21:34:54Z",
+  "payload_encoding": "UTF-8 canonical JSON: sort_keys=true, separators=(comma,colon), ensure_ascii=false",
+  "payload_projection": [
+    "query",
+    "chunks",
+    "structural_context",
+    "type_definitions",
+    "dependency_summary",
+    "token_count",
+    "token_budget",
+    "truncated"
+  ],
+  "protocol_id": "R26-CANDIDATE-A",
+  "repositories": [
+    {
+      "commit": "427f56c647ab57e4a6234c65d7105a10d1b8dac4",
+      "expected_file": "packages/babel-generator/src/buffer.ts",
+      "expected_file_returned": true,
+      "question": "Where is Buffer implemented?",
+      "repository": "babel/babel",
+      "repository_id": "babel-babel",
+      "scope": "packages/babel-generator",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 38901,
+          "payload_sha256": "699a84c8e668eff88c3760c35d0e7e34ce47d014782a6e9cb5ec5e727dad1824",
+          "run": 1
+        },
+        {
+          "payload_bytes": 38901,
+          "payload_sha256": "699a84c8e668eff88c3760c35d0e7e34ce47d014782a6e9cb5ec5e727dad1824",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "121c2ae6d5796917d90024514c9f7ddb5a76df83",
+      "expected_file": "packages/expect/src/asymmetricMatchers.ts",
+      "expected_file_returned": true,
+      "question": "Where is Any implemented?",
+      "repository": "jestjs/jest",
+      "repository_id": "jestjs-jest",
+      "scope": "packages/expect",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 20694,
+          "payload_sha256": "87469c03556c81b2b828c13dc292a874a38268a93feef398b898cbad502f7725",
+          "run": 1
+        },
+        {
+          "payload_bytes": 20694,
+          "payload_sha256": "87469c03556c81b2b828c13dc292a874a38268a93feef398b898cbad502f7725",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "99bd9d1d46153fa939f4a304cc0177db42e28776",
+      "expected_file": "packages/plugin-legacy/src/index.ts",
+      "expected_file_returned": true,
+      "question": "Where is babel implemented?",
+      "repository": "vitejs/vite",
+      "repository_id": "vitejs-vite",
+      "scope": "packages/plugin-legacy",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 26468,
+          "payload_sha256": "97724ebd962f9dc5a59b2f2fc42979b942d1c27adccb427db58bbebbb0f011d3",
+          "run": 1
+        },
+        {
+          "payload_bytes": 26468,
+          "payload_sha256": "97724ebd962f9dc5a59b2f2fc42979b942d1c27adccb427db58bbebbb0f011d3",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "2ce29d5fa758046e5453bd92b8ed6c9da9709bb5",
+      "expected_file": "packages/vitest/src/api/check.ts",
+      "expected_file_returned": true,
+      "question": "Where is isValidApiRequest implemented?",
+      "repository": "vitest-dev/vitest",
+      "repository_id": "vitest-dev-vitest",
+      "scope": "packages/vitest",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 24303,
+          "payload_sha256": "65e00580ff91358450a61ccdd1ace1a9df60c59166e56b789b479f58a20cf1ab",
+          "run": 1
+        },
+        {
+          "payload_bytes": 24303,
+          "payload_sha256": "65e00580ff91358450a61ccdd1ace1a9df60c59166e56b789b479f58a20cf1ab",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "7f49dda9875a1d3aca53a0aa9ec8892690c04367",
+      "expected_file": "pnpm11/exec/commands/src/buildCommandNotFoundHint.ts",
+      "expected_file_returned": true,
+      "question": "Where is buildCommandNotFoundHint implemented?",
+      "repository": "pnpm/pnpm",
+      "repository_id": "pnpm-pnpm",
+      "scope": "pnpm11/exec/commands",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 21562,
+          "payload_sha256": "80260b09350612345537912a4b3331ef55c5c824846980f534a9bdca8211a4fd",
+          "run": 1
+        },
+        {
+          "payload_bytes": 21562,
+          "payload_sha256": "80260b09350612345537912a4b3331ef55c5c824846980f534a9bdca8211a4fd",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "57081c05a398f25c92df1dc78752f2053576cec0",
+      "expected_file": "packages/yarnpkg-core/rollup.config.js",
+      "expected_file_returned": true,
+      "question": "Where is wrapOutput implemented?",
+      "repository": "yarnpkg/berry",
+      "repository_id": "yarnpkg-berry",
+      "scope": "packages/yarnpkg-core",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 26740,
+          "payload_sha256": "f48c4b274b3ba3e4038263a029bb2768cde404ebb3382d9455dfa09ef56db113",
+          "run": 1
+        },
+        {
+          "payload_bytes": 26740,
+          "payload_sha256": "f48c4b274b3ba3e4038263a029bb2768cde404ebb3382d9455dfa09ef56db113",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "d78a9e71f2565e474b627baae00b6da71ebc2ea8",
+      "expected_file": "packages/playwright-core/src/androidServerImpl.ts",
+      "expected_file_returned": true,
+      "question": "Where is AndroidServerLauncherImpl implemented in androidServerImpl.ts?",
+      "repository": "microsoft/playwright",
+      "repository_id": "microsoft-playwright",
+      "scope": "packages/playwright-core",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 43016,
+          "payload_sha256": "1e5f9401147879f10f13d719308d3d8d243133a57423ebe154caaee31004cf02",
+          "run": 1
+        },
+        {
+          "payload_bytes": 43016,
+          "payload_sha256": "1e5f9401147879f10f13d719308d3d8d243133a57423ebe154caaee31004cf02",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "130daa8865e31c4b27e975e1f6ec79356ff19e75",
+      "expected_file": "libraries/rush-daemon/src/CommandResultPolicy.ts",
+      "expected_file_returned": true,
+      "question": "Where is IPhasedCommandResultOptions implemented?",
+      "repository": "microsoft/rushstack",
+      "repository_id": "microsoft-rushstack",
+      "scope": "libraries/rush-daemon",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 36223,
+          "payload_sha256": "05be8fcb14973d8a51b0861431d24fd44c38da1ea870f009e9178c20f2388778",
+          "run": 1
+        },
+        {
+          "payload_bytes": 36223,
+          "payload_sha256": "05be8fcb14973d8a51b0861431d24fd44c38da1ea870f009e9178c20f2388778",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "50efd6a296aadc0f79fa3cfc0b3ac17ad69d2be2",
+      "expected_file": "packages/js/src/executors/copy-workspace-modules/copy-workspace-modules.ts",
+      "expected_file_returned": true,
+      "question": "Where is CopiedManifest implemented?",
+      "repository": "nrwl/nx",
+      "repository_id": "nrwl-nx",
+      "scope": "packages/js",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 30130,
+          "payload_sha256": "4b7d62edca25777325157b21253a62836c4d7a34f529296f33047d2649bf39ed",
+          "run": 1
+        },
+        {
+          "payload_bytes": 30130,
+          "payload_sha256": "4b7d62edca25777325157b21253a62836c4d7a34f529296f33047d2649bf39ed",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "197c5070fe0fb3a411a73fc36b2554ff72973ecb",
+      "expected_file": "code/lib/docgen-harness/src/angular/__storyshapes__/button-shapes/base-args.stories.ts",
+      "expected_file_returned": true,
+      "question": "Where is Base implemented?",
+      "repository": "storybookjs/storybook",
+      "repository_id": "storybookjs-storybook",
+      "scope": "code/lib/docgen-harness",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 13859,
+          "payload_sha256": "ceb43dad076b6cb4154fc3bcf0e0c350894e5ad2e51e483bf13d47d0043c10c3",
+          "run": 1
+        },
+        {
+          "payload_bytes": 13859,
+          "payload_sha256": "ceb43dad076b6cb4154fc3bcf0e0c350894e5ad2e51e483bf13d47d0043c10c3",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "62a348bf47370d977c2c481c068b0eef353c0226",
+      "expected_file": "packages/mui-material/src/Accordion/Accordion.js",
+      "expected_file_returned": true,
+      "question": "Where is Accordion implemented?",
+      "repository": "mui/material-ui",
+      "repository_id": "mui-material-ui",
+      "scope": "packages/mui-material",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 43872,
+          "payload_sha256": "d4d16df6b9446c4c078b43dcc16a9094bea9af2bc73d3573bfeeff754737075e",
+          "run": 1
+        },
+        {
+          "payload_bytes": 43872,
+          "payload_sha256": "d4d16df6b9446c4c078b43dcc16a9094bea9af2bc73d3573bfeeff754737075e",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "f9fa885f670b61ed6a09458649a426a8e4cdeeb4",
+      "expected_file": "apps/factory/agent/channels/eve.ts",
+      "expected_file_returned": true,
+      "question": "Where is operatorSession implemented?",
+      "repository": "vercel/turborepo",
+      "repository_id": "vercel-turborepo",
+      "scope": "apps/factory",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 23421,
+          "payload_sha256": "e466cadfcfe5f29aa2cbb338de324531810b64aa34760ca685d8ef328b21ef88",
+          "run": 1
+        },
+        {
+          "payload_bytes": 23421,
+          "payload_sha256": "e466cadfcfe5f29aa2cbb338de324531810b64aa34760ca685d8ef328b21ef88",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "a3a31b96436a0c5fc33266a19c02cfa4fd2c03c0",
+      "expected_file": "packages/core/application-config.ts",
+      "expected_file_returned": true,
+      "question": "Where is ApplicationConfig implemented?",
+      "repository": "nestjs/nest",
+      "repository_id": "nestjs-nest",
+      "scope": "packages/core",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 33814,
+          "payload_sha256": "be149d90c41ae40f86eef2461123b13e521487ff3d8a9b41baac11fda8763e9e",
+          "run": 1
+        },
+        {
+          "payload_bytes": 33814,
+          "payload_sha256": "be149d90c41ae40f86eef2461123b13e521487ff3d8a9b41baac11fda8763e9e",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "7452ef68a2901fc9a5673a8e5f53185a506b182f",
+      "expected_file": "packages/query-core/src/environmentManager.ts",
+      "expected_file_returned": true,
+      "question": "Where is IsServerValue implemented?",
+      "repository": "TanStack/query",
+      "repository_id": "tanstack-query",
+      "scope": "packages/query-core",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 29608,
+          "payload_sha256": "18baf2f5a52c3e6bf7c02975d9cf54c1ce419ef1488cc229ef3621cddf00b925",
+          "run": 1
+        },
+        {
+          "payload_bytes": 29608,
+          "payload_sha256": "18baf2f5a52c3e6bf7c02975d9cf54c1ce419ef1488cc229ef3621cddf00b925",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "66d054454a3339dd8421da9dcf0648f92816f704",
+      "expected_file": "packages/server/src/@trpc/server/index.ts",
+      "expected_file_returned": true,
+      "question": "Where is inferAsyncReturnType implemented?",
+      "repository": "trpc/trpc",
+      "repository_id": "trpc-trpc",
+      "scope": "packages/server",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 26711,
+          "payload_sha256": "967fec9d39049657458cdb7ca0f1b18f83bde44a19db8ccbfd0a9bb5b41f45ee",
+          "run": 1
+        },
+        {
+          "payload_bytes": 26711,
+          "payload_sha256": "967fec9d39049657458cdb7ca0f1b18f83bde44a19db8ccbfd0a9bb5b41f45ee",
+          "run": 2
+        }
+      ]
+    },
+    {
+      "commit": "74665295902472afe6834ddad7467a2fce33b3fc",
+      "expected_file": "tokio-util/src/cfg.rs",
+      "expected_file_returned": true,
+      "question": "Where is cfg_codec implemented?",
+      "repository": "tokio-rs/tokio",
+      "repository_id": "tokio-rs-tokio",
+      "scope": "tokio-util",
+      "scope_marker_count": 1,
+      "warm_runs": [
+        {
+          "payload_bytes": 15263,
+          "payload_sha256": "51ee90d8c4f958fdda574b8fe9c012c84d8eeead4b83670bc30f122257905622",
+          "run": 1
+        },
+        {
+          "payload_bytes": 15263,
+          "payload_sha256": "51ee90d8c4f958fdda574b8fe9c012c84d8eeead4b83670bc30f122257905622",
+          "run": 2
+        }
+      ]
+    }
+  ],
+  "reproduction_command": "cd \"$CONTROL_WORKTREE\" && PYTHONHASHSEED=0 uv run python \"$CAMPAIGN_CHECKOUT/benchmarks/campaigns/r27_scope_aware/reproduce_controls.py\" --population \"$CAMPAIGN_CHECKOUT/benchmarks/campaigns/r27_scope_aware/population.json\" --receipts \"$CAMPAIGN_CHECKOUT/benchmarks/campaigns/r27_scope_aware/control_receipts.json\" --repo-cache \"$REPO_CACHE\"",
+  "schema_version": 1
+}
