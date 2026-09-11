@@ -246,6 +246,7 @@ worktrees created with `git worktree add --detach`:
 
 | Arm | Strategy | Wall time | Index phase | Seed phase |
 |---|---|---|---|---|
+| Seeded, 1 file drifted | `seeded` / `delta` | 2.60 s | 2,327 ms | 1,871 ms |
 | Seeded, 3 files drifted | `seeded` / `delta` | 2.89 s | 2,326 ms | 2,234 ms |
 | Seeded, 18 files drifted | `seeded` / `delta` | 4.09 s | 3,438 ms | 3,337 ms |
 | Seeded, tree unchanged | `seeded` / `clean` | 2.11 s | 1,501 ms | 1,445 ms |
@@ -280,13 +281,16 @@ different tail ranking.** Corpus, chunk ids, counts and `generation_id` still
 agree, but `apply_delta` records different edge *evidence* for the files it
 reparses than a full parse does (`[]` where a full build records
 `["resolved import …"]`), and it does not re-add every unresolved-import
-edge. Structural scoring reads those edges, so a query *can* return a
-different file at the bottom of a bounded result set — observed once, with
-18 files drifted; with 3 files drifted the seeded and full builds returned
-identical rows. This is a property of delta indexing, not of seeding: an
-ordinary `archex index` after a one-line edit produces the same divergence
-from a fresh full build, which is why the meaningful comparison is the first
-one above. The only metadata difference
+edge. Structural scoring reads those edges, so a query can rank a reparsed
+file differently, which shows up at the bottom of a bounded result set:
+measured on this repository, a seed that reparsed one file returned 13 of
+the 14 rows a full build returned, and the missing row was a chunk of that
+very file — no row was unique to the seeded side. A seed that reparsed three
+files returned identical rows. This is a property of delta indexing, not of
+seeding: an ordinary `archex index` after a one-line edit produces the same
+divergence from a fresh full build (identical edge endpoints, `[]` where the
+full build records `["resolved import …"]`), which is why the meaningful
+comparison is the first one above. The only metadata difference
 is `delta_applied`, which honestly records that the store reached its state
 through a delta.
 
