@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import os
 import re
+import secrets
 import shutil
 import sqlite3
 import subprocess
@@ -23,6 +26,40 @@ _KEY_RE = re.compile(r"^[0-9a-f]{64}$")
 # indexes many repos or many past commits of one repo. put() opportunistically
 # bounds this without requiring a manual `archex cache clean` invocation.
 _DEFAULT_MAX_CACHE_ENTRIES = 500
+
+#: Where this machine's cache-marker secret lives. Deliberately outside any
+#: repository and outside any configurable cache directory: its whole
+#: purpose is to be something repository content cannot contain.
+MACHINE_SECRET_PATH = Path("~/.archex/machine-id")
+
+
+def _machine_secret() -> bytes:
+    """Return this machine's cache-marker secret, creating it on first use.
+
+    Read failures fall back to a process-lifetime random value rather than
+    to a constant: a secret that cannot be persisted must make markers
+    unverifiable (costing a re-index) instead of making them forgeable.
+    """
+    path = MACHINE_SECRET_PATH.expanduser()
+    try:
+        if path.exists():
+            recorded = path.read_bytes().strip()
+            if recorded:
+                return recorded
+        secret = secrets.token_hex(32).encode()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_bytes(secret + b"\n")
+        tmp.chmod(0o600)
+        tmp.replace(path)
+        return secret
+    except OSError:
+        return secrets.token_hex(32).encode()
+
+
+def marker_hmac(key: str) -> str:
+    """Authentication tag a cache marker must carry for `key` on this machine."""
+    return hmac.new(_machine_secret(), key.encode(), hashlib.sha256).hexdigest()
 
 
 class CacheManager:
@@ -120,6 +157,40 @@ class CacheManager:
             pass
         return None
 
+    @property
+    def project_layout(self) -> bool:
+        """Whether this cache is a repository's own `.archex` directory.
+
+        A project-layout cache lives inside the repository, so its files can
+        be repository *content* — committed by whoever published the
+        repository — while a keyed cache directory is only ever written by
+        archex itself.
+        """
+        return self._project_layout
+
+    def marker_matches(self, key: str) -> bool:
+        """Whether archex itself wrote this cache marker, for exactly `key`.
+
+        Two independent things are checked. The marker must name `key` —
+        `cache_key` is `sha256("<resolved absolute path>@<commit>")`, so it
+        describes one directory at one revision. And it must carry a valid
+        `marker_hmac` over that key, keyed on this machine's secret.
+
+        The HMAC is what makes the marker evidence rather than a hint. Both
+        halves of `cache_key` are guessable: the commit can be the
+        attacker's own, and checkout paths are fixed on CI runners
+        (`/home/runner/work/<repo>/<repo>`) and in container images
+        (`/workspace`, `/app`). Without a secret, anyone who can predict the
+        path could commit a marker beside a database and have it accepted.
+        The secret never leaves `~/.archex/machine-id`, so repository
+        content cannot produce a matching HMAC for any path.
+        """
+        meta = self.get_meta(key)
+        if meta.get("cache_key") != key:
+            return False
+        recorded = meta.get("marker_hmac", "")
+        return bool(recorded) and hmac.compare_digest(recorded, marker_hmac(key))
+
     def _validate_key(self, key: str) -> None:
         if not _KEY_RE.match(key):
             raise CacheError(
@@ -210,6 +281,10 @@ class CacheManager:
         meta = self.meta_path(key)
         meta_data: dict[str, Any] = {
             "cache_key": key,
+            # Authenticates the marker to this machine. A marker is the only
+            # evidence that archex, rather than repository content, produced
+            # the store beside it.
+            "marker_hmac": marker_hmac(key),
             "created_at": str(time.time()),
             "resolved_commit": resolved_commit or "",
             "source_identity": source_identity or "",
@@ -223,13 +298,21 @@ class CacheManager:
         return dest
 
     def get_meta(self, key: str) -> dict[str, str]:
-        """Read cache metadata for a key. Returns empty dict if missing."""
+        """Read cache metadata for a key. Returns an empty dict if unusable.
+
+        A marker that cannot be read at all — non-UTF-8 bytes, a directory
+        where a file belongs, a permission error — is indistinguishable from
+        a missing one for every caller's purpose, and callers use this to
+        *decide* whether a cache entry may be reused. Reading it must
+        therefore never raise into them.
+        """
         import json
 
         meta = self.meta_path(key)
-        if not meta.exists():
+        try:
+            raw = meta.read_text().strip()
+        except (OSError, UnicodeDecodeError):
             return {}
-        raw = meta.read_text().strip()
         # Backward compat: old meta files contain bare timestamp
         if raw and not raw.startswith("{"):
             return {"created_at": raw}
