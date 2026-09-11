@@ -10,6 +10,36 @@ Operator evidence from the 2026-06-09 retrieval-default benchmark keeps `archex_
 - Keep `archex_query` as the product default; the 2026-06-09 run did not satisfy the strategy switch rule.
 - Do not refresh `benchmarks/dogfood_baseline.json` without explicit approval after a proven improvement.
 
+## R26 retrieval-candidate eligibility
+
+On 2026-09-12, a human explicitly authorized reconsideration of the strategic freeze for one purpose: decide whether two Graft-informed candidates may receive a future benchmark-only implementation plan. This is a planning carve-out, not a Gate A pass or an implementation, run, product, or promotion authorization.
+
+### Candidate eligibility matrix
+
+| Candidate or action | Eligibility after R26 | Binding boundary |
+| --- | --- | --- |
+| Scope-aware monorepo ranking | Eligible only for a future benchmark-only implementation plan | Deterministic scope discovery, shared repository-wide IDF, per-scope normalization, a participation gate, byte-identical retrieved-and-packed context on the single-scope fallback, and searched/included/rejected-scope receipts are mandatory. Candidate-specific scope receipt fields are the only permitted single-scope serialization difference. Personalized PageRank is forbidden. |
+| Symbol-aware exhaustive grep | Eligible only for a future benchmark-only implementation plan | Repository-wide regex and fixed-string matching must remain separate from semantic retrieval, preserve exact source lines, group hits by enclosing indexed symbol, expose searched-file and truncation counts, and treat coupling/fan-in only as ordering metadata. |
+| Personalized PageRank | Ineligible | The measured lane regressed recall, F1, and MAP and added latency; it remains retired. |
+| File-first or round-robin default ranking | Ineligible | The archived C6 family did not recover recall across the broader frontier and remains closed. |
+| Candidate implementation or strategy registration | Not authorized | Requires a separate plan and fresh pre-implementation design gate after the R26 documents merge. |
+| Corpus construction, benchmark execution, or result publication | Not authorized | R26 may pre-register task-family requirements only; it produces no task, corpus, run, artifact, or result. |
+| Product-default change | Not authorized | `archex_query` remains the default. Any later candidate must clear every existing promotion gate on a clean run. |
+| New MCP tool or capability | Not authorized | The exhaustive-grep candidate receives no MCP surface under this carve-out. |
+| Gate A reinterpretation | Not authorized | Gate A remains failed and non-renegotiable; R26 does not revive any cancelled milestone. |
+
+### Future-plan admission gates
+
+A later benchmark-only implementation plan is admissible only when all of these statements are true:
+
+1. It names exactly one candidate from the two eligible rows above and preserves that row's mandatory invariants.
+2. It uses the matching tracked R26 pre-registration without changing its hypothesis, primary metric, task-family requirements, margins, latency gate, receipt gate, or terminal disposition after data exists.
+3. It keeps the candidate opt-in and benchmark-only. Registration in product strategy surfaces, MCP disclosure, or defaults is out of scope.
+4. It requires the retrieved and packed context bytes to match `archex_query` exactly on every single-scope control for scope-aware ranking; only the candidate's searched/included/rejected-scope receipt fields may differ. Symbol-aware grep requires exhaustive hit accounting independent of semantic-retrieval output.
+5. It fails closed when the required task family, provenance, receipts, comparison identity, or warm-latency evidence is incomplete.
+
+Eligibility authorizes planning only. It does not establish that either candidate is useful, implementable, non-inferior, or promotion-eligible.
+
 
 ## Candidate region and context-efficiency gate inputs
 
