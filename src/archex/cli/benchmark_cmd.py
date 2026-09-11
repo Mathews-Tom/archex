@@ -124,6 +124,10 @@ from archex.benchmark.reporter import (
     format_summary,
 )
 from archex.benchmark.runner import DEFAULT_STRATEGIES, load_selected_tasks, run_all
+from archex.benchmark.scope_aware_campaign import (
+    ScopeAwareCampaignError,
+    validate_scope_aware_population,
+)
 from archex.benchmark.scorecard import (
     build_m3_scorecard_artifact,
     format_m3_scorecard_markdown,
@@ -900,11 +904,7 @@ def determinism_economics_cmd(sessions: Path, output: Path, preregistration_comm
     "input_path",
     default=None,
     type=click.Path(file_okay=True, dir_okay=True),
-    help=(
-        "Evidence directory to validate with --kind evidence, "
-        "replication artifact file to validate with --kind replication, "
-        "or product-loop artifact directory to validate with --kind product-loop."
-    ),
+    help=("Evidence file or directory to validate with an input-backed benchmark validation kind."),
 )
 @click.option(
     "--kind",
@@ -920,6 +920,7 @@ def determinism_economics_cmd(sessions: Path, output: Path, preregistration_comm
             "corpus-audit",
             "determinism-economics-r6-1",
             "product-loop",
+            "scope-aware-population",
         ]
     ),
     show_default=True,
@@ -941,10 +942,21 @@ def validate_cmd(
         "corpus-audit",
         "determinism-economics-r6-1",
         "product-loop",
+        "scope-aware-population",
     }:
         if input_path is None:
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
+    if kind == "scope-aware-population" and target is not None:
+        try:
+            coverage = validate_scope_aware_population(target)
+        except ScopeAwareCampaignError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Valid R27 scope-aware population: {coverage.repositories} repositories / "
+            f"{coverage.tasks:,} tasks."
+        )
+        return
     if kind == "product-loop" and target is not None:
         manifest_path = Path("benchmarks/headtohead/manifest.yaml")
         try:

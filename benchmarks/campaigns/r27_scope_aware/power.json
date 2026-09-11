@@ -1,0 +1,50 @@
+{
+  "calibration": {
+    "artifact": "benchmarks/evidence/s2-corpus-validity.json",
+    "balanced_clusters_note": "with 128 tasks per repository, pooled simulated mean equals equal-weight repository mean",
+    "effect_sd_basis": "estimated between-repository spread was below sampling noise"
+  },
+  "campaign_id": "r27-scope-aware-monorepo-ranking",
+  "cluster_sizes": [
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128,
+    128
+  ],
+  "command": "uv run python -c \"from archex.benchmark.corpus_audit import simulate_power; print(simulate_power([128] * 16, base_rate=0.5, cluster_sd=0.08, effect_points=5.0, effect_sd=0.0, simulations=10000, resamples=1000, seed=20260912))\"",
+  "independent_unit": "repository",
+  "method": "archex.benchmark.corpus_audit.simulate_power",
+  "parameters": {
+    "base_rate": 0.5,
+    "cluster_sd": 0.08,
+    "effect_points": 5.0,
+    "effect_sd": 0.0,
+    "resamples": 1000,
+    "seed": 20260912,
+    "simulations": 10000
+  },
+  "primary_selector": {
+    "kind": "treatment",
+    "single_scope_controls_excluded": 16,
+    "task_count": 2048
+  },
+  "result": {
+    "mean_ci_width_percentage_points": 5.7060986328125,
+    "passes": true,
+    "power": 0.9048,
+    "threshold": 0.8
+  },
+  "schema_version": 1
+}
