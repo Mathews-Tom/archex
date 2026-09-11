@@ -14,6 +14,7 @@ from archex.config import load_config
 from archex.index.delta import compute_working_tree_signature
 from archex.index.store import IndexStore
 from archex.integrations.mcp import handle_session
+from archex.models import RepoSource
 from archex.project import ProjectState, init_project
 from archex.session import (
     SessionRecordKind,
@@ -24,16 +25,31 @@ from archex.session import (
 
 
 def _make_fresh_index(repo: Path) -> None:
+    """Hand-build the state a real index run leaves, marker included.
+
+    The cache marker is part of that state, not an optional extra: an index
+    without one is of unknown origin (`.archex/index.db` is an ordinary file
+    a published repository can commit), so every surface that reads the
+    index refuses it.
+    """
     init_project(repo)
     project = ProjectState.resolve(repo)
     config = load_config(project.repo_root)
+    commit = CacheManager.git_head(str(repo)) or ""
     with IndexStore(project.index_path) as store:
-        store.set_metadata("commit_hash", CacheManager.git_head(str(repo)) or "")
+        store.set_metadata("commit_hash", commit)
         store.set_metadata(
             "working_tree_signature",
             compute_working_tree_signature(project.repo_root, config),
         )
         store.clear_reindex_flag()
+    cache = CacheManager(cache_dir=str(project.project_dir), project_layout=True)
+    cache.put(
+        cache.cache_key(RepoSource(local_path=str(repo)), head_override=commit),
+        project.index_path,
+        resolved_commit=commit,
+        source_identity=str(repo),
+    )
 
 
 def test_primer_renders_explicit_records_and_rejects_stale_index(

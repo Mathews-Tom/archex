@@ -1148,17 +1148,12 @@ class TestIndexingIntegration:
         assert "seed_disposition" not in summary
         assert "Worktree seed" not in result.output
 
-    def test_seeding_can_be_disabled_in_project_settings(
-        self, seed_destination: tuple[Path, Path]
+    def test_seeding_can_be_disabled_for_the_machine(
+        self, seed_destination: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """`worktree_seed` is machine-level: a repository cannot flip it either way."""
         _main, linked = seed_destination
-        settings = linked / ".archex" / "settings.toml"
-        settings.write_text(
-            settings.read_text(encoding="utf-8").replace(
-                "worktree_seed = true", "worktree_seed = false"
-            ),
-            encoding="utf-8",
-        )
+        monkeypatch.setenv("ARCHEX_WORKTREE_SEED", "0")
 
         result = CliRunner().invoke(cli, ["index", str(linked), "--format", "json"])
 

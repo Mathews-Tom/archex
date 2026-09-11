@@ -32,7 +32,7 @@ _FRESH_STATES = frozenset({"fresh"})
 
 #: Inspected states with no index to describe, where a leftover snapshot would
 #: keep advertising a measurement of something that is gone.
-_UNDESCRIBABLE_STATES = frozenset({"uninitialized", "missing_index", "corrupt"})
+_UNDESCRIBABLE_STATES = frozenset({"uninitialized", "missing_index", "corrupt", "unprovenanced"})
 
 
 @click.command("status")
@@ -69,7 +69,7 @@ def status_cmd(source: str, strict: bool, cached: bool, output_format: str) -> N
     else:
         _render_text(status)
 
-    if status.state == "corrupt" or (strict and status.state != "fresh"):
+    if status.state in {"corrupt", "unprovenanced"} or (strict and status.state != "fresh"):
         raise click.exceptions.Exit(1)
 
 

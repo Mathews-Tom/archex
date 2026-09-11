@@ -220,8 +220,12 @@ every other falls through to ordinary indexing.
 
 ## Turning it off
 
+`worktree_seed` is a **machine-level** setting. A repository's own
+`.archex/settings.toml` cannot set it, because repository content must not
+decide whether archex consumes repository content:
+
 ```toml
-# .archex/settings.toml
+# ~/.archex/config.toml
 [index]
 worktree_seed = false
 ```

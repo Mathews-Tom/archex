@@ -111,6 +111,16 @@ the artifact's export-time revision. Immediately after import, it runs
 `archex init --from-artifact` reports the chosen strategy, files changed,
 and sync time.
 
+Import finishes by adopting the store: the imported database is stamped
+with this checkout's revision, source identity, working-tree signature and
+generation id, and `.archex/index.meta` is written for this checkout's own
+cache key. Without that the store would still claim the exporter's
+identity and carry no cache marker, so the very next command would discard
+it and pay the full re-index the import existed to avoid — and reusing a
+repo-local index requires that marker, since an index database is
+otherwise entirely self-describing (see
+[the trust contract](INSTALLATION_TRUST_CONTRACT.md#cache-locations)).
+
 ## `.gitattributes` management
 
 Committing a binary artifact into git risks merge conflicts every time two

@@ -457,11 +457,74 @@ def _full_reindex_in_place(
         shutil.rmtree(scratch_dir, ignore_errors=True)
 
 
+def _adopt_imported_store(
+    repo_root: Path,
+    dest_db_path: Path,
+    config: Config,
+    index_config: IndexConfig,
+    source_identity: str,
+) -> None:
+    """Make a just-imported store this checkout's own, marker included.
+
+    An imported store still carries the exporting machine's identity, and
+    carries no cache marker at all — so without this the destination's own
+    cache lookup discards it and the next command pays the full re-index the
+    import existed to avoid. Reusing a repo-local index also *requires* the
+    marker, since an index database is otherwise self-describing: the marker
+    is this machine's assertion about a store it has just installed.
+
+    Identity is stamped for any destination. The marker is published only
+    when the destination really is a repository's own `.archex/index.db`,
+    because that is the only shape `CacheManager`'s project layout
+    addresses; publishing it for another path would copy the freshly synced
+    database to a second file and then describe that copy instead.
+    """
+    from archex.cache import CacheManager
+    from archex.index.adopt import stamp_project_index_identity
+    from archex.models import RepoSource
+    from archex.project import PROJECT_DIR_NAME
+
+    store = IndexStore(dest_db_path)
+    try:
+        commit_hash = (
+            CacheManager.git_head(str(repo_root)) or store.get_metadata("commit_hash") or ""
+        )
+        stamp_project_index_identity(
+            store,
+            repo_root=repo_root,
+            source_identity=source_identity,
+            commit_hash=commit_hash,
+            config=config,
+            index_config=index_config,
+        )
+    finally:
+        store.close()
+
+    is_project_index = (
+        dest_db_path.name == "index.db"
+        and dest_db_path.parent.name == PROJECT_DIR_NAME
+        and dest_db_path.parent.parent.resolve() == repo_root.resolve()
+    )
+    if not commit_hash or not is_project_index:
+        logger.info(
+            "Imported store at %s stamped but not marked: %s",
+            dest_db_path,
+            "no resolvable revision" if not commit_hash else "not a repo-local project index",
+        )
+        return
+
+    cache = CacheManager(cache_dir=str(dest_db_path.parent), project_layout=True)
+    key = cache.cache_key(RepoSource(local_path=str(repo_root)), head_override=commit_hash)
+    cache.put(key, dest_db_path, resolved_commit=commit_hash, source_identity=source_identity)
+
+
 def sync_imported_artifact(
     repo_root: Path,
     dest_db_path: str | Path,
     config: Config,
     index_config: IndexConfig | None = None,
+    *,
+    source_identity: str | None = None,
 ) -> ArtifactSyncResult:
     """Bring a freshly-imported artifact store up to date with the working tree.
 
@@ -474,14 +537,36 @@ def sync_imported_artifact(
     that point a targeted delta costs more than starting fresh, and a loud
     fallback is safer than silently syncing a misleadingly "close enough"
     index.
+
+    The synchronized store is then adopted as this checkout's own —
+    identity metadata plus the cache marker — so the next command reuses it
+    instead of re-indexing.
     """
+    dest_db_path = Path(dest_db_path)
+    effective_index_config = index_config or IndexConfig()
+    result = _sync_imported_store(repo_root, dest_db_path, config, effective_index_config)
+    _adopt_imported_store(
+        repo_root,
+        dest_db_path,
+        config,
+        effective_index_config,
+        source_identity if source_identity is not None else str(repo_root),
+    )
+    return result
+
+
+def _sync_imported_store(
+    repo_root: Path,
+    dest_db_path: Path,
+    config: Config,
+    effective_index_config: IndexConfig,
+) -> ArtifactSyncResult:
+    """Delta-sync an imported store to the working tree, or re-index it in place."""
     from archex.acquire import discover_files
     from archex.cache import CacheManager
     from archex.index.delta import apply_delta, compute_working_tree_delta
     from archex.index.graph import DependencyGraph
 
-    dest_db_path = Path(dest_db_path)
-    effective_index_config = index_config or IndexConfig()
     t_start = time.perf_counter()
 
     store = IndexStore(dest_db_path)

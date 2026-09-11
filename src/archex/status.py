@@ -8,6 +8,7 @@ from pathlib import Path
 
 from archex.cache import CacheManager
 from archex.config import load_config
+from archex.index.adopt import project_index_is_provenanced
 from archex.index.delta import compute_working_tree_signature
 from archex.index.store import IndexStore
 from archex.metrics.storage import MetricsStore, metrics_db_path
@@ -80,6 +81,30 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
             languages={},
             vector_index_available=False,
             dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
+        )
+
+    if not project_index_is_provenanced(project.repo_root, index_path):
+        # Every surface built on this inspection serves the store it names —
+        # `archex status`, `doctor`, `setup`, the session primer, and the
+        # tool-call hook, which injects symbol rows straight into an agent's
+        # context. `.archex/index.db` is an ordinary file a published
+        # repository can commit, so an index without archex's own marker is
+        # of unknown origin: it is reported as such rather than read.
+        return ProjectStatus(
+            repo_root=project.repo_root,
+            initialized=True,
+            state="unprovenanced",
+            index_path=index_path,
+            current_commit=current_commit,
+            indexed_commit="",
+            working_tree="unknown",
+            files_indexed=0,
+            chunks_indexed=0,
+            chunks_fts=0,
+            languages={},
+            vector_index_available=False,
+            dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
+            error="index carries no archex cache marker for this checkout",
         )
 
     config = load_config(project.repo_root)
