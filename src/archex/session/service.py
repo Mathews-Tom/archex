@@ -6,7 +6,9 @@ import re
 import subprocess
 from pathlib import Path
 
+from archex.graph_artifact import build_arch_graph_from_store
 from archex.index.store import IndexStore
+from archex.onboarding import CompactOrientation, render_compact_orientation
 from archex.project import ProjectState
 from archex.receipt import index_revision_from_store
 from archex.reporting import count_tokens
@@ -107,10 +109,24 @@ def render_session_primer(
     source: str | Path,
     *,
     token_budget: int = DEFAULT_SESSION_TOKEN_BUDGET,
+    orientation_budget: int = 0,
 ) -> SessionPrimer:
-    """Render bounded current-session state; stale indexes return no context."""
+    """Render bounded current-session state; stale indexes return no context.
+
+    `token_budget` bounds the explicit records. `orientation_budget` is an
+    opt-in second ceiling: when positive and the index is fresh, the compact
+    orientation profile is appended after the records, so existing primer
+    output stays a byte-for-byte prefix of the result. The SessionStart hook
+    never requests it -- its 0.5 s deadline cannot hold a graph build.
+
+    `receipt.consumed_budget` measures the records only, so `consumed <=
+    requested` remains a checkable invariant; the orientation's own cost is
+    reported in `receipt.orientation`.
+    """
     if token_budget <= 0:
         raise ValueError("session token budget must be positive")
+    if orientation_budget < 0:
+        raise ValueError("session orientation budget must not be negative")
 
     project = ProjectState.resolve(source)
     status = inspect_project_status(project.repo_root)
@@ -162,14 +178,20 @@ def render_session_primer(
         project.repo_root,
         branch,
     )
-    content = _render_primer(project.repo_root, branch, index_revision, included)
+    records_content = _render_primer(project.repo_root, branch, index_revision, included)
+    orientation = _render_orientation(project, orientation_budget)
+    content = (
+        records_content if orientation is None else f"{records_content}\n{orientation.content}"
+    )
     return SessionPrimer(
         ready=True,
         content=content,
         records=included,
         receipt=SessionReceipt(
             requested_budget=token_budget,
-            consumed_budget=count_tokens(content),
+            # Records-only, so `consumed <= requested` stays a checkable invariant.
+            # The appended orientation reports its own ceiling in `orientation`.
+            consumed_budget=count_tokens(records_content),
             index_revision=index_revision,
             index_state=status.state,
             worktree_state=status.working_tree,
@@ -177,8 +199,23 @@ def render_session_primer(
             included_record_ids=[record.id for record in included],
             skipped_records=skipped,
             recommended_next_action="use_primer",
+            orientation=orientation.receipt if orientation is not None else None,
         ),
     )
+
+
+def _render_orientation(
+    project: ProjectState, orientation_budget: int
+) -> CompactOrientation | None:
+    """Project the existing index graph into the compact orientation profile."""
+    if orientation_budget <= 0:
+        return None
+    store = IndexStore(project.index_path)
+    try:
+        graph = build_arch_graph_from_store(store, repo_root=project.repo_root)
+    finally:
+        store.close()
+    return render_compact_orientation(graph, token_budget=orientation_budget)
 
 
 def _ledger(project: ProjectState) -> SessionLedger:

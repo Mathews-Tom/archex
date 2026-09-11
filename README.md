@@ -352,6 +352,7 @@ archex doctor --format json
 # Architecture and graph surfaces
 archex analyze --format markdown
 archex onboard
+archex onboard --profile compact --token-budget 900  # opt-in strict-budget orientation view with an omission receipt
 archex graph export --output .archex/archgraph.json
 archex graph path src/archex/cli/query_cmd.py src/archex/serve/context.py --graph .archex/archgraph.json --format markdown
 archex impact --changed-file src/archex/serve/context.py
@@ -458,6 +459,7 @@ Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs.
 - [Worktree Index Seeding](docs/WORKTREE_INDEX_SEEDING.md) — how a fresh linked worktree bootstraps from a verified same-repository index instead of a full cold build
 - [Language Promotion Gate](docs/LANGUAGE_PROMOTION_GATE.md) — the recall/ranking-stability regression gate every language-tier promotion runs against
 - [Explorer Usability Evidence](docs/EXPLORER_USABILITY_EVIDENCE.md) — the timed orientation paths, browser verification, and offline-export evidence behind `archex explore`
+- [Compact Orientation Profile](docs/COMPACT_ORIENTATION.md) — the opt-in strict-budget orientation view, its budget and omission-receipt contract, and why the `SessionStart` hook does not carry it
 
 ## License
 

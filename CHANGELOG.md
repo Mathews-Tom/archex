@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Opt-in compact orientation profile.** `archex onboard --profile compact --token-budget N`, `archex session prime --orientation-budget N`, and MCP `generate_onboarding`'s new `profile`/`token_budget` properties render one strict-budget orientation view over the same `ArchGraph` the existing guide reads: adaptive directory clusters that refine the largest cluster first and compress single-child chains, the existing `GraphQuery` degree ranking presented as a reading order, the test and configuration surfaces, and an omission receipt naming every section the budget, a section cap, or directory folding dropped. The budget is a hard ceiling measured with the same tokenizer as context receipts, the receipt is reserved before any content row so it can never itself be truncated, and a budget too small to hold the overview plus that receipt is refused with the minimum required. Every listed item keeps an exact fetch handle — a repository-relative path, or the exact directory prefix a cluster stands for. No MCP tool was added: the tool count stays 20 and the retrieval-gated default schema surface (`context` and `query_repo`, 3286 characters) is byte-identical, so the profile costs a client nothing until it asks for it. Default output on every surface is unchanged, and the Claude Code `SessionStart` hook deliberately does not carry orientation, because its 0.5 s deadline cannot hold a graph build and a timeout there would suppress the records primer entirely. See [Compact Orientation Profile](docs/COMPACT_ORIENTATION.md).
+
+### Fixed
+
+- **Repository-controlled paths can no longer break out of an onboarding row.** Both onboarding profiles wrapped every path in a single-backtick code span, and a backtick is a legal POSIX filename character that `git ls-files` emits unquoted — so a repository could close the span and inject prose into whatever consumed the view, which now includes an agent session primer. Handles are rendered with a delimiter one longer than the longest backtick run in the text, padded per CommonMark when the text starts or ends with a backtick; for any path without a backtick the output is byte-identical to before. Paths containing control characters cannot be contained by inline escaping at all — a newline ends the row whatever the delimiter, letting an attacker-supplied graph artifact fabricate headings and receipt lines — so they are dropped and counted in the compact receipt under a new `unrenderable_path` reason instead of being emitted.
+
 ## [0.29.0] - 2026-09-10
 
 ### Added

@@ -39,6 +39,15 @@
       "total_chars": 1382
     }
   },
+  "post_m11_property_additions": {
+    "generate_onboarding_compact_profile": {
+      "measured_at": "2026-09-11",
+      "source_revision": "feat/r24-compact-orientation (PR #647); re-stamped to the merged commit post-merge",
+      "note": "R24 added the `profile` and `token_budget` properties to the existing generate_onboarding inputSchema (715 -> 1056 chars). No tool was added: tool_count stays 20, and the gated default surface (context + query_repo, 3286 chars / 765 tokens) is byte-identical, so the compact orientation profile costs a client nothing until it has already retrieved. The revision names the branch rather than a commit because the measurement cannot be reproduced at this change's parent (where generate_onboarding is 715 chars) and a commit cannot record its own hash; the post-merge pass replaces it with the durable merged commit.",
+      "tool_count": 0,
+      "total_chars": 341
+    }
+  },
   "m11_final_per_tool_chars": {
     "analyze_repo": 570,
     "compare_repos": 718,
@@ -61,17 +70,17 @@
     "search_symbols": 689
   },
   "current_surface": {
-    "measured_at": "2026-08-18",
-    "source_revision": "15efa6222606d2370d51b57782b662c6dc57c7f5",
-    "all": { "tool_count": 20, "total_chars": 16984 },
-    "core": { "tool_count": 15, "total_chars": 13512 },
+    "measured_at": "2026-09-11",
+    "source_revision": "feat/r24-compact-orientation (PR #647); re-stamped to the merged commit post-merge",
+    "all": { "tool_count": 20, "total_chars": 17325 },
+    "core": { "tool_count": 15, "total_chars": 13853 },
     "graph": { "tool_count": 5, "total_chars": 3472 },
     "per_tool_chars": {
       "analyze_repo": 570,
       "compare_repos": 718,
       "context": 2279,
       "explain_target": 892,
-      "generate_onboarding": 715,
+      "generate_onboarding": 1056,
       "get_file_outline": 433,
       "get_file_tree": 503,
       "get_impact": 1118,

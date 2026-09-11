@@ -6,6 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from archex.cache import CacheManager
@@ -199,3 +200,45 @@ def test_session_cli_records_lists_and_requires_delete_confirmation(
     assert unconfirmed_delete.exit_code != 0
     assert "requires --force" in unconfirmed_delete.output
     assert deleted.exit_code == 0, deleted.output
+
+
+def test_primer_orientation_is_opt_in_and_appends_without_touching_records(
+    python_simple_repo: Path,
+) -> None:
+    """Existing primer output must stay a byte-for-byte prefix of the new output.
+
+    The SessionStart hook renders with the default arguments, so a regression
+    here would change what every hooked session receives.
+    """
+    _make_fresh_index(python_simple_repo)
+    capture_session_record(
+        python_simple_repo,
+        kind=SessionRecordKind.ACTIVE_TASK,
+        content="Repair the parser boundary.",
+        creator="test",
+    )
+
+    records_only = render_session_primer(python_simple_repo, token_budget=256)
+    with_orientation = render_session_primer(
+        python_simple_repo,
+        token_budget=256,
+        orientation_budget=300,
+    )
+
+    assert records_only.receipt.orientation is None
+    assert "Orientation" not in records_only.content
+    assert with_orientation.content.startswith(records_only.content)
+    assert "## Orientation:" in with_orientation.content
+    assert with_orientation.records == records_only.records
+
+    orientation = with_orientation.receipt.orientation
+    assert orientation is not None
+    assert orientation.requested_budget == 300
+    assert orientation.consumed_budget <= 300
+
+
+def test_primer_rejects_a_negative_orientation_budget(python_simple_repo: Path) -> None:
+    _make_fresh_index(python_simple_repo)
+
+    with pytest.raises(ValueError, match="orientation budget must not be negative"):
+        render_session_primer(python_simple_repo, orientation_budget=-1)

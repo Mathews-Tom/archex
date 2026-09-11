@@ -79,7 +79,16 @@ from archex.metrics.capture import record_query_usage, record_scout_usage, recor
 from archex.metrics.health import note_metrics_recording_failure
 from archex.metrics.policy import resolve_metrics_policy
 from archex.models import ContextBundle, PipelineTiming, RepoSource, RetrievalProfile
-from archex.onboarding import OnboardingError, render_onboarding_markdown
+from archex.onboarding import (
+    COMPACT_PROFILE,
+    DEFAULT_COMPACT_TOKEN_BUDGET,
+    FULL_PROFILE,
+    ONBOARDING_PROFILES,
+    OnboardingError,
+    OrientationReceipt,
+    render_compact_orientation,
+    render_onboarding_markdown,
+)
 from archex.reporting import compute_meta, count_tokens
 from archex.scout import DEFAULT_SCOUT_TOKEN_BUDGET, ScoutFormat, ScoutResult, render_scout
 from archex.serve.compare import validate_dimensions
@@ -879,6 +888,8 @@ def handle_generate_onboarding(
     repo_url: str | None = None,
     graph_path: str | None = None,
     max_files: int = 40,
+    profile: str = FULL_PROFILE,
+    token_budget: int = DEFAULT_COMPACT_TOKEN_BUDGET,
 ) -> str:
     """Generate a deterministic onboarding guide from graph/index data.
 
@@ -888,11 +899,19 @@ def handle_generate_onboarding(
         graph_path: Read an exported graph artifact instead of indexing
             repo_url.
         max_files: Maximum paths per capped section. Defaults to 40.
+        profile: `full` (default, unchanged guide) or `compact` (strict
+            token-budget orientation view carrying an omission receipt).
+        token_budget: Hard token ceiling for the `compact` profile.
 
     Returns:
         JSON envelope with the markdown onboarding guide and _meta
-        efficiency block. Onboarding output is markdown-only.
+        efficiency block. Onboarding output is markdown-only. The `compact`
+        profile adds an `orientation` receipt block.
     """
+    if profile not in ONBOARDING_PROFILES:
+        raise OnboardingError(
+            f"profile must be one of {list(ONBOARDING_PROFILES)}, got {profile!r}"
+        )
     if graph_path is None and repo_url is None:
         raise OnboardingError(
             "generate_onboarding requires repo_url when graph_path is not provided"
@@ -918,8 +937,14 @@ def handle_generate_onboarding(
             store.close()
         raw_tokens = get_repo_total_tokens(source) or 0
     query_time_ms = (time.perf_counter() - started) * 1000
+    orientation: OrientationReceipt | None = None
+    if profile == COMPACT_PROFILE:
+        compact = render_compact_orientation(graph, token_budget=token_budget)
+        content = compact.content
+        orientation = compact.receipt
+    else:
+        content = render_onboarding_markdown(graph, max_files=max_files)
 
-    content = render_onboarding_markdown(graph, max_files=max_files)
     meta = compute_meta(
         tool_name="generate_onboarding",
         response_text=content,
@@ -937,7 +962,10 @@ def handle_generate_onboarding(
             raw_tokens,
             whole_repo_tokens=raw_tokens,
         )
-    return json.dumps({"content": content, "_meta": meta.model_dump()}, indent=2)
+    envelope: dict[str, object] = {"content": content, "_meta": meta.model_dump()}
+    if orientation is not None:
+        envelope["orientation"] = orientation.model_dump()
+    return json.dumps(envelope, indent=2)
 
 
 def handle_graph_lookup(
@@ -1469,8 +1497,16 @@ async def _run_mcp_tool(
         onboard_repo_url: str | None = arguments.get("repo_url")
         onboard_graph_path: str | None = arguments.get("graph_path")
         max_files = int(arguments.get("max_files", 40))
+        onboard_profile = str(arguments.get("profile", FULL_PROFILE))
+        onboard_budget = int(arguments.get("token_budget", DEFAULT_COMPACT_TOKEN_BUDGET))
         return await loop.run_in_executor(
-            None, handle_generate_onboarding, onboard_repo_url, onboard_graph_path, max_files
+            None,
+            handle_generate_onboarding,
+            onboard_repo_url,
+            onboard_graph_path,
+            max_files,
+            onboard_profile,
+            onboard_budget,
         )
     if name == "graph_lookup":
         graph_path = arguments["graph_path"]
@@ -2185,6 +2221,21 @@ def _tool_schemas() -> list[dict[str, Any]]:
                         "type": "integer",
                         "default": 40,
                         "description": "Maximum paths per capped section.",
+                    },
+                    "profile": {
+                        "type": "string",
+                        "enum": list(ONBOARDING_PROFILES),
+                        "default": FULL_PROFILE,
+                        "description": (
+                            "full: the complete guide. compact: strict token-budget "
+                            "orientation with directory clusters, graph hubs, and an "
+                            "omission receipt."
+                        ),
+                    },
+                    "token_budget": {
+                        "type": "integer",
+                        "default": DEFAULT_COMPACT_TOKEN_BUDGET,
+                        "description": "Hard token ceiling for the compact profile.",
                     },
                 },
                 "required": [],

@@ -11,7 +11,15 @@ from archex.config import load_config, load_index_config
 from archex.exceptions import ArchexError
 from archex.graph_artifact import GraphArtifactError, build_arch_graph_from_store, load_arch_graph
 from archex.models import RepoSource
-from archex.onboarding import OnboardingError, render_onboarding_markdown
+from archex.onboarding import (
+    COMPACT_PROFILE,
+    DEFAULT_COMPACT_TOKEN_BUDGET,
+    FULL_PROFILE,
+    ONBOARDING_PROFILES,
+    OnboardingError,
+    render_compact_orientation,
+    render_onboarding_markdown,
+)
 
 
 @click.command("onboard")
@@ -42,12 +50,27 @@ from archex.onboarding import OnboardingError, render_onboarding_markdown
     default=None,
     help="Read an exported graph artifact instead of indexing SOURCE.",
 )
+@click.option(
+    "--profile",
+    type=click.Choice(list(ONBOARDING_PROFILES)),
+    default=FULL_PROFILE,
+    show_default=True,
+    help="full: complete guide. compact: strict token-budget orientation view.",
+)
+@click.option(
+    "--token-budget",
+    default=DEFAULT_COMPACT_TOKEN_BUDGET,
+    show_default=True,
+    help="Hard token ceiling for the compact profile.",
+)
 def onboard_cmd(
     source: str,
     output: Path | None,
     output_format: str,
     max_files: int,
     graph_path: Path | None,
+    profile: str,
+    token_budget: int,
 ) -> None:
     """Generate a deterministic onboarding guide from graph/profile data."""
     if output_format != "markdown":
@@ -65,7 +88,10 @@ def onboard_cmd(
                 graph = build_arch_graph_from_store(store, repo_root=repo_root)
             finally:
                 store.close()
-        rendered = render_onboarding_markdown(graph, max_files=max_files)
+        if profile == COMPACT_PROFILE:
+            rendered = render_compact_orientation(graph, token_budget=token_budget).content
+        else:
+            rendered = render_onboarding_markdown(graph, max_files=max_files)
     except (ArchexError, GraphArtifactError, OnboardingError) as exc:
         raise click.ClickException(str(exc)) from exc
 
