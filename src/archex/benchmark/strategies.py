@@ -1374,6 +1374,55 @@ def run_archex_query(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     )
 
 
+def run_scope_aware_candidate(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
+    """Run R26 Candidate A through frozen benchmark-only configuration."""
+    from archex.benchmark.scope_aware_receipt import canonical_receipt_json
+    from archex.benchmark.scope_aware_strategy import (
+        execute_scope_aware_query,
+        frozen_scope_aware_config,
+        frozen_scope_aware_index_config,
+        scope_aware_repo_source,
+    )
+
+    strategy = Strategy.SCOPE_AWARE_CANDIDATE
+    config = frozen_scope_aware_config(languages=task.languages)
+    index_config = frozen_scope_aware_index_config()
+    source = scope_aware_repo_source(
+        task,
+        repo_path,
+        config=config,
+        index_config=index_config,
+    )
+    started_at = time.perf_counter()
+    outcome = execute_scope_aware_query(
+        source,
+        task.question,
+        repo_root=repo_path,
+        task_id=task.task_id,
+        repository_id=task.repo,
+        token_budget=task.token_budget,
+        config=config,
+        index_config=index_config,
+    )
+    wall_ms = (time.perf_counter() - started_at) * 1000.0
+    result = _assemble_query_result(
+        task,
+        repo_path,
+        strategy=strategy,
+        index_config=index_config,
+        bundle=outcome.bundle,
+        timing=outcome.timing,
+        wall_ms=wall_ms,
+        include_completion=True,
+        measure_freshness=False,
+    )
+    result.provenance = {
+        "candidate_mode": outcome.receipt.mode,
+        "scope_receipt_json": canonical_receipt_json(outcome.receipt),
+    }
+    return result
+
+
 def run_archex_query_semantic(task: BenchmarkTask, repo_path: Path) -> BenchmarkResult:
     """archex query with the SCIP semantic-evidence provider enabled (M6 candidate lane).
 
@@ -4339,6 +4388,7 @@ default_strategy_registry.register(Strategy.RAW_FILES.value, run_raw_files)
 default_strategy_registry.register(Strategy.RAW_GREPPED.value, run_raw_grepped)
 default_strategy_registry.register(Strategy.RAW_RIPGREP.value, run_raw_ripgrep)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY.value, run_archex_query)
+default_strategy_registry.register(Strategy.SCOPE_AWARE_CANDIDATE.value, run_scope_aware_candidate)
 default_strategy_registry.register(Strategy.ARCHEX_SCOUT_FETCH.value, run_archex_scout_fetch)
 default_strategy_registry.register(Strategy.ARCHEX_QUERY_VECTOR.value, run_archex_query_vector)
 default_strategy_registry.register(Strategy.SURROGATE_VECTOR.value, run_surrogate_vector)
