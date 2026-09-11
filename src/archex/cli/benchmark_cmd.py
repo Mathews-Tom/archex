@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import click
 
+from archex.api import index_repository
 from archex.benchmark.arch_quality import (
     DEFAULT_ARCHITECTURE_BASELINE_DIR,
     architecture_gate_warnings,
@@ -89,6 +90,13 @@ from archex.benchmark.models import (
     DeltaBenchmarkResult,
     Strategy,
 )
+from archex.benchmark.orientation import (
+    OrientationManifestError,
+    format_orientation_markdown,
+    load_orientation_manifest,
+    load_orientation_tasks,
+    run_orientation_benchmark,
+)
 from archex.benchmark.preflight import warm_benchmark_models
 from archex.benchmark.product_loop import (
     ProductLoopError,
@@ -128,7 +136,11 @@ from archex.benchmark.triage import (
     load_benchmark_tasks,
     triage_failures,
 )
+from archex.config import load_config, load_index_config
 from archex.exceptions import ArchexError
+from archex.graph_artifact import GraphArtifactError, build_arch_graph_from_store, load_arch_graph
+from archex.models import RepoSource
+from archex.onboarding import OnboardingError
 
 if TYPE_CHECKING:
     from archex.models import ChunkerName
@@ -1813,3 +1825,78 @@ def delta_report_cmd(input_dir: str) -> None:
         raise click.ClickException(f"No delta result files found in {input_dir}")
 
     click.echo(format_delta_summary(results))
+
+
+@benchmark_cmd.command("orientation")
+@click.argument("source", required=False, default=".")
+@click.option(
+    "--manifest",
+    "manifest_path",
+    default="benchmarks/orientation/manifest.yaml",
+    type=click.Path(exists=True, dir_okay=False),
+    show_default=True,
+    help="Frozen orientation task population and profile settings.",
+)
+@click.option(
+    "--graph",
+    "graph_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Measure an exported graph artifact instead of indexing SOURCE.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    default="markdown",
+    type=click.Choice(["markdown", "json"]),
+    show_default=True,
+    help="Report format.",
+)
+@click.option(
+    "--output",
+    "output_path",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Write the report to a file instead of stdout.",
+)
+def benchmark_orientation_cmd(
+    source: str,
+    manifest_path: str,
+    graph_path: str | None,
+    output_format: str,
+    output_path: str | None,
+) -> None:
+    """Compare the onboarding profiles on context cost and required-file reachability."""
+    try:
+        manifest = load_orientation_manifest(Path(manifest_path))
+        tasks = load_orientation_tasks(manifest, Path.cwd())
+        if graph_path is not None:
+            graph = load_arch_graph(Path(graph_path))
+        else:
+            repo_root = Path(source).expanduser().resolve()
+            repo_source = RepoSource(local_path=source)
+            store = index_repository(
+                repo_source,
+                config=load_config(repo_source),
+                index_config=load_index_config(repo_source),
+            )
+            try:
+                graph = build_arch_graph_from_store(store, repo_root=repo_root)
+            finally:
+                store.close()
+        report = run_orientation_benchmark(graph, tasks, manifest)
+    except (OrientationManifestError, GraphArtifactError, ArchexError, OnboardingError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    rendered = (
+        report.model_dump_json(indent=2) + "\n"
+        if output_format == "json"
+        else format_orientation_markdown(report)
+    )
+    if output_path is None:
+        click.echo(rendered, nl=False)
+        return
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(rendered, encoding="utf-8")
+    click.echo(str(destination))

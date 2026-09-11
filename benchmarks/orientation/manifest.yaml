@@ -1,0 +1,35 @@
+# R24 orientation profile comparison — frozen population.
+#
+# The population is the existing self-repository task set (`repo: "."`), reused
+# through the ordinary BenchmarkTask contract rather than invented for this
+# comparison: every task already declares the exact `expected_files` a correct
+# answer must reach, which is the reachability oracle this measurement needs.
+#
+# Task ids are listed explicitly so the population cannot drift when tasks are
+# added to `benchmarks/tasks/`. Adding or removing an id is a protocol change
+# and must be recorded alongside a regenerated report.
+milestone: R24
+repository: archex
+tasks_dir: benchmarks/tasks
+full_max_files: 40
+compact_token_budgets:
+  - 400
+  - 900
+  - 1500
+task_ids:
+  - archex_adapter_registry
+  - archex_benchmark_gate_lifecycle
+  - archex_delta_index_lifecycle
+  - archex_delta_indexing
+  - archex_graph_expansion
+  - archex_mcp_query_lifecycle
+  - archex_pattern_detection
+  - archex_project_config_resolution
+  - archex_project_index
+  - archex_project_init
+  - archex_project_reset
+  - archex_project_status
+  - archex_query_cache_lifecycle
+  - archex_query_pipeline
+  - archex_scoring
+  - archex_vector_cache_lifecycle

@@ -79,3 +79,22 @@ archex onboard .                                    # unchanged full guide
 archex session prime . --format markdown --orientation-budget 300
 archex mcp-schema-size --format json                # tool_count must stay 20
 ```
+
+## Measured against the full profile
+
+On this repository, over the 16 frozen self-repository tasks in [`benchmarks/orientation/manifest.yaml`](../benchmarks/orientation/manifest.yaml) (58 expected files):
+
+| Profile | Context tokens | Completeness | Mean locator breadth | Files named exactly | Self-reported omissions |
+| --- | --- | --- | --- | --- | --- |
+| `full` (`max_files=40`) | 2859 | 1.0000 | 198 | 127 / 1182 | 0 |
+| `compact` 400 tokens | 376 | 1.0000 | 210 | 2 / 1182 | 94 in 7 sections |
+| `compact` 900 tokens | 830 | 1.0000 | 103 | 17 / 1182 | 61 in 4 sections |
+| `compact` 1500 tokens | 877 | 1.0000 | 103 | 22 / 1182 | 56 in 3 sections |
+
+900 tokens is the default because it is where the locator breadth halves: at 400 the reading order is dropped entirely and the remaining cluster prefixes are coarser than the full profile's. Completeness does not fall at any budget measured.
+
+Two caveats, both stated in the report rather than buried. First, the compact profile is a **summary**: it names 17 files exactly where the full profile names 127, and reaches the same completeness through prefixes — anyone who needs enumeration should keep using `full`. Second, the modeled exploration-call figure moves the *wrong* way (46 against 32), because that model charges one unit per distinct locator directory and therefore penalises specificity; locator breadth is the counterweight and moves the other way. No agent-observed call reduction is claimed: R20's telemetry is whole-session with no orientation-phase segmentation.
+
+What the compact profile does not do is truncate silently. The full profile declares no omissions at all while dropping 524 public interfaces, 680 complexity hotspots and 375 test files; the compact profile declares every section it summarised, in that section's own unit.
+
+Protocol, regeneration commands, and the full per-section omission breakdown: [`benchmarks/orientation/README.md`](../benchmarks/orientation/README.md) and [`benchmarks/orientation/R24_ORIENTATION.md`](../benchmarks/orientation/R24_ORIENTATION.md).
