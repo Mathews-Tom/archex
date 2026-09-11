@@ -1,0 +1,605 @@
+{
+  "arms": [
+    {
+      "arm_id": "archex_query_control",
+      "retrieval": "unchanged archex_query",
+      "role": "control",
+      "source_revision": "1eda0c85de26b4950490062802b41da9f2e00e68"
+    },
+    {
+      "arm_id": "scope_aware_candidate",
+      "retrieval": "R28 must implement exactly candidate_interface behind benchmark-only registry",
+      "role": "treatment",
+      "source_revision": null
+    }
+  ],
+  "artifact_digests": {
+    "cells_file_sha256": "f7380a5e04aa918e74979a3d0fe627b287246b33f48a2e1c0443c2706d447920",
+    "cells_sha256": "cf0fee569c373441875035ae325f47a244362854ec513eaf20c2fb50c313a7eb",
+    "control_receipts_file_sha256": "a7a72250b3f2836da1613129bb21e0ce48048ca272641f63bb9be07ac32effa4",
+    "population_file_sha256": "1a58d1231f3f13d23ce4fd95bd161cd24c7f463c4b69bd3a2e14df358fc94c8f",
+    "population_sha256": "31463f32ae720a95dbef55ef5d286fb35a762ab56d6a2713a4b20dd11d554f2c",
+    "power_file_sha256": "dfdf51ea87f4c5e4751c0e7e9d3bd8457435dbf80954455669d9e17e1df480d3",
+    "repository_identity_sha256": "cb0b15e7032d6d5f14baaf24f46ef44a30394b286d341278c002713ee1643c89",
+    "task_label_sha256": "19d128842b18193fc747672796415407a9f44cabec02a02cd2be8e824aa4c19d"
+  },
+  "binding_gates": {
+    "complete_cells": "every declared cell appears exactly once as success or recorded failure",
+    "multi_scope_receipts": "every count and contribution reconciles",
+    "single_scope_payload": "both arms byte-identical to R27 control digest",
+    "subgroups": "no required-file, required-region, or required-line subgroup regresses",
+    "warm_p95_milliseconds": 3000,
+    "zero_recall": "no new zero-recall treatment task"
+  },
+  "campaign_id": "r27-scope-aware-monorepo-ranking",
+  "candidate_interface": {
+    "candidate_limit_per_scope": 150,
+    "deduplication": {
+      "key": "chunk_id",
+      "tie": "identical chunk identity is retained once",
+      "winner": "maximum normalized score"
+    },
+    "normalization": {
+      "denominator": "maximum positive raw BM25 score across every searched scope in the repository task",
+      "formula": "normalized_score = raw_score / repository_global_max_raw_score",
+      "non_positive_global_max": "reject every scope with reason non_positive_global_max"
+    },
+    "ordering": [
+      "normalized_score descending",
+      "repository-relative POSIX path ascending",
+      "start_line ascending",
+      "chunk_id ascending"
+    ],
+    "participation": {
+      "field": "normalized top score for the scope",
+      "included_reason": "normalized_top_at_or_above_threshold",
+      "operator": ">=",
+      "rejected_reason": "normalized_top_below_threshold",
+      "threshold": 0.25
+    },
+    "scope_markers": [
+      "package.json",
+      "Cargo.toml"
+    ],
+    "scope_ownership": "deepest marker-root prefix wins after existing file eligibility; empty scopes discarded",
+    "search_store": "the same single repository-wide IndexStore and BM25 FTS/IDF corpus used by control",
+    "serialization_delta": "none in ContextBundle; scope receipt is a separate benchmark sidecar",
+    "single_scope": "bypass candidate ranking and delegate retrieval, assembly, packing, and payload serialization to unchanged archex_query"
+  },
+  "candidate_source_binding": {
+    "allowed_binding_fields": [
+      "revision",
+      "implementation_file_sha256",
+      "dependency_identity",
+      "lock_file_sha256"
+    ],
+    "binding_milestone": "R29",
+    "binding_preconditions": [
+      "R27 externally merged",
+      "R28 benchmark-only candidate externally merged",
+      "no measured R27 cell exists"
+    ],
+    "identity_artifact": null,
+    "immutable_protocol_fields": [
+      "population",
+      "cells",
+      "commands",
+      "candidate_interface",
+      "indexing_and_packing",
+      "determinism",
+      "inference",
+      "receipts",
+      "failure_policy",
+      "decision_rules"
+    ],
+    "revision": null,
+    "status": "unbound-until-r29"
+  },
+  "commands": {
+    "control": "uv run archex benchmark scope-aware-run --manifest benchmarks/campaigns/r27_scope_aware/manifest.json --cells benchmarks/campaigns/r27_scope_aware/cells.json --arm archex_query_control --output \"$RESULTS_DIR/control\"",
+    "environment": {
+      "ARCHEX_TELEMETRY": "0",
+      "PYTHONHASHSEED": "0"
+    },
+    "execution_order": [
+      "control",
+      "treatment"
+    ],
+    "hosted_or_paid_calls": false,
+    "preflight": "uv run archex benchmark validate --kind scope-aware-campaign --input benchmarks/campaigns/r27_scope_aware",
+    "treatment": "uv run archex benchmark scope-aware-run --manifest benchmarks/campaigns/r27_scope_aware/manifest.json --cells benchmarks/campaigns/r27_scope_aware/cells.json --arm scope_aware_candidate --candidate-identity benchmarks/campaigns/r27_scope_aware/candidate_identity.json --output \"$RESULTS_DIR/treatment\"",
+    "working_directory": "pinned repository checkout"
+  },
+  "control_archex_revision": "1eda0c85de26b4950490062802b41da9f2e00e68",
+  "control_payload_sha256": {
+    "babel-babel": "699a84c8e668eff88c3760c35d0e7e34ce47d014782a6e9cb5ec5e727dad1824",
+    "jestjs-jest": "87469c03556c81b2b828c13dc292a874a38268a93feef398b898cbad502f7725",
+    "microsoft-playwright": "1e5f9401147879f10f13d719308d3d8d243133a57423ebe154caaee31004cf02",
+    "microsoft-rushstack": "05be8fcb14973d8a51b0861431d24fd44c38da1ea870f009e9178c20f2388778",
+    "mui-material-ui": "d4d16df6b9446c4c078b43dcc16a9094bea9af2bc73d3573bfeeff754737075e",
+    "nestjs-nest": "be149d90c41ae40f86eef2461123b13e521487ff3d8a9b41baac11fda8763e9e",
+    "nrwl-nx": "4b7d62edca25777325157b21253a62836c4d7a34f529296f33047d2649bf39ed",
+    "pnpm-pnpm": "80260b09350612345537912a4b3331ef55c5c824846980f534a9bdca8211a4fd",
+    "storybookjs-storybook": "ceb43dad076b6cb4154fc3bcf0e0c350894e5ad2e51e483bf13d47d0043c10c3",
+    "tanstack-query": "18baf2f5a52c3e6bf7c02975d9cf54c1ce419ef1488cc229ef3621cddf00b925",
+    "tokio-rs-tokio": "51ee90d8c4f958fdda574b8fe9c012c84d8eeead4b83670bc30f122257905622",
+    "trpc-trpc": "967fec9d39049657458cdb7ca0f1b18f83bde44a19db8ccbfd0a9bb5b41f45ee",
+    "vercel-turborepo": "e466cadfcfe5f29aa2cbb338de324531810b64aa34760ca685d8ef328b21ef88",
+    "vitejs-vite": "97724ebd962f9dc5a59b2f2fc42979b942d1c27adccb427db58bbebbb0f011d3",
+    "vitest-dev-vitest": "65e00580ff91358450a61ccdd1ace1a9df60c59166e56b789b479f58a20cf1ab",
+    "yarnpkg-berry": "f48c4b274b3ba3e4038263a029bb2768cde404ebb3382d9455dfa09ef56db113"
+  },
+  "decision_rules": {
+    "any_binding_gate_failure": "EVIDENCE NO-GO",
+    "compatible_only_with_NIM_or_EQM": "EVIDENCE NO-GO",
+    "continuation_effect": "terminal report only; no product promotion or default change",
+    "continuation_requires": [
+      "primary point estimate >= +0.05",
+      "95% interval lower bound > 0",
+      "every binding gate passes"
+    ]
+  },
+  "determinism": {
+    "cache_isolation": "separate cache directory for each repository and arm; never seed across arms",
+    "operator_environment": {
+      "archex": "0.30.0",
+      "architecture": "arm64",
+      "cpu": "Apple M1 Pro",
+      "index_config": {
+        "allow_remote_code": false,
+        "bm25": true,
+        "chunk_max_tokens": 500,
+        "chunk_min_tokens": 50,
+        "chunker": "default",
+        "documentation_evidence_providers": [],
+        "embedder": null,
+        "history_evidence_providers": [],
+        "identifier_fragment_tokenization": false,
+        "module_prefilter": false,
+        "quantize_bits": 4,
+        "quantize_vectors": true,
+        "rerank": false,
+        "rerank_candidate_limit": 4,
+        "rerank_model": null,
+        "retrieval_policy": "auto",
+        "runtime_evidence_providers": [],
+        "semantic_evidence_providers": [],
+        "splade": false,
+        "surrogate_version": "v1",
+        "token_encoding": "cl100k_base",
+        "vector": false,
+        "vector_mode": "raw"
+      },
+      "kernel": "Darwin 25.6.0",
+      "os": "darwin",
+      "python": "3.11.11",
+      "query": {
+        "explicit_token_budget": true,
+        "lifecycle": "one unmeasured index/query warm-up followed by two measured warm queries in one process",
+        "parallel": false,
+        "python_hash_seed": 0,
+        "refresh": false,
+        "token_budget": 4000
+      },
+      "uv": "0.6.14"
+    },
+    "repetitions": 1,
+    "repository_arm_lifecycle": "build pinned index once; execute one unmeasured warm-up; then execute every planned cell once in cells.json order in one process",
+    "rerun_policy": "no measured-cell repair or rerun under this identity",
+    "same_hardware_for_arms": true,
+    "task_order": "cells.json order filtered by arm"
+  },
+  "failure_policy": {
+    "duplicate_cell": "invalid campaign result",
+    "failed_cell_primary_score": 0.0,
+    "inspection_after_failure": "retain; never repair, exclude, delete, or rerun under same identity",
+    "missing_cell": "invalid campaign result",
+    "planned_cells": 4128,
+    "success_or_recorded_failure": true,
+    "undeclared_cell": "invalid campaign result"
+  },
+  "frozen_at": "2026-09-11T21:34:54Z",
+  "graft_inspiration": {
+    "files": [
+      "src/graph/scopes.ts",
+      "src/ask/fuse.ts"
+    ],
+    "revision": "aa1e2bb0f6326068ac64886da1e67fa25a7804de",
+    "role": "mechanism inspiration only; no result or implementation identity"
+  },
+  "indexing_and_packing": {
+    "explicit_token_budget": true,
+    "file_eligibility": {
+      "binary_check": "existing discover_files UTF-8/NUL rules",
+      "ignores": "src/archex/acquire/discovery.py DEFAULT_IGNORES at control revision",
+      "languages_by_repository": true,
+      "max_file_size": 10000000,
+      "tracked_or_unignored": "existing git ls-files --cached --others --exclude-standard"
+    },
+    "index_config": {
+      "allow_remote_code": false,
+      "bm25": true,
+      "chunk_max_tokens": 500,
+      "chunk_min_tokens": 50,
+      "chunker": "default",
+      "documentation_evidence_providers": [],
+      "embedder": null,
+      "history_evidence_providers": [],
+      "identifier_fragment_tokenization": false,
+      "module_prefilter": false,
+      "quantize_bits": 4,
+      "quantize_vectors": true,
+      "rerank": false,
+      "rerank_candidate_limit": 4,
+      "rerank_model": null,
+      "retrieval_policy": "auto",
+      "runtime_evidence_providers": [],
+      "semantic_evidence_providers": [],
+      "splade": false,
+      "surrogate_version": "v1",
+      "token_encoding": "cl100k_base",
+      "vector": false,
+      "vector_mode": "raw"
+    },
+    "packing_owner": "src/archex/serve/context.py and src/archex/serve/packing.py at control/candidate source revisions",
+    "payload_encoding": "UTF-8 canonical JSON: sort_keys=true, separators=(comma,colon), ensure_ascii=false",
+    "payload_projection": [
+      "query",
+      "chunks",
+      "structural_context",
+      "type_definitions",
+      "dependency_summary",
+      "token_count",
+      "token_budget",
+      "truncated"
+    ],
+    "refresh": false,
+    "result_cardinality": "unchanged control search, assembly, and packing bounds",
+    "token_budget": 4000
+  },
+  "inference": {
+    "bootstrap": {
+      "confidence_interval": 0.95,
+      "method": "whole-repository percentile bootstrap",
+      "resamples": 10000,
+      "seed": 20260913
+    },
+    "classification": {
+      "beneficial": "95% interval lower bound > 0",
+      "equivalent": "90% TOST interval is wholly within [-0.02,+0.02]",
+      "minimum_worthwhile_gain": "point estimate >= +0.05",
+      "non_inferior": "95% interval lower bound >= -0.02"
+    },
+    "cross_repository_aggregation": "equal-weight mean of 16 repository means",
+    "independent_unit": "repository",
+    "margins": {
+      "EQM": 0.02,
+      "MWG": 0.05,
+      "NIM": -0.02
+    },
+    "primary_selector": {
+      "kind": "treatment",
+      "paired_tasks": 2048,
+      "single_scope_controls_excluded": 16
+    },
+    "repository_aggregation": "mean paired treatment-minus-control recall across selected tasks within each repository",
+    "task_metric": "required-file recall"
+  },
+  "manifest_sha256": "20caed725c4091a4ad675ead0d09f8bbd8ee6fcd1844b631480658a862175ca2",
+  "population_contract": {
+    "family_counts": {
+      "cross_scope_dependency": 688,
+      "lexical_collision": 688,
+      "single_scope_control": 16,
+      "weak_participation_control": 672
+    },
+    "invariant_selector": {
+      "equals": "single_scope_control",
+      "field": "kind",
+      "task_count": 16
+    },
+    "minimum_dominant_to_required_chunk_ratio": 4.0,
+    "primary_selector": {
+      "equals": "treatment",
+      "field": "kind",
+      "task_count": 2048
+    },
+    "r19_population_substitution": false,
+    "repositories": 16,
+    "single_scope_controls": 16,
+    "tasks_per_repository": 129,
+    "tasks_total": 2064,
+    "treatment_tasks": 2048
+  },
+  "prohibitions": [
+    "candidate source in R27",
+    "treatment or control result cell in R27",
+    "personalized PageRank",
+    "file-first or round-robin ranking",
+    "product strategy registration",
+    "archex_query mutation",
+    "MCP capability change",
+    "language support change",
+    "default change",
+    "Gate A reinterpretation"
+  ],
+  "protocol_id": "R26-CANDIDATE-A",
+  "r26_preregistration": "benchmarks/preregistrations/R26-graft-informed-retrieval-candidate-tests.md",
+  "receipts": {
+    "multi_scope": {
+      "reconciliation": [
+        "included_scope_count + rejected_scope_count = len(searched_scopes)",
+        "sum(raw_candidate_count) = pre_dedup_candidate_count",
+        "pre_dedup_candidate_count - duplicate_candidate_count = post_dedup_candidate_count",
+        "sum(post_dedup_contribution_count) = post_dedup_candidate_count",
+        "final_candidate_count <= post_dedup_candidate_count"
+      ],
+      "required_fields": [
+        "campaign_id",
+        "task_id",
+        "repository_id",
+        "arm",
+        "searched_scopes",
+        "repository_global_max_raw_score",
+        "included_scope_count",
+        "rejected_scope_count",
+        "pre_dedup_candidate_count",
+        "duplicate_candidate_count",
+        "post_dedup_candidate_count",
+        "final_candidate_count"
+      ],
+      "searched_scope_fields": [
+        "scope",
+        "raw_candidate_count",
+        "raw_top_score",
+        "normalized_top_score",
+        "decision",
+        "reason",
+        "post_dedup_contribution_count"
+      ]
+    },
+    "sidecar_only": true,
+    "single_scope": {
+      "mode": "archex_query_bypass",
+      "payload_sha256": "must equal control_payload_sha256 for both arms",
+      "required_fields": [
+        "campaign_id",
+        "task_id",
+        "repository_id",
+        "arm",
+        "mode",
+        "scope_count",
+        "payload_sha256"
+      ],
+      "scope_count": 1
+    }
+  },
+  "repository_identity": [
+    {
+      "commit": "427f56c647ab57e4a6234c65d7105a10d1b8dac4",
+      "eligible_source_digest_sha256": "93073eaf1b7716340ab5b7e9d1f9c9c0efd16bd27c1293800bb79208d8c95920",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76",
+        "spdx": "MIT",
+        "url": "https://github.com/babel/babel/blob/427f56c647ab57e4a6234c65d7105a10d1b8dac4/LICENSE"
+      },
+      "repository": "babel/babel",
+      "repository_id": "babel-babel",
+      "scope_set_id": "babel-babel-scope-set-v1",
+      "url": "https://github.com/babel/babel.git"
+    },
+    {
+      "commit": "121c2ae6d5796917d90024514c9f7ddb5a76df83",
+      "eligible_source_digest_sha256": "59e390147fb88a99eee66ba79a9aee7c663238c4133adddada96b5c15902939d",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "9d5211db733ccdd26f9170bec24cdca84093f60415da6b769ee9cdf23d04e19f",
+        "spdx": "MIT",
+        "url": "https://github.com/jestjs/jest/blob/121c2ae6d5796917d90024514c9f7ddb5a76df83/LICENSE"
+      },
+      "repository": "jestjs/jest",
+      "repository_id": "jestjs-jest",
+      "scope_set_id": "jestjs-jest-scope-set-v1",
+      "url": "https://github.com/jestjs/jest.git"
+    },
+    {
+      "commit": "99bd9d1d46153fa939f4a304cc0177db42e28776",
+      "eligible_source_digest_sha256": "92b7febbc38532018ed179c0380c192f8c9c0be9a1a175734348db833465ebe6",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "692057af3d664cbb79ac38293eb50aa3c4987f8182e2a440136e59e08f1b4a54",
+        "spdx": "MIT",
+        "url": "https://github.com/vitejs/vite/blob/99bd9d1d46153fa939f4a304cc0177db42e28776/LICENSE"
+      },
+      "repository": "vitejs/vite",
+      "repository_id": "vitejs-vite",
+      "scope_set_id": "vitejs-vite-scope-set-v1",
+      "url": "https://github.com/vitejs/vite.git"
+    },
+    {
+      "commit": "2ce29d5fa758046e5453bd92b8ed6c9da9709bb5",
+      "eligible_source_digest_sha256": "6f14bc7ce32ee77041364cfe1d6c063d597058beb796d8464dd4b71e8e50d70c",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551",
+        "spdx": "MIT",
+        "url": "https://github.com/vitest-dev/vitest/blob/2ce29d5fa758046e5453bd92b8ed6c9da9709bb5/LICENSE"
+      },
+      "repository": "vitest-dev/vitest",
+      "repository_id": "vitest-dev-vitest",
+      "scope_set_id": "vitest-dev-vitest-scope-set-v1",
+      "url": "https://github.com/vitest-dev/vitest.git"
+    },
+    {
+      "commit": "7f49dda9875a1d3aca53a0aa9ec8892690c04367",
+      "eligible_source_digest_sha256": "6ab4b6f0c231ab8860394748f120287c88aea8f1fcfad05826212a0e98e19eb1",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "4b8e2a57502758b2d034ece9cabf19dd098c5609003ed8dbdafd085274f25bd9",
+        "spdx": "MIT",
+        "url": "https://github.com/pnpm/pnpm/blob/7f49dda9875a1d3aca53a0aa9ec8892690c04367/LICENSE"
+      },
+      "repository": "pnpm/pnpm",
+      "repository_id": "pnpm-pnpm",
+      "scope_set_id": "pnpm-pnpm-scope-set-v1",
+      "url": "https://github.com/pnpm/pnpm.git"
+    },
+    {
+      "commit": "57081c05a398f25c92df1dc78752f2053576cec0",
+      "eligible_source_digest_sha256": "8aa0c8af505be8d88a4d56c3cd5fc6636a78cae8aa6cec77fe125ae369617af1",
+      "license": {
+        "path": "LICENSE.md",
+        "sha256": "238d933f5c226cc197bd1dae2ad0c468e157b4cba8ed844f81549ba6db777dc4",
+        "spdx": "BSD-2-Clause",
+        "url": "https://github.com/yarnpkg/berry/blob/57081c05a398f25c92df1dc78752f2053576cec0/LICENSE.md"
+      },
+      "repository": "yarnpkg/berry",
+      "repository_id": "yarnpkg-berry",
+      "scope_set_id": "yarnpkg-berry-scope-set-v1",
+      "url": "https://github.com/yarnpkg/berry.git"
+    },
+    {
+      "commit": "d78a9e71f2565e474b627baae00b6da71ebc2ea8",
+      "eligible_source_digest_sha256": "e073fdfaafb748affa9c767fa30ae126976e850a9e4cd745bf0b2290cacd0e13",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb",
+        "spdx": "Apache-2.0",
+        "url": "https://github.com/microsoft/playwright/blob/d78a9e71f2565e474b627baae00b6da71ebc2ea8/LICENSE"
+      },
+      "repository": "microsoft/playwright",
+      "repository_id": "microsoft-playwright",
+      "scope_set_id": "microsoft-playwright-scope-set-v1",
+      "url": "https://github.com/microsoft/playwright.git"
+    },
+    {
+      "commit": "130daa8865e31c4b27e975e1f6ec79356ff19e75",
+      "eligible_source_digest_sha256": "fd94f3230df2b3c0d077fbf74a4a61f57d35651702c3ea92914d2a099a3ac74e",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "46c36f939af468f80e6098784458863fd56d7d88415d80ea93e1ff5f007f7207",
+        "spdx": "MIT",
+        "url": "https://github.com/microsoft/rushstack/blob/130daa8865e31c4b27e975e1f6ec79356ff19e75/LICENSE"
+      },
+      "repository": "microsoft/rushstack",
+      "repository_id": "microsoft-rushstack",
+      "scope_set_id": "microsoft-rushstack-scope-set-v1",
+      "url": "https://github.com/microsoft/rushstack.git"
+    },
+    {
+      "commit": "50efd6a296aadc0f79fa3cfc0b3ac17ad69d2be2",
+      "eligible_source_digest_sha256": "53c5311f8b6e34aff99a3c0d07b5fc5c2fcb160a516a12e8a690eac90fc1dac0",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "50bb7bf81374073606d3c3f277762d5222d82c918b2088f3789ed7e5f9f8b496",
+        "spdx": "MIT",
+        "url": "https://github.com/nrwl/nx/blob/50efd6a296aadc0f79fa3cfc0b3ac17ad69d2be2/LICENSE"
+      },
+      "repository": "nrwl/nx",
+      "repository_id": "nrwl-nx",
+      "scope_set_id": "nrwl-nx-scope-set-v1",
+      "url": "https://github.com/nrwl/nx.git"
+    },
+    {
+      "commit": "197c5070fe0fb3a411a73fc36b2554ff72973ecb",
+      "eligible_source_digest_sha256": "1e33921cd8956de4a75969303db5bfc7092813233651f2686a268d7b13f702d2",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "bc90586179d44dcb313a9a289d687a2f26226303b2066bd21dbefd2378e894e5",
+        "spdx": "MIT",
+        "url": "https://github.com/storybookjs/storybook/blob/197c5070fe0fb3a411a73fc36b2554ff72973ecb/LICENSE"
+      },
+      "repository": "storybookjs/storybook",
+      "repository_id": "storybookjs-storybook",
+      "scope_set_id": "storybookjs-storybook-scope-set-v1",
+      "url": "https://github.com/storybookjs/storybook.git"
+    },
+    {
+      "commit": "62a348bf47370d977c2c481c068b0eef353c0226",
+      "eligible_source_digest_sha256": "a76d6e242e6c49fbb5cbbaef3f0dfe175e28fb67bbb3cbe8a856ad6aafec6499",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "4c57cedbef546270e5648786682f633b2e6ae62c8862a45797bcb6d0bffda98d",
+        "spdx": "MIT",
+        "url": "https://github.com/mui/material-ui/blob/62a348bf47370d977c2c481c068b0eef353c0226/LICENSE"
+      },
+      "repository": "mui/material-ui",
+      "repository_id": "mui-material-ui",
+      "scope_set_id": "mui-material-ui-scope-set-v1",
+      "url": "https://github.com/mui/material-ui.git"
+    },
+    {
+      "commit": "f9fa885f670b61ed6a09458649a426a8e4cdeeb4",
+      "eligible_source_digest_sha256": "35814816838a6f733d852e1fd70b71f6f34397273bfafbd28b26d5a3885d6ded",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "f7ac4712aa30551de5b97b30215010515d783638107f207bcce32a85bfffc05e",
+        "spdx": "MIT",
+        "url": "https://github.com/vercel/turborepo/blob/f9fa885f670b61ed6a09458649a426a8e4cdeeb4/LICENSE"
+      },
+      "repository": "vercel/turborepo",
+      "repository_id": "vercel-turborepo",
+      "scope_set_id": "vercel-turborepo-scope-set-v1",
+      "url": "https://github.com/vercel/turborepo.git"
+    },
+    {
+      "commit": "a3a31b96436a0c5fc33266a19c02cfa4fd2c03c0",
+      "eligible_source_digest_sha256": "00048be1c2ba6eab502754e7a65ed8cd1a90418291a46d0f54f11d6213f6f3a1",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "56967de93525b12a30717e4446ccef3bbe32fafdbe2350f143c1cc6971b19ed3",
+        "spdx": "MIT",
+        "url": "https://github.com/nestjs/nest/blob/a3a31b96436a0c5fc33266a19c02cfa4fd2c03c0/LICENSE"
+      },
+      "repository": "nestjs/nest",
+      "repository_id": "nestjs-nest",
+      "scope_set_id": "nestjs-nest-scope-set-v1",
+      "url": "https://github.com/nestjs/nest.git"
+    },
+    {
+      "commit": "7452ef68a2901fc9a5673a8e5f53185a506b182f",
+      "eligible_source_digest_sha256": "e6705818a30b8923d7e294111d49ed22d1d4cf81dafa4594cb1206d65836e979",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7",
+        "spdx": "MIT",
+        "url": "https://github.com/TanStack/query/blob/7452ef68a2901fc9a5673a8e5f53185a506b182f/LICENSE"
+      },
+      "repository": "TanStack/query",
+      "repository_id": "tanstack-query",
+      "scope_set_id": "tanstack-query-scope-set-v1",
+      "url": "https://github.com/TanStack/query.git"
+    },
+    {
+      "commit": "66d054454a3339dd8421da9dcf0648f92816f704",
+      "eligible_source_digest_sha256": "aba2debdc0dca3e379cc5c1a9832ef6cb210d30dbca6a8ba498e2ab1de2b60e2",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "e714dd84c8fa242600844b05d317a31003423723178c1f1603dbfad1bc68d906",
+        "spdx": "MIT",
+        "url": "https://github.com/trpc/trpc/blob/66d054454a3339dd8421da9dcf0648f92816f704/LICENSE"
+      },
+      "repository": "trpc/trpc",
+      "repository_id": "trpc-trpc",
+      "scope_set_id": "trpc-trpc-scope-set-v1",
+      "url": "https://github.com/trpc/trpc.git"
+    },
+    {
+      "commit": "74665295902472afe6834ddad7467a2fce33b3fc",
+      "eligible_source_digest_sha256": "be80883c1a2548ade0090bc9540c28326163209eb4df239c260f1f0e6d8546d2",
+      "license": {
+        "path": "LICENSE",
+        "sha256": "253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552",
+        "spdx": "MIT",
+        "url": "https://github.com/tokio-rs/tokio/blob/74665295902472afe6834ddad7467a2fce33b3fc/LICENSE"
+      },
+      "repository": "tokio-rs/tokio",
+      "repository_id": "tokio-rs-tokio",
+      "scope_set_id": "tokio-rs-tokio-scope-set-v1",
+      "url": "https://github.com/tokio-rs/tokio.git"
+    }
+  ],
+  "schema_version": 1,
+  "status": "frozen-before-candidate-source"
+}

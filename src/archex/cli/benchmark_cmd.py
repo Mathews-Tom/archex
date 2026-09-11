@@ -126,6 +126,7 @@ from archex.benchmark.reporter import (
 from archex.benchmark.runner import DEFAULT_STRATEGIES, load_selected_tasks, run_all
 from archex.benchmark.scope_aware_campaign import (
     ScopeAwareCampaignError,
+    validate_scope_aware_campaign,
     validate_scope_aware_population,
 )
 from archex.benchmark.scorecard import (
@@ -920,6 +921,7 @@ def determinism_economics_cmd(sessions: Path, output: Path, preregistration_comm
             "corpus-audit",
             "determinism-economics-r6-1",
             "product-loop",
+            "scope-aware-campaign",
             "scope-aware-population",
         ]
     ),
@@ -942,11 +944,22 @@ def validate_cmd(
         "corpus-audit",
         "determinism-economics-r6-1",
         "product-loop",
+        "scope-aware-campaign",
         "scope-aware-population",
     }:
         if input_path is None:
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
+    if kind == "scope-aware-campaign" and target is not None:
+        try:
+            coverage = validate_scope_aware_campaign(target)
+        except ScopeAwareCampaignError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Valid R27 scope-aware campaign: {coverage.repositories} repositories / "
+            f"{coverage.tasks:,} tasks / {coverage.cells:,} cells."
+        )
+        return
     if kind == "scope-aware-population" and target is not None:
         try:
             coverage = validate_scope_aware_population(target)
