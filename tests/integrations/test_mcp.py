@@ -1705,6 +1705,39 @@ class TestHandleGenerateOnboarding:
         with pytest.raises(OnboardingError, match="max-files must be greater than zero"):
             handle_generate_onboarding(str(python_simple_repo), max_files=0)
 
+    def test_default_profile_carries_no_orientation_receipt(self, python_simple_repo: Path) -> None:
+        """The compact profile must not leak into the default MCP response."""
+        envelope = json.loads(handle_generate_onboarding(str(python_simple_repo), max_files=5))
+
+        assert "orientation" not in envelope
+        assert envelope["content"].startswith("# Onboarding:")
+
+    def test_compact_profile_returns_a_bounded_view_and_its_receipt(
+        self, python_simple_repo: Path
+    ) -> None:
+        from archex.reporting import count_tokens
+
+        envelope = json.loads(
+            handle_generate_onboarding(
+                str(python_simple_repo),
+                profile="compact",
+                token_budget=300,
+            )
+        )
+
+        assert envelope["content"].startswith("## Orientation:")
+        assert count_tokens(envelope["content"]) <= 300
+        receipt = envelope["orientation"]
+        assert receipt["profile"] == "compact"
+        assert receipt["requested_budget"] == 300
+        assert receipt["consumed_budget"] == count_tokens(envelope["content"])
+
+    def test_unknown_profile_is_rejected(self, python_simple_repo: Path) -> None:
+        from archex.onboarding import OnboardingError
+
+        with pytest.raises(OnboardingError, match="profile must be one of"):
+            handle_generate_onboarding(str(python_simple_repo), profile="terse")
+
 
 class TestHandleContextEndToEnd:
     """Unmocked context() facade exercised through the real MCP dispatch path."""

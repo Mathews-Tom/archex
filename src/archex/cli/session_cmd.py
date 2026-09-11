@@ -110,15 +110,26 @@ def delete_cmd(record_id: str, source: str, force: bool) -> None:
     help="Hard token budget for rendered project-session context.",
 )
 @click.option(
+    "--orientation-budget",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Opt-in token ceiling for the appended compact orientation profile (0 disables).",
+)
+@click.option(
     "--format",
     "output_format",
     type=click.Choice(["json", "markdown"]),
     default="json",
 )
-def prime_cmd(source: str, budget: int, output_format: str) -> None:
+def prime_cmd(source: str, budget: int, orientation_budget: int, output_format: str) -> None:
     """Render bounded session context; stale indexes deliberately return no context."""
     try:
-        primer = render_session_primer(source, token_budget=budget)
+        primer = render_session_primer(
+            source,
+            token_budget=budget,
+            orientation_budget=orientation_budget,
+        )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     if output_format == "markdown":

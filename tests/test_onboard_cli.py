@@ -5,6 +5,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from archex.cli.main import cli
+from archex.reporting import count_tokens
 
 
 def test_onboard_outputs_deterministic_markdown(python_simple_repo: Path) -> None:
@@ -43,3 +44,47 @@ def test_onboard_rejects_invalid_max_files(python_simple_repo: Path) -> None:
 
     assert result.exit_code != 0
     assert "max-files must be greater than zero" in result.output
+
+
+def test_onboard_default_profile_stays_the_full_guide(python_simple_repo: Path) -> None:
+    """The compact profile is opt-in: the default invocation is byte-identical."""
+    runner = CliRunner()
+
+    default_result = runner.invoke(cli, ["onboard", str(python_simple_repo), "--max-files", "5"])
+    explicit_result = runner.invoke(
+        cli,
+        ["onboard", str(python_simple_repo), "--max-files", "5", "--profile", "full"],
+    )
+
+    assert default_result.exit_code == 0, default_result.output
+    assert explicit_result.output == default_result.output
+    assert "Orientation" not in default_result.output
+
+
+def test_onboard_compact_profile_is_bounded_and_reports_omissions(
+    python_simple_repo: Path,
+) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        ["onboard", str(python_simple_repo), "--profile", "compact", "--token-budget", "300"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("## Orientation:")
+    assert "### Directory clusters" in result.output
+    assert "### Omissions" in result.output
+    assert count_tokens(result.output) <= 300
+
+
+def test_onboard_compact_profile_refuses_an_unusable_budget(python_simple_repo: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        ["onboard", str(python_simple_repo), "--profile", "compact", "--token-budget", "5"],
+    )
+
+    assert result.exit_code != 0
+    assert "tokens are required" in result.output

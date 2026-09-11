@@ -85,14 +85,26 @@ class TestSchemaSizeBaseline:
         assert current_graph["total_chars"] < pr1_graph_total
 
     def test_unscoped_all_growth_matches_known_additions(self) -> None:
-        """Every post-M11 addition is separately accounted for."""
+        """Every post-M11 addition is separately accounted for.
+
+        Post-M11 growth comes in two shapes: whole new tools, and new
+        properties on an existing tool's schema. Both are recorded, so this
+        identity stays exact instead of being loosened to an inequality.
+        """
         baseline = _load_baseline()
         pr2_all_total = baseline["stages"]["pr2_trimmed_descriptions"]["all"]["total_chars"]  # type: ignore[index]
         graph_query_total = baseline["stages"]["pr3_graph_query"]["graph_query"]["total_chars"]  # type: ignore[index]
         session_total = baseline["post_m11_additions"]["session"]["total_chars"]  # type: ignore[index]
+        property_growth = sum(
+            entry["total_chars"]  # type: ignore[index]
+            for entry in baseline["post_m11_property_additions"].values()  # type: ignore[union-attr]
+        )
 
         current_all = measure_tool_schema_size(None)
-        assert current_all["total_chars"] == pr2_all_total + graph_query_total + session_total
+        assert (
+            current_all["total_chars"]
+            == pr2_all_total + graph_query_total + session_total + property_growth
+        )
 
     def test_per_tool_chars_current_matches_unscoped_measurement(self) -> None:
         baseline = _load_baseline()

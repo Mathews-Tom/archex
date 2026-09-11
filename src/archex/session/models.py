@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from archex.onboarding import OrientationReceipt  # noqa: TC001 — Pydantic needs at runtime
+
 
 class SessionRecordKind(StrEnum):
     """The explicit project-session facts Archex can retain."""
@@ -87,6 +89,8 @@ class SessionReceipt(BaseModel):
     included_record_ids: list[str] = Field(default_factory=list)
     skipped_records: list[SessionSkippedRecord] = Field(default_factory=_empty_skipped_records)
     recommended_next_action: str
+    orientation: OrientationReceipt | None = None
+    """Present only when the opt-in compact orientation profile was requested."""
 
 
 class SessionPrimer(BaseModel):
