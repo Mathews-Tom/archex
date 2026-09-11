@@ -58,9 +58,13 @@ Until Gate A passes on R3's external replication verdict, contributors must not:
 - add a new language tier; or
 - add a new MCP tool.
 
-The unstarted forward milestones from the prior plan — M2, M3, M4, M5, and M10 — are **SUSPENDED — pending strategic-reassessment Gate A**. Do not resume them. The historical pre-registration contract and project-level kill criterion are recoverable with `git show 557c5683e5a2622e0a96370a379365c8498d1dc4:.docs/spikes/S0-replication-gate.md`; the public replication evidence artifacts record the arm verdicts. No lift condition is currently authorized.
+The unstarted forward milestones from the prior plan — M2, M3, M4, M5, and M10 — are **SUSPENDED — pending strategic-reassessment Gate A**. Do not resume them. The historical pre-registration contract and project-level kill criterion are recoverable with `git show 557c5683e5a2622e0a96370a379365c8498d1dc4:.docs/spikes/S0-replication-gate.md`; the public replication evidence artifacts record the arm verdicts. No product, implementation, or promotion lift condition is authorized; the documentation-only R26 planning carve-out below does not change Gate A.
 
-R5, MCP retrieval-gated tool disclosure, is the sole carve-out before Gate A. It may change how existing MCP tools are exposed, but must not add or remove a tool capability or change tool behavior.
+R5, MCP retrieval-gated tool disclosure, is the sole product-surface carve-out before Gate A. It may change how existing MCP tools are exposed, but must not add or remove a tool capability or change tool behavior.
+
+R26 adds one separately authorized, documentation-only benchmark-planning carve-out: contributors may define eligibility policy and pre-register failure-mode task requirements for scope-aware monorepo ranking and symbol-aware exhaustive grep. This carve-out does not authorize candidate code, strategy registration, a corpus or run, a new MCP tool, a language tier, a product-default change, or a reinterpretation of Gate A. Any candidate implementation requires a separate plan and fresh design gate. Any later default consideration must satisfy the complete retrieval-default decision protocol.
+
+The allowed and forbidden R26 work is recorded in [`docs/RETRIEVAL_DEFAULT_DECISIONS.md`](docs/RETRIEVAL_DEFAULT_DECISIONS.md#r26-retrieval-candidate-eligibility).
 
 ## Adding a Language Adapter
 
