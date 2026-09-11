@@ -19,10 +19,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
 from archex import cache as cache_module
 from archex.api import index_repository
 from archex.cache import CacheManager
+from archex.cli.main import cli
 from archex.index import worktree_seed
 from archex.index.store import CURRENT_SCHEMA_VERSION, IndexStore
 from archex.index.worktree_seed import (
@@ -43,6 +45,11 @@ def _git(repo: Path, *args: str) -> str:
     result = subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
     return result.stdout.strip()
 
+
+#: Files a project-layout index covers beyond `_DEFAULT_FILES`: the
+#: `.gitignore` entry `archex init` writes is untracked repository content
+#: and is discovered like any other file.
+_INIT_WRITTEN_FILES = 1
 
 #: Default corpus for a fixture repository. Wide enough that changing one
 #: file stays well below `Config.delta_threshold` (0.5), so a delta case in
@@ -70,12 +77,23 @@ def _head(repo: Path) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
+def _project_config(repo: Path) -> Config:
+    """The config `archex index` itself loads for a project-layout repository.
+
+    Notably `languages` stays unset, matching `.archex/settings.toml`'s
+    `languages = []`, so a fixture-built index covers the same file set the
+    CLI would discover — otherwise every seeded comparison would carry a
+    spurious delta for the files a narrower language filter had skipped.
+    """
+    return Config(cache=True, cache_dir=str(repo / ".archex"))
+
+
 def _build_project_index(repo: Path) -> None:
     """Initialize repo-local project state and build its `.archex/index.db`."""
     init_project(repo)
     store = index_repository(
         RepoSource(local_path=str(repo)),
-        config=Config(languages=["python"], cache=True, cache_dir=str(repo / ".archex")),
+        config=_project_config(repo),
         index_config=IndexConfig(),
     )
     store.close()
@@ -660,7 +678,7 @@ def _seed(repo: Path, *, config: Config | None = None) -> WorktreeSeedResult:
         cache=cache,
         cache_key=cache_key,
         source_identity=str(repo),
-        config=config or Config(languages=["python"], cache=True, cache_dir=str(repo / ".archex")),
+        config=config or _project_config(repo),
         index_config=IndexConfig(),
     )
 
@@ -671,6 +689,33 @@ def _open_store_snapshot(store: IndexStore) -> tuple[list[str], list[str]]:
         sorted(chunk.id for chunk in store.get_chunks()),
         sorted(store.get_file_states()),
     )
+
+
+def _full_store_snapshot(index_path: Path) -> dict[str, object]:
+    """Everything two stores of the same tree must agree on, read directly.
+
+    Chunk *content* and edge *evidence* are included deliberately: they are
+    the fields that differ between a delta-updated store and a freshly
+    parsed one, so comparing them is what makes an equivalence claim
+    falsifiable. `indexed_at` and `source_identity` are excluded because
+    they describe the run and the checkout, not the index.
+    """
+    conn = sqlite3.connect(f"file:{index_path}?mode=ro", uri=True)
+    try:
+        return {
+            "chunks": sorted(conn.execute("SELECT id, file_path, content FROM chunks")),
+            "edges": sorted(
+                conn.execute("SELECT source, target, kind, location, evidence FROM edges")
+            ),
+            "file_states": sorted(conn.execute("SELECT file_path, sha256 FROM file_states")),
+            "metadata": {
+                key: value
+                for key, value in conn.execute("SELECT key, value FROM metadata")
+                if key not in {"indexed_at", "source_identity"}
+            },
+        }
+    finally:
+        conn.close()
 
 
 def _store_snapshot(index_path: Path) -> tuple[list[str], list[str]]:
@@ -732,7 +777,7 @@ class TestSeedWorktreeIndex:
         timing = PipelineTiming()
         store = index_repository(
             RepoSource(local_path=str(linked)),
-            config=Config(languages=["python"], cache=True, cache_dir=str(linked / ".archex")),
+            config=_project_config(linked),
             index_config=IndexConfig(),
             timing=timing,
         )
@@ -760,7 +805,7 @@ class TestSeedWorktreeIndex:
         timing = PipelineTiming()
         store = index_repository(
             RepoSource(local_path=str(linked)),
-            config=Config(languages=["python"], cache=True, cache_dir=str(linked / ".archex")),
+            config=_project_config(linked),
             index_config=IndexConfig(),
             timing=timing,
         )
@@ -801,9 +846,7 @@ class TestSeedWorktreeIndex:
         # an untracked directory inside it would itself be discovered content.
         clean_store = index_repository(
             RepoSource(local_path=str(linked)),
-            config=Config(
-                languages=["python"], cache=True, cache_dir=str(linked.parent / "isolated")
-            ),
+            config=Config(cache=True, cache_dir=str(linked.parent / "isolated")),
             index_config=IndexConfig(),
         )
         try:
@@ -815,6 +858,48 @@ class TestSeedWorktreeIndex:
         assert seeded == clean
         assert seeded_generation == clean_generation
 
+    def test_seeded_store_equals_the_same_tree_delta_indexed_in_place(self, tmp_path: Path) -> None:
+        """The load-bearing equivalence: a seeded worktree is a delta-indexed worktree.
+
+        A seed copies an index built at one revision and synchronizes it to a
+        tree at another, which is exactly what ordinary delta indexing does
+        when a checkout moves forward. Both stores must therefore be the
+        same store, down to edge evidence — the field `apply_delta` and a
+        full parse disagree on, and so the field that would expose any
+        divergence between the two routes.
+        """
+        main = _init_repo(tmp_path / "main")
+        _build_project_index(main)
+
+        (main / "later.py").write_text(
+            "from mod_1 import value_1\n\n\ndef later() -> int:\n    return value_1()\n",
+            encoding="utf-8",
+        )
+        _git(main, "add", "-A")
+        _git(main, "commit", "-m", "second")
+
+        # Seed first, while the source index still describes the old revision.
+        destination = tmp_path / "linked"
+        _git(main, "worktree", "add", "--detach", str(destination))
+        init_project(destination)
+        seeded = _seed(destination)
+        assert seeded.installed
+        assert seeded.sync_strategy == "delta"
+        seeded_snapshot = _full_store_snapshot(destination / ".archex" / "index.db")
+
+        # Then let the source index itself forward to the same tree.
+        timing = PipelineTiming()
+        store = index_repository(
+            RepoSource(local_path=str(main)),
+            config=_project_config(main),
+            index_config=IndexConfig(),
+            timing=timing,
+        )
+        store.close()
+        assert timing.strategy == "delta"
+
+        assert seeded_snapshot == _full_store_snapshot(main / ".archex" / "index.db")
+
     def test_large_delta_installs_nothing(self, seed_destination: tuple[Path, Path]) -> None:
         _main, linked = seed_destination
         for existing in linked.glob("*.py"):
@@ -823,7 +908,6 @@ class TestSeedWorktreeIndex:
         result = _seed(
             linked,
             config=Config(
-                languages=["python"],
                 cache=True,
                 cache_dir=str(linked / ".archex"),
                 delta_threshold=0.1,
@@ -1011,3 +1095,131 @@ class TestSeedWorktreeIndex:
         assert "from_source" not in (linked / ".archex" / "settings.toml").read_text(
             encoding="utf-8"
         )
+
+
+class TestIndexingIntegration:
+    """The seed path as reached through `index_repository` and the CLI."""
+
+    def test_index_reports_the_seed_strategy(self, seed_destination: tuple[Path, Path]) -> None:
+        main, linked = seed_destination
+
+        result = CliRunner().invoke(cli, ["index", str(linked), "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        summary = json.loads(result.output)
+        assert summary["strategy"] == "seeded"
+        assert summary["seed_disposition"] == "seeded"
+        assert summary["seed_strategy"] == "clean"
+        assert summary["seed_source"] == str(main.resolve())
+        assert summary["files_indexed"] == len(_DEFAULT_FILES) + _INIT_WRITTEN_FILES
+
+    def test_index_text_output_names_the_seed(self, seed_destination: tuple[Path, Path]) -> None:
+        main, linked = seed_destination
+
+        result = CliRunner().invoke(cli, ["index", str(linked)])
+
+        assert result.exit_code == 0, result.output
+        assert "Strategy:           seeded" in result.output
+        assert f"Worktree seed:      seeded from {main.resolve()}" in result.output
+
+    def test_refused_seed_is_reported_and_indexes_normally(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        main, linked = seed_destination
+        _set_metadata(main / ".archex" / "index.db", "needs_reindex", "true")
+
+        result = CliRunner().invoke(cli, ["index", str(linked), "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        summary = json.loads(result.output)
+        assert summary["strategy"] == "full"
+        assert summary["seed_disposition"] == "no_eligible_seed"
+        assert summary["seed_strategy"] is None
+        assert summary["files_indexed"] == len(_DEFAULT_FILES) + _INIT_WRITTEN_FILES
+
+    def test_ordinary_checkout_reports_no_seed_section(self, tmp_path: Path) -> None:
+        main = _init_repo(tmp_path / "main")
+        init_project(main)
+
+        result = CliRunner().invoke(cli, ["index", str(main), "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        summary = json.loads(result.output)
+        assert "seed_disposition" not in summary
+        assert "Worktree seed" not in result.output
+
+    def test_seeding_can_be_disabled_in_project_settings(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        _main, linked = seed_destination
+        settings = linked / ".archex" / "settings.toml"
+        settings.write_text(
+            settings.read_text(encoding="utf-8").replace(
+                "worktree_seed = true", "worktree_seed = false"
+            ),
+            encoding="utf-8",
+        )
+
+        result = CliRunner().invoke(cli, ["index", str(linked), "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        summary = json.loads(result.output)
+        assert summary["strategy"] == "full"
+        assert "seed_disposition" not in summary
+
+    def test_query_seeds_a_fresh_worktree(self, seed_destination: tuple[Path, Path]) -> None:
+        """A query in a fresh worktree must reach the same seeded index."""
+        _main, linked = seed_destination
+
+        result = CliRunner().invoke(cli, ["query", str(linked), "value_3", "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        assert (linked / ".archex" / "index.db").is_file()
+        assert (linked / ".archex" / "index.meta").is_file()
+        assert "mod_3.py" in result.output
+
+    def test_discarded_seed_reports_the_real_strategy(
+        self, seed_destination: tuple[Path, Path]
+    ) -> None:
+        """A published seed the resolution declines must not be reported as the outcome.
+
+        Here the seed is published and then immediately flagged
+        `needs_reindex`, which the resolution refuses to reuse. The reported
+        strategy has to be what indexing actually did, not `seeded`.
+        """
+        _main, linked = seed_destination
+        original = worktree_seed.seed_worktree_index
+
+        def seed_then_spoil(*args: object, **kwargs: object) -> WorktreeSeedResult:
+            result = original(*args, **kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
+            if result.installed:
+                _set_metadata(linked / ".archex" / "index.db", "needs_reindex", "true")
+            return result
+
+        with patch("archex.api.seed_worktree_index", seed_then_spoil):
+            result = CliRunner().invoke(cli, ["index", str(linked), "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        summary = json.loads(result.output)
+        assert summary["strategy"] == "full"
+        assert summary["seed_disposition"] == "seed_discarded"
+        assert summary["seed_strategy"] is None
+
+    def test_seed_source_control_characters_are_not_echoed(
+        self, seeded_pair: tuple[Path, Path]
+    ) -> None:
+        """A checkout name is filesystem input, so it must not carry escapes to a terminal."""
+        main, _linked = seeded_pair
+        hostile = main.parent / "wt\x1b[31mred"
+        _git(main, "worktree", "add", "--detach", str(hostile))
+        _build_project_index(hostile)
+        destination = main.parent / "destination"
+        _git(main, "worktree", "add", "--detach", str(destination))
+        init_project(destination)
+
+        result = CliRunner().invoke(cli, ["index", str(destination)])
+
+        assert result.exit_code == 0, result.output
+        assert "Worktree seed:      seeded from" in result.output
+        assert "\x1b" not in result.output
+        assert "wt?[31mred" in result.output

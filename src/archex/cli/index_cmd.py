@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from archex.cli.indexing import run_indexing_and_get_summary
+from archex.cli.indexing import format_worktree_seed, run_indexing_and_get_summary
 from archex.exceptions import ArchexError
 
 
@@ -83,6 +83,9 @@ def index_cmd(
     click.echo(f"Index path:         {summary['index_path'] or '(ephemeral, not cached to disk)'}")
     click.echo(f"Commit:             {summary['commit_hash'] or 'none'}")
     click.echo(f"Strategy:           {summary['strategy']}")
+    seed_line = format_worktree_seed(summary)
+    if seed_line is not None:
+        click.echo(f"Worktree seed:      {seed_line}")
     click.echo(f"Files indexed:      {summary['files_indexed']}")
     click.echo(f"Chunks indexed:     {summary['chunks_indexed']}")
     if summary["languages"]:

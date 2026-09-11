@@ -179,6 +179,7 @@ archex reads only paths you point it at or paths implied by the current reposito
 - global `~/.archex/config.toml` when present
 - configured MCP client files checked by `archex doctor`
 - local Hugging Face and FastEmbed cache directories when model-backed features are selected
+- the `.archex/index.db` of another checkout of *this same repository* when the current directory is a fresh linked Git worktree, to seed its index instead of rebuilding it; the source is verified to share this repository's Git common directory, is opened read-only, and nothing else in its `.archex` is read. Disable with `worktree_seed = false` or `ARCHEX_WORKTREE_SEED=0` (see [WORKTREE_INDEX_SEEDING.md](WORKTREE_INDEX_SEEDING.md))
 
 archex does not need hosted API keys for core CLI, Python API, MCP, Docker slim, or BM25 retrieval.
 

@@ -24,6 +24,7 @@ vector = false
 splade = false
 module_prefilter = false
 delta_threshold = 0.5
+worktree_seed = true
 
 [dogfood]
 tasks_dir = "benchmarks/tasks"

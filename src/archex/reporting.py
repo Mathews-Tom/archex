@@ -7,6 +7,7 @@ import sys
 import tiktoken
 
 from archex.models import DeltaMeta, PipelineTiming, TokenMeta
+from archex.utils import printable
 
 _encoder = tiktoken.get_encoding("cl100k_base")
 
@@ -63,6 +64,18 @@ def print_timing(timing: PipelineTiming) -> None:
             f"[timing] Delta index: {dm.files_modified}M/{dm.files_added}A/"
             f"{dm.files_deleted}D files in {dm.delta_time_ms:.0f}ms "
             f"(full reindex avoided)",
+            file=sys.stderr,
+        )
+    if timing.seed_strategy is None and timing.seed_disposition is not None:
+        print(
+            f"[timing] Worktree seed not used ({timing.seed_disposition})",
+            file=sys.stderr,
+        )
+    if timing.seed_strategy is not None:
+        print(
+            f"[timing] Worktree seed: {timing.seed_strategy} sync of "
+            f"{timing.seed_files_changed} file(s) from "
+            f"{printable(str(timing.seed_source))} in {timing.seed_time_ms:.0f}ms",
             file=sys.stderr,
         )
 

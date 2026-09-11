@@ -67,6 +67,11 @@ from archex.index.bm25 import BM25Index
 from archex.index.compat import INDEX_CONFIG_METADATA_KEYS, index_config_metadata_mismatch
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
+from archex.index.worktree_seed import (
+    WorktreeSeedResult,
+    resolve_checkout_identity,
+    seed_worktree_index,
+)
 from archex.languages import UNKNOWN_LANGUAGE_ID
 from archex.metrics.recorder import MetricsRecorder, UsageEvent
 from archex.models import (
@@ -524,18 +529,95 @@ def _ensure_index(
 ) -> IndexStore:
     """Ensure the repo is indexed and return an open IndexStore.
 
+    A linked Git worktree with no index of its own is first offered a seed
+    from a checkout sharing its Git common directory; a successful seed
+    leaves exactly the state a full index would have published, so the
+    resolution below then takes its ordinary cached path. Every refusal —
+    and a published seed the resolution then declines to reuse — falls
+    through to that same resolution unchanged.
+    """
+    if config is None:
+        config = load_config(source)
+    effective_index_config = index_config or IndexConfig()
+    cache = _cache_manager_for_source(source, config)
+    cache_key = cache.cache_key(source)
+
+    seed = _attempt_worktree_seed(source, config, effective_index_config, cache, cache_key)
+    store = _resolve_index(source, config, timing, effective_index_config, cache, cache_key)
+    if timing is not None and seed is not None:
+        timing.seed_disposition = seed.reason
+        timing.seed_source = None if seed.source_root is None else str(seed.source_root)
+        timing.seed_time_ms = seed.seed_time_ms
+        timing.seed_files_changed = seed.files_changed
+        if seed.installed and timing.strategy == "cached":
+            # The resolution consumed exactly what the seed published.
+            timing.seed_strategy = seed.sync_strategy
+            timing.strategy = "seeded"
+            # A seed is not a cache hit: this run copied and synchronized an
+            # index, and a consumer reading `cached` would conclude that no
+            # work was done.
+            timing.cached = False
+        elif seed.installed:
+            # The seed published a store the resolution then declined to
+            # reuse — a tree that moved under it, say. Whatever the
+            # resolution actually did stays the reported strategy, and the
+            # seed is reported as discarded rather than as the outcome.
+            timing.seed_disposition = "seed_discarded"
+    return store
+
+
+def _attempt_worktree_seed(
+    source: RepoSource,
+    config: Config,
+    index_config: IndexConfig,
+    cache: CacheManager,
+    cache_key: str,
+) -> WorktreeSeedResult | None:
+    """Offer a worktree seed to a fresh linked worktree; None if not applicable.
+
+    Returns None — reporting nothing at all — for the cases where seeding
+    is not a decision anyone needs to see: seeding disabled, a remote or
+    cacheless source, a repository that is not using the repo-local project
+    layout, a destination that already has an index, or an ordinary
+    checkout that is not a linked worktree. Everything past that point is a
+    named disposition the caller can report.
+    """
+    if not config.worktree_seed or not config.cache or not source.local_path or source.url:
+        return None
+    if not cache.project_layout or cache.db_path(cache_key).exists():
+        return None
+
+    repo_root = Path(source.local_path).expanduser().resolve()
+    identity = resolve_checkout_identity(repo_root)
+    if identity is None or not identity.is_linked_worktree:
+        return None
+
+    return seed_worktree_index(
+        repo_root,
+        cache=cache,
+        cache_key=cache_key,
+        source_identity=source.local_path,
+        config=config,
+        index_config=index_config,
+    )
+
+
+def _resolve_index(
+    source: RepoSource,
+    config: Config,
+    timing: PipelineTiming | None,
+    effective_index_config: IndexConfig,
+    cache: CacheManager,
+    cache_key: str,
+) -> IndexStore:
+    """Resolve an index through the cached, delta, or full path, in that order.
+
     On exact cache hit (same commit), returns the cached store directly.
     On same-repo different-commit, applies delta if within threshold.
     On cache miss, runs the full acquire → parse → chunk → store pipeline.
     The caller is responsible for closing the returned store.
     """
-    if config is None:
-        config = load_config(source)
-
     t_start = time.perf_counter()
-    effective_index_config = index_config or IndexConfig()
-    cache = _cache_manager_for_source(source, config)
-    cache_key = cache.cache_key(source)
     working_tree_signature = _working_tree_signature(source, config)
 
     # Path 1: Exact cache hit (same commit) — fast path
