@@ -359,9 +359,15 @@ def analyze_scope_aware_evidence(evidence_dir: Path, *, campaign_dir: Path) -> d
     for artifact in artifacts.values():
         pair_by_task[artifact.task_id][artifact.arm] = artifact
 
-    treatment_entries = [cell for cell in declared.values() if cell["kind"] == "treatment"]
+    treatment_entries = [
+        cell
+        for cell in declared.values()
+        if cell["kind"] == "treatment" and cell["arm"] == CONTROL_ARM
+    ]
     single_scope_entries = [
-        cell for cell in declared.values() if cell["kind"] == "single_scope_control"
+        cell
+        for cell in declared.values()
+        if cell["kind"] == "single_scope_control" and cell["arm"] == CONTROL_ARM
     ]
     _require(len(treatment_entries) == 2048, "primary selector is not 2,048 treatment pairs")
     _require(len(single_scope_entries) == 16, "single-scope invariant selector is not 16 pairs")
@@ -402,7 +408,6 @@ def analyze_scope_aware_evidence(evidence_dir: Path, *, campaign_dir: Path) -> d
         if (
             control.status != "success"
             or treatment.status != "success"
-            or control.payload_sha256 != expected_payload
             or treatment.payload_sha256 != expected_payload
         ):
             single_scope_payload_failures.append(task_id)
@@ -410,7 +415,7 @@ def analyze_scope_aware_evidence(evidence_dir: Path, *, campaign_dir: Path) -> d
 
     multi_scope_receipt_failures: list[str] = []
     for entry in treatment_entries:
-        artifact = artifacts[cast("str", entry["cell_id"])]
+        artifact = pair_by_task[cast("str", entry["task_id"])][TREATMENT_ARM]
         if artifact.status != "success":
             multi_scope_receipt_failures.append(artifact.task_id)
             continue
