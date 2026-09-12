@@ -554,3 +554,15 @@ def test_dogfood_command_exits_nonzero_on_ranking_violation(
     assert result.exit_code == 1
     assert "Ranking violations:" in result.output
     assert "symbol_count" in result.output
+
+
+def test_dogfood_command_reports_missing_tasks_dir_without_traceback(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["dogfood", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Dogfood tasks directory not found" in result.output
+    assert "tasks_dir" in result.output

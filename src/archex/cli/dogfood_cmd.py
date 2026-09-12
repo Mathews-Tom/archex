@@ -52,7 +52,12 @@ def dogfood_cmd(
     baseline_path: str | None,
     output_format: str,
 ) -> None:
-    """Run self-benchmark dogfood tasks and gate against a stored baseline."""
+    """Run self-benchmark dogfood tasks and gate against a stored baseline.
+
+    Tasks are read from SOURCE's own benchmark directory (benchmarks/tasks by
+    default, overridable via [dogfood] tasks_dir in .archex/settings.toml), so
+    this command only works in a repository that ships dogfood tasks.
+    """
     del run_all_self
     try:
         result = run_dogfood(

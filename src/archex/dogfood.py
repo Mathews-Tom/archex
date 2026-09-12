@@ -71,6 +71,13 @@ def run_dogfood(
     state = ProjectState.resolve(source)
     settings = _load_dogfood_settings(state)
     tasks_dir = _resolve_repo_path(settings.tasks_dir, state.repo_root)
+    if not tasks_dir.is_dir():
+        raise ValueError(
+            f"Dogfood tasks directory not found: {tasks_dir}. "
+            "Dogfood runs benchmark tasks stored in the target repository, so it only works "
+            "in a repository that ships them. Set [dogfood] tasks_dir in "
+            f"{state.settings_path} to point at a task directory."
+        )
     output_dir = _resolve_repo_path(settings.output_dir, state.repo_root)
     selected_tasks = _select_tasks(
         tasks_dir,
