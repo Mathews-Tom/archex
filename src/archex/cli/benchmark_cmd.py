@@ -129,6 +129,10 @@ from archex.benchmark.scope_aware_campaign import (
     validate_scope_aware_campaign,
     validate_scope_aware_population,
 )
+from archex.benchmark.scope_aware_identity import (
+    ScopeAwareIdentityError,
+    validate_scope_aware_identity,
+)
 from archex.benchmark.scorecard import (
     build_m3_scorecard_artifact,
     format_m3_scorecard_markdown,
@@ -922,6 +926,7 @@ def determinism_economics_cmd(sessions: Path, output: Path, preregistration_comm
             "determinism-economics-r6-1",
             "product-loop",
             "scope-aware-campaign",
+            "scope-aware-identity",
             "scope-aware-population",
         ]
     ),
@@ -945,11 +950,22 @@ def validate_cmd(
         "determinism-economics-r6-1",
         "product-loop",
         "scope-aware-campaign",
+        "scope-aware-identity",
         "scope-aware-population",
     }:
         if input_path is None:
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
+    if kind == "scope-aware-identity" and target is not None:
+        try:
+            coverage = validate_scope_aware_identity(target, repo_root=repo_root)
+        except ScopeAwareIdentityError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Valid R29 scope-aware candidate identity: {coverage.revision} / "
+            f"{coverage.implementation_files} implementation files."
+        )
+        return
     if kind == "scope-aware-campaign" and target is not None:
         try:
             coverage = validate_scope_aware_campaign(target)
