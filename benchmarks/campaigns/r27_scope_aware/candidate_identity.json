@@ -1,0 +1,30 @@
+{
+  "campaign_id": "r27-scope-aware-monorepo-ranking",
+  "clean_tree_proof": {
+    "binding_checkout": "clean",
+    "candidate_source_diff": "empty",
+    "candidate_tree": "263de9e667ad95e111641a70a0357f7dcc354fa6"
+  },
+  "dependency_identity": {
+    "lock_file": "uv.lock",
+    "lock_format_version": 1,
+    "lock_revision": 1,
+    "package_manager": "uv",
+    "project_file": "pyproject.toml",
+    "project_file_sha256": "f7823b4853bf19692b31e604fdbd87f04da987e7fe04301db2f74310bdd39143",
+    "requires_python": ">=3.11"
+  },
+  "implementation_file_sha256": {
+    "src/archex/benchmark/models.py": "ce4e392656689c6518bc51e69d49a6d9c6b84a2fb5eb4af44759f352abbbb40a",
+    "src/archex/benchmark/runner.py": "e471e801154101626d94f7e82de68e57a18d8d348213e079b25b8344ebbe21a0",
+    "src/archex/benchmark/scope_aware_candidate.py": "8a652c4ce1f0b467db25904c4a049711e74379b272ffc380358ad3a55f590f69",
+    "src/archex/benchmark/scope_aware_receipt.py": "36fc0b46a8e9a99b7e103dfa50284dfad7334595a363f9151e4bc9bb806ea671",
+    "src/archex/benchmark/scope_aware_strategy.py": "927a867fcf5635704a7c9294ac92c4739154afbe6226474e839d1625961aaa35",
+    "src/archex/benchmark/strategies.py": "b00d9527f9a3beb214709398684793f4948ce681705939b7b69de9ad5fd98211"
+  },
+  "lock_file_sha256": "7a3e3c011c4981ffa521493bac1d21f61c15523f8aec46f9f363696118493c92",
+  "r27_manifest_file_sha256": "e4a35c04c468671b971dc920c250f0003ced0fbc036330aa80cd354998717e4b",
+  "r27_manifest_sha256": "20caed725c4091a4ad675ead0d09f8bbd8ee6fcd1844b631480658a862175ca2",
+  "revision": "f0ebd9bade164abfc3913419f06ea90709a20108",
+  "schema_version": 1
+}
