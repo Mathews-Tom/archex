@@ -129,10 +129,16 @@ from archex.benchmark.scope_aware_campaign import (
     validate_scope_aware_campaign,
     validate_scope_aware_population,
 )
+from archex.benchmark.scope_aware_evidence import (
+    ScopeAwareEvidenceError,
+    validate_scope_aware_evidence,
+    write_generated_evidence,
+)
 from archex.benchmark.scope_aware_identity import (
     ScopeAwareIdentityError,
     validate_scope_aware_identity,
 )
+from archex.benchmark.scope_aware_run import ScopeAwareRunError, run_scope_aware_arm
 from archex.benchmark.scorecard import (
     build_m3_scorecard_artifact,
     format_m3_scorecard_markdown,
@@ -928,6 +934,7 @@ def determinism_economics_cmd(sessions: Path, output: Path, preregistration_comm
             "scope-aware-campaign",
             "scope-aware-identity",
             "scope-aware-population",
+            "scope-aware-evidence",
         ]
     ),
     show_default=True,
@@ -952,10 +959,23 @@ def validate_cmd(
         "scope-aware-campaign",
         "scope-aware-identity",
         "scope-aware-population",
+        "scope-aware-evidence",
     }:
         if input_path is None:
             raise click.ClickException(f"--input is required when --kind {kind} is selected")
         target = Path(input_path)
+    if kind == "scope-aware-evidence" and target is not None:
+        campaign = Path("benchmarks/campaigns/r27_scope_aware")
+        try:
+            coverage = validate_scope_aware_evidence(target, campaign_dir=campaign)
+            write_generated_evidence(target, campaign_dir=campaign, check=True)
+        except ScopeAwareEvidenceError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(
+            f"Valid R30 scope-aware evidence: {coverage.cells:,}/{coverage.planned_cells:,} "
+            f"unique cells; {coverage.failures:,} recorded failure(s)."
+        )
+        return
     if kind == "scope-aware-identity" and target is not None:
         try:
             coverage = validate_scope_aware_identity(target, repo_root=repo_root)
@@ -1941,3 +1961,84 @@ def benchmark_orientation_cmd(
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(rendered, encoding="utf-8")
     click.echo(str(destination))
+
+
+@benchmark_cmd.command("scope-aware-run")
+@click.option(
+    "--manifest",
+    "manifest_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--cells",
+    "cells_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--arm",
+    required=True,
+    type=click.Choice(["archex_query_control", "scope_aware_candidate"]),
+)
+@click.option(
+    "--output",
+    "output_dir",
+    required=True,
+    type=click.Path(file_okay=False, path_type=Path),
+)
+@click.option(
+    "--candidate-identity",
+    "candidate_identity_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+def scope_aware_run_cmd(
+    manifest_path: Path,
+    cells_path: Path,
+    arm: str,
+    output_dir: Path,
+    candidate_identity_path: Path | None,
+) -> None:
+    """Execute one immutable R30 arm, retaining every success or failure."""
+    try:
+        summary = run_scope_aware_arm(
+            manifest_path=manifest_path,
+            cells_path=cells_path,
+            arm=arm,
+            output_dir=output_dir,
+            candidate_identity_path=candidate_identity_path,
+        )
+    except ScopeAwareRunError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(
+        f"R30 {summary.arm}: {summary.cells:,} cells; {summary.successes:,} successes; "
+        f"{summary.failures:,} recorded failure(s)."
+    )
+
+
+@benchmark_cmd.command("scope-aware-report")
+@click.option(
+    "--input",
+    "evidence_dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.option(
+    "--campaign",
+    "campaign_dir",
+    default="benchmarks/campaigns/r27_scope_aware",
+    show_default=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.option("--check", "check_only", is_flag=True, help="Require existing outputs to match.")
+def scope_aware_report_cmd(evidence_dir: Path, campaign_dir: Path, check_only: bool) -> None:
+    """Generate or verify the deterministic R30 evidence ledger and report."""
+    try:
+        write_generated_evidence(evidence_dir, campaign_dir=campaign_dir, check=check_only)
+    except ScopeAwareEvidenceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if check_only:
+        click.echo("R30 generated evidence is byte-identical.")
+    else:
+        click.echo(f"Wrote R30 generated evidence to {evidence_dir}.")
