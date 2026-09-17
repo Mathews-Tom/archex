@@ -1,0 +1,36 @@
+task_id: usage_classify_intent_serve
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "Where is classify_intent used in the serve package?"
+expected_files:
+  - src/archex/serve/intent.py
+  - src/archex/serve/context.py
+  - src/archex/serve/modality.py
+expected_symbols:
+  - weights_for_query
+  - token_budget_for_query
+  - assemble_context
+  - extract_signals
+expected_regions:
+  - path: src/archex/serve/intent.py
+    granularity: symbol
+    symbol: weights_for_query
+    start_line: 224
+    end_line: 230
+    notes: "intent -> scoring weights"
+  - path: src/archex/serve/intent.py
+    granularity: symbol
+    symbol: token_budget_for_query
+    start_line: 233
+    end_line: 236
+    notes: "intent -> token budget preset"
+  - path: src/archex/serve/modality.py
+    granularity: symbol
+    symbol: extract_signals
+    start_line: 158
+    end_line: 179
+    notes: "modality signal extraction reuses the intent classifier"
+token_budget: 8192
+keywords: [classify, intent, usage, serve]

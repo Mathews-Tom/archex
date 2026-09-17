@@ -1,0 +1,606 @@
+{
+  "analysis": "archex-bundle-budget-curve",
+  "question": "How much required-file recall does archex give up at each bundle size, and what does it deliver at the SWE-bench Pro break-even bundle?",
+  "method": {
+    "strategy": "archex_query (product path)",
+    "varied": "token_budget only",
+    "index_cache": "warm (latency here is not comparable to cold-index runs)",
+    "bootstrap_resamples": 10000,
+    "bootstrap_seed": 20260909,
+    "clusters": "source repository"
+  },
+  "tasks": 66,
+  "saturation": {
+    "budget": 3072,
+    "bundle_tokens": 2821.7727272727275,
+    "required_file_recall": 0.9229797979797979,
+    "default_budget": 8192,
+    "default_bundle_tokens": 6123.681818181818,
+    "default_required_file_recall": 0.9229797979797979,
+    "default_tokens_bought_nothing": 3301.9090909090905
+  },
+  "cheapest_total": {
+    "budget": 3072,
+    "bundle_tokens": 2821.7727272727275,
+    "completion_tokens": 1171.6515151515152,
+    "total_tokens": 3993.4242424242425,
+    "default_total_tokens": 7295.333333333333
+  },
+  "curve": [
+    {
+      "requested_budget": 1024,
+      "cells": 66,
+      "mean_bundle_tokens": 997.0454545454545,
+      "median_bundle_tokens": 1008.0,
+      "mean_required_file_recall": 0.7800505050505051,
+      "ci95_low": 0.6788617886178862,
+      "ci95_high": 0.8428571428571429,
+      "all_required_present_rate": 0.5606060606060606,
+      "missed_required_task_rate": 0.4393939393939394,
+      "mean_recall": 0.7800505050505051,
+      "mean_precision": 0.4919191919191919,
+      "mean_bundle_completion_tokens": 4682.848484848485,
+      "mean_total_tokens": 5679.893939393939,
+      "mean_region_recall": 0.48962616778708734,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 982.7307692307693,
+          "mean_required_file_recall": 0.8198717948717948,
+          "all_required_present_rate": 0.5384615384615384
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 1006.35,
+          "mean_required_file_recall": 0.7541666666666667,
+          "all_required_present_rate": 0.575
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 990.9555555555555,
+          "mean_required_file_recall": 0.7440740740740741,
+          "all_required_present_rate": 0.4222222222222222
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 1010.0952380952381,
+          "mean_required_file_recall": 0.8571428571428571,
+          "all_required_present_rate": 0.8571428571428571
+        }
+      }
+    },
+    {
+      "requested_budget": 2048,
+      "cells": 66,
+      "mean_bundle_tokens": 1962.5454545454545,
+      "median_bundle_tokens": 2020.5,
+      "mean_required_file_recall": 0.88510101010101,
+      "ci95_low": 0.8373015873015872,
+      "ci95_high": 0.9444444444444444,
+      "all_required_present_rate": 0.7272727272727273,
+      "missed_required_task_rate": 0.2727272727272727,
+      "mean_recall": 0.88510101010101,
+      "mean_precision": 0.43943001443001445,
+      "mean_bundle_completion_tokens": 2189.9545454545455,
+      "mean_total_tokens": 4152.5,
+      "mean_region_recall": 0.6013545628488157,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 1889.076923076923,
+          "mean_required_file_recall": 0.8685897435897435,
+          "all_required_present_rate": 0.6153846153846154
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 2010.3,
+          "mean_required_file_recall": 0.8958333333333334,
+          "all_required_present_rate": 0.8
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 1931.6222222222223,
+          "mean_required_file_recall": 0.8759259259259259,
+          "all_required_present_rate": 0.6444444444444445
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 2028.8095238095239,
+          "mean_required_file_recall": 0.9047619047619048,
+          "all_required_present_rate": 0.9047619047619048
+        }
+      }
+    },
+    {
+      "requested_budget": 3072,
+      "cells": 66,
+      "mean_bundle_tokens": 2821.7727272727275,
+      "median_bundle_tokens": 3046.0,
+      "mean_required_file_recall": 0.9229797979797979,
+      "ci95_low": 0.8873239436619719,
+      "ci95_high": 0.9916666666666666,
+      "all_required_present_rate": 0.803030303030303,
+      "missed_required_task_rate": 0.19696969696969696,
+      "mean_recall": 0.9229797979797979,
+      "mean_precision": 0.43556998556998555,
+      "mean_bundle_completion_tokens": 1171.6515151515152,
+      "mean_total_tokens": 3993.4242424242425,
+      "mean_region_recall": 0.6587619702562232,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 2600.9615384615386,
+          "mean_required_file_recall": 0.8685897435897435,
+          "all_required_present_rate": 0.6153846153846154
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 2965.3,
+          "mean_required_file_recall": 0.9583333333333334,
+          "all_required_present_rate": 0.925
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 2733.6,
+          "mean_required_file_recall": 0.9092592592592592,
+          "all_required_present_rate": 0.7333333333333333
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 3010.714285714286,
+          "mean_required_file_recall": 0.9523809523809523,
+          "all_required_present_rate": 0.9523809523809523
+        }
+      }
+    },
+    {
+      "requested_budget": 4096,
+      "cells": 66,
+      "mean_bundle_tokens": 3583.3939393939395,
+      "median_bundle_tokens": 4038.5,
+      "mean_required_file_recall": 0.9229797979797979,
+      "ci95_low": 0.8873239436619719,
+      "ci95_high": 0.9916666666666666,
+      "all_required_present_rate": 0.803030303030303,
+      "missed_required_task_rate": 0.19696969696969696,
+      "mean_recall": 0.9229797979797979,
+      "mean_precision": 0.43502886002886004,
+      "mean_bundle_completion_tokens": 1171.6515151515152,
+      "mean_total_tokens": 4755.045454545455,
+      "mean_region_recall": 0.7164248055052653,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 3222.730769230769,
+          "mean_required_file_recall": 0.8685897435897435,
+          "all_required_present_rate": 0.6153846153846154
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 3817.825,
+          "mean_required_file_recall": 0.9583333333333334,
+          "all_required_present_rate": 0.925
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 3448.9777777777776,
+          "mean_required_file_recall": 0.9092592592592592,
+          "all_required_present_rate": 0.7333333333333333
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 3871.4285714285716,
+          "mean_required_file_recall": 0.9523809523809523,
+          "all_required_present_rate": 0.9523809523809523
+        }
+      }
+    },
+    {
+      "requested_budget": 5120,
+      "cells": 66,
+      "mean_bundle_tokens": 4270.151515151515,
+      "median_bundle_tokens": 4994.5,
+      "mean_required_file_recall": 0.9229797979797979,
+      "ci95_low": 0.8873239436619719,
+      "ci95_high": 0.9916666666666666,
+      "all_required_present_rate": 0.803030303030303,
+      "missed_required_task_rate": 0.19696969696969696,
+      "mean_recall": 0.9229797979797979,
+      "mean_precision": 0.43502886002886004,
+      "mean_bundle_completion_tokens": 1171.6515151515152,
+      "mean_total_tokens": 5441.80303030303,
+      "mean_region_recall": 0.7589834813972745,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 3718.9615384615386,
+          "mean_required_file_recall": 0.8685897435897435,
+          "all_required_present_rate": 0.6153846153846154
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 4628.425,
+          "mean_required_file_recall": 0.9583333333333334,
+          "all_required_present_rate": 0.925
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 4056.0444444444443,
+          "mean_required_file_recall": 0.9092592592592592,
+          "all_required_present_rate": 0.7333333333333333
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 4728.952380952381,
+          "mean_required_file_recall": 0.9523809523809523,
+          "all_required_present_rate": 0.9523809523809523
+        }
+      }
+    },
+    {
+      "requested_budget": 6144,
+      "cells": 66,
+      "mean_bundle_tokens": 4942.090909090909,
+      "median_bundle_tokens": 5824.5,
+      "mean_required_file_recall": 0.9229797979797979,
+      "ci95_low": 0.8873239436619719,
+      "ci95_high": 0.9916666666666666,
+      "all_required_present_rate": 0.803030303030303,
+      "missed_required_task_rate": 0.19696969696969696,
+      "mean_recall": 0.9229797979797979,
+      "mean_precision": 0.43502886002886004,
+      "mean_bundle_completion_tokens": 1171.6515151515152,
+      "mean_total_tokens": 6113.742424242424,
+      "mean_region_recall": 0.7819993544131475,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 4139.7692307692305,
+          "mean_required_file_recall": 0.8685897435897435,
+          "all_required_present_rate": 0.6153846153846154
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 5463.6,
+          "mean_required_file_recall": 0.9583333333333334,
+          "all_required_present_rate": 0.925
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 4604.155555555555,
+          "mean_required_file_recall": 0.9092592592592592,
+          "all_required_present_rate": 0.7333333333333333
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 5666.238095238095,
+          "mean_required_file_recall": 0.9523809523809523,
+          "all_required_present_rate": 0.9523809523809523
+        }
+      }
+    },
+    {
+      "requested_budget": 8192,
+      "cells": 66,
+      "mean_bundle_tokens": 6123.681818181818,
+      "median_bundle_tokens": 6527.0,
+      "mean_required_file_recall": 0.9229797979797979,
+      "ci95_low": 0.8873239436619719,
+      "ci95_high": 0.9916666666666666,
+      "all_required_present_rate": 0.803030303030303,
+      "missed_required_task_rate": 0.19696969696969696,
+      "mean_recall": 0.9229797979797979,
+      "mean_precision": 0.43502886002886004,
+      "mean_bundle_completion_tokens": 1171.6515151515152,
+      "mean_total_tokens": 7295.333333333333,
+      "mean_region_recall": 0.8042215766353696,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 4720.576923076923,
+          "mean_required_file_recall": 0.8685897435897435,
+          "all_required_present_rate": 0.6153846153846154
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 7035.7,
+          "mean_required_file_recall": 0.9583333333333334,
+          "all_required_present_rate": 0.925
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 5515.8,
+          "mean_required_file_recall": 0.9092592592592592,
+          "all_required_present_rate": 0.7333333333333333
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 7426.285714285715,
+          "mean_required_file_recall": 0.9523809523809523,
+          "all_required_present_rate": 0.9523809523809523
+        }
+      }
+    },
+    {
+      "requested_budget": 12288,
+      "cells": 66,
+      "mean_bundle_tokens": 7952.30303030303,
+      "median_bundle_tokens": 7118.5,
+      "mean_required_file_recall": 0.9229797979797979,
+      "ci95_low": 0.8873239436619719,
+      "ci95_high": 0.9916666666666666,
+      "all_required_present_rate": 0.803030303030303,
+      "missed_required_task_rate": 0.19696969696969696,
+      "mean_recall": 0.9229797979797979,
+      "mean_precision": 0.43502886002886004,
+      "mean_bundle_completion_tokens": 1171.6515151515152,
+      "mean_total_tokens": 9123.954545454546,
+      "mean_region_recall": 0.8344684902156166,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 5786.576923076923,
+          "mean_required_file_recall": 0.8685897435897435,
+          "all_required_present_rate": 0.6153846153846154
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 9360.025,
+          "mean_required_file_recall": 0.9583333333333334,
+          "all_required_present_rate": 0.925
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 7128.422222222222,
+          "mean_required_file_recall": 0.9092592592592592,
+          "all_required_present_rate": 0.7333333333333333
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 9717.761904761905,
+          "mean_required_file_recall": 0.9523809523809523,
+          "all_required_present_rate": 0.9523809523809523
+        }
+      }
+    },
+    {
+      "requested_budget": 16384,
+      "cells": 66,
+      "mean_bundle_tokens": 9302.121212121212,
+      "median_bundle_tokens": 8391.5,
+      "mean_required_file_recall": 0.9229797979797979,
+      "ci95_low": 0.8873239436619719,
+      "ci95_high": 0.9916666666666666,
+      "all_required_present_rate": 0.803030303030303,
+      "missed_required_task_rate": 0.19696969696969696,
+      "mean_recall": 0.9229797979797979,
+      "mean_precision": 0.43502886002886004,
+      "mean_bundle_completion_tokens": 1171.6515151515152,
+      "mean_total_tokens": 10473.772727272728,
+      "mean_region_recall": 0.8474314531785797,
+      "labelled_region_cells": 45,
+      "by_corpus": {
+        "self": {
+          "cells": 26,
+          "mean_bundle_tokens": 6329.461538461538,
+          "mean_required_file_recall": 0.8685897435897435,
+          "all_required_present_rate": 0.6153846153846154
+        },
+        "external": {
+          "cells": 40,
+          "mean_bundle_tokens": 11234.35,
+          "mean_required_file_recall": 0.9583333333333334,
+          "all_required_present_rate": 0.925
+        }
+      },
+      "by_family": {
+        "comprehension": {
+          "cells": 45,
+          "mean_bundle_tokens": 8065.288888888889,
+          "mean_required_file_recall": 0.9092592592592592,
+          "all_required_present_rate": 0.7333333333333333
+        },
+        "localization": {
+          "cells": 21,
+          "mean_bundle_tokens": 11952.47619047619,
+          "mean_required_file_recall": 0.9523809523809523,
+          "all_required_present_rate": 0.9523809523809523
+        }
+      }
+    }
+  ],
+  "per_intent_presets": [
+    {
+      "intent": "architecture_broad",
+      "shipped_preset": 3072,
+      "tasks": 12,
+      "saturation_budget": 3072,
+      "bundle_at_saturation": 2833.5,
+      "required_file_recall_at_saturation": 0.9111111111111111,
+      "bundle_at_preset_rung": 2833.5,
+      "required_file_recall_at_preset_rung": 0.9111111111111111,
+      "nearest_preset_rung": 3072,
+      "labelled_region_tasks": 4,
+      "region_recall_by_budget": {
+        "1024": 0.3888888888888889,
+        "2048": 0.4722222222222222,
+        "3072": 0.4722222222222222,
+        "4096": 0.4722222222222222,
+        "5120": 0.4722222222222222,
+        "6144": 0.4722222222222222,
+        "8192": 0.4722222222222222,
+        "12288": 0.6388888888888888,
+        "16384": 0.7222222222222222
+      }
+    },
+    {
+      "intent": "cli",
+      "shipped_preset": 1024,
+      "tasks": 5,
+      "saturation_budget": 1024,
+      "bundle_at_saturation": 984.6,
+      "required_file_recall_at_saturation": 0.85,
+      "bundle_at_preset_rung": 984.6,
+      "required_file_recall_at_preset_rung": 0.85,
+      "nearest_preset_rung": 1024,
+      "labelled_region_tasks": 2,
+      "region_recall_by_budget": {
+        "1024": 0.7916666666666667,
+        "2048": 0.7916666666666667,
+        "3072": 0.7916666666666667,
+        "4096": 0.7916666666666667,
+        "5120": 0.7916666666666667,
+        "6144": 0.7916666666666667,
+        "8192": 0.7916666666666667,
+        "12288": 0.7916666666666667,
+        "16384": 0.7916666666666667
+      }
+    },
+    {
+      "intent": "debugging",
+      "shipped_preset": 6144,
+      "tasks": 15,
+      "saturation_budget": 3072,
+      "bundle_at_saturation": 3002.866666666667,
+      "required_file_recall_at_saturation": 0.9666666666666667,
+      "bundle_at_preset_rung": 5604.133333333333,
+      "required_file_recall_at_preset_rung": 0.9666666666666667,
+      "nearest_preset_rung": 6144,
+      "labelled_region_tasks": 13,
+      "region_recall_by_budget": {
+        "1024": 0.3821733821733822,
+        "2048": 0.5702075702075702,
+        "3072": 0.612942612942613,
+        "4096": 0.7283272283272283,
+        "5120": 0.8284493284493285,
+        "6144": 0.8888888888888888,
+        "8192": 0.9658119658119658,
+        "12288": 1.0,
+        "16384": 1.0
+      }
+    },
+    {
+      "intent": "definition_lookup",
+      "shipped_preset": 2048,
+      "tasks": 5,
+      "saturation_budget": 1024,
+      "bundle_at_saturation": 986.2,
+      "required_file_recall_at_saturation": 0.9,
+      "bundle_at_preset_rung": 2015.2,
+      "required_file_recall_at_preset_rung": 0.9,
+      "nearest_preset_rung": 2048,
+      "labelled_region_tasks": 5,
+      "region_recall_by_budget": {
+        "1024": 0.8,
+        "2048": 0.8,
+        "3072": 0.8,
+        "4096": 0.9,
+        "5120": 0.9,
+        "6144": 0.9,
+        "8192": 0.9,
+        "12288": 0.9,
+        "16384": 0.9
+      }
+    },
+    {
+      "intent": "general",
+      "shipped_preset": 6144,
+      "tasks": 27,
+      "saturation_budget": 3072,
+      "bundle_at_saturation": 2984.3333333333335,
+      "required_file_recall_at_saturation": 0.9160493827160494,
+      "bundle_at_preset_rung": 5466.407407407408,
+      "required_file_recall_at_preset_rung": 0.9160493827160494,
+      "nearest_preset_rung": 6144,
+      "labelled_region_tasks": 19,
+      "region_recall_by_budget": {
+        "1024": 0.46101936982154773,
+        "2048": 0.5794404224531267,
+        "3072": 0.6554638142659922,
+        "4096": 0.6736126345926708,
+        "5120": 0.7059049037270453,
+        "6144": 0.7190627984638874,
+        "8192": 0.7190627984638874,
+        "12288": 0.7322206932007296,
+        "16384": 0.7453785879375716
+      }
+    },
+    {
+      "intent": "usage_search",
+      "shipped_preset": 4096,
+      "tasks": 2,
+      "saturation_budget": 1024,
+      "bundle_at_saturation": 998.5,
+      "required_file_recall_at_saturation": 1.0,
+      "bundle_at_preset_rung": 2801.5,
+      "required_file_recall_at_preset_rung": 1.0,
+      "nearest_preset_rung": 4096,
+      "labelled_region_tasks": 2,
+      "region_recall_by_budget": {
+        "1024": 0.5833333333333333,
+        "2048": 0.5833333333333333,
+        "3072": 0.875,
+        "4096": 1.0,
+        "5120": 1.0,
+        "6144": 1.0,
+        "8192": 1.0,
+        "12288": 1.0,
+        "16384": 1.0
+      }
+    }
+  ],
+  "agent_loop_constraint": [
+    {
+      "run": "claude-45sonnet-10132025",
+      "breakeven_bundle_tokens": 6501.295930864594,
+      "breakeven_ci95": [
+        4540.930300608072,
+        8550.16640803256
+      ],
+      "largest_affordable_budget": 8192,
+      "affordable_bundle_tokens": 6123.681818181818,
+      "affordable_required_file_recall": 0.9229797979797979,
+      "default_8192_bundle_tokens": 6123.681818181818,
+      "default_8192_required_file_recall": 0.9229797979797979,
+      "required_file_recall_given_up": 0.0
+    },
+    {
+      "run": "gpt-5-250-turns-10132025",
+      "breakeven_bundle_tokens": 18940.972371179167,
+      "breakeven_ci95": [
+        14934.955841273131,
+        22818.60163360593
+      ],
+      "largest_affordable_budget": 16384,
+      "affordable_bundle_tokens": 9302.121212121212,
+      "affordable_required_file_recall": 0.9229797979797979,
+      "default_8192_bundle_tokens": 6123.681818181818,
+      "default_8192_required_file_recall": 0.9229797979797979,
+      "required_file_recall_given_up": 0.0
+    }
+  ]
+}

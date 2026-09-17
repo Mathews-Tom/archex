@@ -9,5 +9,18 @@ expected_files:
 expected_symbols:
   - CacheManager
   - cache_key
+expected_regions:
+  - path: src/archex/cache.py
+    granularity: symbol
+    symbol: CacheManager
+    start_line: 65
+    end_line: 484
+    notes: "the cache manager the query names"
+  - path: src/archex/cache.py
+    granularity: symbol
+    symbol: cache_key
+    start_line: 84
+    end_line: 118
+    notes: "the key derivation the query names"
 token_budget: 2048
 keywords: [cache, key, path]

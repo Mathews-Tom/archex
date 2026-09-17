@@ -5,7 +5,7 @@
   "authorization": "User-approved 2026-07-12 after intrinsic query-to-label ambiguity review; labels remain inaccessible to runtime retrieval.",
   "source_revision": "68310cb857de5387471b2b2cfbc0aefea57ceefc",
   "prior_task_manifest_digest": "0ae42fb18f96678b5e79591be8372d83fbeed646c4c08e7cc0f118eba4c2bd09",
-  "task_manifest_digest": "c9b6eb53901a572372131cb0d748af5ba487686ee6604f9baa40bcea09ae5721",
+  "task_manifest_digest": "4d00f7eee171f69652e5f50d1713972fc7dda276b6fb3875adcfad4c9ea6c362",
   "changes": [
     {
       "task_id": "archex_adapter_registry",
@@ -61,5 +61,24 @@
     },
     "reason": "The calibrated task wording restored query-to-label specificity but the existing context candidate still broadens file sets and regresses labeled evidence."
   },
-  "runtime_boundary": "This artifact is evaluation-only. No benchmark task labels, expected files, expected symbols, or expected regions are available to production or candidate retrieval code."
+  "runtime_boundary": "This artifact is evaluation-only. No benchmark task labels, expected files, expected symbols, or expected regions are available to production or candidate retrieval code.",
+  "corpus_changes_after_calibration": {
+    "note": "The task corpus changed after the calibrated candidate run. The NO-GO verdict and every count in calibrated_candidate_run/calibrated_candidate_verdict remain scoped to the 64-task corpus at source_revision 56bf07a97aea07a5ee6980e5cf6a8416475f748d and are NOT re-derived here. Only task_manifest_digest is advanced so the drift guard keeps tracking the live corpus.",
+    "digest_before": "c9b6eb53901a572372131cb0d748af5ba487686ee6604f9baa40bcea09ae5721",
+    "digest_after": "4d00f7eee171f69652e5f50d1713972fc7dda276b6fb3875adcfad4c9ea6c362",
+    "date": "2026-09-18",
+    "reason": "intent-coverage gap closure for the token-budget preset audit",
+    "added_tasks": [
+      "usage_estimate_tokens",
+      "usage_classify_intent_serve"
+    ],
+    "region_labels_added": [
+      "routing_pl_intent",
+      "routing_pl_large",
+      "routing_pl_path_symbol",
+      "routing_pl_scoring",
+      "routing_pl_tight"
+    ],
+    "authorization": "User-approved 2026-09-18 after the drift guard was surfaced with the exact task list and the explicit statement that the NO-GO verdict is not re-derived; only task_manifest_digest advanced."
+  }
 }

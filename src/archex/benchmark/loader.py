@@ -83,6 +83,18 @@ def _validate_benchmark_task(path: Path, task: BenchmarkTask) -> None:
     _validate_text_field(path, "question", task.question)
     _validate_text_field(path, "commit", task.commit)
     _validate_list_field(path, "expected_files", task.expected_files)
+    if task.include_paths and task.repo == ".":
+        # A self-repo task resolves to the live checkout, because that is the
+        # only way `commit: HEAD` can be read from git. `repo_path_for_task`
+        # returns before its slicing branch, so include_paths would be dropped
+        # in silence and the task graded against the whole repository it
+        # believed it had scoped away. Reject it at authoring time.
+        _raise_spec_error(
+            path,
+            "include_paths",
+            'is not supported for self-repo tasks (repo: "."): the task runs '
+            "against the live checkout and cannot be sliced",
+        )
 
 
 def _validate_architecture_task(path: Path, task: ArchitectureBenchmarkTask) -> None:

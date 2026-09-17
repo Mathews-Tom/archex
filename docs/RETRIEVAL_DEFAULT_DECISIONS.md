@@ -316,3 +316,94 @@ Future work starts from the stable benchmark spine, not the draft ladder. The ne
 - `archex_project_init`
 - `express_error_handling`
 - `fastapi_dependency_injection` rerank
+
+## Intent token-budget presets
+
+`archex.api.query` does not apply one budget. When a caller names no budget, `archex.serve.intent.token_budget_for_query` routes a per-intent cap, and `_compute_dynamic_budget` takes `min(user_ceiling, intent_budget)`. `DEFAULT_TOKEN_BUDGET = 8192` is therefore the ceiling an explicit caller may request, not what a typical query spends. Any statement about "archex's default budget" has to name an intent.
+
+### 2026-09-17 — two presets cut, three deliberately left high
+
+Evidence: `benchmarks/swebench_pro/bundle-budget-records.json` as of this entry (64 tasks × 9 budgets; the file now carries the 66-task corpus from the 2026-09-18 entry, product `archex_query` path, only `token_budget` varied, index cache warm), derived into `benchmarks/evidence/archex-bundle-budget-curve.json` under `per_intent_presets` and written up in `benchmarks/swebench_pro/BUNDLE_BUDGET.md`. This is a budget-routing change; it registers no strategy, adds no lane, moves no ceiling, and leaves `archex_query` the product default.
+
+The load-bearing fact is that **`bundle_completion_tokens` is identical at every rung for every intent** — because required-file recall is identical at every rung at or above each intent's saturation point. Token efficiency *after completion* therefore improves strictly wherever the bundle shrinks, which is the quantity the switch rule requires.
+
+| Intent | Preset | Bundle | Completion | Total | Required-file recall | Missed-task | Region recall | Disposition |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `architecture_broad` | 8192 → **3072** | 6058 → 2834 | 1600 → 1600 | 7658 → 4434 | 0.911 → 0.911 | 0.25 → 0.25 | 0.472 → 0.472 | **Cut.** No gate input moves. |
+| `cli` | 3072 → **1024** | 1536 → 985 | 2984 → 2984 | 4520 → 3968 | 0.850 → 0.850 | 0.60 → 0.60 | 0.792 → 0.792 | **Cut.** No gate input moves. |
+| `general` | 6144 (unchanged) | 5466 → 2984 | 966 → 966 | 6433 → 3951 | 0.916 → 0.916 | 0.19 → 0.19 | 0.719 → **0.655** | Held. Region recall regresses. |
+| `debugging` | 6144 (unchanged) | 5604 → 3003 | 915 → 915 | 6519 → 3918 | 0.967 → 0.967 | 0.07 → 0.07 | 0.889 → **0.613** | Held. Region recall regresses sharply. |
+| `definition_lookup` | 2048 (unchanged) | 2012 → 977 | 679 → 679 | 2690 → 1656 | 0.900 → 0.900 | 0.20 → 0.20 | no labels at the time | Held. Zero region-labelled tasks, `n = 5`; the cut would pass the literal rule on unmeasured risk for the smallest absolute saving. Re-measured below once labelled. |
+| `usage_search` | 4096 (unchanged) | — | — | — | — | — | — | No task in the corpus classified to this intent. Unmeasured, so unchanged. Re-measured below once the corpus covered it. |
+
+`general` and `debugging` are the cases that would have been broken by a blanket budget cut: their required-file recall saturates at 3072 like everything else, but region recall keeps climbing above it (debugging `0.613 → 0.966` between 3072 and 8192). Those tokens buy real within-file coverage for exactly the intents whose consumers need exact lines.
+
+Verified on the live `query` path, same question and index, explicit budgets: `architecture_broad` 7949 → 2907 bundle tokens over an unchanged 5-file set; `cli` 2972 → 988. Routing lands on the new presets via `token_budget_for_query`.
+
+Scope limits: the evidence is the benchmark corpus as of that date (64 tasks), and per-intent cell counts are small (`architecture_broad` 12 tasks / 4 region-labelled, `cli` 5 / 2). The claim is a same-quality token reduction on this corpus, not a retrieval-quality improvement, and no cross-corpus generalisation is asserted. `usage_search` and `definition_lookup` remain unmeasured or under-measured and were left alone rather than tuned on absent evidence.
+
+### 2026-09-18 — the two blind spots measured; both presets confirmed, neither changed
+
+The 2026-09-17 entry held `definition_lookup` and `usage_search` because the corpus could not grade them. That gap is now closed and **both held presets are correct as shipped**. No preset changed on this pass.
+
+Corpus work (data only, no retrieval code):
+
+- `usage_search` had **zero** tasks. Two self-repo, region-labelled caller-localization tasks were added: `usage_estimate_tokens`, `usage_classify_intent_serve`.
+- `definition_lookup` had 5 tasks and **no region labels**. All five `routing_pl_*` tasks now carry verified `expected_regions` (symbol granularity with inclusive line ranges read from source).
+
+Two further caller-localization candidates were authored and then **discarded as mis-calibrated**: `Who calls compute_bundle_completion_penalty?` and `Callers of index_config_for_profile` both scored `required_file_recall = 0.000` for `archex_query`. A task no strategy can satisfy grades nothing, so neither was committed.
+
+**One hypothesis is retracted; the losing stage is now localized.** An earlier revision of this entry asserted that archex localizes definitions rather than call sites. That is withdrawn. Probing `BM25Index.search` directly contradicts it — for `Callers of index_config_for_profile` all 20 returned chunks contain the queried identifier, with caller file `src/archex/benchmark/strategies.py` in the top five; for `Who calls compute_bundle_completion_penalty?` 16 of 20 do. Reading `ContextBundle.retrieval_metadata` on the product path then localizes the loss exactly:
+
+| Query | Seeds | Expanded | Packed | Wanted callers in seeds | in packed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `Callers of index_config_for_profile` | 79 | 8 | 5 | **3 / 3** | **0** |
+| `Who calls compute_bundle_completion_penalty?` | 83 | 8 | 5 | **2 / 2** | **0** |
+
+**Seeding finds every wanted caller file. Packing keeps none of them.** In the second case 4 of the 5 packed files came from graph expansion (`models.py`, `index/store.py`, `reporting.py`, `serve/intent.py`) rather than from the 83 seeds; in the first, 2 of 5 did (`project.py`, `config.py`), and the 3 that were seeds are low-ranked ones (`cache.py`, `index/store.py`, a docs file) rather than any of the identifier-bearing callers. So the defect is in ranking/packing, not retrieval reach.
+
+#### Root cause: expansion-injected query terms colliding with a 3× filename boost
+
+Both earlier hypotheses were tested and **refuted**:
+
+- *Two-token OR fallback.* Re-phrasing the same information need at 2, 3, and 4 sanitized tokens (crossing the `_graduated_search` Stage-2 and Stage-3 thresholds) changes the seed count (79 → 87 → 30) and still packs **zero** wanted callers in every case. Not the cause.
+- *Structural weight.* Re-running with `ScoringWeights(relevance=1.0, structural=0.0, type_coverage=0.0, cohesion=0.0)` still packs zero wanted callers. The parameter is honoured — `structural=1.0` and `cohesion=1.0` produce visibly different bundles, and `cohesion=1.0` is the only configuration that packs the identifier-bearing `src/archex/serve/profiles.py` at all — so the refutation is real and not a silently-ignored argument. Not the cause.
+
+The actual mechanism is in `assemble_context`'s final score, which multiplies the weighted component sum by `_path_alignment_boost`. That helper returns a flat **`3.0`** when a file's basename stem matches any query term. Under relevance-only weights the packed chunks score:
+
+| Chunk | relevance | final | contains the queried identifier |
+| --- | ---: | ---: | :---: |
+| `src/archex/config.py` | 0.4501 | **1.3504** | no |
+| `src/archex/project.py` | 0.4501 | **1.3504** | no |
+| `src/archex/cache.py` | 0.4181 | 1.2543 | no |
+| `src/archex/index/store.py` | 0.4128 | 1.2383 | no |
+| `docs/RETRIEVAL_DEFAULT_DECISIONS.md` | **1.0000** | 1.0000 | yes |
+
+A chunk with *perfect* relevance and no filename match loses to a chunk with 0.45 relevance whose filename matches, because the latter is multiplied by exactly 3.0 (`1.3504 / 0.4501 = 3.0002`).
+
+The filenames that win are not even in the question. `_query_terms("Callers of index_config_for_profile")` expands to 16 terms including `cache`, `project`, `store`, `build`, `indexed`, and `indexing` — none of which the user typed. Those collide with the stems of `cache.py`, `project.py`, `index/store.py`, and each collision is worth 3×. Meanwhile `src/archex/api.py`, `src/archex/benchmark/strategies.py`, and `src/archex/cli/query_cmd.py` — the actual callers — score `1.0`, and even the definition file `src/archex/serve/profiles.py` scores `1.0` because its stem is the plural `profiles` while the alignment term is the singular `profile`.
+
+Reproduce:
+
+```python
+from archex.serve.context import _ARCH_KEYWORDS, _path_alignment_boost, _query_terms
+terms = _query_terms("Callers of index_config_for_profile")
+alignment = {t for t in terms if t not in _ARCH_KEYWORDS} or terms
+_path_alignment_boost("src/archex/config.py", alignment)   # 3.0
+_path_alignment_boost("src/archex/api.py", alignment)      # 1.0
+```
+
+**No fix is applied here, and none should be applied without the gate.** `_path_alignment_boost` and `_query_terms` are on the `archex_query` product path for every query and every intent, so changing either moves every number in the corpus. A candidate fix — narrowing expansion-injected terms out of `alignment_terms`, scaling the boost by the term's specificity, or capping it below the relevance range — has to clear the `Product strategy decision` rule on a clean warm run: recall, required-file recall, missed-required-task rate, token efficiency after completion, F1, and p95 at or under the `3000 ms` budget, plus no regression in region and line recall where labels exist. That is a separate, benchmark-first piece of work.
+
+One adjacent fact is verified and worth recording because it bounds any future caller-localization work: `EdgeKind.CALLS` is declared in `src/archex/models.py` but **never emitted anywhere in `src/`**. The index carries import, co-directory, and optional provider-sourced semantic edges; it holds no call graph. Caller localization therefore rests entirely on lexical and vector matching today.
+
+| Intent | Candidate shift | Bundle | Completion | Total | Required-file recall | Region recall | Line recall | Disposition |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `definition_lookup` | 2048 → 1024 | 2015 → 986 | 679 → 679 | 2694 → 1665 | 0.900 → 0.900 | 0.800 → 0.800 | 0.555 → **0.476** | **Held.** Line recall regresses on labelled tasks. |
+| `usage_search` | 4096 → 1024 | 2802 → 998 | 0 → 0 | 2802 → 998 | 1.000 → 1.000 | 1.000 → **0.583** | 1.000 → **0.383** | **Held.** 4096 sits exactly at region and line saturation. |
+
+Both would have been cut by a file-level-only reading: required-file recall saturates at 1024 for both intents. `definition_lookup` is held on `line_recall` alone — region recall is flat, and only the finer signal catches it, which is the case for keeping line recall as a gate input rather than a curiosity. `usage_search` region recall climbs `0.583 → 0.875 → 1.000` across 1024/3072/4096 and is flat above, so the shipped 4096 is the cheapest value that reaches full labelled coverage; it was set correctly before any of this was measured.
+
+Scope limit: `usage_search` rests on `n = 2` tasks. That is thin, and it is only load-bearing for *confirming* the status quo — no change is made on it. Raising the count is the obvious follow-up, blocked today by the caller-localization behaviour above: satisfiable caller-localization tasks are hard to author against a retriever that returns definitions.
+
+Harness defect found while validating (fixed): `BenchmarkTask.include_paths` was **silently ignored for self-repo tasks**. `repo_path_for_task` returns the live checkout for `repo: "."` before the slicing branch, so a self-repo task declaring `include_paths` was graded against the whole repository it thought it had scoped away. Slicing a self-repo task is not viable — the slice has no git, so `commit: HEAD` cannot resolve — so the combination is now rejected at load time by `BenchmarkTask._validate_include_paths`. No pre-existing task declared it; the only affected tasks were the two authored in this pass.
