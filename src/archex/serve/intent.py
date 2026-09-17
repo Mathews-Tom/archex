@@ -21,14 +21,22 @@ class QueryIntent(StrEnum):
 
 DEFAULT_TOKEN_BUDGET = 8192
 
-# Token-budget presets per intent. Simple symbol lookups should not emit a full
-# explanation bundle; architecture queries keep the product default capacity.
+# Token-budget presets per intent. ``DEFAULT_TOKEN_BUDGET`` remains the hard
+# ceiling an explicit caller may request; these are the per-intent caps applied
+# when the caller does not name one.
+#
+# Each value is a budget cap only — no preset branches on a task, repository, or
+# corpus. The measured disposition behind the current numbers, including why
+# DEBUGGING, GENERAL, and DEFINITION_LOOKUP are deliberately left above their
+# file-level saturation point (their region-level coverage keeps improving with
+# budget, or is unmeasured), is recorded in
+# `docs/RETRIEVAL_DEFAULT_DECISIONS.md` under "Intent token-budget presets".
 INTENT_TOKEN_BUDGETS: dict[QueryIntent, int] = {
     QueryIntent.DEFINITION_LOOKUP: 2048,
-    QueryIntent.ARCHITECTURE_BROAD: DEFAULT_TOKEN_BUDGET,
+    QueryIntent.ARCHITECTURE_BROAD: 3072,
     QueryIntent.USAGE_SEARCH: 4096,
     QueryIntent.DEBUGGING: 6144,
-    QueryIntent.CLI: 3072,
+    QueryIntent.CLI: 1024,
     QueryIntent.GENERAL: 6144,
 }
 

@@ -247,7 +247,15 @@ def test_intent_token_budgets_route_simple_queries_smaller_than_broad_queries() 
         INTENT_TOKEN_BUDGETS[QueryIntent.DEFINITION_LOOKUP]
         < INTENT_TOKEN_BUDGETS[QueryIntent.ARCHITECTURE_BROAD]
     )
-    assert INTENT_TOKEN_BUDGETS[QueryIntent.ARCHITECTURE_BROAD] == DEFAULT_TOKEN_BUDGET
+
+
+def test_every_intent_budget_stays_within_the_caller_ceiling() -> None:
+    # DEFAULT_TOKEN_BUDGET is the ceiling an explicit caller may request; an
+    # intent preset above it would be silently clamped by _compute_dynamic_budget
+    # and the routing would stop meaning anything.
+    assert set(INTENT_TOKEN_BUDGETS) == set(QueryIntent)
+    for intent, budget in INTENT_TOKEN_BUDGETS.items():
+        assert 0 < budget <= DEFAULT_TOKEN_BUDGET, f"{intent} budget {budget} exceeds ceiling"
 
 
 def test_token_budget_for_query_uses_detected_intent() -> None:
