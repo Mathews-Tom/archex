@@ -1,0 +1,481 @@
+{
+  "analysis": "swebench-pro-token-headroom",
+  "question": "What share of an agent's billed input tokens on SWE-bench Pro could a repository-context tool displace, and what may its own bundle cost?",
+  "sources": {
+    "trajectories": "s3://scaleapi-results/swe-bench-pro/<run>/traj/ (public, no credentials)",
+    "eval_results": "https://raw.githubusercontent.com/scaleapi/SWE-bench_Pro-os/main/traj/<run>/eval_results.json",
+    "dataset": "https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro"
+  },
+  "method": {
+    "chars_per_token": 4.0,
+    "estimator": "per-instance rescale to provider tokens_sent",
+    "compounding": "observation at step i charged in steps i+1..n-1",
+    "bundle_charged_turns": "n-2 (front-loaded at step 1)",
+    "displaceable": "all search observations + reads of files outside gold+test patch",
+    "bootstrap_resamples": 10000,
+    "bootstrap_seed": 20260909,
+    "clusters": "source repository"
+  },
+  "runs": [
+    {
+      "run": "claude-45sonnet-10132025",
+      "instances": 110,
+      "repositories": 11,
+      "totals": {
+        "billed_input_tokens": 298454379,
+        "output_tokens": 288024,
+        "reported_cost_usd": 1212.2389469999998
+      },
+      "per_instance_means": {
+        "turns": 75.0909090909091,
+        "billed_input_tokens": 2713221.6272727274,
+        "reported_cost_usd": 11.020354063636365,
+        "context_first": 877.4083132264149,
+        "context_last": 61024.78477506888,
+        "estimator_bias": 1.3127740292971253
+      },
+      "channels": {
+        "search": {
+          "calls": 2081,
+          "observation_tokens_once": 192572.49686256648,
+          "observation_tokens_compounded": 8749125.758901933,
+          "share_of_billed_input": 0.029314784350682733
+        },
+        "read_file": {
+          "calls": 1872,
+          "observation_tokens_once": 1923325.3425258507,
+          "observation_tokens_compounded": 111050116.33869544,
+          "share_of_billed_input": 0.3720840575728173
+        },
+        "edit": {
+          "calls": 1444,
+          "observation_tokens_once": 1041781.9636271917,
+          "observation_tokens_compounded": 30052702.17789807,
+          "share_of_billed_input": 0.10069445882681477
+        },
+        "test_build": {
+          "calls": 979,
+          "observation_tokens_once": 373615.8835104639,
+          "observation_tokens_compounded": 12439119.712415116,
+          "share_of_billed_input": 0.04167846273220577
+        },
+        "submit_vcs": {
+          "calls": 90,
+          "observation_tokens_once": 731719.4093800092,
+          "observation_tokens_compounded": 0.0,
+          "share_of_billed_input": 0.0
+        },
+        "other": {
+          "calls": 1794,
+          "observation_tokens_once": 502168.79336742783,
+          "observation_tokens_compounded": 12283697.046469394,
+          "share_of_billed_input": 0.04115770419461459
+        }
+      },
+      "displaceable_share_of_billed_input": {
+        "mean": 0.17905861618683472,
+        "ci95_low": 0.12961347587847238,
+        "ci95_high": 0.2314672017398208
+      },
+      "in_patch_read_share_of_billed_input": 0.22132262210117995,
+      "breakeven_bundle_tokens": {
+        "mean": 6501.295930864594,
+        "ci95_low": 4540.930300608072,
+        "ci95_high": 8550.16640803256
+      },
+      "archex_reference_bundle_tokens": 13247,
+      "bundle_net_effect_curve": [
+        {
+          "bundle_tokens": 2500,
+          "net_share_of_billed_input": 0.09886647118197903,
+          "ci95_low": 0.04803125372602501,
+          "ci95_high": 0.1519948263892755,
+          "net_is_a_saving": true
+        },
+        {
+          "bundle_tokens": 5000,
+          "net_share_of_billed_input": 0.018674326177123356,
+          "ci95_low": -0.03476079519114289,
+          "ci95_high": 0.07362174869580569,
+          "net_is_a_saving": false
+        },
+        {
+          "bundle_tokens": 7500,
+          "net_share_of_billed_input": -0.061517818827732315,
+          "ci95_low": -0.11752853132227561,
+          "ci95_high": -0.004577948940150578,
+          "net_is_a_saving": false
+        },
+        {
+          "bundle_tokens": 10000,
+          "net_share_of_billed_input": -0.141709963832588,
+          "ci95_low": -0.2019998609725969,
+          "ci95_high": -0.08145715427145692,
+          "net_is_a_saving": false
+        },
+        {
+          "bundle_tokens": 13247,
+          "net_share_of_billed_input": -0.24586352176489454,
+          "ci95_low": -0.31180000666904556,
+          "ci95_high": -0.18114306591912938,
+          "net_is_a_saving": false
+        },
+        {
+          "bundle_tokens": 20000,
+          "net_share_of_billed_input": -0.46247854385201065,
+          "ci95_low": -0.541924849857153,
+          "ci95_high": -0.3835509381998796,
+          "net_is_a_saving": false
+        }
+      ],
+      "by_outcome": {
+        "resolved": {
+          "instances": 49,
+          "mean_turns": 75.91836734693878,
+          "mean_billed_input_tokens": 2652057.163265306,
+          "mean_reported_cost_usd": 10.77000593877551,
+          "mean_displaceable_share": 0.16320257699847238
+        },
+        "unresolved": {
+          "instances": 61,
+          "mean_turns": 74.42622950819673,
+          "mean_billed_input_tokens": 2762353.7377049183,
+          "mean_reported_cost_usd": 11.221453377049182,
+          "mean_displaceable_share": 0.1917954345512569
+        }
+      },
+      "per_repository": {
+        "NodeBB/NodeBB": {
+          "instances": 10,
+          "mean_turns": 84.3,
+          "mean_billed_input_tokens": 3280343.4,
+          "mean_reported_cost_usd": 13.548262800000003,
+          "mean_displaceable_share": 0.2729371855056598,
+          "mean_breakeven_bundle_tokens": 11500.870950520992,
+          "resolved_rate": 0.3
+        },
+        "ansible/ansible": {
+          "instances": 10,
+          "mean_turns": 72.7,
+          "mean_billed_input_tokens": 2197159.1,
+          "mean_reported_cost_usd": 8.802517500000002,
+          "mean_displaceable_share": 0.08112626902342726,
+          "mean_breakeven_bundle_tokens": 2284.781366289092,
+          "resolved_rate": 0.8
+        },
+        "element-hq/element-web": {
+          "instances": 10,
+          "mean_turns": 66.0,
+          "mean_billed_input_tokens": 2088062.3,
+          "mean_reported_cost_usd": 8.721262800000002,
+          "mean_displaceable_share": 0.321233335273021,
+          "mean_breakeven_bundle_tokens": 9596.616788575238,
+          "resolved_rate": 0.4
+        },
+        "flipt-io/flipt": {
+          "instances": 10,
+          "mean_turns": 80.7,
+          "mean_billed_input_tokens": 3114156.2,
+          "mean_reported_cost_usd": 12.537409499999999,
+          "mean_displaceable_share": 0.11151660801340099,
+          "mean_breakeven_bundle_tokens": 4246.310507670447,
+          "resolved_rate": 0.5
+        },
+        "future-architect/vuls": {
+          "instances": 10,
+          "mean_turns": 71.2,
+          "mean_billed_input_tokens": 2939088.5,
+          "mean_reported_cost_usd": 11.548521,
+          "mean_displaceable_share": 0.1206839052122773,
+          "mean_breakeven_bundle_tokens": 5278.666304357005,
+          "resolved_rate": 0.4
+        },
+        "gravitational/teleport": {
+          "instances": 10,
+          "mean_turns": 69.6,
+          "mean_billed_input_tokens": 2443541.8,
+          "mean_reported_cost_usd": 9.770846700000002,
+          "mean_displaceable_share": 0.11945158436615808,
+          "mean_breakeven_bundle_tokens": 3852.304034269769,
+          "resolved_rate": 0.3
+        },
+        "internetarchive/openlibrary": {
+          "instances": 10,
+          "mean_turns": 78.1,
+          "mean_billed_input_tokens": 2600777.2,
+          "mean_reported_cost_usd": 10.509441,
+          "mean_displaceable_share": 0.14647790746131475,
+          "mean_breakeven_bundle_tokens": 4911.008453129495,
+          "resolved_rate": 0.3
+        },
+        "navidrome/navidrome": {
+          "instances": 10,
+          "mean_turns": 52.5,
+          "mean_billed_input_tokens": 1715665.4,
+          "mean_reported_cost_usd": 7.0326708,
+          "mean_displaceable_share": 0.20283507527824685,
+          "mean_breakeven_bundle_tokens": 6983.288494298862,
+          "resolved_rate": 0.3
+        },
+        "protonmail/webclients": {
+          "instances": 10,
+          "mean_turns": 81.4,
+          "mean_billed_input_tokens": 3122108.5,
+          "mean_reported_cost_usd": 13.3288041,
+          "mean_displaceable_share": 0.32074963463865847,
+          "mean_breakeven_bundle_tokens": 12774.687255390456,
+          "resolved_rate": 0.4
+        },
+        "qutebrowser/qutebrowser": {
+          "instances": 10,
+          "mean_turns": 85.2,
+          "mean_billed_input_tokens": 2714019.6,
+          "mean_reported_cost_usd": 10.7658015,
+          "mean_displaceable_share": 0.08648926257074893,
+          "mean_breakeven_bundle_tokens": 2374.8342185728206,
+          "resolved_rate": 0.8
+        },
+        "tutao/tutanota": {
+          "instances": 10,
+          "mean_turns": 84.3,
+          "mean_billed_input_tokens": 3630515.9,
+          "mean_reported_cost_usd": 14.658357,
+          "mean_displaceable_share": 0.18614401071226822,
+          "mean_breakeven_bundle_tokens": 7710.8868664363545,
+          "resolved_rate": 0.4
+        }
+      },
+      "population": "first 10 per repository by instance id"
+    },
+    {
+      "run": "gpt-5-250-turns-10132025",
+      "instances": 55,
+      "repositories": 11,
+      "totals": {
+        "billed_input_tokens": 133574723,
+        "output_tokens": 22807,
+        "reported_cost_usd": 88.22178225
+      },
+      "per_instance_means": {
+        "turns": 51.14545454545455,
+        "billed_input_tokens": 2428631.327272727,
+        "reported_cost_usd": 1.6040324045454548,
+        "context_first": 1109.9213508093344,
+        "context_last": 36122.18027019955,
+        "estimator_bias": 1.0708033350392174
+      },
+      "channels": {
+        "search": {
+          "calls": 617,
+          "observation_tokens_once": 606223.4293038473,
+          "observation_tokens_compounded": 19230233.992255375,
+          "share_of_billed_input": 0.14396611544727198
+        },
+        "read_file": {
+          "calls": 1018,
+          "observation_tokens_once": 1734399.5930114926,
+          "observation_tokens_compounded": 74089638.31140946,
+          "share_of_billed_input": 0.5546681037205629
+        },
+        "edit": {
+          "calls": 434,
+          "observation_tokens_once": 323804.5996329671,
+          "observation_tokens_compounded": 6801174.436674477,
+          "share_of_billed_input": 0.05091662766670665
+        },
+        "test_build": {
+          "calls": 59,
+          "observation_tokens_once": 42043.12022920474,
+          "observation_tokens_compounded": 540091.4402914656,
+          "share_of_billed_input": 0.0040433656021241805
+        },
+        "submit_vcs": {
+          "calls": 26,
+          "observation_tokens_once": 175620.38880768258,
+          "observation_tokens_compounded": 0.0,
+          "share_of_billed_input": 0.0
+        },
+        "other": {
+          "calls": 659,
+          "observation_tokens_once": 172350.59061325615,
+          "observation_tokens_compounded": 4697596.707012563,
+          "share_of_billed_input": 0.03516830581046807
+        }
+      },
+      "displaceable_share_of_billed_input": {
+        "mean": 0.4956190105472832,
+        "ci95_low": 0.3737177014950152,
+        "ci95_high": 0.6309966232903433
+      },
+      "in_patch_read_share_of_billed_input": 0.2842816916134133,
+      "breakeven_bundle_tokens": {
+        "mean": 18940.972371179167,
+        "ci95_low": 14934.955841273131,
+        "ci95_high": 22818.60163360593
+      },
+      "archex_reference_bundle_tokens": 13247,
+      "bundle_net_effect_curve": [
+        {
+          "bundle_tokens": 2500,
+          "net_share_of_billed_input": 0.40452202251190134,
+          "ci95_low": 0.2836319016381436,
+          "ci95_high": 0.5397958574299475,
+          "net_is_a_saving": true
+        },
+        {
+          "bundle_tokens": 5000,
+          "net_share_of_billed_input": 0.3134250344765195,
+          "ci95_low": 0.19186578166221221,
+          "ci95_high": 0.448817545809997,
+          "net_is_a_saving": true
+        },
+        {
+          "bundle_tokens": 7500,
+          "net_share_of_billed_input": 0.22232804644113754,
+          "ci95_low": 0.0993298880219415,
+          "ci95_high": 0.3587339318747443,
+          "net_is_a_saving": true
+        },
+        {
+          "bundle_tokens": 10000,
+          "net_share_of_billed_input": 0.13123105840575566,
+          "ci95_low": 0.005503382050027423,
+          "ci95_high": 0.2706256940120675,
+          "net_is_a_saving": true
+        },
+        {
+          "bundle_tokens": 13247,
+          "net_share_of_billed_input": 0.012914290345401678,
+          "ci95_low": -0.11761918028636856,
+          "ci95_high": 0.15722267568004406,
+          "net_is_a_saving": false
+        },
+        {
+          "bundle_tokens": 20000,
+          "net_share_of_billed_input": -0.23315689373577186,
+          "ci95_low": -0.37999660012665026,
+          "ci95_high": -0.07592247609531066,
+          "net_is_a_saving": false
+        }
+      ],
+      "by_outcome": {
+        "resolved": {
+          "instances": 16,
+          "mean_turns": 55.4375,
+          "mean_billed_input_tokens": 2300851.6875,
+          "mean_reported_cost_usd": 1.59462934375,
+          "mean_displaceable_share": 0.403852027788341
+        },
+        "unresolved": {
+          "instances": 39,
+          "mean_turns": 49.38461538461539,
+          "mean_billed_input_tokens": 2481053.7435897435,
+          "mean_reported_cost_usd": 1.607890070512821,
+          "mean_displaceable_share": 0.5332670034740287
+        }
+      },
+      "per_repository": {
+        "NodeBB/NodeBB": {
+          "instances": 5,
+          "mean_turns": 48.0,
+          "mean_billed_input_tokens": 1973072.0,
+          "mean_reported_cost_usd": 1.64631075,
+          "mean_displaceable_share": 0.557803869627395,
+          "mean_breakeven_bundle_tokens": 20783.758713145216,
+          "resolved_rate": 0.2
+        },
+        "ansible/ansible": {
+          "instances": 5,
+          "mean_turns": 49.0,
+          "mean_billed_input_tokens": 2214342.6,
+          "mean_reported_cost_usd": 1.5949200500000003,
+          "mean_displaceable_share": 0.3790379837389472,
+          "mean_breakeven_bundle_tokens": 19809.93706732047,
+          "resolved_rate": 0.4
+        },
+        "element-hq/element-web": {
+          "instances": 5,
+          "mean_turns": 37.2,
+          "mean_billed_input_tokens": 1221535.4,
+          "mean_reported_cost_usd": 1.05819165,
+          "mean_displaceable_share": 0.4803439388952017,
+          "mean_breakeven_bundle_tokens": 12761.886545128513,
+          "resolved_rate": 0.4
+        },
+        "flipt-io/flipt": {
+          "instances": 5,
+          "mean_turns": 80.4,
+          "mean_billed_input_tokens": 4611254.6,
+          "mean_reported_cost_usd": 2.655481000000001,
+          "mean_displaceable_share": 0.3434997379307754,
+          "mean_breakeven_bundle_tokens": 16047.910286593597,
+          "resolved_rate": 0.2
+        },
+        "future-architect/vuls": {
+          "instances": 5,
+          "mean_turns": 55.6,
+          "mean_billed_input_tokens": 2989911.2,
+          "mean_reported_cost_usd": 2.143414650000001,
+          "mean_displaceable_share": 0.13163112631424506,
+          "mean_breakeven_bundle_tokens": 5499.839469779562,
+          "resolved_rate": 0.2
+        },
+        "gravitational/teleport": {
+          "instances": 5,
+          "mean_turns": 59.6,
+          "mean_billed_input_tokens": 3973231.2,
+          "mean_reported_cost_usd": 2.0462763,
+          "mean_displaceable_share": 0.4498214554358606,
+          "mean_breakeven_bundle_tokens": 31064.525513416425,
+          "resolved_rate": 0.0
+        },
+        "internetarchive/openlibrary": {
+          "instances": 5,
+          "mean_turns": 31.0,
+          "mean_billed_input_tokens": 1123955.8,
+          "mean_reported_cost_usd": 0.8926080500000001,
+          "mean_displaceable_share": 0.7683712593823179,
+          "mean_breakeven_bundle_tokens": 18453.9554072884,
+          "resolved_rate": 0.0
+        },
+        "navidrome/navidrome": {
+          "instances": 5,
+          "mean_turns": 39.6,
+          "mean_billed_input_tokens": 1477210.4,
+          "mean_reported_cost_usd": 1.253894,
+          "mean_displaceable_share": 0.5039545125184531,
+          "mean_breakeven_bundle_tokens": 21931.018164189743,
+          "resolved_rate": 0.2
+        },
+        "protonmail/webclients": {
+          "instances": 5,
+          "mean_turns": 20.6,
+          "mean_billed_input_tokens": 775510.8,
+          "mean_reported_cost_usd": 0.5438265500000001,
+          "mean_displaceable_share": 1.0042077187942025,
+          "mean_breakeven_bundle_tokens": 28199.829482973466,
+          "resolved_rate": 0.0
+        },
+        "qutebrowser/qutebrowser": {
+          "instances": 5,
+          "mean_turns": 68.6,
+          "mean_billed_input_tokens": 2862737.2,
+          "mean_reported_cost_usd": 1.7883866999999998,
+          "mean_displaceable_share": 0.42012539610515215,
+          "mean_breakeven_bundle_tokens": 15794.887999964067,
+          "resolved_rate": 0.8
+        },
+        "tutao/tutanota": {
+          "instances": 5,
+          "mean_turns": 73.0,
+          "mean_billed_input_tokens": 3492183.4,
+          "mean_reported_cost_usd": 2.02104675,
+          "mean_displaceable_share": 0.4130121172775644,
+          "mean_breakeven_bundle_tokens": 18003.14743317138,
+          "resolved_rate": 0.8
+        }
+      },
+      "population": "first 5 per repository by instance id"
+    }
+  ]
+}
