@@ -360,9 +360,9 @@ Two further caller-localization candidates were authored and then **discarded as
 | `Callers of index_config_for_profile` | 79 | 8 | 5 | **3 / 3** | **0** |
 | `Who calls compute_bundle_completion_penalty?` | 83 | 8 | 5 | **2 / 2** | **0** |
 
-**Seeding finds every wanted caller file. Packing keeps none of them.** In the second case 4 of the 5 packed files came from graph expansion (`models.py`, `index/store.py`, `reporting.py`, `serve/intent.py`) rather than from the 83 seeds; in the first, 2 of 5 did (`project.py`, `config.py`), and the 3 that were seeds are low-ranked ones (`cache.py`, `index/store.py`, a docs file) rather than any of the identifier-bearing callers. So the defect is in ranking/packing, not retrieval reach.
+**Seeding finds every wanted caller file. Packing keeps none of them.** In the second case 4 of the 5 packed files came from graph expansion (`models.py`, `index/store.py`, `reporting.py`, `serve/intent.py`) rather than from the 83 seeds; in the first, 2 of 5 did (`project.py`, `config.py`), and the 3 that were seeds are low-ranked ones (`cache.py`, `index/store.py`, a docs file) rather than any of the identifier-bearing callers. So the loss is in ranking and packing, not retrieval reach.
 
-#### Root cause: expansion-injected query terms colliding with a 3× filename boost
+#### Mechanism: expansion-injected query terms colliding with a 3× filename boost
 
 Both earlier hypotheses were tested and **refuted**:
 
@@ -393,7 +393,27 @@ _path_alignment_boost("src/archex/config.py", alignment)   # 3.0
 _path_alignment_boost("src/archex/api.py", alignment)      # 1.0
 ```
 
-**No fix is applied here, and none should be applied without the gate.** `_path_alignment_boost` and `_query_terms` are on the `archex_query` product path for every query and every intent, so changing either moves every number in the corpus. A candidate fix — narrowing expansion-injected terms out of `alignment_terms`, scaling the boost by the term's specificity, or capping it below the relevance range — has to clear the `Product strategy decision` rule on a clean warm run: recall, required-file recall, missed-required-task rate, token efficiency after completion, F1, and p95 at or under the `3000 ms` budget, plus no regression in region and line recall where labels exist. That is a separate, benchmark-first piece of work.
+**Ablation verdict (2026-09-18): the boost is strongly net-positive and must not be removed or weakened blind.** Calling it a defect on the strength of two caller-localization tasks was premature. `scripts/path_boost_ablation.py` runs the whole corpus twice — identical tasks, index, budgets, and strategy, with `_path_alignment_boost` forced to `1.0` in the ablation arm — and the boost pays on every gate input at once:
+
+| Metric | boost minus neutral | 95% CI |
+| --- | ---: | :---: |
+| Required-file recall | **+0.0944** | `[+0.0145, +0.1401]` |
+| Recall | **+0.0944** | `[+0.0145, +0.1401]` |
+| Precision | **+0.1069** | `[+0.0648, +0.1331]` |
+| F1 | **+0.1156** | `[+0.0659, +0.1499]` |
+| Line recall | **+0.0214** | `[+0.0066, +0.0444]` |
+| Region recall | +0.0331 | `[-0.0037, +0.0937]` |
+| Bundle tokens | **-541** | `[-835, -283]` |
+| Completion tokens | **-2708** | `[-4241, -60]` |
+| Token efficiency after completion | +0.0416 | `[-0.0184, +0.0796]` |
+
+It changes the returned file set on 49 of 66 tasks, improves required-file recall on 18, and hurts it on 2. Quality up and tokens down simultaneously, with intervals excluding zero on recall, precision, F1, and line recall. Removing the boost would be a large, measurable regression.
+
+So the correct reading is a mechanism that is strongly net-positive with a **known, narrow failure mode**: when `_query_terms` injects a generic term the user never typed (`cache`, `project`, `store`, `build`) and that term collides with a common filename stem, the 3× can outrank a chunk carrying the queried identifier. Caller-localization phrasings are where that surfaced.
+
+Any future candidate must therefore preserve the measured benefit, not trade it away. The narrowest shape consistent with this evidence is to exclude *expansion-injected* terms from `alignment_terms` while leaving terms the user actually typed eligible for the boost — which would keep the 18 wins and target the 2 losses. That remains unimplemented and ungated. `_path_alignment_boost` and `_query_terms` sit on the `archex_query` product path for every query and every intent, so any change must clear the `Product strategy decision` rule on a clean warm run — recall, required-file recall, missed-required-task rate, token efficiency after completion, F1, p95 at or under the `3000 ms` budget — and must now additionally beat the ablation baseline recorded here rather than merely beating the neutralised arm.
+
+Raw cells: `benchmarks/swebench_pro/path-boost-records.json`. Derived: `benchmarks/evidence/path-boost-ablation.json`.
 
 One adjacent fact is verified and worth recording because it bounds any future caller-localization work: `EdgeKind.CALLS` is declared in `src/archex/models.py` but **never emitted anywhere in `src/`**. The index carries import, co-directory, and optional provider-sourced semantic edges; it holds no call graph. Caller localization therefore rests entirely on lexical and vector matching today.
 
