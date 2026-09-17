@@ -204,6 +204,14 @@ def _validate_git_identity(
 
     _validate_dependency_identity(identity, repo_root=repo_root)
 
+    # Only the candidate's implementation files are compared against the frozen
+    # revision in the WORKING TREE. The dependency files are deliberately absent
+    # here: `_validate_dependency_identity` above already proves their
+    # provenance by digesting `git show <revision>:<file>`, which is what binds
+    # the campaign to the environment its cells ran in. Diffing them against the
+    # worktree as well asserted something different and unintended — that the
+    # checkout may never change its own version or relock — which permanently
+    # blocked every release, since a version bump necessarily rewrites both.
     diff = subprocess.run(
         [
             "git",
@@ -212,8 +220,6 @@ def _validate_git_identity(
             identity.revision,
             "--",
             *sorted(paths),
-            identity.dependency_identity.project_file,
-            identity.dependency_identity.lock_file,
         ],
         cwd=repo_root,
         capture_output=True,
