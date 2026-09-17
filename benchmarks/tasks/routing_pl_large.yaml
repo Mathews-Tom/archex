@@ -8,5 +8,12 @@ expected_files:
   - src/archex/index/graph.py
 expected_symbols:
   - DependencyGraph
+expected_regions:
+  - path: src/archex/index/graph.py
+    granularity: symbol
+    symbol: DependencyGraph
+    start_line: 98
+    end_line: 529
+    notes: "the dependency-graph class named by the query"
 token_budget: 16384
 keywords: [graph, dependency, edge, expansion]

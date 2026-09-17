@@ -9,5 +9,18 @@ expected_files:
 expected_symbols:
   - classify_intent
   - QueryIntent
+expected_regions:
+  - path: src/archex/serve/intent.py
+    granularity: symbol
+    symbol: classify_intent
+    start_line: 156
+    end_line: 221
+    notes: "the intent classifier itself"
+  - path: src/archex/serve/intent.py
+    granularity: symbol
+    symbol: QueryIntent
+    start_line: 11
+    end_line: 19
+    notes: "the intent enum the classifier returns"
 token_budget: 8192
 keywords: [intent, classify, lookup]

@@ -8,5 +8,12 @@ expected_files:
   - src/archex/benchmark/strategies.py
 expected_symbols:
   - benchmark_repo_source
+expected_regions:
+  - path: src/archex/benchmark/strategies.py
+    granularity: symbol
+    symbol: benchmark_repo_source
+    start_line: 1025
+    end_line: 1059
+    notes: "the definition the query names by path and symbol"
 token_budget: 8192
 keywords: [benchmark, repo, source]

@@ -1,0 +1,42 @@
+task_id: usage_estimate_tokens
+repo: "."
+commit: "HEAD"
+category: self
+languages: [python]
+question: "What uses estimate_tokens?"
+expected_files:
+  - src/archex/serve/context.py
+  - src/archex/context_facade.py
+  - src/archex/api.py
+expected_symbols:
+  - passthrough_context
+  - _try_include_ranked_chunk
+  - apply_context_filters
+  - _total_chunk_tokens
+expected_regions:
+  - path: src/archex/serve/context.py
+    granularity: symbol
+    symbol: passthrough_context
+    start_line: 135
+    end_line: 181
+    notes: "small-repo passthrough sums chunk token estimates"
+  - path: src/archex/serve/context.py
+    granularity: symbol
+    symbol: _try_include_ranked_chunk
+    start_line: 603
+    end_line: 631
+    notes: "per-chunk admission against the remaining budget"
+  - path: src/archex/context_facade.py
+    granularity: symbol
+    symbol: apply_context_filters
+    start_line: 314
+    end_line: 366
+    notes: "facade-side filter re-estimates surviving chunks"
+  - path: src/archex/api.py
+    granularity: symbol
+    symbol: _total_chunk_tokens
+    start_line: 1605
+    end_line: 1609
+    notes: "repo-total used by the dynamic budget ramp"
+token_budget: 8192
+keywords: [estimate, tokens, callers, budget]
