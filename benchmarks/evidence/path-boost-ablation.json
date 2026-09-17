@@ -1,0 +1,86 @@
+{
+  "analysis": "path-alignment-boost-ablation",
+  "question": "Is the up-to-3.0x filename-alignment boost in assemble_context worth its cost on the benchmark corpus?",
+  "method": {
+    "arms": "boost_on (shipped) vs boost_off (_path_alignment_boost forced to 1.0)",
+    "varied": "the boost only; same tasks, index, budgets, and strategy",
+    "bootstrap_resamples": 10000,
+    "bootstrap_seed": 20260909,
+    "clusters": "source repository"
+  },
+  "paired_tasks": 66,
+  "tasks_with_a_changed_file_set": 49,
+  "tasks_where_boost_improved_required_file_recall": [
+    "archex_adapter_registry",
+    "archex_benchmark_gate_lifecycle",
+    "archex_delta_index_lifecycle",
+    "archex_delta_indexing",
+    "archex_mcp_query_lifecycle",
+    "archex_project_config_resolution",
+    "archex_project_index",
+    "archex_project_init",
+    "archex_project_reset",
+    "archex_project_status",
+    "archex_query_cache_lifecycle",
+    "archex_vector_cache_lifecycle",
+    "django_orm_queries",
+    "express_error_handling",
+    "express_middleware",
+    "httpx_pooling",
+    "pydantic_validators",
+    "routing_trace_api"
+  ],
+  "tasks_where_boost_hurt_required_file_recall": [
+    "click_decorators",
+    "routing_pl_scoring"
+  ],
+  "deltas": {
+    "required_file_recall": {
+      "boost_minus_neutral": 0.09444444444444444,
+      "ci95_low": 0.014492753623188404,
+      "ci95_high": 0.1400749063670412
+    },
+    "recall": {
+      "boost_minus_neutral": 0.09444444444444444,
+      "ci95_low": 0.014492753623188404,
+      "ci95_high": 0.1400749063670412
+    },
+    "precision": {
+      "boost_minus_neutral": 0.10689033189033188,
+      "ci95_low": 0.06479591836734694,
+      "ci95_high": 0.13314814814814813
+    },
+    "f1_score": {
+      "boost_minus_neutral": 0.1156084656084656,
+      "ci95_low": 0.06585546585546587,
+      "ci95_high": 0.1499085539783214
+    },
+    "bundle_tokens": {
+      "boost_minus_neutral": -541.0757575757576,
+      "ci95_low": -835.1666666666666,
+      "ci95_high": -283.0652173913044
+    },
+    "bundle_completion_tokens": {
+      "boost_minus_neutral": -2708.151515151515,
+      "ci95_low": -4240.724137931034,
+      "ci95_high": -60.0
+    },
+    "token_efficiency_with_completion": {
+      "boost_minus_neutral": 0.04163263425281912,
+      "ci95_low": -0.018393882927836936,
+      "ci95_high": 0.07964719212376478
+    },
+    "region_recall": {
+      "boost_minus_neutral": 0.033077905491698596,
+      "ci95_low": -0.0037037037037037017,
+      "ci95_high": 0.09367816091954023,
+      "labelled_tasks": 45
+    },
+    "line_recall": {
+      "boost_minus_neutral": 0.021371168156030275,
+      "ci95_low": 0.006631622143779996,
+      "ci95_high": 0.04436451838207886,
+      "labelled_tasks": 45
+    }
+  }
+}
