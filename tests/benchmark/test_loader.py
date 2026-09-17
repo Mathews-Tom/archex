@@ -264,6 +264,25 @@ expected_files:
         with pytest.raises(ValueError, match=r"invalid_include\.yaml.*include_paths"):
             load_task(p)
 
+    def test_load_rejects_include_paths_on_self_repo_task(self, tmp_path: Path) -> None:
+        # repo "." resolves to the live checkout, so the slice step never runs and
+        # include_paths would be silently dropped — the task would then be graded
+        # against the whole repository it thought it had scoped away.
+        p = tmp_path / "self_include.yaml"
+        p.write_text("""\
+task_id: self_include
+repo: "."
+commit: HEAD
+question: "Who calls helper?"
+include_paths:
+  - src/archex/serve
+expected_files:
+  - src/archex/serve/intent.py
+""")
+
+        with pytest.raises(ValueError, match=r"self_include\.yaml.*include_paths"):
+            load_task(p)
+
 
 class TestLoadRegionTask:
     def test_load_legacy_task_without_regions(self, sample_yaml: Path) -> None:
