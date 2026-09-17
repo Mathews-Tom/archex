@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.31.1] - 2026-09-18
+
+### Fixed
+
+- **`0.31.0`'s changelog entry was incomplete.** The scope-aware identity-guard fix shipped inside the `v0.31.0` tag but was recorded only in the GitHub release notes, never in `CHANGELOG.md`, so this file under-reported what that version contained. The missing entry has been added to the `[0.31.0]` section above, where it belongs, rather than being attributed to this release. No code changed between `0.31.0` and `0.31.1`; the published wheel is functionally identical and no user needs to upgrade for behaviour.
+
 ## [0.31.0] - 2026-09-18
 
 ### Changed
@@ -17,6 +23,7 @@
 ### Fixed
 
 - **`include_paths` is no longer silently ignored on self-repo benchmark tasks.** A task declaring `repo: "."` resolves to the live checkout, because that is the only way `commit: HEAD` can be read from git, so the slicing branch was never reached and the declared scope was dropped without a word — grading the task against the whole repository it believed it had scoped away. Slicing a self-repo task is not viable, as the slice has no git, so the combination is now rejected at load time instead of ignored. No pre-existing task declared it.
+- **The scope-aware identity guard no longer blocks releases.** Its working-tree diff spanned `pyproject.toml` and `uv.lock` alongside the candidate's implementation files, which made the check unsatisfiable the moment the repository bumped its own version — a bump necessarily rewrites both, since `uv lock` pins archex's own `version =` line. No release could have been cut while that binding stood; preparing `0.31.0` is what surfaced it. The dependency provenance those files carry was never proved by that diff: `_validate_dependency_identity` digests them from the frozen revision via `git show` and checks `requires-python` plus the uv lock format and revision, all unchanged and still covered by `test_dependency_and_lock_digest_drift_are_rejected`. The worktree diff now spans the candidate's implementation files only, which is the drift the binding exists to catch.
 
 ## [0.30.0] - 2026-09-11
 
