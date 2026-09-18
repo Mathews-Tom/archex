@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Module-prefilter profiles now provision the cached capability they require.** A repository initialized with the BM25 default previously stored no module summaries, while a later `balanced` or `deep` query demanded them and failed with a remediation command that could reuse the same incapable cache unchanged. Index generations now record whether module summaries were built, upgrade once when a caller requires a missing capability, reuse the richer index for cheaper profiles without rebuild churn, and prevent delta refreshes from retaining stale summaries.
+
 ## [0.31.1] - 2026-09-18
 
 ### Fixed
