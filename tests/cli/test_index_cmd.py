@@ -9,6 +9,8 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from archex.cli.main import cli
+from archex.index.compat import MODULE_SUMMARIES_BUILT_KEY
+from archex.index.store import IndexStore
 from archex.project import init_project
 
 
@@ -82,6 +84,55 @@ def test_index_no_quantize_vectors_persists_false(python_simple_repo: Path) -> N
     assert result.exit_code == 0, result.output
     settings = tomllib.loads((python_simple_repo / ".archex" / "settings.toml").read_text())
     assert settings["index"]["quantize_vectors"] is False
+
+
+def test_index_module_prefilter_upgrades_existing_cache(python_simple_repo: Path) -> None:
+    init_project(python_simple_repo)
+    runner = CliRunner()
+
+    baseline = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+    assert baseline.exit_code == 0, baseline.output
+    assert json.loads(baseline.output)["strategy"] == "full"
+
+    upgraded = runner.invoke(
+        cli,
+        [
+            "index",
+            str(python_simple_repo),
+            "--module-prefilter",
+            "--format",
+            "json",
+        ],
+    )
+    assert upgraded.exit_code == 0, upgraded.output
+    assert json.loads(upgraded.output)["strategy"] == "full"
+
+    store = IndexStore(python_simple_repo / ".archex" / "index.db")
+    try:
+        assert store.get_metadata(MODULE_SUMMARIES_BUILT_KEY) == "true"
+        assert store.get_modules()
+    finally:
+        store.close()
+
+    balanced = runner.invoke(
+        cli,
+        [
+            "query",
+            str(python_simple_repo),
+            "where is calculate_sum used",
+            "--profile",
+            "balanced",
+            "--budget",
+            "64",
+            "--format",
+            "json",
+        ],
+    )
+    assert balanced.exit_code == 0, balanced.output
+
+    reused = runner.invoke(cli, ["index", str(python_simple_repo), "--format", "json"])
+    assert reused.exit_code == 0, reused.output
+    assert json.loads(reused.output)["strategy"] == "cached"
 
 
 def test_index_ephemeral_no_cache_cleans_up_scratch_dir(python_simple_repo: Path) -> None:

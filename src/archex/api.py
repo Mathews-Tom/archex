@@ -64,7 +64,11 @@ from archex.context_facade import (
 )
 from archex.exceptions import ArchexIndexError, DeltaIndexError
 from archex.index.bm25 import BM25Index
-from archex.index.compat import INDEX_CONFIG_METADATA_KEYS, index_config_metadata_mismatch
+from archex.index.compat import (
+    INDEX_CONFIG_METADATA_KEYS,
+    MODULE_SUMMARIES_BUILT_KEY,
+    index_config_metadata_mismatch,
+)
 from archex.index.graph import DependencyGraph
 from archex.index.store import IndexStore
 from archex.index.worktree_seed import (
@@ -723,9 +727,13 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
         return None
     effective_index_config = attempt.index_config or IndexConfig()
     candidate_store = IndexStore(db_path)
+    candidate_has_module_summaries = False
     try:
         if not _index_config_metadata_matches(candidate_store, effective_index_config):
             return None
+        candidate_has_module_summaries = (
+            candidate_store.get_metadata(MODULE_SUMMARIES_BUILT_KEY) == "true"
+        )
     finally:
         candidate_store.close()
     current_commit = CacheManager.git_head(source.local_path)
@@ -772,6 +780,8 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
             except BaseException:
                 clean_store.close()
                 raise
+        if effective_index_config.module_prefilter and candidate_has_module_summaries:
+            return None
 
         total_files = len(
             discover_files(
@@ -812,6 +822,9 @@ def _try_delta_index(attempt: _DeltaIndexAttempt) -> IndexStore | None:
                 config,
                 index_config=index_config,
             )
+            if candidate_has_module_summaries and not index_config.module_prefilter:
+                store.insert_modules([])
+                store.set_metadata(MODULE_SUMMARIES_BUILT_KEY, "false")
             if index_config.vector:
                 embedder = _get_embedder(index_config)
                 if embedder is not None:
@@ -1040,9 +1053,11 @@ def _build_module_summaries(
     index_config: IndexConfig,
 ) -> list[Module]:
     if not index_config.module_prefilter:
+        store.set_metadata(MODULE_SUMMARIES_BUILT_KEY, "false")
         return []
     modules = detect_modules(graph, parsed_files)
     store.insert_modules(modules)
+    store.set_metadata(MODULE_SUMMARIES_BUILT_KEY, "true")
     return modules
 
 
@@ -1070,13 +1085,12 @@ def _splade_search_or_raise(
 def _modules_or_raise(store: IndexStore, index_config: IndexConfig) -> list[Module]:
     if not index_config.module_prefilter:
         return []
-    modules = store.get_modules()
-    if not modules:
+    if store.get_metadata(MODULE_SUMMARIES_BUILT_KEY) != "true":
         raise ArchexIndexError(
             "Module prefilter requested but the cached index has no module summaries; "
             "refresh it with `archex index --module-prefilter`."
         )
-    return modules
+    return store.get_modules()
 
 
 _PATH_NOISE = frozenset(
