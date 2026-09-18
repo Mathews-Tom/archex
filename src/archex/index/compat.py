@@ -20,6 +20,9 @@ if TYPE_CHECKING:
 
     from archex.models import IndexConfig
 
+MODULE_SUMMARIES_BUILT_KEY = "module_summaries_built"
+
+
 #: Metadata keys that record the index-config shape of a built store. Read
 #: these to build the mapping `index_config_metadata_mismatch` expects.
 INDEX_CONFIG_METADATA_KEYS: tuple[str, ...] = (
@@ -31,6 +34,7 @@ INDEX_CONFIG_METADATA_KEYS: tuple[str, ...] = (
     "runtime_evidence_providers",
     "history_evidence_providers",
     "documentation_evidence_providers",
+    MODULE_SUMMARIES_BUILT_KEY,
 )
 
 
@@ -40,15 +44,18 @@ def index_config_metadata_mismatch(
 ) -> str | None:
     """Return the first metadata key that disagrees with `index_config`, else None.
 
-    A missing key is normalized to the value a store built with default
-    settings would have recorded (absent quantization means disabled; an
-    absent provider list means no providers), so a store written before a
-    key existed is not treated as incompatible.
+    Missing shape keys are normalized to the values a store built with
+    default settings would have recorded. Capability keys are asymmetric:
+    a caller that requires module summaries rejects a store that does not
+    explicitly record that those summaries were built.
     """
     if metadata.get("chunker") != index_config.chunker:
         return "chunker"
     if metadata.get("chunker_revision") != chunker_revision(index_config.chunker):
         return "chunker_revision"
+
+    if index_config.module_prefilter and metadata.get(MODULE_SUMMARIES_BUILT_KEY) != "true":
+        return MODULE_SUMMARIES_BUILT_KEY
 
     stored_quantize = metadata.get("quantize_vectors")
     stored_quantize_enabled = stored_quantize == "True" if stored_quantize is not None else False

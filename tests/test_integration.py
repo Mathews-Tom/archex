@@ -15,6 +15,7 @@ from archex.api import (
     compare,
     query,
 )
+from archex.index.compat import MODULE_SUMMARIES_BUILT_KEY
 
 if TYPE_CHECKING:
     from archex.models import FileTreeEntry
@@ -1055,6 +1056,114 @@ class TestDeltaIndexIntegration:
             assert pt.delta_meta.full_reindex_avoided is True
             assert pt.delta_meta.delta_time_ms >= 0
             assert pt.delta_ms >= 0
+
+    def test_module_summary_capability_upgrades_same_commit_cache(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(
+            languages=["python"],
+            cache=True,
+            cache_dir=str(tmp_path / "cache"),
+        )
+
+        baseline = _ensure_index(
+            source,
+            config=config,
+            index_config=IndexConfig(),
+        )
+        baseline.close()
+
+        upgrade_timing = PipelineTiming()
+        upgraded = _ensure_index(
+            source,
+            config=config,
+            timing=upgrade_timing,
+            index_config=IndexConfig(module_prefilter=True),
+        )
+        try:
+            assert upgraded.get_metadata(MODULE_SUMMARIES_BUILT_KEY) == "true"
+            assert upgraded.get_modules()
+        finally:
+            upgraded.close()
+        assert upgrade_timing.strategy == "full"
+
+        reuse_timing = PipelineTiming()
+        reused = _ensure_index(
+            source,
+            config=config,
+            timing=reuse_timing,
+            index_config=IndexConfig(),
+        )
+        try:
+            assert reused.get_metadata(MODULE_SUMMARIES_BUILT_KEY) == "true"
+        finally:
+            reused.close()
+        assert reuse_timing.strategy == "cached"
+
+    def test_module_summary_capability_stays_fresh_across_updates(
+        self, python_simple_repo: Path, tmp_path: Path
+    ) -> None:
+        from archex.api import _ensure_index  # pyright: ignore[reportPrivateUsage]
+
+        source = RepoSource(local_path=str(python_simple_repo))
+        config = Config(
+            languages=["python"],
+            cache=True,
+            cache_dir=str(tmp_path / "cache"),
+        )
+        module_config = IndexConfig(module_prefilter=True)
+
+        initial = _ensure_index(source, config=config, index_config=module_config)
+        try:
+            assert initial.get_metadata(MODULE_SUMMARIES_BUILT_KEY) == "true"
+            assert initial.get_modules()
+        finally:
+            initial.close()
+
+        (python_simple_repo / "utils.py").write_text(
+            "def refreshed_module_summary():\n    return 1\n",
+            encoding="utf-8",
+        )
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "refresh module summaries")
+
+        refresh_timing = PipelineTiming()
+        refreshed = _ensure_index(
+            source,
+            config=config,
+            timing=refresh_timing,
+            index_config=module_config,
+        )
+        try:
+            assert refreshed.get_metadata(MODULE_SUMMARIES_BUILT_KEY) == "true"
+            assert refreshed.get_modules()
+        finally:
+            refreshed.close()
+        assert refresh_timing.strategy == "full"
+
+        (python_simple_repo / "utils.py").write_text(
+            "def invalidate_module_summary():\n    return 2\n",
+            encoding="utf-8",
+        )
+        _git(python_simple_repo, "add", ".")
+        _git(python_simple_repo, "commit", "-m", "invalidate module summaries")
+
+        delta_timing = PipelineTiming()
+        downgraded = _ensure_index(
+            source,
+            config=config,
+            timing=delta_timing,
+            index_config=IndexConfig(),
+        )
+        try:
+            assert downgraded.get_metadata(MODULE_SUMMARIES_BUILT_KEY) == "false"
+            assert downgraded.get_modules() == []
+        finally:
+            downgraded.close()
+        assert delta_timing.strategy == "delta"
 
     def test_delta_threshold_triggers_full_reindex(
         self, python_simple_repo: Path, tmp_path: Path
