@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Benchmark-tuned query vocabulary removed from the product query path.** Query expansion, BM25 stopwords, file-path boosts, and CLI intent routing held vocabulary that matched the wording of individual benchmark task questions — phrase triggers such as `middleware → wsgi, asgi` and `dispatch + task → amqp, broker, worker`, library identifiers (`celery`, `queryset`, `dependant`, pydantic validator names), archex's own symbols appended to any question mentioning "index" or "query pipeline", and the stopwords `archex` and `explicitly`. All of it is gone, and a policy test now fails if expansion injects the name of a benchmark corpus project. On the 66-task corpus, required-file recall falls from `0.923` to `0.830` (`−0.093`, 95% repository-clustered CI `[−0.130, −0.025]`) and the missed-required-task rate rises from `0.197` to `0.348`; all sixteen tasks that moved were tasks the removed vocabulary matched, and no other task changed. Every earlier figure measured on this corpus overstated archex by that margin. The published archex-vs-ccc row is re-measured on the same 19 tasks: recall `0.84` (was `0.95`) and missed task rate `0.37` (was `0.16`). Evidence in `benchmarks/evidence/review-findings-ablation.json`; disposition in `docs/RETRIEVAL_DEFAULT_DECISIONS.md`.
+- **Receipts no longer claim completeness they cannot know.** An empty bundle was reported `complete`; it is now `incomplete` with reason `no_candidates`. Receipts gain `query_terms_matched` and `query_terms_unmatched`, computed with the index's own tokenizer, and a bundle containing fewer than half of the query's search terms is `incomplete` with reason `low_query_match`. Both reasons recommend the new action `rephrase_query` instead of fetching more of the same mismatch. Markdown, XML, and context-facade renderers list the absent terms.
+- **Unchecked freshness is no longer reported as a stale index.** `--no-refresh` queries skip the freshness check, and their receipts said `stale_index` / `refresh_index` even on a fresh index. They now report reason `freshness_unchecked` when packing is otherwise complete, and never recommend a refresh on that basis.
+- **Data files rank below code.** JSON, JSONL, CSV, and TSV files share a repository's vocabulary at high volume and could lead a bundle ahead of the code they describe. They are now ranked as support files unless the query names the format or the file.
+- **Windows fails at import with a remedy.** archex relies on POSIX file locks and never supported native Windows, but installed there and then crashed with `ModuleNotFoundError: fcntl`. `import archex` now raises an `ImportError` pointing to WSL, the package declares Linux and macOS classifiers, and the README states the platform requirement.
+
 ## [0.31.2] - 2026-09-19
 
 ### Fixed
