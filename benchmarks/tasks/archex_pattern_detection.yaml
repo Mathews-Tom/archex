@@ -27,8 +27,8 @@ expected_regions:
   - path: src/archex/models.py
     granularity: symbol
     symbol: DetectedPattern
-    start_line: 506
-    end_line: 512
+    start_line: 648
+    end_line: 654
     notes: "Pattern result model corresponding to the task's pattern-match expectation."
 token_budget: 8192
 keywords:

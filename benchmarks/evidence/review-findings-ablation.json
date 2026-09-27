@@ -1,0 +1,592 @@
+{
+  "bootstrap": {
+    "resamples": 10000,
+    "seed": 20260928,
+    "clustering_unit": "source repository"
+  },
+  "arms": {
+    "control": {
+      "tasks": 66,
+      "required_file_recall": 0.9229797979797979,
+      "recall": 0.9229797979797979,
+      "precision": 0.43502886002886004,
+      "f1_score": 0.5493867243867243,
+      "token_efficiency": 0.7439841656486724,
+      "bundle_tokens": 6120.833333333333,
+      "bundle_completion_tokens": 1171.6515151515152,
+      "token_efficiency_with_completion": 0.7147018206768957,
+      "missed_required_task_rate": 0.19696969696969696,
+      "zero_recall_tasks": [
+        "loc_django_username_validator"
+      ],
+      "receipt_accuracy": {
+        "true": 15,
+        "false": 51,
+        "unknown": 0
+      },
+      "receipt_status_by_required_files": {
+        "None|present": 2,
+        "incomplete|missing": 13,
+        "incomplete|present": 51
+      },
+      "receipt_reasons": {
+        "None": 2,
+        "dependency_frontier_cut": 64
+      }
+    },
+    "expansion_only": {
+      "tasks": 66,
+      "required_file_recall": 0.8303030303030302,
+      "recall": 0.8303030303030302,
+      "precision": 0.36028138528138526,
+      "f1_score": 0.46755979710525164,
+      "token_efficiency": 0.7320626371442153,
+      "bundle_tokens": 6198.181818181818,
+      "bundle_completion_tokens": 3197.6969696969695,
+      "token_efficiency_with_completion": 0.6724676095551598,
+      "missed_required_task_rate": 0.3484848484848485,
+      "zero_recall_tasks": [
+        "loc_django_username_validator"
+      ],
+      "receipt_accuracy": {
+        "true": 24,
+        "false": 42,
+        "unknown": 0
+      },
+      "receipt_status_by_required_files": {
+        "None|present": 2,
+        "incomplete|missing": 23,
+        "incomplete|present": 41
+      },
+      "receipt_reasons": {
+        "None": 2,
+        "dependency_frontier_cut": 64
+      }
+    },
+    "patched": {
+      "tasks": 66,
+      "required_file_recall": 0.8303030303030302,
+      "recall": 0.8303030303030302,
+      "precision": 0.36028138528138526,
+      "f1_score": 0.46755979710525164,
+      "token_efficiency": 0.7320626371442153,
+      "bundle_tokens": 6198.181818181818,
+      "bundle_completion_tokens": 3197.6969696969695,
+      "token_efficiency_with_completion": 0.6724676095551598,
+      "missed_required_task_rate": 0.3484848484848485,
+      "zero_recall_tasks": [
+        "loc_django_username_validator"
+      ],
+      "receipt_accuracy": {
+        "true": 24,
+        "false": 42,
+        "unknown": 0
+      },
+      "receipt_status_by_required_files": {
+        "None|present": 2,
+        "incomplete|missing": 23,
+        "incomplete|present": 41
+      },
+      "receipt_reasons": {
+        "None": 2,
+        "dependency_frontier_cut": 64
+      }
+    }
+  },
+  "pairs": {
+    "control->expansion_only": {
+      "paired_tasks": 66,
+      "required_file_recall": {
+        "mean_delta": -0.09267676767676769,
+        "ci95": [
+          -0.12976190476190477,
+          -0.02469135802469136
+        ]
+      },
+      "recall": {
+        "mean_delta": -0.09267676767676769,
+        "ci95": [
+          -0.12976190476190477,
+          -0.02469135802469136
+        ]
+      },
+      "precision": {
+        "mean_delta": -0.07474747474747476,
+        "ci95": [
+          -0.11186274509803922,
+          -0.014285714285714285
+        ]
+      },
+      "f1_score": {
+        "mean_delta": -0.08182692728147273,
+        "ci95": [
+          -0.11867440640167912,
+          -0.01848845598845598
+        ]
+      },
+      "token_efficiency": {
+        "mean_delta": -0.011921528504457225,
+        "ci95": [
+          -0.019440643723702678,
+          0.003606299652578965
+        ]
+      },
+      "bundle_tokens": {
+        "mean_delta": 77.34848484848484,
+        "ci95": [
+          -329.02222222222224,
+          292.4070796460177
+        ]
+      },
+      "bundle_completion_tokens": {
+        "mean_delta": 2026.0454545454545,
+        "ci95": [
+          398.9024390243902,
+          2944.0296296296297
+        ]
+      },
+      "token_efficiency_with_completion": {
+        "mean_delta": -0.042234211121736,
+        "ci95": [
+          -0.061674905048433495,
+          -0.010330592399633933
+        ]
+      },
+      "all_required_files_present": {
+        "mean_delta": -0.15151515151515152,
+        "ci95": [
+          -0.2153846153846154,
+          -0.0625
+        ]
+      },
+      "new_zero_recall": [],
+      "recovered_from_zero_recall": [],
+      "changed_result_files": [
+        "archex_adapter_registry",
+        "archex_benchmark_gate_lifecycle",
+        "archex_delta_index_lifecycle",
+        "archex_graph_expansion",
+        "archex_mcp_query_lifecycle",
+        "archex_pattern_detection",
+        "archex_project_config_resolution",
+        "archex_project_index",
+        "archex_project_init",
+        "archex_project_reset",
+        "archex_project_status",
+        "archex_query_cache_lifecycle",
+        "archex_query_pipeline",
+        "archex_scoring",
+        "archex_vector_cache_lifecycle",
+        "celery_task_dispatch",
+        "django_middleware",
+        "django_orm_queries",
+        "httpx_pooling",
+        "loc_celery_task_retry",
+        "loc_click_param_process",
+        "loc_django_username_validator",
+        "loc_fastapi_jsonable_encoder",
+        "loc_flask_blueprint_register",
+        "loc_flask_full_dispatch",
+        "loc_gin_context_next",
+        "loc_httpx_pool_transport",
+        "loc_mini_redis_command_from_frame",
+        "loc_sqlalchemy_session_merge",
+        "pydantic_validators",
+        "requests_sessions",
+        "routing_mixed_cache",
+        "routing_mixed_chunker",
+        "rust_tokio_runtime",
+        "usage_classify_intent_serve",
+        "usage_estimate_tokens"
+      ],
+      "per_task_required_file_recall": {
+        "archex_adapter_registry": [
+          1.0,
+          0.6666666666666666
+        ],
+        "archex_benchmark_gate_lifecycle": [
+          0.8,
+          0.6
+        ],
+        "archex_mcp_query_lifecycle": [
+          1.0,
+          0.6
+        ],
+        "archex_project_config_resolution": [
+          0.75,
+          0.25
+        ],
+        "archex_project_index": [
+          1.0,
+          0.6
+        ],
+        "archex_project_init": [
+          0.75,
+          0.25
+        ],
+        "archex_project_reset": [
+          1.0,
+          0.6666666666666666
+        ],
+        "archex_project_status": [
+          0.75,
+          0.5
+        ],
+        "archex_query_cache_lifecycle": [
+          0.6,
+          0.4
+        ],
+        "archex_query_pipeline": [
+          0.6666666666666666,
+          0.3333333333333333
+        ],
+        "archex_scoring": [
+          1.0,
+          0.6666666666666666
+        ],
+        "celery_task_dispatch": [
+          1.0,
+          0.6666666666666666
+        ],
+        "httpx_pooling": [
+          1.0,
+          0.3333333333333333
+        ],
+        "pydantic_validators": [
+          1.0,
+          0.3333333333333333
+        ],
+        "requests_sessions": [
+          1.0,
+          0.6666666666666666
+        ],
+        "rust_tokio_runtime": [
+          1.0,
+          0.6666666666666666
+        ]
+      }
+    },
+    "control->patched": {
+      "paired_tasks": 66,
+      "required_file_recall": {
+        "mean_delta": -0.09267676767676769,
+        "ci95": [
+          -0.12976190476190477,
+          -0.02469135802469136
+        ]
+      },
+      "recall": {
+        "mean_delta": -0.09267676767676769,
+        "ci95": [
+          -0.12976190476190477,
+          -0.02469135802469136
+        ]
+      },
+      "precision": {
+        "mean_delta": -0.07474747474747476,
+        "ci95": [
+          -0.11186274509803922,
+          -0.014285714285714285
+        ]
+      },
+      "f1_score": {
+        "mean_delta": -0.08182692728147273,
+        "ci95": [
+          -0.11867440640167912,
+          -0.01848845598845598
+        ]
+      },
+      "token_efficiency": {
+        "mean_delta": -0.011921528504457225,
+        "ci95": [
+          -0.019440643723702678,
+          0.003606299652578965
+        ]
+      },
+      "bundle_tokens": {
+        "mean_delta": 77.34848484848484,
+        "ci95": [
+          -329.02222222222224,
+          292.4070796460177
+        ]
+      },
+      "bundle_completion_tokens": {
+        "mean_delta": 2026.0454545454545,
+        "ci95": [
+          398.9024390243902,
+          2944.0296296296297
+        ]
+      },
+      "token_efficiency_with_completion": {
+        "mean_delta": -0.042234211121736,
+        "ci95": [
+          -0.061674905048433495,
+          -0.010330592399633933
+        ]
+      },
+      "all_required_files_present": {
+        "mean_delta": -0.15151515151515152,
+        "ci95": [
+          -0.2153846153846154,
+          -0.0625
+        ]
+      },
+      "new_zero_recall": [],
+      "recovered_from_zero_recall": [],
+      "changed_result_files": [
+        "archex_adapter_registry",
+        "archex_benchmark_gate_lifecycle",
+        "archex_delta_index_lifecycle",
+        "archex_graph_expansion",
+        "archex_mcp_query_lifecycle",
+        "archex_pattern_detection",
+        "archex_project_config_resolution",
+        "archex_project_index",
+        "archex_project_init",
+        "archex_project_reset",
+        "archex_project_status",
+        "archex_query_cache_lifecycle",
+        "archex_query_pipeline",
+        "archex_scoring",
+        "archex_vector_cache_lifecycle",
+        "celery_task_dispatch",
+        "django_middleware",
+        "django_orm_queries",
+        "httpx_pooling",
+        "loc_celery_task_retry",
+        "loc_click_param_process",
+        "loc_django_username_validator",
+        "loc_fastapi_jsonable_encoder",
+        "loc_flask_blueprint_register",
+        "loc_flask_full_dispatch",
+        "loc_gin_context_next",
+        "loc_httpx_pool_transport",
+        "loc_mini_redis_command_from_frame",
+        "loc_sqlalchemy_session_merge",
+        "pydantic_validators",
+        "requests_sessions",
+        "routing_mixed_cache",
+        "routing_mixed_chunker",
+        "rust_tokio_runtime",
+        "usage_classify_intent_serve",
+        "usage_estimate_tokens"
+      ],
+      "per_task_required_file_recall": {
+        "archex_adapter_registry": [
+          1.0,
+          0.6666666666666666
+        ],
+        "archex_benchmark_gate_lifecycle": [
+          0.8,
+          0.6
+        ],
+        "archex_mcp_query_lifecycle": [
+          1.0,
+          0.6
+        ],
+        "archex_project_config_resolution": [
+          0.75,
+          0.25
+        ],
+        "archex_project_index": [
+          1.0,
+          0.6
+        ],
+        "archex_project_init": [
+          0.75,
+          0.25
+        ],
+        "archex_project_reset": [
+          1.0,
+          0.6666666666666666
+        ],
+        "archex_project_status": [
+          0.75,
+          0.5
+        ],
+        "archex_query_cache_lifecycle": [
+          0.6,
+          0.4
+        ],
+        "archex_query_pipeline": [
+          0.6666666666666666,
+          0.3333333333333333
+        ],
+        "archex_scoring": [
+          1.0,
+          0.6666666666666666
+        ],
+        "celery_task_dispatch": [
+          1.0,
+          0.6666666666666666
+        ],
+        "httpx_pooling": [
+          1.0,
+          0.3333333333333333
+        ],
+        "pydantic_validators": [
+          1.0,
+          0.3333333333333333
+        ],
+        "requests_sessions": [
+          1.0,
+          0.6666666666666666
+        ],
+        "rust_tokio_runtime": [
+          1.0,
+          0.6666666666666666
+        ]
+      }
+    },
+    "expansion_only->patched": {
+      "paired_tasks": 66,
+      "required_file_recall": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "recall": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "precision": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "f1_score": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "token_efficiency": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "bundle_tokens": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "bundle_completion_tokens": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "token_efficiency_with_completion": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "all_required_files_present": {
+        "mean_delta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "new_zero_recall": [],
+      "recovered_from_zero_recall": [],
+      "changed_result_files": [],
+      "per_task_required_file_recall": {}
+    }
+  },
+  "subset": {
+    "manifest": "archex-vs-ccc-c1-public",
+    "arms": {
+      "control": {
+        "tasks": 19,
+        "required_file_recall": 0.9649122807017543,
+        "recall": 0.9649122807017543,
+        "precision": 0.5409774436090226,
+        "f1_score": 0.6829573934837092,
+        "token_efficiency": 0.7501436664639798,
+        "bundle_tokens": 6604.0,
+        "bundle_completion_tokens": 832.8947368421053,
+        "token_efficiency_with_completion": 0.7341786346971574,
+        "missed_required_task_rate": 0.10526315789473684,
+        "zero_recall_tasks": [],
+        "receipt_accuracy": {
+          "true": 2,
+          "false": 17,
+          "unknown": 0
+        },
+        "receipt_status_by_required_files": {
+          "incomplete|missing": 2,
+          "incomplete|present": 17
+        },
+        "receipt_reasons": {
+          "dependency_frontier_cut": 19
+        }
+      },
+      "expansion_only": {
+        "tasks": 19,
+        "required_file_recall": 0.8421052631578947,
+        "recall": 0.8421052631578947,
+        "precision": 0.4738721804511278,
+        "f1_score": 0.5960355434039645,
+        "token_efficiency": 0.7425037028168359,
+        "bundle_tokens": 6313.315789473684,
+        "bundle_completion_tokens": 3003.7368421052633,
+        "token_efficiency_with_completion": 0.6753373956874623,
+        "missed_required_task_rate": 0.3684210526315789,
+        "zero_recall_tasks": [],
+        "receipt_accuracy": {
+          "true": 7,
+          "false": 12,
+          "unknown": 0
+        },
+        "receipt_status_by_required_files": {
+          "incomplete|missing": 7,
+          "incomplete|present": 12
+        },
+        "receipt_reasons": {
+          "dependency_frontier_cut": 19
+        }
+      },
+      "patched": {
+        "tasks": 19,
+        "required_file_recall": 0.8421052631578947,
+        "recall": 0.8421052631578947,
+        "precision": 0.4738721804511278,
+        "f1_score": 0.5960355434039645,
+        "token_efficiency": 0.7425037028168359,
+        "bundle_tokens": 6313.315789473684,
+        "bundle_completion_tokens": 3003.7368421052633,
+        "token_efficiency_with_completion": 0.6753373956874623,
+        "missed_required_task_rate": 0.3684210526315789,
+        "zero_recall_tasks": [],
+        "receipt_accuracy": {
+          "true": 7,
+          "false": 12,
+          "unknown": 0
+        },
+        "receipt_status_by_required_files": {
+          "incomplete|missing": 7,
+          "incomplete|present": 12
+        },
+        "receipt_reasons": {
+          "dependency_frontier_cut": 19
+        }
+      }
+    }
+  }
+}

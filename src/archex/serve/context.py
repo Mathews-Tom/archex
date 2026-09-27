@@ -201,7 +201,6 @@ def passthrough_context(
 
 _QUERY_STOP = frozenset(
     {
-        "archex",
         "how",
         "does",
         "implement",
@@ -249,7 +248,6 @@ _ARCH_SYNONYMS: dict[str, list[str]] = {
         "resolve",
         "depend",
         "depends",
-        "dependant",
         "wire",
         "provider",
         "resolver",
@@ -260,7 +258,6 @@ _ARCH_SYNONYMS: dict[str, list[str]] = {
     "dependency": [
         "depend",
         "depends",
-        "dependant",
         "resolve",
         "inject",
         "require",
@@ -275,35 +272,20 @@ _ARCH_SYNONYMS: dict[str, list[str]] = {
         "mapper",
         "table",
         "entity",
-        "queryset",
         "sql",
         "compiler",
         "expression",
         "where",
     ],
-    "task": ["job", "worker", "celery", "dispatch", "execute"],
+    "task": ["job", "worker", "dispatch", "execute"],
     "runtime": ["scheduler", "executor", "loop", "spawn"],
 }
 
 # Framework-semantic synonyms improve lexical and path alignment without making
 # every framework implementation question trigger architecture-only expansion.
 _FRAMEWORK_SYNONYMS: dict[str, list[str]] = {
-    "validator": [
-        "validate",
-        "validation",
-        "field_validator",
-        "model_validator",
-        "functional_validators",
-        "validate_call",
-    ],
-    "validators": [
-        "validate",
-        "validation",
-        "field_validator",
-        "model_validator",
-        "functional_validators",
-        "validate_call",
-    ],
+    "validator": ["validate", "validation"],
+    "validators": ["validate", "validation"],
     "decorator": [
         "decorators",
         "decoration",
@@ -349,7 +331,7 @@ _SUPPORT_QUERY_TERMS = frozenset(
         "triage",
     }
 )
-_SUPPORT_PATH_MARKERS = frozenset(("/benchmark/", "/serve/compare/"))
+_SUPPORT_PATH_MARKERS = frozenset(("/benchmark/",))
 
 
 # Architecture keywords that trigger 2-hop expansion.
@@ -430,53 +412,12 @@ def _query_terms(question: str) -> set[str]:
         compound = f"{clean[i]}_{clean[i + 1]}"
         expanded.add(compound)
 
-    # Phrase-specific expansions keep product vocabulary aligned without making
-    # every generic "query" question look like BM25 internals.
-    question_lower = question.lower()
-    if "query pipeline" in question_lower:
-        expanded.update(
-            {"api", "search", "retrieve", "retrieval", "lookup", "bm25", "rank", "score"}
-        )
-    if "initialize" in expanded or "initialise" in expanded:
-        expanded.update({"init", "cli", "main", "project", "config"})
-    if {"project", "state"} <= expanded:
-        expanded.update({"cli", "project", "config"})
-    state_lifecycle_query = bool({"fresh", "stale", "dirty", "corrupt"} & expanded)
-    if state_lifecycle_query:
-        expanded.update({"status", "fresh", "stale", "dirty", "corrupt", "delta", "project"})
-    if {"build", "refresh"} & expanded and "index" in expanded:
-        expanded.update({"index", "cli", "api", "cache", "project", "config"})
-    if {"settings", "configuration"} & expanded or "runtime_configuration" in expanded:
-        expanded.update({"config", "settings", "runtime", "cache", "project"})
-    if "mcp" in expanded:
-        expanded.update({"api", "context", "mcp_cmd", "model", "models"})
-    if "query" in expanded and "cache" in expanded:
-        expanded.update({"api", "config", "query_cmd"})
-    if "reset" in expanded and "project" in expanded:
-        expanded.update({"cli", "main"})
-    if {"benchmark", "dogfood", "gate"} <= expanded:
-        expanded.update({"baseline", "benchmark_cmd", "report", "reporter"})
-    if "middleware" in expanded:
-        expanded.update({"common", "wsgi", "asgi"})
-    if "pooling" in expanded or "keep_alive" in expanded:
-        expanded.update({"client", "config"})
-    if {"dispatch", "execute"} & expanded and {"task", "tasks"} & expanded:
-        expanded.update({"amqp", "broker", "message", "queue", "strategy", "worker"})
-    if {"session", "sessions"} & expanded or "connection_pooling" in expanded:
-        expanded.update({"adapter", "adapters", "model", "models", "request", "response"})
-    if "orm" in expanded and "sql" in expanded:
-        expanded.update({"query", "queries", "compiler", "where", "expression", "expressions"})
-        expanded.update({"model", "models"})
-
     # Semantic synonym expansion
     for term in list(expanded):
         if term in _ARCH_SYNONYMS:
             expanded.update(_ARCH_SYNONYMS[term])
         if term in _FRAMEWORK_SYNONYMS:
             expanded.update(_FRAMEWORK_SYNONYMS[term])
-
-    if state_lifecycle_query:
-        expanded.difference_update({"build", "cache", "config", "store"})
 
     return expanded
 

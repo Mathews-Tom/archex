@@ -231,7 +231,7 @@ def test_cli_packing_limits_extra_chunks_per_file() -> None:
         [(chunk, 10.0 - offset) for offset, chunk in enumerate(chunks)],
         graph,
         chunks,
-        "How does archex explicitly build or refresh a repo-local index?",
+        "How does the archex index command build a repo-local index?",
         token_budget=1000,
     )
 
@@ -286,105 +286,6 @@ def test_data_files_rank_below_code_unless_the_query_names_the_format() -> None:
     assert packed("How is the run json recorded?") == ["results"]
 
 
-def test_cli_config_alignment_keeps_runtime_config_files_ahead_of_support_noise() -> None:
-    graph = DependencyGraph()
-    chunks = [
-        make_chunk("project", "src/archex/project.py", symbol_name="project_dir", token_count=50),
-        make_chunk("config", "src/archex/config.py", symbol_name="load_config", token_count=50),
-        make_chunk("cache", "src/archex/cache.py", symbol_name="CacheManager", token_count=50),
-        make_chunk(
-            "context",
-            "src/archex/serve/context.py",
-            symbol_name="_query_terms",
-            token_count=50,
-        ),
-        make_chunk(
-            "compare_config",
-            "src/archex/serve/compare/configuration.py",
-            symbol_name="ConfigurationEvidence",
-            token_count=50,
-        ),
-        make_chunk(
-            "test_project",
-            "tests/test_project.py",
-            symbol_name="test_project_state",
-            token_count=50,
-        ),
-    ]
-    for chunk in chunks:
-        graph.add_file_node(chunk.file_path)
-
-    bundle = assemble_context(
-        [
-            (chunks[3], 12.0),
-            (chunks[4], 11.0),
-            (chunks[5], 10.0),
-            (chunks[0], 9.0),
-            (chunks[1], 8.0),
-            (chunks[2], 7.0),
-        ],
-        graph,
-        chunks,
-        "How does archex resolve project settings into runtime configuration?",
-        token_budget=220,
-    )
-
-    included_files = [rc.chunk.file_path for rc in bundle.chunks]
-    assert included_files[:3] == [
-        "src/archex/project.py",
-        "src/archex/config.py",
-        "src/archex/cache.py",
-    ]
-
-
-def test_mcp_query_prefers_mcp_command_over_generic_query_command() -> None:
-    graph = DependencyGraph()
-    chunks = [
-        make_chunk("models", "src/archex/models.py", symbol_name="ContextBundle", token_count=60),
-        make_chunk(
-            "context",
-            "src/archex/serve/context.py",
-            symbol_name="assemble_context",
-            token_count=60,
-        ),
-        make_chunk("api", "src/archex/api.py", symbol_name="query", token_count=60),
-        make_chunk(
-            "mcp",
-            "src/archex/integrations/mcp.py",
-            symbol_name="handle_query_repo",
-            token_count=60,
-        ),
-        make_chunk("mcp_cmd", "src/archex/cli/mcp_cmd.py", symbol_name="mcp_cmd", token_count=60),
-        make_chunk(
-            "query_cmd",
-            "src/archex/cli/query_cmd.py",
-            symbol_name="query_cmd",
-            token_count=60,
-        ),
-    ]
-    for chunk in chunks:
-        graph.add_file_node(chunk.file_path)
-
-    bundle = assemble_context(
-        [
-            (chunks[0], 10.0),
-            (chunks[1], 9.5),
-            (chunks[2], 9.0),
-            (chunks[3], 8.5),
-            (chunks[5], 8.0),
-            (chunks[4], 7.5),
-        ],
-        graph,
-        chunks,
-        "How does archex expose repository query workflows through MCP?",
-        token_budget=300,
-    )
-
-    included_files = {rc.chunk.file_path for rc in bundle.chunks}
-    assert "src/archex/cli/mcp_cmd.py" in included_files
-    assert "src/archex/cli/query_cmd.py" not in included_files
-
-
 def test_cli_index_query_selects_api_as_fifth_product_file() -> None:
     graph = DependencyGraph()
     chunks = [
@@ -421,24 +322,6 @@ def test_cli_index_query_selects_api_as_fifth_product_file() -> None:
         "src/archex/cache.py",
         "src/archex/api.py",
     } <= included_files
-
-
-def test_external_lifecycle_terms_preserve_expected_product_files() -> None:
-    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
-    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
-
-    celery_terms = _query_terms("How does Celery dispatch and execute distributed tasks?")
-    assert {"amqp", "strategy", "task", "worker"} <= celery_terms
-    assert _path_alignment_boost("celery/app/amqp.py", celery_terms) == 3.0
-    assert _path_alignment_boost("celery/worker/strategy.py", celery_terms) == 3.0
-
-    requests_terms = _query_terms("How does requests manage HTTP sessions and connection pooling?")
-    assert {"adapter", "adapters", "model", "models", "session"} <= requests_terms
-    assert _path_alignment_boost("src/requests/models.py", requests_terms) == 3.0
-
-    orm_terms = _query_terms("How does Django's ORM build and execute SQL queries?")
-    assert {"query", "queries", "model", "models"} <= orm_terms
-    assert _path_alignment_boost("django/db/models/query.py", orm_terms) == 3.0
 
 
 def test_configuration_query_terms_do_not_promote_generic_models_path() -> None:
@@ -1493,67 +1376,11 @@ def test_path_alignment_matches_query_term_in_filename() -> None:
     )
 
 
-def test_query_terms_expand_query_pipeline_to_bm25_context_signals() -> None:
-    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
-
-    terms = _query_terms("How does archex implement the query pipeline?")
-    assert {"api", "bm25", "context", "rank", "score"} <= terms
-
-
-def test_query_pipeline_terms_boost_api_path() -> None:
-    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
-    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
-
-    terms = _query_terms("How does archex implement the query pipeline?")
-    assert _path_alignment_boost("src/archex/api.py", terms) == 3.0
-
-
 def test_query_terms_expand_index_to_cache_project_signals() -> None:
     from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
 
     terms = _query_terms("How does archex explicitly build or refresh a repo-local index?")
     assert {"cache", "config", "project", "store"} <= terms
-
-
-def test_query_terms_expand_self_lifecycle_concepts() -> None:
-    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
-
-    init_terms = _query_terms("How does archex initialize repo-local project state?")
-    assert {"init", "cli", "main", "project", "config"} <= init_terms
-
-    status_terms = _query_terms(
-        "How does archex inspect whether a repo-local index is fresh, stale, dirty, or corrupt?"
-    )
-    assert {"status", "fresh", "stale", "dirty", "corrupt", "delta"} <= status_terms
-
-    config_terms = _query_terms(
-        "How does archex resolve project settings into runtime configuration?"
-    )
-    assert {"config", "settings", "runtime", "cache"} <= config_terms
-    assert "models" not in config_terms
-
-
-def test_self_lifecycle_terms_boost_command_paths() -> None:
-    from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
-    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
-
-    init_terms = _query_terms("How does archex initialize repo-local project state?")
-    assert _path_alignment_boost("src/archex/cli/init_cmd.py", init_terms) > _path_alignment_boost(
-        "src/archex/status.py", init_terms
-    )
-
-    status_terms = _query_terms(
-        "How does archex inspect whether a repo-local index is fresh, stale, dirty, or corrupt?"
-    )
-    assert _path_alignment_boost(
-        "src/archex/cli/status_cmd.py", status_terms
-    ) > _path_alignment_boost("src/archex/cli/cache_cmd.py", status_terms)
-
-
-def test_query_terms_drop_repo_name_noise() -> None:
-    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
-
-    assert "archex" not in _query_terms("How does archex implement the query pipeline?")
 
 
 def test_query_terms_do_not_expand_generic_query_to_bm25() -> None:
@@ -1565,36 +1392,10 @@ def test_query_terms_do_not_expand_generic_query_to_bm25() -> None:
     assert "rank" not in terms
 
 
-def test_query_terms_expand_mcp_to_product_query_contract_files() -> None:
-    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
-
-    terms = _query_terms("How does archex expose repository query workflows through MCP?")
-    assert {"api", "context", "mcp_cmd", "models"} <= terms
-
-
 def test_path_alignment_matches_private_module_stem_without_underscore() -> None:
     from archex.serve.context import _path_alignment_boost  # pyright: ignore[reportPrivateUsage]
 
     assert _path_alignment_boost("pydantic/_internal/_validators.py", {"validators"}) == 3.0
-
-
-def test_query_terms_expand_framework_semantics_without_path_hacks() -> None:
-    from archex.serve.context import _query_terms  # pyright: ignore[reportPrivateUsage]
-
-    middleware_terms = _query_terms("How does express implement the middleware chain?")
-    assert {"router", "route", "layer", "stack", "handler"} <= middleware_terms
-
-    dependency_terms = _query_terms("How does FastAPI implement dependency injection?")
-    assert {"depends", "dependant", "provider", "resolver"} <= dependency_terms
-
-    validator_terms = _query_terms("How does Pydantic chain and apply field validators?")
-    assert {"validate", "validation", "field_validator", "functional_validators"} <= validator_terms
-
-    decorator_terms = _query_terms("How does click implement command decorators?")
-    assert {"decorator", "parameter", "option", "argument", "wrapper"} <= decorator_terms
-
-    orm_terms = _query_terms("How does Django's ORM build and execute SQL queries?")
-    assert {"queryset", "compiler", "expression", "where"} <= orm_terms
 
 
 def test_framework_semantic_terms_boost_router_and_layer_paths() -> None:

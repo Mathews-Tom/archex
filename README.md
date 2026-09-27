@@ -329,14 +329,16 @@ TurboQuant evidence is measured separately with `archex_query_hybrid_quantized_4
 
 | Lane | Recall | Required-file recall | Missed task rate | F1 | Token efficiency | Token efficiency after completion | Warm latency ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `archex` | 0.95 | 0.95 | 0.16 | 0.66 | 0.76 | 0.74 | 408 |
+| `archex` | 0.84 | 0.84 | 0.37 | 0.60 | 0.74 | 0.68 | — |
 | `ccc` | 0.32 | 0.32 | 0.79 | 0.31 | 0.48 | 0.41 | 521 |
 | `raw-ripgrep/read` | 1.00 | 1.00 | 0.00 | 0.05 | 0.00 | 0.00 | 773 |
 
+The `archex` row is re-measured on the same 19 C1 tasks after removing query-expansion vocabulary that mapped onto individual benchmark questions ([evidence](benchmarks/evidence/review-findings-ablation.json), [disposition](docs/RETRIEVAL_DEFAULT_DECISIONS.md#2026-09-28-benchmark-tuned-query-vocabulary-removed)). The previously published row (`0.95` recall, `0.16` missed task rate) was produced with that vocabulary live; a same-day A/B on the same code base moves recall from `0.96` to `0.84` and missed task rate from `0.11` to `0.37`. Warm latency was not re-measured. The `ccc` and raw rows are the original C1 run; neither depends on archex's query processing.
+
 ### What this means for your workflow
 
-- **Coverage stays close to raw search without paying raw-search token cost.** `raw-ripgrep/read` reaches `1.00` required-file recall, but it does so at `0.00` token efficiency. archex lands at `0.95` required-file recall with `0.76` token efficiency, so the returned bundle stays close to exhaustive file coverage without filling the prompt with every textual match.
-- **Missed-task failures drop sharply versus `ccc`.** archex's missed task rate is `0.16`; `ccc` lands at `0.79`. In the published C1 run, that is the difference between usually returning the files an agent needs and often requiring a second pass before the task can finish.
+- **Coverage trails raw search, at a fraction of its token cost.** `raw-ripgrep/read` reaches `1.00` required-file recall at `0.00` token efficiency. archex lands at `0.84` required-file recall with `0.74` token efficiency: most tasks get their files in one bundle, and roughly one task in three needs a follow-up read.
+- **Missed-task failures stay well below `ccc`.** archex's missed task rate is `0.37`; `ccc` lands at `0.79`.
 - **Vector storage got much smaller without a measured retrieval-quality change.** The published 4-bit TurboQuant run reports `7.07×` mean vector `.npz` compression (`6.98×` minimum) with recall Δ `+0.000`, MRR Δ `+0.000`, and F1 Δ `+0.000`, so local vector indexes take far less disk without a measured quality regression in that benchmark.
 - **`--format toon` trims the bundle further, on request.** `--format json`/`--format scout json` already drop unset/empty chunk fields by default (`--full` restores them); `--format toon` (optional `archex[toon]` extra) measures ~17% smaller than that default JSON output on the representative bundle in `tests/serve/test_renderers.py::test_toon_smaller_than_json_for_realistic_bundle`. Both are opt-in — the CLI's default format stays `xml`, which was already minimal before either change.
 
@@ -390,12 +392,12 @@ uv tool install archex                    # CLI, system-wide
 uv add archex                             # project dependency
 ```
 
+archex runs on Linux and macOS. It uses POSIX file locks for repo-local state and is not supported on native Windows; there, install and run it inside WSL.
+
 <details>
 <summary>Optional extras and integrations</summary>
 
 ```bash
-archex runs on Linux and macOS. It uses POSIX file locks for repo-local state and is not supported on native Windows; there, install and run it inside WSL.
-
 # Agent integrations
 uv tool install "archex[mcp]"             # MCP server
 uv add "archex[langchain]"                # LangChain retriever

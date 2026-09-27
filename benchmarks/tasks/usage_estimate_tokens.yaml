@@ -17,14 +17,14 @@ expected_regions:
   - path: src/archex/serve/context.py
     granularity: symbol
     symbol: passthrough_context
-    start_line: 135
-    end_line: 181
+    start_line: 153
+    end_line: 199
     notes: "small-repo passthrough sums chunk token estimates"
   - path: src/archex/serve/context.py
     granularity: symbol
     symbol: _try_include_ranked_chunk
-    start_line: 603
-    end_line: 631
+    start_line: 562
+    end_line: 590
     notes: "per-chunk admission against the remaining budget"
   - path: src/archex/context_facade.py
     granularity: symbol
@@ -35,8 +35,8 @@ expected_regions:
   - path: src/archex/api.py
     granularity: symbol
     symbol: _total_chunk_tokens
-    start_line: 1605
-    end_line: 1609
+    start_line: 1582
+    end_line: 1586
     notes: "repo-total used by the dynamic budget ramp"
 token_budget: 8192
 keywords: [estimate, tokens, callers, budget]

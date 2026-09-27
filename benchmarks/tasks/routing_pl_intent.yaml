@@ -13,8 +13,8 @@ expected_regions:
   - path: src/archex/serve/intent.py
     granularity: symbol
     symbol: classify_intent
-    start_line: 156
-    end_line: 221
+    start_line: 148
+    end_line: 213
     notes: "the intent classifier itself"
   - path: src/archex/serve/intent.py
     granularity: symbol
