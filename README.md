@@ -392,6 +392,8 @@ uv add archex                             # project dependency
 <summary>Optional extras and integrations</summary>
 
 ```bash
+archex runs on Linux and macOS. It uses POSIX file locks for repo-local state and is not supported on native Windows; there, install and run it inside WSL.
+
 # Agent integrations
 uv tool install "archex[mcp]"             # MCP server
 uv add "archex[langchain]"                # LangChain retriever

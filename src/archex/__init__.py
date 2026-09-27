@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import sys
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from archex.api import analyze, compare, query, record_usage_event
+
+# Repo-local state is published under POSIX advisory locks (`fcntl.flock`), and
+# CI covers Linux and macOS only. Fail at the package boundary with a remedy
+# instead of a bare `ModuleNotFoundError: fcntl` from deep inside `archex.api`.
+if sys.platform == "win32":
+    raise ImportError(
+        "archex supports Linux and macOS only; on Windows, install and run it inside WSL."
+    )
 
 __version__ = version("archex")
 

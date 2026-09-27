@@ -15,8 +15,8 @@ try/except around these functions to keep a hook non-blocking.
 
 POSIX only: locking uses ``fcntl.flock`` through :mod:`archex.state_file`,
 which owns the lock and atomic-publication primitives this module and R23's
-status snapshot both use. archex publishes no Windows wheel classifier and
-its CI matrix is Linux plus macOS.
+status snapshot both use. archex declares Linux and macOS only, refuses to
+import on Windows (see ``archex/__init__.py``), and its CI matrix matches.
 """
 
 from __future__ import annotations
