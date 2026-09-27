@@ -17,14 +17,14 @@ expected_regions:
   - path: src/archex/serve/intent.py
     granularity: symbol
     symbol: weights_for_query
-    start_line: 224
-    end_line: 230
+    start_line: 216
+    end_line: 222
     notes: "intent -> scoring weights"
   - path: src/archex/serve/intent.py
     granularity: symbol
     symbol: token_budget_for_query
-    start_line: 233
-    end_line: 236
+    start_line: 225
+    end_line: 228
     notes: "intent -> token budget preset"
   - path: src/archex/serve/modality.py
     granularity: symbol

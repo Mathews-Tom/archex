@@ -132,8 +132,10 @@ class ContextCompletenessReason(StrEnum):
     BUDGET_EXHAUSTED = "budget_exhausted"
     DEPENDENCY_FRONTIER_CUT = "dependency_frontier_cut"
     DUPLICATE_SUPPRESSED = "duplicate_suppressed"
+    LOW_QUERY_MATCH = "low_query_match"
     NO_CANDIDATES = "no_candidates"
     STALE_INDEX = "stale_index"
+    FRESHNESS_UNCHECKED = "freshness_unchecked"
     UNSUPPORTED_GRAMMAR = "unsupported_grammar"
     UNKNOWN = "unknown"
 
@@ -141,6 +143,7 @@ class ContextCompletenessReason(StrEnum):
 class ContextRecommendedAction(StrEnum):
     USE_BUNDLE = "use_bundle"
     NARROW_QUERY = "narrow_query"
+    REPHRASE_QUERY = "rephrase_query"
     RAISE_BUDGET = "raise_budget"
     REFRESH_INDEX = "refresh_index"
     FETCH_SKIPPED_CANDIDATE = "fetch_skipped_candidate"
@@ -947,6 +950,8 @@ class ContextReceipt(BaseModel):
     query: str
     expanded_query: str | None = None
     expansion_provenance: dict[str, str] = {}
+    query_terms_matched: list[str] = []
+    query_terms_unmatched: list[str] = []
     token_budget: ContextReceiptTokenBudget
     index_revision: str
     freshness: ContextFreshness = ContextFreshness.UNKNOWN

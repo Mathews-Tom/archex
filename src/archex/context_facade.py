@@ -406,6 +406,11 @@ def render_context_markdown(result: ContextResult) -> str:
             f"({receipt.context_complete_reason.value})"
         )
         lines.append(f"- next action: `{receipt.recommended_next_action.value}`")
+        if receipt.query_terms_unmatched:
+            lines.append(
+                "- query terms absent from context: "
+                + ", ".join(f"`{term}`" for term in receipt.query_terms_unmatched)
+            )
         lines.append("")
 
     lines.append("## Candidate map")

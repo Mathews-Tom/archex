@@ -21,8 +21,8 @@ expected_regions:
   - path: src/archex/api.py
     granularity: symbol
     symbol: _vector_search_precomputed
-    start_line: 1173
-    end_line: 1209
+    start_line: 1490
+    end_line: 1526
     notes: "Reloads and searches persisted vector indexes."
   - path: src/archex/cache.py
     granularity: symbol

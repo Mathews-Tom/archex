@@ -195,33 +195,6 @@ def _chunk(
     )
 
 
-def test_retrieval_question_expands_query_pipeline_terms() -> None:
-    from archex.api import _expand_retrieval_question
-
-    expanded, prov = _expand_retrieval_question("How does archex implement the query pipeline?")
-
-    assert "api" in expanded
-    assert "bm25" in expanded
-    assert "BM25Index" in expanded
-    assert "assemble_context" in expanded
-    assert "context" in expanded
-    assert prov
-
-
-def test_retrieval_question_expands_index_terms() -> None:
-    from archex.api import _expand_retrieval_question
-
-    expanded, prov = _expand_retrieval_question(
-        "How does archex explicitly build or refresh a repo-local index?"
-    )
-
-    assert "cache" in expanded
-    assert "config" in expanded
-    assert "project" in expanded
-    assert "CacheManager" in expanded
-    assert prov
-
-
 def test_non_retrieval_question_is_not_expanded() -> None:
     from archex.api import _expand_retrieval_question
 
@@ -229,25 +202,6 @@ def test_non_retrieval_question_is_not_expanded() -> None:
     expanded, prov = _expand_retrieval_question(question)
     assert expanded == question
     assert not prov
-
-
-def test_path_terms_expand_query_pipeline_keywords() -> None:
-    from archex.api import _extract_path_terms
-
-    terms = _extract_path_terms("How does archex implement the query pipeline?")
-    assert "api" in terms
-    assert "bm25" in terms
-    assert "context" in terms
-
-
-def test_task_dispatch_path_terms_include_architecture_files() -> None:
-    from archex.api import _extract_path_terms
-
-    terms = _extract_path_terms("How does Celery dispatch and execute distributed tasks?")
-
-    assert "task" in terms
-    assert "worker" in terms
-    assert "strategy" in terms
 
 
 def test_path_match_multiplier_prefers_basename_and_segments() -> None:

@@ -9,6 +9,41 @@ Operator evidence from the 2026-06-09 retrieval-default benchmark keeps `archex_
 - Compare candidates on recall, required-file recall, missed-required-task rate, receipt accuracy when available, token efficiency after completion, F1, median latency, and p95 latency. Recall/F1 alone is not sufficient, and raw token efficiency is not sufficient when completion penalty cancels the savings.
 - Keep `archex_query` as the product default; the 2026-06-09 run did not satisfy the strategy switch rule.
 - Do not refresh `benchmarks/dogfood_baseline.json` without explicit approval after a proven improvement.
+- Production query processing carries no vocabulary keyed to a benchmark task, corpus project, or repository: no question-shaped expansion triggers, no project or library identifiers injected as synonyms, stopwords, or path terms. `tests/benchmark/test_policy.py` checks that expansion never injects a corpus project name.
+
+## 2026-09-28: benchmark-tuned query vocabulary removed
+
+An external review showed the product query path held vocabulary that mapped onto individual benchmark questions. A code audit found it in five places, all on the default `archex_query` path:
+
+- `serve/context.py::_query_terms`: phrase triggers such as `middleware → common, wsgi, asgi`, `dispatch/execute + task → amqp, broker, worker…`, `pooling/keep_alive → client, config`, `orm + sql → compiler, where, expression…`, and one trigger per archex self-task (`query pipeline`, `initialize`, `fresh/stale/dirty/corrupt`, `mcp → mcp_cmd`, `benchmark + dogfood + gate → benchmark_cmd`, …). Each fires on exactly the wording of one task question in `benchmarks/tasks/`.
+- The same module's synonym tables: library identifiers `celery`, `queryset`, `dependant`, `field_validator`, `model_validator`, `functional_validators`, `validate_call`, and the archex-only support path `/serve/compare/`.
+- `api.py`: `_expand_retrieval_question` appended archex's own symbols (`BM25Index`, `assemble_context`, `CacheManager`, `ProjectState`, `uses_project_cache_layout`, `bm25`) to the BM25 query whenever a question said "index" or "query pipeline", on any repository; `_PATH_TERM_EXPANSIONS` boosted file paths such as `strategy` (Celery's `worker/strategy.py`), `scheduler`, `api`, `context`, and `bm25`.
+- Stopwords `archex` and `explicitly` (BM25) and `archex` (path and expansion noise), added in the commit titled "preserve self-query oracle files".
+- `serve/intent.py`: a CLI-intent regex matching the four archex lifecycle task questions verbatim. The literal `archex <command>` pattern stays; it classifies questions about archex's own CLI and injects nothing.
+
+Generic concept-to-code synonyms (`middleware → handler, interceptor…`, `routing → router, endpoint…`) stay. They were also tuned on this corpus, so their value is unproven outside it; the sealed holdout (2 tasks) is too small to test them.
+
+Evidence: `benchmarks/evidence/review-findings-ablation.json`, produced by `scripts/review_findings_ablation.py`. The same 66 tasks ran through the product `archex_query` path three times: `control` is release `0.31.2` (`381dcb9f`), `expansion_only` is this change with the data-file ranking penalty neutralised, and `patched` is this change as shipped. Intervals are 95% repository-clustered bootstrap (10,000 resamples).
+
+| Metric | control | patched | Δ [95% CI] |
+| --- | ---: | ---: | --- |
+| Required-file recall | 0.923 | 0.830 | −0.093 [−0.130, −0.025] |
+| Missed-required-task rate | 0.197 | 0.348 | +0.152 [+0.063, +0.215] |
+| F1 | 0.549 | 0.468 | −0.082 [−0.119, −0.019] |
+| Completion penalty tokens | 1,172 | 3,198 | +2,026 [+399, +2,944] |
+| Token efficiency after completion | 0.715 | 0.673 | −0.042 [−0.062, −0.010] |
+| C1 subset (19 tasks) required-file recall | 0.965 | 0.842 | |
+| C1 subset missed-required-task rate | 0.105 | 0.368 | |
+
+Sixteen tasks lost required files and none gained. Every one of the sixteen is a task whose wording the removed vocabulary matched: eleven archex self-tasks (self-repo recall 0.869 → 0.723) plus `celery_task_dispatch`, `httpx_pooling`, `pydantic_validators`, `requests_sessions`, and `rust_tokio_runtime` (external recall 0.958 → 0.900). The other 50 tasks returned identical required-file recall. Removal changed nothing it was not fitted to, which is the signature of leakage rather than of a general heuristic.
+
+Disposition: removed. Every figure published from runs with this vocabulary live overstates archex on this corpus, including the C1 `archex` row (`0.95` recall, `0.16` missed task rate; now `0.84` and `0.37`) and every earlier entry in this document measured on `benchmarks/tasks/`. The 2026-09-17 `cli` budget preset was validated on self-tasks that only classified as `cli` through the removed regex; those tasks now route to `general`, and the `cli` preset applies only to literal `archex <command>` questions. `benchmarks/dogfood_baseline.json` was recorded with the vocabulary live and now reports these regressions; refreshing it needs explicit approval.
+
+Data-file ranking (JSON, JSONL, CSV, TSV ranked as support files unless the query names the format or file) is not measurable on this corpus: every task restricts indexing to its source languages, so no data file is indexed in any cell, and `expansion_only → patched` deltas are all `0.000` by construction. On this repository's own default index (4,465 JSON files of 5,359), the query `context completeness status skipped candidates truncated omitted edges` returns 9 chunks, 5 of them from recorded benchmark JSON, with the penalty neutralised, and 6 chunks, none of them JSON, with it live. That is a single-query observation, not a measured effect.
+
+Receipts: on all 64 captured cells in every arm, `context_complete_reason` is `dependency_frontier_cut` and status is `incomplete`. `low_query_match` and `no_candidates` never fired on this corpus, so the receipt changes move no benchmark figure. Receipt accuracy rises from 15/66 to 24/66 only because more tasks now miss files while the receipt still says `incomplete`; that is not a calibration gain. The receipt is close to a constant `incomplete` predictor, which remains open.
+
+Region labels: symbol-granular `expected_regions` in the files this change edits are re-anchored to each symbol's current span. Seven of those labels had already drifted before this change (`archex_graph_expansion`, `archex_pattern_detection`, `archex_query_pipeline` ×3, `archex_vector_cache_lifecycle`, and `_total_chunk_tokens` in `usage_estimate_tokens`), so region and line metrics previously reported for those regions scored against the wrong lines. Apart from `_total_chunk_tokens`, the `routing_pl_*` and `usage_*` labels behind the 2026-09-17/18 intent-budget entries were accurate until this change moved the code. The figures above are file-level and do not depend on labels.
 
 ## R26 retrieval-candidate eligibility
 

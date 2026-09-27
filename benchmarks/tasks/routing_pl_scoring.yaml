@@ -14,14 +14,14 @@ expected_regions:
   - path: src/archex/index/bm25.py
     granularity: symbol
     symbol: BM25Index
-    start_line: 155
-    end_line: 395
+    start_line: 202
+    end_line: 442
     notes: "sparse index that produces the relevance term"
   - path: src/archex/serve/context.py
     granularity: symbol
     symbol: assemble_context
-    start_line: 924
-    end_line: 1652
+    start_line: 883
+    end_line: 1611
     notes: "where the final score is combined and chunks are packed"
 token_budget: 8192
 keywords: [bm25, score, rank, relevance]

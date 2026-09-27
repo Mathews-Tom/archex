@@ -118,6 +118,8 @@ def test_context_receipt_enum_members() -> None:
         "BUDGET_EXHAUSTED": "budget_exhausted",
         "DEPENDENCY_FRONTIER_CUT": "dependency_frontier_cut",
         "DUPLICATE_SUPPRESSED": "duplicate_suppressed",
+        "FRESHNESS_UNCHECKED": "freshness_unchecked",
+        "LOW_QUERY_MATCH": "low_query_match",
         "NO_CANDIDATES": "no_candidates",
         "STALE_INDEX": "stale_index",
         "UNSUPPORTED_GRAMMAR": "unsupported_grammar",
@@ -126,6 +128,7 @@ def test_context_receipt_enum_members() -> None:
     assert {member.name: member.value for member in ContextRecommendedAction} == {
         "USE_BUNDLE": "use_bundle",
         "NARROW_QUERY": "narrow_query",
+        "REPHRASE_QUERY": "rephrase_query",
         "RAISE_BUDGET": "raise_budget",
         "REFRESH_INDEX": "refresh_index",
         "FETCH_SKIPPED_CANDIDATE": "fetch_skipped_candidate",

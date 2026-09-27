@@ -117,7 +117,6 @@ from archex.receipt import (
     build_scout_receipt,
     index_revision_from_store,
     skipped_candidates_for_ranked,
-    stale_index_skipped_candidate,
     unsupported_grammar_skipped_candidate,
 )
 from archex.scout import (
@@ -1095,7 +1094,6 @@ def _modules_or_raise(store: IndexStore, index_config: IndexConfig) -> list[Modu
 
 _PATH_NOISE = frozenset(
     {
-        "archex",
         "how",
         "does",
         "implement",
@@ -1124,19 +1122,6 @@ _PATH_NOISE = frozenset(
 
 
 _STEM_SUFFIXES = ("ors", "ers", "ing", "tion", "ment", "ness", "ity", "ies", "ous", "s")
-
-_PATH_TERM_EXPANSIONS: dict[str, tuple[str, ...]] = {
-    "dispatch": ("dispatcher", "strategy", "worker"),
-    "execute": ("worker", "runner"),
-    "executing": ("worker", "runner"),
-    "index": ("cache", "config", "project", "store", "api"),
-    "pipeline": ("api", "context", "bm25", "assemble_context"),
-    "query": ("api", "context", "bm25"),
-    "task": ("worker", "strategy"),
-    "tasks": ("task", "worker", "strategy"),
-    "runtime": ("scheduler",),
-}
-
 _SYMBOL_NOISE = _PATH_NOISE | frozenset(
     {
         "implement",
@@ -1168,10 +1153,10 @@ _SYMBOL_NOISE = _PATH_NOISE | frozenset(
 def _extract_path_terms(question: str) -> list[str]:
     """Extract terms from a query that might match file/directory names.
 
-    Returns terms sorted longest-first so more specific terms (e.g. "validators")
-    get priority over generic ones (e.g. "pydantic") when the boost limit is hit.
-    Also generates stem variants by stripping common suffixes (e.g. "validators"
-    → "validat") to match related file names like "_validate_call.py".
+    Returns terms sorted longest-first so more specific terms get priority over
+    generic ones when the boost limit is hit. Also generates stem variants by
+    stripping common suffixes (e.g. "validators" → "validat") to match related
+    file names such as "validate.py".
     """
     import re
 
@@ -1183,10 +1168,6 @@ def _extract_path_terms(question: str) -> list[str]:
         if t not in seen:
             seen.add(t)
             terms.append(t)
-        for expansion in _PATH_TERM_EXPANSIONS.get(t, ()):
-            if expansion not in seen:
-                seen.add(expansion)
-                terms.append(expansion)
         for suffix in _STEM_SUFFIXES:
             if t.endswith(suffix) and len(t) - len(suffix) >= 4:
                 stem = t[: -len(suffix)]
@@ -1214,21 +1195,10 @@ def _path_match_multiplier(file_path: str, term: str) -> float:
 
 
 _RETRIEVAL_QUERY_EXPANSIONS: dict[str, tuple[str, ...]] = {
-    "query": ("search", "retrieve", "retrieval", "context"),
-    "pipeline": ("workflow", "stage", "assembly", "context"),
-    "retrieval": ("search", "rank", "score", "bm25", "context"),
+    "query": ("search", "retrieve", "retrieval"),
+    "pipeline": ("workflow", "stage"),
+    "retrieval": ("search", "retrieve"),
 }
-
-_QUERY_PIPELINE_EXPANSIONS = ("api", "bm25", "BM25Index", "assemble_context")
-_INDEX_QUERY_EXPANSIONS = (
-    "cache",
-    "config",
-    "project",
-    "store",
-    "CacheManager",
-    "ProjectState",
-    "uses_project_cache_layout",
-)
 
 
 def _expand_retrieval_question(question: str) -> tuple[str, dict[str, str]]:
@@ -1250,13 +1220,6 @@ def _expand_retrieval_question(question: str) -> tuple[str, dict[str, str]]:
             continue
         expansions.extend(candidates)
         provenance[term] = ",".join(candidates)
-
-    if {"query", "pipeline"} <= raw_terms:
-        expansions.extend(_QUERY_PIPELINE_EXPANSIONS)
-        provenance["query pipeline"] = ",".join(_QUERY_PIPELINE_EXPANSIONS)
-    if "index" in raw_terms:
-        expansions.extend(_INDEX_QUERY_EXPANSIONS)
-        provenance["index"] = ",".join(_INDEX_QUERY_EXPANSIONS)
 
     if not expansions:
         return question, {}
@@ -1783,8 +1746,6 @@ def _refresh_receipt(
     documentation_providers: list[DocProviderReceipt] | None = None,
 ) -> None:
     skipped = list(bundle.receipt.skipped_candidates) if bundle.receipt is not None else []
-    if freshness != ContextFreshness.CLEAN:
-        skipped.append(stale_index_skipped_candidate())
     if metadata_timing is not None and metadata_timing.parse_failure_count > 0:
         skipped.append(unsupported_grammar_skipped_candidate(metadata_timing.parse_failure_count))
     included_edges = list(bundle.receipt.included_edges) if bundle.receipt is not None else []

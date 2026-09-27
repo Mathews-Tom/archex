@@ -897,6 +897,11 @@ def _render_markdown(result: ScoutResult, *, include_receipt: bool = True) -> st
                 ),
             ]
         )
+        if receipt.query_terms_unmatched:
+            lines.append(
+                "- Query terms absent from context: "
+                + ", ".join(f"`{term}`" for term in receipt.query_terms_unmatched)
+            )
         if receipt.skipped_candidates:
             lines.extend(["", "### Skipped candidates"])
             for item in receipt.skipped_candidates[:8]:

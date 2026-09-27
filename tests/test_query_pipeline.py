@@ -16,7 +16,10 @@ from archex.api import query, scout
 from archex.models import (
     Config,
     ContextBundle,
+    ContextCompletenessReason,
+    ContextCompletenessStatus,
     ContextFreshness,
+    ContextRecommendedAction,
     ContextSkippedReason,
     IndexConfig,
     PipelineTiming,
@@ -67,7 +70,7 @@ class TestQueryPipelineEndToEnd:
         assert parsed["receipt"]["freshness"] == "clean"
         assert "<receipt " in render_xml(bundle)
 
-    def test_query_receipt_records_unknown_freshness_when_refresh_skipped(
+    def test_query_receipt_reports_skipped_refresh_as_unchecked_not_stale(
         self, python_simple_repo: Path
     ) -> None:
         source = RepoSource(local_path=str(python_simple_repo))
@@ -76,7 +79,10 @@ class TestQueryPipelineEndToEnd:
 
         assert bundle.receipt is not None
         assert bundle.receipt.freshness == ContextFreshness.UNKNOWN
-        assert any(
+        assert bundle.receipt.context_complete == ContextCompletenessStatus.UNKNOWN
+        assert bundle.receipt.context_complete_reason != ContextCompletenessReason.STALE_INDEX
+        assert bundle.receipt.recommended_next_action != ContextRecommendedAction.REFRESH_INDEX
+        assert not any(
             item.reason == ContextSkippedReason.STALE_INDEX
             for item in bundle.receipt.skipped_candidates
         )

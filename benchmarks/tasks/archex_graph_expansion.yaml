@@ -20,8 +20,8 @@ expected_regions:
   - path: src/archex/serve/context.py
     granularity: symbol
     symbol: assemble_context
-    start_line: 904
-    end_line: 1632
+    start_line: 883
+    end_line: 1611
     notes: "Context assembly, graph expansion, ranking, and packing."
 token_budget: 8192
 keywords:
