@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from archex.models import (
@@ -109,10 +110,27 @@ def _is_test_file(file_path: str) -> bool:
     return file_path.startswith("test") or "/test" in file_path
 
 
+# Machine-generated data files (fixtures, recorded results, exports) share the
+# repository's vocabulary at high volume and outrank the code that produces or
+# consumes them. They stay searchable, ranked below code, unless the query names
+# the format or the file itself.
+_DATA_FILE_SUFFIXES = frozenset({".json", ".jsonl", ".ndjson", ".csv", ".tsv"})
+_DATA_QUERY_TERMS = frozenset({"json", "jsonl", "ndjson", "csv", "tsv", "dataset", "schema"})
+
+
+def _is_data_file(file_path: str, query_terms: set[str]) -> bool:
+    path = PurePosixPath(file_path.lower())
+    if path.suffix not in _DATA_FILE_SUFFIXES:
+        return False
+    return not (query_terms & _DATA_QUERY_TERMS or path.stem in query_terms)
+
+
 def _is_support_file(file_path: str, query_terms: set[str]) -> bool:
     lower_path = file_path.lower()
     if _is_test_file(lower_path):
         return not query_terms & {"fixture", "fixtures", "test", "tests"}
+    if _is_data_file(lower_path, query_terms):
+        return True
     if any(marker in lower_path for marker in _SUPPORT_PATH_MARKERS):
         return not query_terms & _SUPPORT_QUERY_TERMS
     return False

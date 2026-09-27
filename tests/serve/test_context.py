@@ -265,6 +265,27 @@ def test_packing_delays_test_files_until_production_files_are_covered() -> None:
     assert [rc.chunk.id for rc in bundle.chunks] == ["patterns", "models", "test_chunk"]
 
 
+def test_data_files_rank_below_code_unless_the_query_names_the_format() -> None:
+    graph = DependencyGraph()
+    results = make_chunk("results", "benchmarks/results/latest.json", token_count=60)
+    service = make_chunk("service", "src/app/service.py", token_count=60)
+    for chunk in (results, service):
+        graph.add_file_node(chunk.file_path)
+
+    def packed(question: str) -> list[str]:
+        bundle = assemble_context(
+            [(results, 10.0), (service, 8.0)],
+            graph,
+            [results, service],
+            question,
+            token_budget=70,
+        )
+        return [rc.chunk.id for rc in bundle.chunks]
+
+    assert packed("How is a run recorded?") == ["service"]
+    assert packed("How is the run json recorded?") == ["results"]
+
+
 def test_cli_config_alignment_keeps_runtime_config_files_ahead_of_support_noise() -> None:
     graph = DependencyGraph()
     chunks = [
