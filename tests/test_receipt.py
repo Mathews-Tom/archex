@@ -45,7 +45,6 @@ from archex.models import (
 from archex.receipt import (
     build_context_receipt,
     build_scout_receipt,
-    stale_index_skipped_candidate,
 )
 from archex.scout import (
     ScoutBudget,
@@ -66,7 +65,13 @@ def test_context_receipt_preserves_stale_marker_when_skipped_candidates_are_capp
         )
         for index in range(25)
     ]
-    skipped.append(stale_index_skipped_candidate())
+    skipped.append(
+        ContextSkippedCandidate(
+            file_path="",
+            reason=ContextSkippedReason.STALE_INDEX,
+            detail="index is stale",
+        )
+    )
 
     receipt = build_context_receipt(
         bundle,
@@ -119,6 +124,102 @@ def test_context_receipt_totals_preserve_uncapped_counts() -> None:
     assert receipt.omitted_edges_total == 23
     assert receipt.freshness_checked_at == "2026-06-17T00:00:00Z"
     assert receipt.index_fresh_at == "2026-06-17T00:00:00Z"
+
+
+def _single_chunk_bundle(
+    query: str, content: str, *, symbol_name: str | None = None
+) -> ContextBundle:
+    chunk = CodeChunk(
+        id="c1",
+        content=content,
+        file_path="src/model.py",
+        start_line=1,
+        end_line=3,
+        language="python",
+        symbol_name=symbol_name,
+    )
+    return ContextBundle(
+        query=query,
+        token_count=10,
+        token_budget=100,
+        chunks=[RankedChunk(chunk=chunk, final_score=1.0)],
+    )
+
+
+def test_empty_bundle_is_never_reported_complete() -> None:
+    bundle = ContextBundle(query="zebra quasar", token_count=0, token_budget=100)
+
+    receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
+
+    assert receipt.context_complete == ContextCompletenessStatus.INCOMPLETE
+    assert receipt.context_complete_reason == ContextCompletenessReason.NO_CANDIDATES
+    assert receipt.recommended_next_action == ContextRecommendedAction.REPHRASE_QUERY
+    assert receipt.query_terms_unmatched == ["zebra", "quasar"]
+
+
+def test_bundle_missing_most_query_terms_asks_for_rephrase_not_completion() -> None:
+    bundle = _single_chunk_bundle(
+        "hint printed when the function is already on screen",
+        "def suppress_annotation(atom):\n    return atom.fully_visible",
+    )
+
+    receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
+
+    assert receipt.context_complete == ContextCompletenessStatus.INCOMPLETE
+    assert receipt.context_complete_reason == ContextCompletenessReason.LOW_QUERY_MATCH
+    assert receipt.recommended_next_action == ContextRecommendedAction.REPHRASE_QUERY
+    assert receipt.query_terms_matched == []
+
+
+def test_query_term_coverage_uses_the_index_matcher_stemming_and_identifier_splits() -> None:
+    bundle = _single_chunk_bundle(
+        "regenerated reply serializer",
+        "def regenerate(replyText):\n    return validate(replyText)",
+        symbol_name="regenerate",
+    )
+
+    receipt = build_context_receipt(bundle, index_revision="rev", freshness=ContextFreshness.CLEAN)
+
+    assert receipt.query_terms_matched == ["regenerated", "reply"]
+    assert receipt.query_terms_unmatched == ["serializer"]
+    assert receipt.context_complete == ContextCompletenessStatus.COMPLETE
+    assert receipt.recommended_next_action == ContextRecommendedAction.USE_BUNDLE
+
+
+def test_unchecked_freshness_is_not_reported_as_a_stale_index() -> None:
+    bundle = _single_chunk_bundle("regenerate", "def regenerate(): pass", symbol_name="regenerate")
+
+    receipt = build_context_receipt(
+        bundle, index_revision="rev", freshness=ContextFreshness.UNKNOWN
+    )
+
+    assert receipt.context_complete == ContextCompletenessStatus.UNKNOWN
+    assert receipt.context_complete_reason == ContextCompletenessReason.FRESHNESS_UNCHECKED
+    assert receipt.recommended_next_action != ContextRecommendedAction.REFRESH_INDEX
+
+
+def test_scout_receipt_keeps_query_level_mismatch_over_file_skips() -> None:
+    direct_receipt = build_context_receipt(
+        _single_chunk_bundle("zebra quasar marmalade", "def regenerate(): pass"),
+        index_revision="rev",
+        freshness=ContextFreshness.CLEAN,
+    )
+    scout = ScoutResult(
+        query="zebra quasar marmalade",
+        ranked_files=[],
+        budget=ScoutBudget(token_budget=100, token_count=10),
+        fetch_plan=ScoutFetchPlan(
+            handles=[],
+            file_reasons={"src/other.py": "pruned_by_cap rank=2"},
+        ),
+    )
+
+    receipt = build_scout_receipt(scout, direct_receipt)
+
+    assert receipt is not None
+    assert receipt.context_complete == ContextCompletenessStatus.INCOMPLETE
+    assert receipt.context_complete_reason == ContextCompletenessReason.LOW_QUERY_MATCH
+    assert receipt.recommended_next_action == ContextRecommendedAction.REPHRASE_QUERY
 
 
 def test_scout_receipt_does_not_mark_selected_handle_files_as_skipped() -> None:

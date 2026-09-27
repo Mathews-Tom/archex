@@ -135,6 +135,11 @@ def _render_receipt_xml(receipt: ContextReceipt) -> list[str]:
         f" omitted_edges_total={_attr(str(receipt.omitted_edges_total))}"
         ">",
     ]
+    if receipt.query_terms_unmatched:
+        lines.append(
+            f"    <unmatched_query_terms>{escape(' '.join(receipt.query_terms_unmatched))}"
+            "</unmatched_query_terms>"
+        )
     for item in receipt.returned_context[:8]:
         lines.append(
             "    <returned"

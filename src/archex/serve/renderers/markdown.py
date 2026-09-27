@@ -119,6 +119,11 @@ def _receipt_lines(receipt: ContextReceipt) -> list[str]:
             f"{receipt.omitted_edges_total} total"
         ),
     ]
+    if receipt.query_terms_unmatched:
+        lines.append(
+            "- Query terms absent from context: "
+            + ", ".join(f"`{term}`" for term in receipt.query_terms_unmatched)
+        )
     if compressed:
         lines.append(f"- Compressed regions: {len(compressed)} of {len(receipt.returned_context)}")
     if receipt.skipped_candidates:

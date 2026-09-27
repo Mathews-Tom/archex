@@ -124,6 +124,8 @@ Small receipt example:
     "freshness": "clean",
     "index_revision": "3d8b0c…",
     "token_budget": { "requested": 12000, "consumed": 6132 },
+    "query_terms_matched": ["authentication"],
+    "query_terms_unmatched": [],
     "returned_total": 12,
     "skipped_total": 23,
     "included_edges_total": 9,

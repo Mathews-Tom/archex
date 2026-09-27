@@ -7,6 +7,7 @@ Context receipts are the machine-readable provenance block attached to `query`, 
 Every receipt includes:
 
 - `query`
+- `query_terms_matched` and `query_terms_unmatched`: the query's search terms (as BM25 sees them, stopwords removed) split by whether they occur anywhere in the returned context, matched with the index's own tokenizer and stemming
 - `token_budget.requested` and `token_budget.consumed`; scout receipts use the scout map budget and rendered scout token count
 - `index_revision`
 - `freshness`
@@ -28,7 +29,7 @@ Every receipt includes:
 - `watch_unavailable`
 - `unknown`
 
-Current query/scout receipts emit `clean` for the normal refresh path and `unknown` when inline refresh is skipped.
+Current query/scout receipts emit `clean` for the normal refresh path and `unknown` when inline refresh is skipped (`--no-refresh`). `unknown` means freshness was not checked; it is never reported as a stale index.
 
 ## Completeness
 
@@ -38,21 +39,35 @@ Current query/scout receipts emit `clean` for the normal refresh path and `unkno
 - `incomplete`
 - `unknown`
 
+`context_complete` means the returned context kept everything retrieval found for this query and the query's terms occur in it. It does not mean the context answers the question: retrieval is lexical and structural, so a query phrased in words the codebase does not use retrieves text that shares those words, not the code the question means.
+
+`context_complete` is never `complete` when:
+
+- the bundle is empty (`no_candidates`);
+- fewer than half of the query's search terms occur anywhere in the returned context (`low_query_match`);
+- packing dropped candidates or cut dependency edges;
+- freshness is `dirty` or `unknown` (status `unknown`).
+
 `context_complete_reason` is a machine-readable explanation such as:
 
 - `complete`
 - `budget_exhausted`
 - `dependency_frontier_cut`
 - `duplicate_suppressed`
+- `freshness_unchecked`
+- `low_query_match`
 - `no_candidates`
 - `stale_index`
 - `unsupported_grammar`
 - `unknown`
 
+`no_candidates` and `low_query_match` take precedence over packing reasons: fetching skipped candidates or raising the budget returns more of the same mismatch.
+
 `recommended_next_action` tells the caller what to do next:
 
 - `use_bundle`
 - `narrow_query`
+- `rephrase_query` — restate the question in the codebase's own identifiers, paths, or error text; `query_terms_unmatched` lists the words that found nothing
 - `raise_budget`
 - `refresh_index`
 - `fetch_skipped_candidate`

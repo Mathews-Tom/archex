@@ -117,7 +117,6 @@ from archex.receipt import (
     build_scout_receipt,
     index_revision_from_store,
     skipped_candidates_for_ranked,
-    stale_index_skipped_candidate,
     unsupported_grammar_skipped_candidate,
 )
 from archex.scout import (
@@ -1783,8 +1782,6 @@ def _refresh_receipt(
     documentation_providers: list[DocProviderReceipt] | None = None,
 ) -> None:
     skipped = list(bundle.receipt.skipped_candidates) if bundle.receipt is not None else []
-    if freshness != ContextFreshness.CLEAN:
-        skipped.append(stale_index_skipped_candidate())
     if metadata_timing is not None and metadata_timing.parse_failure_count > 0:
         skipped.append(unsupported_grammar_skipped_candidate(metadata_timing.parse_failure_count))
     included_edges = list(bundle.receipt.included_edges) if bundle.receipt is not None else []

@@ -801,7 +801,7 @@ def test_receipt_records_budget_exhausted_skipped_candidates() -> None:
         [(first, 5.0), (second, 4.0)],
         graph,
         [first, second],
-        "budget test",
+        "first second",
         token_budget=70,
     )
 
@@ -840,7 +840,7 @@ def test_receipt_records_dependency_frontier_cut() -> None:
         [(seed, 5.0)],
         graph,
         [seed, dep],
-        "dependency frontier",
+        "seed dep",
         token_budget=70,
     )
 

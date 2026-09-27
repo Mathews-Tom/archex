@@ -7,6 +7,7 @@ import json
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
+from archex.index.bm25 import query_term_coverage
 from archex.models import (
     CodeChunk,
     ContextCompletenessReason,
@@ -42,6 +43,20 @@ if TYPE_CHECKING:
 _MAX_RECEIPT_SKIPPED = 20
 _MAX_RECEIPT_OMITTED_EDGES = 20
 _MAX_RECEIPT_INCLUDED_EDGES = 40
+
+#: A bundle is never reported complete when fewer than this share of the
+#: query's search terms occur anywhere in its returned context.
+LOW_QUERY_MATCH_RATIO = 0.5
+
+#: Reasons established by the query as a whole, which a scout fetch plan's
+#: per-file skips must not overwrite.
+_QUERY_LEVEL_REASONS = frozenset(
+    {
+        ContextCompletenessReason.STALE_INDEX,
+        ContextCompletenessReason.NO_CANDIDATES,
+        ContextCompletenessReason.LOW_QUERY_MATCH,
+    }
+)
 
 
 def region_content_hash(file_path: str, start_line: int, end_line: int, content: str) -> str:
@@ -95,6 +110,10 @@ def build_context_receipt(
     documentation_providers: Iterable[DocProviderReceipt] = (),
 ) -> ContextReceipt:
     returned = _returned_context(bundle)
+    matched_terms, unmatched_terms = query_term_coverage(
+        bundle.query, (ranked.chunk for ranked in bundle.chunks)
+    )
+    low_match = _low_query_match(matched_terms, unmatched_terms)
     skipped_all = list(skipped_candidates)
     omitted_all = list(omitted_edges)
     included_all = list(included_edges)
@@ -136,10 +155,13 @@ def build_context_receipt(
             git_log_receipt=git_log_receipt,
             window_commit_count=git_log_receipt.window_commit_count if git_log_receipt else 0,
         )
+    reason = _completion_reason(bundle, freshness, omitted, skipped, low_query_match=low_match)
     return ContextReceipt(
         query=bundle.query,
         expanded_query=bundle.retrieval_metadata.expanded_query,
         expansion_provenance=bundle.retrieval_metadata.expansion_provenance,
+        query_terms_matched=matched_terms,
+        query_terms_unmatched=unmatched_terms,
         token_budget=ContextReceiptTokenBudget(
             requested=bundle.token_budget,
             consumed=bundle.token_count,
@@ -162,9 +184,11 @@ def build_context_receipt(
         skipped_total=len(skipped_all),
         included_edges_total=len(included_all),
         omitted_edges_total=len(omitted_all),
-        context_complete=_completion_status(bundle, freshness, omitted, skipped),
-        context_complete_reason=_completion_reason(bundle, freshness, omitted, skipped),
-        recommended_next_action=_recommended_action(bundle, freshness, omitted, skipped),
+        context_complete=_completion_status(
+            bundle, freshness, omitted, skipped, low_query_match=low_match
+        ),
+        context_complete_reason=reason,
+        recommended_next_action=_recommended_action(reason, omitted, skipped),
     )
 
 
@@ -222,6 +246,9 @@ def build_scout_receipt(
     merged_skipped = sorted(skipped, key=_skipped_sort_key)[:_MAX_RECEIPT_SKIPPED]
     completion_reason = _reason_from_skipped(merged_skipped)
     action = _action_from_reason(completion_reason, has_skipped=bool(merged_skipped))
+    if direct_receipt.context_complete_reason in _QUERY_LEVEL_REASONS:
+        completion_reason = direct_receipt.context_complete_reason
+        action = direct_receipt.recommended_next_action
     status = (
         ContextCompletenessStatus.INCOMPLETE if merged_skipped else direct_receipt.context_complete
     )
@@ -322,14 +349,6 @@ def skipped_candidates_for_ranked(
     return skipped
 
 
-def stale_index_skipped_candidate() -> ContextSkippedCandidate:
-    return ContextSkippedCandidate(
-        file_path="",
-        reason=ContextSkippedReason.STALE_INDEX,
-        detail="index freshness is stale or unknown",
-    )
-
-
 def unsupported_grammar_skipped_candidate(count: int) -> ContextSkippedCandidate:
     return ContextSkippedCandidate(
         file_path="",
@@ -401,14 +420,24 @@ def _skip_reason(
     return ContextSkippedReason.BELOW_THRESHOLD
 
 
+def _low_query_match(matched: list[str], unmatched: list[str]) -> bool:
+    """Fewer than half of the query's search terms occur anywhere in the bundle."""
+    total = len(matched) + len(unmatched)
+    return total > 0 and len(matched) < total * LOW_QUERY_MATCH_RATIO
+
+
 def _completion_status(
     bundle: ContextBundle,
     freshness: ContextFreshness,
     omitted_edges: list[ContextReceiptEdge],
     skipped_candidates: list[ContextSkippedCandidate],
+    *,
+    low_query_match: bool,
 ) -> ContextCompletenessStatus:
     if freshness in {ContextFreshness.DIRTY, ContextFreshness.UNKNOWN}:
         return ContextCompletenessStatus.UNKNOWN
+    if not bundle.chunks or low_query_match:
+        return ContextCompletenessStatus.INCOMPLETE
     if bundle.truncated or omitted_edges or skipped_candidates:
         return ContextCompletenessStatus.INCOMPLETE
     return ContextCompletenessStatus.COMPLETE
@@ -456,6 +485,11 @@ def _action_from_reason(
 ) -> ContextRecommendedAction | None:
     if reason == ContextCompletenessReason.STALE_INDEX:
         return ContextRecommendedAction.REFRESH_INDEX
+    if reason in {
+        ContextCompletenessReason.NO_CANDIDATES,
+        ContextCompletenessReason.LOW_QUERY_MATCH,
+    }:
+        return ContextRecommendedAction.REPHRASE_QUERY
     if reason == ContextCompletenessReason.BUDGET_EXHAUSTED:
         return ContextRecommendedAction.RAISE_BUDGET
     if has_skipped:
@@ -470,11 +504,20 @@ def _completion_reason(
     freshness: ContextFreshness,
     omitted_edges: list[ContextReceiptEdge],
     skipped_candidates: list[ContextSkippedCandidate],
+    *,
+    low_query_match: bool,
 ) -> ContextCompletenessReason:
     if freshness == ContextFreshness.DIRTY:
         return ContextCompletenessReason.STALE_INDEX
     if any(item.reason == ContextSkippedReason.STALE_INDEX for item in skipped_candidates):
         return ContextCompletenessReason.STALE_INDEX
+    # A bundle whose query found nothing, or found text sharing too few of the
+    # query's words, cannot be judged by what packing dropped: fetching skipped
+    # candidates or raising the budget returns more of the same mismatch.
+    if not bundle.chunks:
+        return ContextCompletenessReason.NO_CANDIDATES
+    if low_query_match:
+        return ContextCompletenessReason.LOW_QUERY_MATCH
     if omitted_edges:
         return ContextCompletenessReason.DEPENDENCY_FRONTIER_CUT
     skipped_reason = _reason_from_skipped(skipped_candidates)
@@ -482,20 +525,16 @@ def _completion_reason(
         return skipped_reason
     if bundle.truncated:
         return ContextCompletenessReason.BUDGET_EXHAUSTED
-    if not bundle.chunks:
-        return ContextCompletenessReason.NO_CANDIDATES
     if freshness == ContextFreshness.UNKNOWN:
-        return ContextCompletenessReason.UNKNOWN
+        return ContextCompletenessReason.FRESHNESS_UNCHECKED
     return ContextCompletenessReason.COMPLETE
 
 
 def _recommended_action(
-    bundle: ContextBundle,
-    freshness: ContextFreshness,
+    reason: ContextCompletenessReason,
     omitted_edges: list[ContextReceiptEdge],
     skipped_candidates: list[ContextSkippedCandidate],
 ) -> ContextRecommendedAction:
-    reason = _completion_reason(bundle, freshness, omitted_edges, skipped_candidates)
     if reason == ContextCompletenessReason.DEPENDENCY_FRONTIER_CUT:
         return (
             ContextRecommendedAction.RAISE_BUDGET
@@ -505,6 +544,4 @@ def _recommended_action(
     action = _action_from_reason(reason, has_skipped=bool(skipped_candidates))
     if action is not None:
         return action
-    if reason == ContextCompletenessReason.COMPLETE:
-        return ContextRecommendedAction.USE_BUNDLE
     return ContextRecommendedAction.MANUAL_REVIEW

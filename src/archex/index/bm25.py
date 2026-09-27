@@ -16,7 +16,11 @@ if TYPE_CHECKING:
     from archex.index.store import IndexStore
     from archex.models import CodeChunk
 
-_CREATE_FTS = """
+#: FTS5 tokenizer shared by the chunk index and receipt term coverage, so a
+#: receipt reports exactly which query terms the retrieval matcher can see.
+_FTS_TOKENIZE = "porter unicode61"
+
+_CREATE_FTS = f"""
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     chunk_id UNINDEXED,
     content,
@@ -25,7 +29,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     docstring,
     breadcrumbs,
     summary,
-    tokenize='porter unicode61'
+    tokenize='{_FTS_TOKENIZE}'
 );
 """
 
@@ -136,14 +140,59 @@ _PATH_TERM_BONUS = 0.2
 _RERANK_MULTIPLIER = 2
 
 
-def _sanitize_tokens(query: str) -> list[str]:
-    """Extract and sanitize query tokens, stripping FTS5 operators and stopwords."""
-    safe: list[str] = []
+def query_terms(query: str) -> list[str]:
+    """Content terms BM25 searches for: FTS5 operators and stopwords stripped, deduplicated."""
+    terms: list[str] = []
+    seen: set[str] = set()
     for token in query.split():
         cleaned = re.sub(r"[^a-zA-Z0-9_.]", "", token)
-        if cleaned and cleaned.lower() not in _STOPWORDS:
-            safe.append(f'"{cleaned}"')
-    return safe
+        lowered = cleaned.lower()
+        if cleaned and lowered not in _STOPWORDS and lowered not in seen:
+            seen.add(lowered)
+            terms.append(cleaned)
+    return terms
+
+
+def _sanitize_tokens(query: str) -> list[str]:
+    """Extract and sanitize query tokens, stripping FTS5 operators and stopwords."""
+    return [f'"{term}"' for term in query_terms(query)]
+
+
+def query_term_coverage(query: str, chunks: Iterable[CodeChunk]) -> tuple[list[str], list[str]]:
+    """Split the query's BM25 terms into those present in and absent from ``chunks``.
+
+    Matching uses the chunk index's own tokenizer (stemming included) over each
+    chunk's path, symbol, and identifier-expanded content, so a term counts as
+    present exactly when the retrieval matcher could have matched it there.
+    This is lexical evidence only: a present term says the words occur, not that
+    the code answers the question.
+    """
+    from archex.pipeline.chunker import expand_identifiers
+
+    terms = query_terms(query)
+    bodies = [
+        f"{chunk.file_path}\n{chunk.symbol_name or ''}\n{expand_identifiers(chunk.content)}"
+        for chunk in chunks
+    ]
+    if not terms or not bodies:
+        return [], terms
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute(f"CREATE VIRTUAL TABLE coverage USING fts5(body, tokenize='{_FTS_TOKENIZE}')")
+        conn.executemany("INSERT INTO coverage (body) VALUES (?)", ((body,) for body in bodies))
+        matched: list[str] = []
+        unmatched: list[str] = []
+        for term in terms:
+            try:
+                row = conn.execute(
+                    "SELECT 1 FROM coverage WHERE coverage MATCH ? LIMIT 1", (f'"{term}"',)
+                ).fetchone()
+            except sqlite3.OperationalError:
+                row = None
+            (matched if row is not None else unmatched).append(term)
+    finally:
+        conn.close()
+    return matched, unmatched
 
 
 def escape_fts_query(query: str) -> str:
