@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.32.0] - 2026-09-28
+
+This release corrects archex's own benchmark numbers downward. Retrieval quality on the checked-in corpus is lower than previously published because the earlier figures were inflated by query vocabulary fitted to the benchmark questions; see the first entry below. Receipts gain new fields and enum values (`query_terms_matched`, `query_terms_unmatched`, `low_query_match`, `freshness_unchecked`, `rephrase_query`), so consumers that validate receipt enums strictly must accept them.
 
 ### Fixed
 
