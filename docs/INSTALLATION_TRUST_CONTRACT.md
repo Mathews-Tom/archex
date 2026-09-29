@@ -218,6 +218,8 @@ Explicit, user-initiated config writes happen only when you run `archex install-
 
 A hook, once installed, additionally appends line-delimited JSON to a local diagnostics log (`~/.archex/hook-diagnostics.log` by default, overridable via `ARCHEX_HOOK_DIAGNOSTICS_LOG`) whenever a lookup degrades — a missing/stale index, a timeout, a malformed payload, or an internal error. Most entries carry only a degradation reason and timestamp. The two diagnostics-only clients are the exception, by design: since Codex and Cursor never inject the archex results they find, the log is the only place those results go, so `codex_augmentation_withheld` includes the raw Bash command that looked like a search and `cursor_context_injection_unsupported` includes the withheld archex context text itself. On every client the log is local-only, appended to a file under your control, and never read back or transmitted anywhere by archex.
 
+The oh-my-pi/Pi hook module also appends one JSON line per search-tool result to a local annotation ledger (`~/.archex/annotation-ledger.jsonl` by default, overridable via `ARCHEX_ANNOTATION_LEDGER`): timestamp, the host's tool-call id, tool name, whether the call was eligible and annotated, unit and token counts, index freshness, the reason when nothing was added, and latency. It records no query text, result text, or paths. It is local-only and never uploaded.
+
 ## Network behavior by feature
 
 | Feature | Network behavior |

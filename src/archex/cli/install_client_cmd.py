@@ -78,11 +78,13 @@ def _is_interactive() -> bool:
     default=False,
     help=(
         "Install the archex hook/plugin (opt-in, never installed without this "
-        "flag). Augments grep/glob calls with archex context on claude-code, omp, "
-        "pi, opencode; on codex and cursor ships a diagnostics-only fallback (no "
-        "Grep/Glob-equivalent tool-call event exists on codex, and cursor's "
-        "beforeSubmitPrompt hook has no context-injection output field at all, "
-        "so nothing is injected on either, only logged)."
+        "flag). On omp and pi, annotates the agent's own grep/glob/bash-search "
+        "results with the indexed code units they hit; on claude-code and "
+        "opencode, augments grep/glob calls with archex symbol matches; on codex "
+        "and cursor ships a diagnostics-only fallback (no Grep/Glob-equivalent "
+        "tool-call event exists on codex, and cursor's beforeSubmitPrompt hook "
+        "has no context-injection output field at all, so nothing is injected on "
+        "either, only logged)."
     ),
 )
 @click.option(

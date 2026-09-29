@@ -402,78 +402,39 @@ def test_render_hook_install_preview_omp_remove_does_not_write(tmp_path: Path) -
     assert target.read_text(encoding="utf-8") == before
 
 
-def _query_field_keys(module_content: str) -> set[str]:
-    """Extract the ``ARCHEX_QUERY_FIELDS`` table's keys from generated TS source.
-
-    This table is the module's *only* tool-name dispatch mechanism (there is no
-    if/else chain on ``toolName``): a tool whose name is absent from this table
-    is never touched. Asserting its key set is therefore a precise, structural
-    way to prove ``read`` is never handled -- stronger than a raw substring
-    search, which would false-positive on the module's own prose comments
-    describing (in backtick-quoted code snippets) the exact branch that must
-    never exist.
-    """
-    match = re.search(
-        r"ARCHEX_QUERY_FIELDS: Readonly<Record<string, ToolQueryMapping>> = \{(.*?)\n\};",
-        module_content,
-        re.DOTALL,
-    )
-    assert match is not None, "ARCHEX_QUERY_FIELDS table not found in generated module"
-    return set(re.findall(r"^\s*(\w+):\s*\{", match.group(1), re.MULTILINE))
-
-
-def test_omp_ts_hook_module_query_field_table_excludes_read(tmp_path: Path) -> None:
-    """M20 acceptance criterion: the installed hook never registers a handler
-    branch for ``read`` -- proven structurally via the dispatch table's keys,
-    not by inspection.
-    """
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    plan = build_hook_install_plan("omp", str(repo), action="install")
-    assert isinstance(plan, TsHookInstallPlan)
-
-    keys = _query_field_keys(plan.module_content)
-
-    assert "read" not in keys
-    assert keys == {"grep", "glob", "find"}
-
-
-def test_omp_ts_hook_module_bakes_in_active_python_interpreter(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    plan = build_hook_install_plan("omp", str(repo), action="install")
-    assert isinstance(plan, TsHookInstallPlan)
-
-    assert json.dumps(sys.executable) in plan.module_content
-    assert '["-m", "archex.integrations.hook"]' in plan.module_content
-
-
-def test_omp_ts_hook_module_registers_exactly_one_unconditional_tool_result_handler(
+def test_omp_hook_install_reinstall_remove_leaves_foreign_extensions_untouched(
     tmp_path: Path,
 ) -> None:
-    """Subagent-dispatch coverage (M20 risk note): oh-my-pi's ``tool_result``
-    event carries no subagent/session discriminator field, and this module
-    registers exactly one unconditional handler with no such check -- so a
-    subagent-issued grep/glob call is handled identically to a top-level one,
-    the same way every other ``tool_result`` event is. Verified structurally
-    (no conditional gating the registration or the dispatch) rather than via a
-    live nested-subagent session, which is out of reach for this test suite.
+    """omp/Pi load every module in the extensions directory, so that directory
+    is the "config" other handlers share: install, idempotent reinstall, and
+    remove must touch only `archex-hook.ts`.
     """
     repo = tmp_path / "repo"
-    repo.mkdir()
-    plan = build_hook_install_plan("omp", str(repo), action="install")
-    assert isinstance(plan, TsHookInstallPlan)
-    content = plan.module_content
-
-    assert "subagent" not in content.lower()
-    factory_match = re.search(
-        r"export default function archexHook\(pi: HookHost\): void \{(.*)\}\s*$",
-        content,
-        re.DOTALL,
+    extensions = repo / ".omp" / "extensions"
+    extensions.mkdir(parents=True)
+    foreign = extensions / "other-tool-result.ts"
+    foreign_source = (
+        'export default function other(pi) { pi.on("tool_result", async () => undefined); }\n'
     )
-    assert factory_match is not None
-    factory_body = factory_match.group(1)
-    assert factory_body.count("pi.on(") == 1
+    foreign.write_text(foreign_source, encoding="utf-8")
+
+    target = write_hook_install_plan(
+        build_hook_install_plan("omp", str(repo), scope="project", action="install")
+    )
+    installed = target.read_text(encoding="utf-8")
+    write_hook_install_plan(
+        build_hook_install_plan("omp", str(repo), scope="project", action="install")
+    )
+
+    assert sorted(p.name for p in extensions.iterdir()) == ["archex-hook.ts", foreign.name]
+    assert target.read_text(encoding="utf-8") == installed
+
+    write_hook_install_plan(
+        build_hook_install_plan("omp", str(repo), scope="project", action="remove")
+    )
+
+    assert [p.name for p in extensions.iterdir()] == [foreign.name]
+    assert foreign.read_text(encoding="utf-8") == foreign_source
 
 
 # --- pi TS hook module (M20) ---
