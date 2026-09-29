@@ -33,11 +33,11 @@ import os
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from archex.index.store import IndexStore
+from archex.integrations.diagnostics import hook_timeout_seconds, log_diagnostic, utc_now_iso
 from archex.receipt import index_revision_from_store
 from archex.status import inspect_project_status
 
@@ -53,12 +53,6 @@ AUGMENTED_TOOLS: frozenset[str] = frozenset({"Grep", "Glob"})
 #: installer (`archex.client_setup`) reuses this constant so the installed
 #: config and this module's own runtime filter can never drift apart.
 HOOK_MATCHER = "|".join(sorted(AUGMENTED_TOOLS))
-
-DEFAULT_HOOK_TIMEOUT_SECONDS = 0.5
-_TIMEOUT_ENV_VAR = "ARCHEX_HOOK_TIMEOUT_SECONDS"
-
-DEFAULT_DIAGNOSTICS_LOG_PATH = Path.home() / ".archex" / "hook-diagnostics.log"
-_DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG"
 
 MAX_RESULTS = 5
 
@@ -186,7 +180,7 @@ def _lookup(cwd: str, query: str) -> str | None:
 
 def _render_context(query: str, chunks: list[CodeChunk], revision: str) -> str:
     lines = [
-        f"[archex receipt] index_revision={revision[:12]} generated_at={_utc_now_iso()}",
+        f"[archex receipt] index_revision={revision[:12]} generated_at={utc_now_iso()}",
         f"archex symbol matches for grep/glob pattern {query!r}:",
     ]
     for chunk in chunks:
@@ -202,44 +196,6 @@ def _build_output(context: str) -> dict[str, Any]:
             "additionalContext": context,
         }
     }
-
-
-def hook_timeout_seconds() -> float:
-    raw = os.environ.get(_TIMEOUT_ENV_VAR)
-    if raw:
-        try:
-            value = float(raw)
-        except ValueError:
-            value = 0.0
-        if value > 0:
-            return value
-    return DEFAULT_HOOK_TIMEOUT_SECONDS
-
-
-def _diagnostics_log_path() -> Path:
-    raw = os.environ.get(_DIAGNOSTICS_LOG_ENV_VAR)
-    return Path(raw).expanduser() if raw else DEFAULT_DIAGNOSTICS_LOG_PATH
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def log_diagnostic(kind: str, *, detail: str, cwd: str | None = None) -> None:
-    try:
-        path = _diagnostics_log_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        entry: dict[str, str] = {
-            "timestamp": _utc_now_iso(),
-            "kind": kind,
-            "detail": detail,
-        }
-        if cwd is not None:
-            entry["cwd"] = cwd
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry) + "\n")
-    except OSError:
-        pass  # diagnostics logging must never raise into the hook's exit path
 
 
 if __name__ == "__main__":

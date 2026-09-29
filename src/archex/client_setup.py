@@ -637,10 +637,8 @@ def _render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
         f"Client: {plan.client}",
         f"Scope: {plan.scope}",
         f"Target: {target}",
-        (
-            f"Action: {action_label} archex {_ts_hook_event_label(plan.client)} "
-            "(grep/glob-equivalent tools only)"
-        ),
+        f"Action: {action_label} archex {_ts_hook_event_label(plan.client)} "
+        f"({_ts_hook_coverage(plan.client)})",
     ]
     if plan.action == "install":
         lines.append(
@@ -657,6 +655,14 @@ def _render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
             else "Dry run. Re-run without --dry-run to remove this file."
         )
     return "\n".join(lines) + "\n"
+
+
+def _ts_hook_coverage(client: ClientName) -> str:
+    """What the installed module acts on, as the preview states it."""
+    if client == "opencode":
+        return "native grep/glob calls: archex symbol matches for the search pattern"
+    finder = "glob" if client == "omp" else "find"
+    return f"grep, {finder}, and bash search results: appends one line per indexed code unit hit"
 
 
 def _render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
@@ -781,8 +787,9 @@ _TS_HOOK_MODULE_TEMPLATE = r"""/**
  *   carried over unchanged. `details` and `isError` are never returned.
  * - Search tools only: `grep`, `glob` (oh-my-pi), `find` (Pi), and `bash`.
  *   `archex annotate` decides whether a bash command is a search (`rg`,
- *   `grep`, `git grep`); a bash command that does not even mention one is
- *   not sent. `read` and every other tool are never touched.
+ *   `grep`, `ugrep`, `git grep`, or a path lister such as `find`, `fd`, or
+ *   `git ls-files`); a bash command that mentions none of them is not sent.
+ *   `read` and every other tool are never touched.
  * - Fail open. A stale or dirty index, an unrecognised format, a spawn
  *   failure, a timeout, or any error returns `undefined`, leaving the
  *   original result untouched; faults go to the diagnostics log
@@ -806,17 +813,11 @@ import { dirname, join } from "node:path";
 /** Python interpreter active when `--hooks` ran, so the module always runs
  * archex from the environment it was installed into. */
 const ARCHEX_PYTHON_COMMAND = __ARCHEX_PYTHON_COMMAND__;
-/** The annotate command's own module entry: `archex annotate` through the
- * full CLI imports every subcommand, which alone exceeds the budget. */
-const ARCHEX_ANNOTATE_ARGS = [
-  "-m",
-  "archex.cli.annotate_cmd",
-  "--stdin-json",
-  "--format",
-  "json",
-];
+/** The host-neutral hook entry: it decides whether a call is a search before
+ * importing the index or the tokenizer, and skips the full CLI's imports. */
+const ARCHEX_ANNOTATE_ARGS = ["-m", "archex.integrations.annotate_hook"];
 
-/** Matches `DEFAULT_HOOK_TIMEOUT_SECONDS` in `archex.integrations.hook`. */
+/** Matches `DEFAULT_HOOK_TIMEOUT_SECONDS` in `archex.integrations.diagnostics`. */
 const ARCHEX_DEFAULT_TIMEOUT_MS = 500;
 const ARCHEX_TIMEOUT_ENV_VAR = "ARCHEX_HOOK_TIMEOUT_SECONDS";
 const ARCHEX_DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG";
@@ -833,8 +834,8 @@ const ANNOTATED_TOOLS: Readonly<Record<string, string>> = {
 };
 
 /** Spawn guard only: every command `archex annotate` accepts as a search
- * names `rg` or `grep`, so a command naming neither is never sent. */
-const BASH_SEARCH_MENTION = /rg|grep/;
+ * names one of these programs, so a command naming none is never sent. */
+const BASH_SEARCH_MENTION = /rg|grep|find|bfs|fd|ls-files/;
 
 // --- Minimal structural types for the `tool_result` contract ---
 //
@@ -919,6 +920,7 @@ function recordLedger(
       envPath(ARCHEX_LEDGER_ENV_VAR, join(homedir(), ".archex", "annotation-ledger.jsonl")),
       {
         timestamp: new Date().toISOString(),
+        host: "omp",
         toolCallId: typeof event.toolCallId === "string" ? event.toolCallId : null,
         tool: event.toolName,
         eligible: outcome.eligible,
@@ -935,7 +937,7 @@ function recordLedger(
   }
 }
 
-// --- Subprocess call: `python -m archex.cli.annotate_cmd` ---
+// --- Subprocess call: `python -m archex.integrations.annotate_hook` ---
 
 function timeoutMs(): number {
   const seconds = Number(process.env[ARCHEX_TIMEOUT_ENV_VAR]);
@@ -1075,7 +1077,7 @@ export default function archexHook(pi: HookHost): void {
       if (text === null) return decline("no_text_content");
 
       const cwd = process.cwd();
-      const response = await runAnnotate({ tool, input, text, cwd }, cwd);
+      const response = await runAnnotate({ host: "omp", tool, input, text, cwd }, cwd);
       if ("failure" in response) return decline(response.failure);
       const record = parseRecord(response.stdout);
       if (record === null) {

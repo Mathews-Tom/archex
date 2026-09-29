@@ -37,7 +37,7 @@ import os
 import sys
 from typing import Any, cast
 
-from archex.integrations.hook import log_diagnostic
+from archex.integrations.diagnostics import log_diagnostic
 from archex.post_edit import PostEditOutcome, build_event, record_edit
 from archex.post_edit.impact import synchronize_and_report_with_timeout
 from archex.project import ProjectState

@@ -67,7 +67,8 @@ import os
 import sys
 from typing import Any, cast
 
-from archex.integrations.hook import IDENTIFIER_TOKEN_RE, log_diagnostic, lookup_with_timeout
+from archex.integrations.diagnostics import log_diagnostic
+from archex.integrations.hook import IDENTIFIER_TOKEN_RE, lookup_with_timeout
 
 #: Always-continue output. `beforeSubmitPrompt` has no context-injection
 #: field to populate (see module docstring) and deny/blocking behavior is

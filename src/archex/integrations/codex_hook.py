@@ -59,7 +59,8 @@ import re
 import sys
 from typing import Any, cast
 
-from archex.integrations.hook import IDENTIFIER_TOKEN_RE, log_diagnostic, lookup_with_timeout
+from archex.integrations.diagnostics import log_diagnostic
+from archex.integrations.hook import IDENTIFIER_TOKEN_RE, lookup_with_timeout
 
 #: Codex's canonical `PreToolUse` tool name for every shell invocation
 #: (`HookToolName::bash()` in `codex-rs/core/src/tools/hook_names.rs`).

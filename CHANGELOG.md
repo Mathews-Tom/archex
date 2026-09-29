@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **`archex annotate` reads every supported host's search results.** A new `--host` (`omp`, `claude-code`, `codex`, `opencode`) selects the tool vocabulary: Claude Code `Bash`/`Grep`/`Glob`, Codex `Bash`, OpenCode `bash`/`grep`/`glob`, alongside omp's `grep`/`glob`/`find`/`bash`. Shell searches now also cover `ugrep`, bare `line:text` output of a one-file search, and path lists from `find`/`bfs`/`fd`/`rg --files`/`git ls-files`/`-l`; counting and quiet searches are skipped. Formats were derived from local Claude Code and Codex transcripts, payloads recorded at a live Claude Code `PostToolUse` hook, and OpenCode's v1.14.33 tool source; fixtures are synthetic. Parsing stays in one module, `archex.annotate`.
+- **Non-search calls exit in about 40 ms.** Hook adapters now call `python -m archex.integrations.annotate_hook`, which decides whether a call is a search before importing the index, the tokenizer, or pydantic; `archex.__version__` resolves lazily for the same reason. On this repository's index a non-search shell call measured p50 40 ms / p95 52 ms end to end (it was about 330 ms), and a search p50 419 ms / p95 466 ms against 440 / 519 ms before, over 60 runs each. The omp/Pi module uses the new entry point and writes `host` into each ledger line; reinstall it with `archex install-client omp --hooks`.
+- **Install previews state what each hook covers.** The omp/Pi and OpenCode previews no longer say "grep/glob-equivalent tools only".
+
 ## [0.33.0] - 2026-09-29
 
 This release adds `archex annotate` and cuts the oh-my-pi and Pi hook over to it: the hook now annotates the agent's own search results instead of running a separate symbol search on the grep pattern. Reinstall the hook with `archex install-client omp --hooks` (or `pi`) to pick up the new module. It also adds the Stage 0 harness for an A/B test of archex surfaces; no A/B results exist yet.

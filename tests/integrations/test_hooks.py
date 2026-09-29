@@ -38,9 +38,9 @@ from archex.integrations.cursor_hook import (
     _parse_cursor_payload,  # pyright: ignore[reportPrivateUsage]
     handle_before_submit_prompt,
 )
+from archex.integrations.diagnostics import DEFAULT_HOOK_TIMEOUT_SECONDS
 from archex.integrations.hook import (
     AUGMENTED_TOOLS,
-    DEFAULT_HOOK_TIMEOUT_SECONDS,
     HOOK_MATCHER,
     _extract_query,  # pyright: ignore[reportPrivateUsage]
     _parse_payload,  # pyright: ignore[reportPrivateUsage]

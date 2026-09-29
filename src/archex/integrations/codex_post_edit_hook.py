@@ -34,7 +34,7 @@ import os
 import sys
 from typing import Any, cast
 
-from archex.integrations.hook import log_diagnostic
+from archex.integrations.diagnostics import log_diagnostic
 from archex.integrations.post_edit_hook import POST_EDIT_EVENT_NAME, run_post_edit_cycle
 
 #: Codex's canonical serialized tool name for file edits.
