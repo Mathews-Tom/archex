@@ -42,70 +42,58 @@ class ProjectStatus:
     index_revision: str = ""
 
 
-def inspect_project_status(source: str | Path) -> ProjectStatus:
-    """Inspect repo-local lifecycle state without building an index."""
+#: States in which the index is not read at all, so `ProjectStatus` carries no
+#: aggregates for it.
+_UNREAD_STATES = frozenset({"uninitialized", "missing_index", "unprovenanced", "corrupt"})
+
+
+@dataclass(frozen=True)
+class IndexFreshness:
+    """The lifecycle state `inspect_project_status` reports, without aggregates.
+
+    Latency-bound callers (the annotation hook) need only the state and the
+    index path; the file, chunk, language, and metrics aggregates cost more
+    than the rest of the check combined on a large index.
+    """
+
+    repo_root: Path
+    state: str
+    index_path: Path
+    current_commit: str
+    indexed_commit: str
+    working_tree: str
+    error: str = ""
+
+
+def inspect_index_freshness(source: str | Path) -> IndexFreshness:
+    """Classify the repo-local index as `fresh`, `stale`, `dirty`, or unusable."""
     project = ProjectState.resolve(source)
     current_commit = CacheManager.git_head(str(project.repo_root)) or ""
     index_path = project.index_path
-    dogfood_latest = project.dogfood_dir / "latest.json"
+
+    def unread(state: str, error: str = "") -> IndexFreshness:
+        return IndexFreshness(
+            repo_root=project.repo_root,
+            state=state,
+            index_path=index_path,
+            current_commit=current_commit,
+            indexed_commit="",
+            working_tree="unknown",
+            error=error,
+        )
 
     if not project.initialized():
-        return ProjectStatus(
-            repo_root=project.repo_root,
-            initialized=False,
-            state="uninitialized",
-            index_path=index_path,
-            current_commit=current_commit,
-            indexed_commit="",
-            working_tree="unknown",
-            files_indexed=0,
-            chunks_indexed=0,
-            chunks_fts=0,
-            languages={},
-            vector_index_available=False,
-            dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
-        )
-
+        return unread("uninitialized")
     if not index_path.exists():
-        return ProjectStatus(
-            repo_root=project.repo_root,
-            initialized=True,
-            state="missing_index",
-            index_path=index_path,
-            current_commit=current_commit,
-            indexed_commit="",
-            working_tree="unknown",
-            files_indexed=0,
-            chunks_indexed=0,
-            chunks_fts=0,
-            languages={},
-            vector_index_available=False,
-            dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
-        )
-
+        return unread("missing_index")
     if not project_index_is_provenanced(project.repo_root, index_path):
         # Every surface built on this inspection serves the store it names —
         # `archex status`, `doctor`, `setup`, the session primer, and the
-        # tool-call hook, which injects symbol rows straight into an agent's
+        # tool-call hooks, which inject index rows straight into an agent's
         # context. `.archex/index.db` is an ordinary file a published
         # repository can commit, so an index without archex's own marker is
         # of unknown origin: it is reported as such rather than read.
-        return ProjectStatus(
-            repo_root=project.repo_root,
-            initialized=True,
-            state="unprovenanced",
-            index_path=index_path,
-            current_commit=current_commit,
-            indexed_commit="",
-            working_tree="unknown",
-            files_indexed=0,
-            chunks_indexed=0,
-            chunks_fts=0,
-            languages={},
-            vector_index_available=False,
-            dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
-            error="index carries no archex cache marker for this checkout",
-        )
+        return unread("unprovenanced", "index carries no archex cache marker for this checkout")
 
     config = load_config(project.repo_root)
     current_signature = compute_working_tree_signature(project.repo_root, config)
@@ -113,50 +101,13 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
     try:
         store = IndexStore(index_path)
     except Exception as exc:
-        return ProjectStatus(
-            repo_root=project.repo_root,
-            initialized=True,
-            state="corrupt",
-            index_path=index_path,
-            current_commit=current_commit,
-            indexed_commit="",
-            working_tree="unknown",
-            files_indexed=0,
-            chunks_indexed=0,
-            chunks_fts=0,
-            languages={},
-            vector_index_available=False,
-            dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
-            error=str(exc),
-        )
-
+        return unread("corrupt", str(exc))
     try:
         indexed_commit = store.get_metadata("commit_hash") or ""
         indexed_signature = store.get_metadata("working_tree_signature") or ""
-        files_indexed = store.get_file_count()
-        chunks_indexed = store.get_chunk_count()
-        languages = _language_counts(store.get_file_metadata())
-        chunks_fts = store.get_fts_chunk_count()
         needs_reindex = store.needs_reindex()
-        generation_id = read_generation_id(store) or ""
-        index_revision = index_revision_from_store(store)
     except Exception as exc:
-        return ProjectStatus(
-            repo_root=project.repo_root,
-            initialized=True,
-            state="corrupt",
-            index_path=index_path,
-            current_commit=current_commit,
-            indexed_commit="",
-            working_tree="unknown",
-            files_indexed=0,
-            chunks_indexed=0,
-            chunks_fts=0,
-            languages={},
-            vector_index_available=False,
-            dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
-            error=str(exc),
-        )
+        return unread("corrupt", str(exc))
     finally:
         store.close()
 
@@ -168,22 +119,75 @@ def inspect_project_status(source: str | Path) -> ProjectStatus:
         state = "dirty"
     else:
         state = "fresh"
-
-    return ProjectStatus(
+    return IndexFreshness(
         repo_root=project.repo_root,
-        initialized=True,
         state=state,
         index_path=index_path,
         current_commit=current_commit,
         indexed_commit=indexed_commit,
         working_tree="clean" if current_signature == "clean" else "dirty",
+    )
+
+
+def inspect_project_status(source: str | Path) -> ProjectStatus:
+    """Inspect repo-local lifecycle state without building an index."""
+    freshness = inspect_index_freshness(source)
+    project = ProjectState(repo_root=freshness.repo_root)
+    dogfood_latest = project.dogfood_dir / "latest.json"
+    dogfood_latest_path = dogfood_latest if dogfood_latest.exists() else None
+
+    def unread(state: str, error: str) -> ProjectStatus:
+        return ProjectStatus(
+            repo_root=freshness.repo_root,
+            initialized=state != "uninitialized",
+            state=state,
+            index_path=freshness.index_path,
+            current_commit=freshness.current_commit,
+            indexed_commit="",
+            working_tree="unknown",
+            files_indexed=0,
+            chunks_indexed=0,
+            chunks_fts=0,
+            languages={},
+            vector_index_available=False,
+            dogfood_latest_path=dogfood_latest_path,
+            error=error,
+        )
+
+    if freshness.state in _UNREAD_STATES:
+        return unread(freshness.state, freshness.error)
+
+    try:
+        store = IndexStore(freshness.index_path)
+    except Exception as exc:
+        return unread("corrupt", str(exc))
+    try:
+        files_indexed = store.get_file_count()
+        chunks_indexed = store.get_chunk_count()
+        languages = _language_counts(store.get_file_metadata())
+        chunks_fts = store.get_fts_chunk_count()
+        generation_id = read_generation_id(store) or ""
+        index_revision = index_revision_from_store(store)
+    except Exception as exc:
+        return unread("corrupt", str(exc))
+    finally:
+        store.close()
+
+    return ProjectStatus(
+        repo_root=freshness.repo_root,
+        initialized=True,
+        state=freshness.state,
+        index_path=freshness.index_path,
+        current_commit=freshness.current_commit,
+        indexed_commit=freshness.indexed_commit,
+        working_tree=freshness.working_tree,
         files_indexed=files_indexed,
         chunks_indexed=chunks_indexed,
         chunks_fts=chunks_fts,
         languages=languages,
         vector_index_available=_vector_index_available(project),
-        dogfood_latest_path=dogfood_latest if dogfood_latest.exists() else None,
-        metrics_savings=_metrics_savings(project.repo_root),
+        dogfood_latest_path=dogfood_latest_path,
+        metrics_savings=_metrics_savings(freshness.repo_root),
         generation_id=generation_id,
         index_revision=index_revision,
     )
