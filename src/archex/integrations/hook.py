@@ -1,4 +1,17 @@
-"""Claude Code PreToolUse hook: augments Grep/Glob with archex search results.
+"""Symbol-search lookup engine and pattern-search subprocess (not a Claude Code hook).
+
+Claude Code no longer runs this module: `install-client claude-code --hooks`
+installs the `PostToolUse` annotation hook
+(`archex.integrations.claude_code_annotate_hook`) and removes the old
+`PreToolUse` entry that pointed here. What still uses it:
+
+- the OpenCode plugin (`_OPENCODE_HOOK_MODULE_TEMPLATE` in
+  `archex.client_setup`), which shells out to `python -m archex.integrations.hook`
+  with a Claude-shaped `{tool_name, tool_input, cwd}` payload until it moves to
+  the annotation engine;
+- `archex.integrations.cursor_hook` and `archex.integrations.codex_hook`, which
+  import `lookup_with_timeout` and `IDENTIFIER_TOKEN_RE`;
+- `_lookup`, which the index-provenance tests call directly.
 
 Contract (M19 — non-blocking client hook integration):
 
@@ -23,7 +36,7 @@ Contract (M19 — non-blocking client hook integration):
   contract used by `query`/`scout`.
 
 Invoked as a subprocess: `python -m archex.integrations.hook`, reading the
-PreToolUse JSON payload from stdin and writing the hook JSON output to stdout.
+PreToolUse-shaped JSON payload from stdin and writing the hook JSON output to stdout.
 """
 
 from __future__ import annotations
@@ -48,11 +61,6 @@ HOOK_EVENT_NAME = "PreToolUse"
 
 #: Tools this hook augments. Read is deliberately excluded — see module docstring.
 AUGMENTED_TOOLS: frozenset[str] = frozenset({"Grep", "Glob"})
-
-#: Claude Code hook `matcher` value that selects exactly `AUGMENTED_TOOLS`. The
-#: installer (`archex.client_setup`) reuses this constant so the installed
-#: config and this module's own runtime filter can never drift apart.
-HOOK_MATCHER = "|".join(sorted(AUGMENTED_TOOLS))
 
 MAX_RESULTS = 5
 

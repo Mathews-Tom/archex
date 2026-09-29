@@ -18,15 +18,22 @@ call `run_request` in-process.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from archex.annotate import annotate
-from archex.integrations.diagnostics import log_diagnostic
+from archex.integrations.diagnostics import log_diagnostic, utc_now_iso
 
 if TYPE_CHECKING:
     from archex.annotate import Annotation
+
+#: Environment override for the per-call annotation ledger (one JSON line per
+#: search call, one schema for every host adapter).
+LEDGER_ENV_VAR = "ARCHEX_ANNOTATION_LEDGER"
+DEFAULT_LEDGER_PATH = Path.home() / ".archex" / "annotation-ledger.jsonl"
 
 #: Declines that are normal traffic, not faults worth a diagnostics line.
 QUIET_DECLINES = frozenset(
@@ -81,6 +88,56 @@ def run_request(request: AnnotateRequest) -> Annotation:
         )
         log_diagnostic("annotate_declined", detail=detail, cwd=request.cwd)
     return result
+
+
+def ledger_path() -> Path:
+    raw = os.environ.get(LEDGER_ENV_VAR)
+    return Path(raw).expanduser() if raw else DEFAULT_LEDGER_PATH
+
+
+def append_ledger(
+    *,
+    host: str,
+    tool: str,
+    tool_call_id: str | None,
+    latency_ms: float,
+    annotation: Annotation | None = None,
+    reason: str | None = None,
+) -> None:
+    """Append one ledger line for a search call; never raises.
+
+    The line carries the fields the omp/Pi extension writes plus ``host``:
+    ``timestamp, host, toolCallId, tool, eligible, annotated, units, tokens,
+    freshness, reason, latency_ms``. Pass ``annotation`` for a call that
+    reached the annotate core; pass only ``reason`` for a search call that
+    failed before it (malformed result, timeout, internal error). Adapters
+    write nothing for a call that is not a search.
+    """
+    entry: dict[str, object] = {
+        "timestamp": utc_now_iso(),
+        "host": host,
+        "toolCallId": tool_call_id,
+        "tool": tool,
+        "eligible": True if annotation is None else annotation.eligible,
+        "annotated": False if annotation is None else annotation.annotated,
+        "units": 0 if annotation is None else annotation.units_hit,
+        "tokens": 0 if annotation is None else annotation.tokens,
+        "freshness": "unchecked" if annotation is None else annotation.freshness,
+        "reason": reason if annotation is None else annotation.reason,
+        "latency_ms": round(latency_ms),
+    }
+    line = (json.dumps(entry) + "\n").encode("utf-8")
+    try:
+        path = ledger_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # One O_APPEND write per line keeps concurrent hook processes from interleaving.
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        log_diagnostic("ledger_error", detail=repr(exc))
 
 
 def main() -> None:

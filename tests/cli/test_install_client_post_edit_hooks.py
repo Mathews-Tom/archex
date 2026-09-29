@@ -1,6 +1,6 @@
 """`install-client --post-edit-hooks` across every supported client (R21).
 
-The post-edit hook is a second, independent surface beside the PreToolUse
+The post-edit hook is a second, independent surface beside the PostToolUse
 search hook and the SessionStart primer. These tests pin the two properties
 that make that safe: each surface owns its own event/marker/filename so
 installing one never disturbs another, and an unsupported client is refused
@@ -194,12 +194,17 @@ def test_the_three_claude_surfaces_coexist_and_uninstall_independently(tmp_path:
     target = _install(tmp_path, "claude-code")
 
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert set(payload["hooks"]) == {"PreToolUse", "SessionStart", "PostToolUse"}
+    assert set(payload["hooks"]) == {"SessionStart", "PostToolUse"}
+    assert {group["matcher"] for group in payload["hooks"]["PostToolUse"]} == {
+        "Bash|Grep|Glob",
+        POST_EDIT_MATCHER,
+    }
 
     _remove(tmp_path, "claude-code")
 
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert set(payload["hooks"]) == {"PreToolUse", "SessionStart"}
+    assert set(payload["hooks"]) == {"SessionStart", "PostToolUse"}
+    assert [group["matcher"] for group in payload["hooks"]["PostToolUse"]] == ["Bash|Grep|Glob"]
 
 
 def test_codex_post_edit_block_coexists_with_the_search_hook_block(tmp_path: Path) -> None:

@@ -193,12 +193,12 @@ def test_statusline_and_search_hook_install_independently(tmp_path: Path) -> Non
     _install(tmp_path)
     payload = json.loads(_settings(tmp_path).read_text(encoding="utf-8"))
     assert "statusLine" in payload
-    assert payload["hooks"]["PreToolUse"]
+    assert payload["hooks"]["PostToolUse"]
 
     _remove(tmp_path)
     after = json.loads(_settings(tmp_path).read_text(encoding="utf-8"))
     assert "statusLine" not in after
-    assert after["hooks"]["PreToolUse"], "removing the status line must not disturb hooks"
+    assert after["hooks"]["PostToolUse"], "removing the status line must not disturb hooks"
 
 
 def test_clients_without_a_persistent_status_surface_are_refused(tmp_path: Path) -> None:

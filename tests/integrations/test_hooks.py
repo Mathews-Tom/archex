@@ -41,7 +41,6 @@ from archex.integrations.cursor_hook import (
 from archex.integrations.diagnostics import DEFAULT_HOOK_TIMEOUT_SECONDS
 from archex.integrations.hook import (
     AUGMENTED_TOOLS,
-    HOOK_MATCHER,
     _extract_query,  # pyright: ignore[reportPrivateUsage]
     _parse_payload,  # pyright: ignore[reportPrivateUsage]
     handle_pre_tool_use,
@@ -304,10 +303,9 @@ def test_non_augmented_tools_short_circuit_before_lookup(tool_name: str) -> None
     lookup_mock.assert_not_called()
 
 
-def test_hook_matcher_and_augmented_tools_constants() -> None:
+def test_augmented_tools_are_grep_and_glob_only() -> None:
     assert "Read" not in AUGMENTED_TOOLS
     assert {"Grep", "Glob"} == AUGMENTED_TOOLS
-    assert HOOK_MATCHER == "Glob|Grep"
 
 
 # ---------------------------------------------------------------------------

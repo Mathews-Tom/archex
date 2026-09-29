@@ -32,8 +32,8 @@ def __getattr__(name: str) -> Any:
     `archex.api` pulls in the full parse/index/retrieval pipeline (tree-sitter
     grammars, embedders, graph analysis). Importing it eagerly here would make
     even `import archex.index.store` pay that cost, which matters for
-    latency-sensitive entry points like `archex.integrations.hook` (the M19
-    Claude Code PreToolUse hook, invoked as a subprocess under a ~500ms
+    latency-sensitive entry points like `archex.integrations.claude_code_annotate_hook`
+    (the Claude Code PostToolUse hook, invoked as a subprocess under a ~500ms
     budget). Deferring the import keeps plain submodule imports cheap while
     `from archex import query` (and friends) keep working unchanged.
     """

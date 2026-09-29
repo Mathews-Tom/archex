@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+from archex.integrations.claude_code_annotate_hook import HOOK_MATCHER
 from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.codex_post_edit_hook import POST_EDIT_MATCHER as CODEX_POST_EDIT_MATCHER
-from archex.integrations.hook import HOOK_MATCHER
 from archex.integrations.mcp import resolve_tool_scope
 from archex.integrations.post_edit_hook import POST_EDIT_MATCHER
 from archex.integrations.session_hook import SESSION_START_MATCHER
@@ -31,10 +31,18 @@ _USER_ONLY_CLIENTS: frozenset[ClientName] = frozenset({"pi", "omp"})
 
 HookAction = Literal["install", "remove"]
 
-#: Substring in a hook handler's ``args`` that identifies it as archex-owned,
-#: so install/remove can find and replace our own entry without disturbing any
-#: other hook the user has configured for the same matcher group.
-_HOOK_ARGS_MARKER = "archex.integrations.hook"
+#: Substring in a Claude Code ``PostToolUse`` handler's ``args`` that
+#: identifies it as the archex search-annotation hook, so install/remove can
+#: find and replace our own entry without disturbing any other hook the user
+#: has configured for the same matcher group.
+_HOOK_ARGS_MARKER = "archex.integrations.claude_code_annotate_hook"
+
+#: The retired Claude Code ``PreToolUse`` pattern-search hook. Install and
+#: remove both strip any handler carrying this marker from ``PreToolUse``, so a
+#: settings file written by an older archex converges on the annotation hook.
+_LEGACY_SEARCH_HOOK_ARGS_MARKER = "archex.integrations.hook"
+_LEGACY_SEARCH_HOOK_EVENT = "PreToolUse"
+_LEGACY_SEARCH_HOOK_MATCHER = "Glob|Grep"
 
 #: Substring in a SessionStart handler's ``args`` that identifies it as
 #: archex-owned, so the session-primer installer can preserve existing search
@@ -356,7 +364,11 @@ def render_agent_guidance_preview(agent_file: Path) -> str:
 
 @dataclass(frozen=True)
 class ClaudeCodeHookInstallPlan:
-    """Install or remove the Claude Code PreToolUse hook (M19; claude-code only)."""
+    """Install or remove the Claude Code ``PostToolUse`` search-annotation hook.
+
+    Installing also removes the retired ``PreToolUse`` pattern-search entry;
+    removing removes both (claude-code only).
+    """
 
     client: ClientName
     scope: ClientScope
@@ -587,7 +599,16 @@ def render_hook_install_preview(plan: HookInstallPlan) -> str:
         f"Client: {plan.client}",
         f"Scope: {plan.scope}",
         f"Target: {plan.target_path}",
-        f"Action: {action_label} PreToolUse hook (matcher: {HOOK_MATCHER!r})",
+        (
+            f"Action: {action_label} PostToolUse search-annotation hook "
+            f"(matcher: {HOOK_MATCHER!r}; appends the indexed code units each hit falls in "
+            "to Bash/Grep/Glob search results) and remove the retired archex PreToolUse "
+            "pattern-search entry"
+            if plan.action == "install"
+            else f"Action: {action_label} the PostToolUse search-annotation hook "
+            f"(matcher: {HOOK_MATCHER!r}) and any retired archex PreToolUse "
+            "pattern-search entry"
+        ),
     ]
     if not changed:
         lines.append(
@@ -1568,15 +1589,28 @@ def _apply_claude_event_hook_action(
 def _apply_hook_action(
     payload: dict[str, object], plan: ClaudeCodeHookInstallPlan
 ) -> tuple[dict[str, object], bool]:
-    """Merge one owned PreToolUse search handler into Claude Code settings."""
-    return _apply_claude_event_hook_action(
+    """Merge the owned PostToolUse annotation handler into Claude Code settings.
+
+    The retired archex ``PreToolUse`` pattern-search handler is stripped first
+    on every action, so install replaces it and remove clears both.
+    """
+    without_legacy, _ = _apply_claude_event_hook_action(
         payload,
-        event="PreToolUse",
+        event=_LEGACY_SEARCH_HOOK_EVENT,
+        marker=_LEGACY_SEARCH_HOOK_ARGS_MARKER,
+        matcher=_LEGACY_SEARCH_HOOK_MATCHER,
+        hook_entry=plan.hook_entry,
+        action="remove",
+    )
+    updated, _ = _apply_claude_event_hook_action(
+        without_legacy,
+        event="PostToolUse",
         marker=_HOOK_ARGS_MARKER,
         matcher=HOOK_MATCHER,
         hook_entry=plan.hook_entry,
         action=plan.action,
     )
+    return updated, updated != payload
 
 
 def _apply_session_primer_action(
@@ -1794,8 +1828,8 @@ def _tested_status(client: ClientName) -> str:
 # R21 — post-edit impact hooks
 #
 # A separate, independently installable and removable surface from the
-# PreToolUse search hook above. It owns its own event, its own ownership
-# marker, and its own module filename on every client, so installing or
+# PostToolUse search-annotation hook above. It owns its own ownership
+# marker and its own module filename on every client, so installing or
 # removing one never disturbs the other.
 #
 # Client dispositions are evidence-based, not aspirational:
@@ -1807,8 +1841,9 @@ def _tested_status(client: ClientName) -> str:
 # ---------------------------------------------------------------------------
 
 #: Substring in a PostToolUse handler's ``args`` identifying it as the
-#: archex post-edit hook. Distinct from ``_HOOK_ARGS_MARKER`` (and not a
-#: superstring of it), so the two installers cannot strip each other.
+#: archex post-edit hook. Distinct from ``_HOOK_ARGS_MARKER`` and from
+#: ``_LEGACY_SEARCH_HOOK_ARGS_MARKER`` (and not a superstring of either), so
+#: the installers cannot strip each other.
 _POST_EDIT_ARGS_MARKER = "archex.integrations.post_edit_hook"
 _CODEX_POST_EDIT_ARGS_MARKER = "archex.integrations.codex_post_edit_hook"
 

@@ -79,19 +79,25 @@ def _is_interactive() -> bool:
     help=(
         "Install the archex hook/plugin (opt-in, never installed without this "
         "flag). On omp and pi, annotates the agent's own grep/glob/bash-search "
-        "results with the indexed code units they hit; on claude-code and "
-        "opencode, augments grep/glob calls with archex symbol matches; on codex "
-        "and cursor ships a diagnostics-only fallback (no Grep/Glob-equivalent "
-        "tool-call event exists on codex, and cursor's beforeSubmitPrompt hook "
-        "has no context-injection output field at all, so nothing is injected on "
-        "either, only logged)."
+        "results with the indexed code units they hit; on claude-code, a "
+        "PostToolUse hook on Bash|Grep|Glob does the same for search commands "
+        "and search tools, and replaces the retired PreToolUse pattern-search "
+        "hook; on opencode, augments grep/glob calls with archex symbol matches; "
+        "on codex and cursor ships a diagnostics-only fallback (no "
+        "Grep/Glob-equivalent tool-call event exists on codex, and cursor's "
+        "beforeSubmitPrompt hook has no context-injection output field at all, "
+        "so nothing is injected on either, only logged)."
     ),
 )
 @click.option(
     "--remove-hooks",
     is_flag=True,
     default=False,
-    help="Remove the archex PreToolUse hook previously installed by --hooks.",
+    help=(
+        "Remove the archex hook previously installed by --hooks (on claude-code, "
+        "both the PostToolUse annotation hook and any retired PreToolUse "
+        "pattern-search entry)."
+    ),
 )
 @click.option(
     "--session-primer",

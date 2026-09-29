@@ -1,4 +1,4 @@
-"""Local OpenAI-compatible chat-completions stub for no-spend SWE A/B rehearsals.
+"""Local model-API stub (chat-completions and Anthropic Messages) for no-spend rehearsals.
 
 Replays a scripted conversation over Server-Sent Events so the whole cell flow
 — omp, the annotation hook, the session parser, the validator — runs without a
@@ -17,6 +17,15 @@ Script steps (JSON list), one per model turn:
   call that rewrites the first line containing ``old text`` in the file the
   most recent ``read`` returned, addressed by that read's hashline anchor;
 * ``{"text": "done"}`` — a final answer, which ends the session.
+
+The same server also speaks the Anthropic Messages protocol, so Claude Code can
+be driven against it with ``ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`` and a
+placeholder ``ANTHROPIC_AUTH_TOKEN``: ``POST .../v1/messages`` streams the
+scripted turn (a ``tool_use`` block for a ``tool`` step, a text block for a
+``text`` step, keyed on the number of ``tool_result`` blocks in the request,
+with ``args`` passed through as the tool input), ``POST .../count_tokens``
+returns an estimate, and a request that advertises no tools (Claude Code's
+title and summary side requests) gets a text reply without consuming a turn.
 
 Usage: ``python scripts/swe_ab_stub_provider.py --port 47811 --script s.json
 --capture-dir /tmp/capture``. Cells driven through it record
@@ -91,12 +100,18 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("content-length") or 0)
         body = cast("dict[str, Any]", json.loads(self.rfile.read(length) or b"{}"))
+        if self.path.split("?", 1)[0].endswith("/count_tokens"):
+            self._json({"input_tokens": len(json.dumps(body)) // 4})
+            return
         with _Handler.lock:
             _Handler.counter += 1
             number = _Handler.counter
         (self.capture_dir / f"request-{number:04d}.json").write_text(
             json.dumps(body, indent=1), encoding="utf-8"
         )
+        if self.path.split("?", 1)[0].endswith("/messages"):
+            self._anthropic(body)
+            return
         messages = cast("list[dict[str, Any]]", body.get("messages") or [])
         turn = sum(1 for message in messages if message.get("role") == "tool")
         step = self.script[min(turn, len(self.script) - 1)]
@@ -135,6 +150,76 @@ class _Handler(BaseHTTPRequestHandler):
         for event in events:
             self.wfile.write(f"data: {json.dumps(event)}\n\n".encode())
         self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+    def _anthropic(self, body: dict[str, Any]) -> None:
+        """Answer an Anthropic Messages request (Claude Code) over SSE.
+
+        The turn is the number of ``tool_result`` blocks already in the request.
+        A request that advertises no tools (title or summary side requests) gets
+        a short text reply and does not advance the script.
+        """
+        messages = cast("list[dict[str, Any]]", body.get("messages") or [])
+        turn = sum(
+            1
+            for message in messages
+            if isinstance(message.get("content"), list)
+            for block in cast("list[dict[str, Any]]", message["content"])
+            if block.get("type") == "tool_result"
+        )
+        step: dict[str, Any] = (
+            self.script[min(turn, len(self.script) - 1)] if body.get("tools") else {"text": "stub"}
+        )
+        if "tool" in step:
+            block: dict[str, Any] = {
+                "type": "tool_use",
+                "id": f"toolu_stub_{turn:04d}",
+                "name": str(step["tool"]),
+                "input": {},
+            }
+            delta: dict[str, Any] = {
+                "type": "input_json_delta",
+                "partial_json": json.dumps(step.get("args", {})),
+            }
+            stop_reason = "tool_use"
+        else:
+            block = {"type": "text", "text": ""}
+            delta = {"type": "text_delta", "text": str(step["text"])}
+            stop_reason = "end_turn"
+        input_tokens = len(json.dumps(messages)) // 4
+        message: dict[str, Any] = {
+            "id": f"msg_stub_{turn:04d}",
+            "type": "message",
+            "role": "assistant",
+            "model": str(body.get("model") or "stub-model"),
+            "content": [],
+            "stop_reason": None,
+            "stop_sequence": None,
+            "usage": {"input_tokens": input_tokens, "output_tokens": 1},
+        }
+        events: list[tuple[str, dict[str, Any]]] = [
+            ("message_start", {"type": "message_start", "message": message}),
+            (
+                "content_block_start",
+                {"type": "content_block_start", "index": 0, "content_block": block},
+            ),
+            ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": delta}),
+            ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+            (
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+                    "usage": {"output_tokens": 20},
+                },
+            ),
+            ("message_stop", {"type": "message_stop"}),
+        ]
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.end_headers()
+        for name, event in events:
+            self.wfile.write(f"event: {name}\ndata: {json.dumps(event)}\n\n".encode())
         self.wfile.flush()
 
     def _json(self, payload: dict[str, Any]) -> None:
