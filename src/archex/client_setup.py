@@ -746,8 +746,21 @@ def _ts_hook_event_label(client: ClientName) -> str:
 
 
 def _render_ts_hook_module(client: ClientName) -> str:
-    template = _OPENCODE_HOOK_MODULE_TEMPLATE if client == "opencode" else _TS_HOOK_MODULE_TEMPLATE
-    return template.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(sys.executable))
+    if client == "opencode":
+        return _OPENCODE_HOOK_MODULE_TEMPLATE.replace(
+            "__ARCHEX_PYTHON_COMMAND__", json.dumps(sys.executable)
+        )
+    return render_annotation_hook_module(sys.executable)
+
+
+def render_annotation_hook_module(python_command: str) -> str:
+    """The omp/Pi annotation module, running archex from ``python_command``.
+
+    `install-client --hooks` bakes in the installer's own interpreter; the SWE
+    A/B harness renders the same module against the interpreter of an archex
+    installed inside a task container.
+    """
+    return _TS_HOOK_MODULE_TEMPLATE.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(python_command))
 
 
 _TS_HOOK_MODULE_TEMPLATE = r"""/**
