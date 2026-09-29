@@ -60,7 +60,6 @@ from __future__ import annotations
 import argparse
 import json
 import random
-import re
 import statistics
 import subprocess
 import sys
@@ -72,6 +71,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+# SWE-agent actions are attributed by the channel rule table shared with the
+# omp A/B harness; `CHANNELS` is that table's SWE-agent channel set.
+from archex.benchmark.swe_ab import SWE_AGENT_CHANNELS as CHANNELS
+from archex.benchmark.swe_ab import diff_files
+from archex.benchmark.swe_ab import swe_agent_channel_of as channel_of
+from archex.benchmark.swe_ab import touches as _touches
+from archex.benchmark.swe_ab import viewed_path as _viewed_path
 
 BUCKET = "https://scaleapi-results.s3.amazonaws.com"
 PREFIX = "swe-bench-pro"
@@ -91,26 +98,6 @@ BUNDLE_SIZES = (2_500, 5_000, 7_500, 10_000, 13_247, 20_000)
 #: archex's own checked-in external-localization bundle size, from
 #: benchmarks/cross-tool-efficiency/cross-tool-comparison.json.
 ARCHEX_REFERENCE_BUNDLE = 13_247
-
-CHANNELS = ("search", "read_file", "edit", "test_build", "submit_vcs", "other")
-
-_SEARCH = re.compile(
-    r"^\s*(?:grep|rg|egrep|fgrep|find|ls|tree|git\s+grep|git\s+ls-files|locate|which)\b"
-)
-_VIEW = re.compile(
-    r"^\s*(?:str_replace_editor\s+view|cat|nl|head|tail|less|more|sed\s+-n\s+\S+)\s+(\S+)"
-)
-_VIEW_ANY = re.compile(r"^\s*(?:str_replace_editor\s+view|cat|nl|head|tail|less|more|sed\s+-n)\b")
-_EDIT = re.compile(
-    r"^\s*(?:str_replace_editor\s+(?:create|str_replace|insert|undo_edit)|patch|apply_patch)\b"
-)
-_TEST = re.compile(
-    r"\b(?:pytest|go\s+test|gotestsum|ginkgo|npm\s+(?:test|run)|yarn\s+(?:test|run)|pnpm\s+run"
-    r"|mocha|jest|vitest|tox|nosetests|python\s+-m\s+unittest|make\s+\S*test|make\s+build"
-    r"|cargo\s+test|mvn\s+test|gradle\s+test)\b"
-)
-_VCS = re.compile(r"^\s*(?:submit|git\s+(?:diff|status|log|stash|checkout|add|apply|reset))\b")
-_DIFF_FILE = re.compile(r"^diff --git a/(\S+)", re.MULTILINE)
 
 _S3_NS = {"s": "http://s3.amazonaws.com/doc/2006-03-01/"}
 
@@ -147,43 +134,6 @@ def _get(url: str, retries: int = 5, max_time_s: int = 150) -> bytes:
     raise RuntimeError(f"failed to fetch {url}: {last}")
 
 
-def channel_of(action: str) -> str:
-    """Attribute one trajectory step to exactly one token channel."""
-    text = (action or "").strip()
-    if not text:
-        return "other"
-    if _TEST.search(text):
-        return "test_build"
-    if _EDIT.match(text):
-        return "edit"
-    if _SEARCH.match(text) or "| grep" in text or "grep -" in text:
-        return "search"
-    if _VIEW_ANY.match(text):
-        return "read_file"
-    if _VCS.match(text):
-        return "submit_vcs"
-    return "other"
-
-
-def _viewed_path(action: str) -> str | None:
-    match = _VIEW.match((action or "").strip())
-    if match is None:
-        return None
-    path = match.group(1).strip("'\"")
-    for prefix in ("/app/", "app/", "./"):
-        if path.startswith(prefix):
-            path = path[len(prefix) :]
-            break
-    return path
-
-
-def _touches(path: str, targets: frozenset[str]) -> bool:
-    return any(
-        path == target or path.endswith("/" + target) or target.endswith("/" + path)
-        for target in targets
-    )
-
-
 @dataclass(frozen=True)
 class Instance:
     """The dataset facts one trajectory is scored against."""
@@ -200,9 +150,7 @@ def load_instances() -> dict[str, Instance]:
         payload = json.loads(_get(DATASET_ROWS_URL.format(offset=offset)))
         for entry in payload["rows"]:
             row = entry["row"]
-            files = frozenset(
-                _DIFF_FILE.findall(row["patch"] or "") + _DIFF_FILE.findall(row["test_patch"] or "")
-            )
+            files = frozenset(diff_files(row["patch"] or "") + diff_files(row["test_patch"] or ""))
             instances[row["instance_id"]] = Instance(
                 instance_id=row["instance_id"], repo=row["repo"], gold_files=files
             )

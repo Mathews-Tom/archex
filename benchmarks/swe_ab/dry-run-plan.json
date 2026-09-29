@@ -1,0 +1,14 @@
+{
+  "name": "no-spend-dry-run",
+  "tasks": [
+    {
+      "task_id": "python_simple-sha512",
+      "repo": "archex-fixture/python_simple",
+      "local_repo": "tests/fixtures/python_simple",
+      "prompt_file": "benchmarks/swe_ab/dry-run-prompt.md"
+    }
+  ],
+  "models": ["stub/stub-model"],
+  "repetitions": {"A0": 1, "H": 1, "HC": 1, "C": 1},
+  "cost_ceiling_usd": 0.01
+}
