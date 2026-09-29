@@ -16,7 +16,10 @@ Script steps (JSON list), one per model turn:
 * ``{"tool": "edit", "replace": ["old text", "new text"]}`` — an omp ``edit``
   call that rewrites the first line containing ``old text`` in the file the
   most recent ``read`` returned, addressed by that read's hashline anchor;
-* ``{"text": "done"}`` — a final answer, which ends the session.
+* ``{"text": "done"}`` — a final answer, which ends the session;
+* ``{"http_error": 429, "message": "usage limit reached", "retry_after": 600}`` — an HTTP error
+  answered to every request that reaches this step, as a subscription rate limit or quota
+  block would be (a step at index 0 blocks before the first tool call; a later one, mid-run).
 
 The same server also speaks the Anthropic Messages protocol, so Claude Code can
 be driven against it with ``ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`` and a
@@ -126,6 +129,9 @@ class _Handler(BaseHTTPRequestHandler):
         messages = cast("list[dict[str, Any]]", body.get("messages") or [])
         turn = sum(1 for message in messages if message.get("role") == "tool")
         step = self.script[min(turn, len(self.script) - 1)]
+        if "http_error" in step:
+            self._error(step)
+            return
         if "tool" in step:
             tool = str(step["tool"])
             arguments = (
@@ -290,6 +296,24 @@ class _Handler(BaseHTTPRequestHandler):
         for event in events:
             self.wfile.write(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode())
         self.wfile.flush()
+
+    def _error(self, step: dict[str, Any]) -> None:
+        """Answer the request with an HTTP error, as a subscription rate limit or quota block."""
+        payload = json.dumps(
+            {
+                "error": {
+                    "type": "rate_limit_error",
+                    "message": str(step.get("message", "rate limited")),
+                }
+            }
+        ).encode()
+        self.send_response(int(step["http_error"]))
+        self.send_header("content-type", "application/json")
+        if "retry_after" in step:
+            self.send_header("retry-after", str(step["retry_after"]))
+        self.send_header("content-length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _json(self, payload: dict[str, Any]) -> None:
         data = json.dumps(payload).encode()

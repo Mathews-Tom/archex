@@ -11,22 +11,30 @@ only the archex surface differs:
 
 This module holds everything a cell needs to be recorded and judged the same
 way every time: the channel rule table (also used by the SWE-agent trajectory
-headroom script), the omp session parser, compounded-cost arithmetic, the cell
-schema, and the directory validator. It performs no model call and no I/O
-beyond reading the files it is given.
+headroom script), the omp session parser, compounded-cost arithmetic, the
+subscription-quota readings, the cell schema, and the directory validator. It
+performs no model call and no network I/O; the only files it reads are the ones
+it is given (omp's login metadata is read without its secret column).
 
-The validator mirrors R20's discipline: every declared cell must be present,
-recorded failures are kept, identities and fingerprints must agree across
-cells, and any cell driven through an overridden provider endpoint (the local
-stub used for no-spend rehearsals) is refused for publication.
+Campaign cells run on operator subscriptions (Claude and ChatGPT logins) that omp
+resolves through its auth broker; ``usage.cost_usd`` is omp's list-price model of
+the tokens, not a bill. The validator mirrors R20's discipline: every declared
+cell must be present, recorded failures are kept, identities and fingerprints
+must agree across cells, any cell driven through an overridden provider endpoint
+(the local stub used for no-spend rehearsals) is refused for publication, and so
+is any cell that did not authenticate through the broker, ran on another provider
+route, or ended in a quota block (a quota block is not a task outcome; the suite
+re-runs it). Emulated and native cells never mix within a stage.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import re
 import shlex
+import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -45,8 +53,8 @@ PREREGISTRATION_PATH = "benchmarks/preregistrations/R3x-swe-archex-ab.md"
 CLI_GUIDE_PATH = "benchmarks/swe_ab/cli-guide.md"
 """Frozen CLI guide appended to the system prompt in HC and C."""
 
-OMP_VERSION = "18.4.2"
-"""omp build pinned for the whole campaign."""
+OMP_VERSION = "18.4.4"
+"""omp build pinned for the whole campaign (installed when the subscription route was verified)."""
 
 THINKING = "high"
 """Thinking level, identical across arms."""
@@ -61,12 +69,24 @@ ISOLATION_FLAGS: tuple[str, ...] = ("--no-lsp", "--no-skills", "--no-rules", "--
 """Every competing retrieval surface and ambient extension is off in every arm."""
 
 MODELS: tuple[str, ...] = (
-    "global.anthropic.claude-sonnet-5-5",
-    "global.anthropic.claude-opus-5-5",
-    "global.openai.gpt-6-sol",
-    "global.openai.gpt-6-luna",
+    "anthropic/claude-sonnet-5-5",
+    "anthropic/claude-opus-5-5",
+    "openai-codex/gpt-6-sol",
+    "openai-codex/gpt-6-luna",
 )
-"""Candidate omp model ids; route and credential reachability are Stage 0 checks."""
+"""Campaign models as omp selectors (`provider/id`), all on operator subscriptions."""
+
+SUBSCRIPTION_PROVIDERS: tuple[str, ...] = ("anthropic", "openai-codex")
+"""The only provider routes a campaign cell may use (OAuth logins held by omp's auth broker)."""
+
+BROKER_ENV_NAMES: tuple[str, ...] = ("OMP_AUTH_BROKER_URL", "OMP_AUTH_BROKER_TOKEN")
+"""The only credential variables an agent container receives; cells record names, not values."""
+
+QUOTA_BLOCKED_DIR = "quota-blocked"
+"""Sub-directory of a result directory holding attempts discarded for a quota block."""
+
+QUOTA_MIN_HEADROOM = 0.10
+"""Fraction of a subscription window that must remain for the suite to start a cell."""
 
 PROFILE = "swebench"
 """Isolated omp profile provisioned for the campaign."""
@@ -346,8 +366,13 @@ def parse_omp_session(path: Path) -> OmpSession:
                     non_message_tokens=non_message if isinstance(non_message, int) else None,
                 )
             )
-            if message.get("stopReason") == "error":
-                session.error_message = str(message.get("errorMessage") or "provider error")
+            # Only the final assistant turn decides whether the run ended in an error: a turn
+            # omp retried (a rate limit it waited out) is not a failure of the cell.
+            session.error_message = (
+                str(message.get("errorMessage") or "provider error")
+                if message.get("stopReason") == "error"
+                else None
+            )
             for block in _dict_items(message.get("content")):
                 if block.get("type") == "toolCall":
                     call = block
@@ -385,6 +410,249 @@ def _dict_items(value: object) -> list[dict[str, Any]]:
         for item in cast("list[object]", value)
         if isinstance(item, dict)
     ]
+
+
+# --- subscription quota, retries, and credential hygiene --------------------------------
+#
+# omp resolves a subscription login through the auth broker and, on a provider rate limit
+# or quota block, retries inside the run: it rotates to a sibling login, or sleeps out the
+# provider's reset if that is within `retry.maxDelayMs` (default 5 min), or surfaces the
+# error and ends the turn (`turn-recovery.ts` `#handleRetryableError`). The frozen omp
+# command never opts into `retry.waitForUsageReset`, so a longer block ends the cell with
+# an error turn; the harness classifies that here and the suite waits the block out.
+
+_QUOTA_ERROR = re.compile(
+    r"usage[\s_-]?limit|rate[\s_-]?limit|quota|too many requests|\b429\b"
+    r"|spend(?:ing)?[\s_-]?(?:limit|cap)|resource[\s_-]?exhausted"
+    r"|\b(?:subscription|plan|membership)\b[^\n]{0,80}\b(?:limit|cap)\b"
+    r"|usage credits are required|credits_required",
+    re.IGNORECASE,
+)
+
+
+def is_quota_error(message: str | None) -> bool:
+    """Whether a provider error text is a subscription rate limit or quota block."""
+    return bool(message) and _QUOTA_ERROR.search(message or "") is not None
+
+
+@dataclass(frozen=True)
+class OmpRunEvents:
+    """What omp's ``--mode json`` event stream says about retries inside one run."""
+
+    retries: int = 0
+    quota_retries: int = 0
+    quota_wait_seconds: float = 0.0
+    gave_up: str | None = None
+    tool_calls_started: int = 0
+
+
+def parse_omp_events(stdout: str) -> OmpRunEvents:
+    """Count omp's own retries (``auto_retry_start``) and note a retry loop it gave up on."""
+    retries = quota_retries = tool_calls = 0
+    wait_ms = 0.0
+    gave_up: str | None = None
+    for line in stdout.splitlines():
+        if not line.startswith("{"):
+            continue
+        try:
+            event_obj: object = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event_obj, dict):
+            continue
+        event = cast("dict[str, Any]", event_obj)
+        kind = event.get("type")
+        if kind == "auto_retry_start":
+            retries += 1
+            if is_quota_error(str(event.get("errorMessage") or "")):
+                quota_retries += 1
+                wait_ms += float(_int(event.get("delayMs")))
+        elif kind == "auto_retry_end" and event.get("success") is False:
+            gave_up = str(event.get("finalError") or "retry failed")
+        elif kind == "tool_execution_start":
+            tool_calls += 1
+    return OmpRunEvents(
+        retries=retries,
+        quota_retries=quota_retries,
+        quota_wait_seconds=round(wait_ms / 1000.0, 3),
+        gave_up=gave_up,
+        tool_calls_started=tool_calls,
+    )
+
+
+class QuotaStatus(StrEnum):
+    CLEAR = "clear"
+    BLOCKED = "blocked"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class QuotaReading:
+    """One provider's subscription headroom, read from the broker's ``/v1/usage`` report."""
+
+    provider: str
+    status: QuotaStatus
+    headroom: float | None
+    resets_at_ms: int | None
+    detail: str
+
+
+def _used_fraction(limit: Mapping[str, Any]) -> float | None:
+    """omp's ``resolveUsedFraction`` precedence: explicit > used/limit > percent > remaining."""
+    amount_obj = limit.get("amount")
+    if not isinstance(amount_obj, dict):
+        return None
+    amount = cast("dict[str, Any]", amount_obj)
+    fraction, used, cap = amount.get("usedFraction"), amount.get("used"), amount.get("limit")
+    if isinstance(fraction, int | float):
+        return float(fraction)
+    if isinstance(used, int | float) and isinstance(cap, int | float) and cap > 0:
+        return float(used) / float(cap)
+    if amount.get("unit") == "percent" and isinstance(used, int | float):
+        return float(used) / 100.0
+    remaining = amount.get("remainingFraction")
+    if isinstance(remaining, int | float):
+        return max(0.0, 1.0 - float(remaining))
+    return None
+
+
+def _limit_applies(limit: Mapping[str, Any], model_id: str | None) -> bool:
+    """A limit scoped to another model (a per-model weekly cap) does not gate this model."""
+    scope = limit.get("scope")
+    scoped = cast("dict[str, Any]", scope).get("modelId") if isinstance(scope, dict) else None
+    if not scoped or not model_id:
+        return True
+    left, right = str(scoped).lower(), model_id.lower()
+    return left in right or right in left
+
+
+def quota_reading(
+    usage: Mapping[str, Any], provider: str, *, model_id: str | None, min_headroom: float
+) -> QuotaReading:
+    """Whether ``provider``'s subscription has at least ``min_headroom`` (0..1) left.
+
+    ``usage`` is the broker's ``GET /v1/usage`` body (``{"reports": [...]}``, one report per
+    login). The provider is clear if any login has headroom on every limit that applies to
+    ``model_id``, blocked when every login is exhausted, and unknown when the broker reports
+    nothing usable. A blocked reading carries the earliest reset that frees a login.
+    """
+    reports = [
+        report for report in _dict_items(usage.get("reports")) if report.get("provider") == provider
+    ]
+    if not reports:
+        return QuotaReading(provider, QuotaStatus.UNKNOWN, None, None, "no usage report")
+    best_headroom: float | None = None
+    resets: list[int | None] = []
+    unknown = 0
+    for report in reports:
+        headrooms: list[float] = []
+        blocked_resets: list[int | None] = []
+        for limit in _dict_items(report.get("limits")):
+            if not _limit_applies(limit, model_id):
+                continue
+            used = _used_fraction(limit)
+            exhausted = limit.get("status") == "exhausted"
+            if used is None and not exhausted:
+                continue
+            headroom = 0.0 if used is None else max(0.0, 1.0 - used)
+            headrooms.append(0.0 if exhausted else headroom)
+            if exhausted or headroom < min_headroom:
+                window = limit.get("window")
+                reset = (
+                    cast("dict[str, Any]", window).get("resetsAt")
+                    if isinstance(window, dict)
+                    else None
+                )
+                blocked_resets.append(int(reset) if isinstance(reset, int | float) else None)
+        if not headrooms:
+            unknown += 1
+            continue
+        report_headroom = min(headrooms)
+        best_headroom = (
+            report_headroom if best_headroom is None else max(best_headroom, report_headroom)
+        )
+        if not blocked_resets:
+            return QuotaReading(
+                provider, QuotaStatus.CLEAR, report_headroom, None, f"{report_headroom:.0%} left"
+            )
+        # A login frees only when its last blocking window resets.
+        resets.append(None if None in blocked_resets else max(cast("list[int]", blocked_resets)))
+    if unknown and not resets:
+        return QuotaReading(provider, QuotaStatus.UNKNOWN, None, None, "no usable limit amounts")
+    known = [reset for reset in resets if reset is not None]
+    resets_at = min(known) if known and len(known) == len(resets) else None
+    return QuotaReading(
+        provider,
+        QuotaStatus.BLOCKED,
+        best_headroom,
+        resets_at,
+        f"every login is below {min_headroom:.0%} headroom"
+        + (f" (best {best_headroom:.0%})" if best_headroom is not None else ""),
+    )
+
+
+def credential_files_in_profile(profile_dir: Path) -> list[str]:
+    """Credential stores under an omp profile directory (relative paths, never contents).
+
+    A container gets its logins from the auth broker, so a profile that is copied into it must
+    carry none: no ``agent.db`` (omp's SQLite login vault), token file, or encrypted snapshot.
+    """
+    if not profile_dir.is_dir():
+        return []
+    return sorted(
+        str(path.relative_to(profile_dir))
+        for path in profile_dir.rglob("*")
+        if path.is_file()
+        and (path.name.startswith("agent.db") or path.suffix in (".token", ".enc"))
+    )
+
+
+@dataclass(frozen=True)
+class ProviderLogins:
+    """Login rows omp holds for one provider: counts and credential types only."""
+
+    enabled: int
+    disabled: int
+    types: tuple[str, ...]
+
+
+def provider_logins(agent_db: Path) -> dict[str, ProviderLogins]:
+    """Login metadata by provider from omp's ``agent.db``, without reading any secret.
+
+    Only ``provider``, ``credential_type``, and whether the row is disabled are selected; the
+    ``data`` column that holds tokens is never queried. The database opens read-only.
+    """
+    if not agent_db.is_file():
+        raise SweAbError(f"{agent_db} does not exist")
+    try:
+        with contextlib.closing(
+            sqlite3.connect(f"{agent_db.resolve().as_uri()}?mode=ro", uri=True)
+        ) as db:
+            rows = db.execute(
+                "SELECT provider, credential_type, disabled_cause IS NULL FROM auth_credentials"
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise SweAbError(f"cannot read login metadata from {agent_db}: {exc}") from exc
+    grouped: dict[str, list[tuple[str, bool]]] = {}
+    for provider, kind, enabled in cast("list[tuple[str, str, int]]", rows):
+        grouped.setdefault(provider, []).append((kind, bool(enabled)))
+    return {
+        provider: ProviderLogins(
+            enabled=sum(1 for _, on in entries if on),
+            disabled=sum(1 for _, on in entries if not on),
+            types=tuple(sorted({kind for kind, on in entries if on})),
+        )
+        for provider, entries in grouped.items()
+    }
+
+
+def is_emulated(runtime: str, host_machine: str) -> bool:
+    """Whether a cell's linux/amd64 image runs under x86 emulation on this host.
+
+    Campaign images are always started with ``--platform linux/amd64``, so a docker cell on an
+    arm64 host (Apple silicon: Rosetta or QEMU) is emulated; the local runtime is native.
+    """
+    return runtime == "docker" and host_machine.lower() not in ("x86_64", "amd64")
 
 
 # --- annotation ledger ----------------------------------------------------------
@@ -549,10 +817,15 @@ class FailureReason(StrEnum):
     HARNESS_ERROR = "harness_error"
     FINGERPRINT_MISMATCH = "fingerprint_mismatch"
     SESSION_UNPARSABLE = "session_unparsable"
+    QUOTA_BLOCK = "quota_block"
 
 
 class Usage(BaseModel):
-    """Provider-reported tokens summed over every request, and omp's cost figure."""
+    """Provider-reported tokens summed over every request, and omp's cost figure.
+
+    On a subscription ``cost_usd`` is omp's list-price model of the tokens, not a bill; it feeds
+    the runaway-cost ceiling and money translation only.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -592,6 +865,20 @@ class Localization(BaseModel):
     edited_non_gold: bool = False
 
 
+class QuotaEvidence(BaseModel):
+    """Subscription rate-limit and quota activity around one cell (counts and phase only)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    omp_retries: int = Field(default=0, ge=0)
+    """omp's own in-run retries whose error was a rate limit or quota block."""
+    omp_retry_wait_seconds: float = Field(default=0.0, ge=0.0)
+    block_phase: Literal["before_first_tool_call", "mid_run"] | None = None
+    """Set iff a quota block ended the run: before any tool call, or after work had begun."""
+    prior_blocked_attempts: int = Field(default=0, ge=0)
+    """Attempts of this cell discarded ahead of this artifact because a quota block ended them."""
+
+
 class SweAbCell(BaseModel):
     """One recorded cell; counts, identities, and scores only — no prompt or source text."""
 
@@ -619,6 +906,12 @@ class SweAbCell(BaseModel):
     tool_fingerprint: str
     provider: str | None
     provider_endpoint_overridden: bool
+    emulated: bool
+    """The image ran under x86 emulation on an arm64 host; emulated and native cells never mix."""
+    network: str
+    """Docker network the agent container ran on (egress posture, identical across a stage)."""
+    credential_env_names: list[str]
+    """Names, never values, of the credential variables the agent container received."""
 
     usage: Usage
     requests: int = Field(ge=0)
@@ -642,11 +935,19 @@ class SweAbCell(BaseModel):
     wall_seconds: float = Field(ge=0.0)
     setup_seconds: float = Field(ge=0.0)
     index_seconds: float | None = Field(default=None, ge=0.0)
+    annotate_prewarm_seconds: float | None = Field(default=None, ge=0.0)
+    quota: QuotaEvidence
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
         if self.omp_version != OMP_VERSION:
             raise ValueError(f"omp {self.omp_version} is not the pinned {OMP_VERSION}")
+        if (self.failure_reason is FailureReason.QUOTA_BLOCK) != (
+            self.quota.block_phase is not None
+        ):
+            raise ValueError(
+                "a quota block phase is recorded iff the failure reason is quota_block"
+            )
         if set(self.channel_tokens_once) != set(CHANNELS) or set(
             self.channel_tokens_compounded
         ) != set(CHANNELS):
@@ -788,7 +1089,27 @@ class SweAbCoverage(BaseModel):
     present: int
     ok: int
     failed: int
+    quota_blocked: int = 0
+    """Attempts discarded for a quota block and re-run; kept beside the cells, never scored."""
     total_cost_usd: float
+
+
+def quota_blocked_relative_path(key: CellKey, attempt: int) -> Path:
+    """Where attempt ``attempt`` of ``key`` lives after a quota block sent it back to be re-run."""
+    return Path(QUOTA_BLOCKED_DIR) / key.relative_path.with_suffix(f".attempt{attempt}.json")
+
+
+def _quota_blocked_cells(directory: Path, declared: set[CellKey]) -> list[SweAbCell]:
+    blocked: list[SweAbCell] = []
+    root = directory / QUOTA_BLOCKED_DIR
+    for path in sorted(root.rglob("*.json")) if root.is_dir() else []:
+        cell = load_cell(path)
+        if cell.failure_reason is not FailureReason.QUOTA_BLOCK:
+            raise SweAbError(f"{path} is filed as a quota-blocked attempt but is not one")
+        if cell.key not in declared:
+            raise SweAbError(f"{path} is not a declared cell")
+        blocked.append(cell)
+    return blocked
 
 
 def validate_swe_ab_directory(
@@ -800,6 +1121,8 @@ def validate_swe_ab_directory(
     declared = set(plan.cells())
     cells: dict[CellKey, SweAbCell] = {}
     for path in sorted(directory.rglob("*.json")):
+        if path.relative_to(directory).parts[0] == QUOTA_BLOCKED_DIR:
+            continue
         cell = load_cell(path)
         key = cell.key
         if path.relative_to(directory) != key.relative_path:
@@ -811,11 +1134,36 @@ def validate_swe_ab_directory(
                 f"{path} ran against an overridden provider endpoint (a local stub); "
                 "such cells exercise the harness and are refused for publication"
             )
+        if cell.failure_reason is FailureReason.QUOTA_BLOCK:
+            raise SweAbError(
+                f"{path} ended in a subscription quota block, which is not a task outcome; "
+                "resume the run so the cell is re-run once the quota clears"
+            )
+        if sorted(cell.credential_env_names) != sorted(BROKER_ENV_NAMES):
+            raise SweAbError(
+                f"{path} did not authenticate through the auth broker "
+                f"(credential variables: {sorted(cell.credential_env_names)})"
+            )
+        if cell.provider is not None and (
+            cell.provider not in SUBSCRIPTION_PROVIDERS
+            or cell.model.split("/", 1)[0] != cell.provider
+        ):
+            raise SweAbError(
+                f"{path} ran {cell.model} through provider {cell.provider!r}, "
+                f"not its subscription route {SUBSCRIPTION_PROVIDERS}"
+            )
         cells[key] = cell
     if require_complete and (missing := sorted(declared - set(cells))):
         raise SweAbError(f"{len(missing)} declared cells are missing, first: {missing[0]}")
+    blocked = _quota_blocked_cells(directory, declared)
     ok = [cell for cell in cells.values() if cell.status is CellStatus.OK]
     _require_single("omp_version", {cell.omp_version for cell in cells.values()})
+    if len({cell.emulated for cell in cells.values()}) > 1:
+        raise SweAbError(
+            "emulated and native cells are mixed within the stage; wall times and timeouts are "
+            "not comparable across them, so re-run the stage on one kind of host"
+        )
+    _require_single("network", {cell.network for cell in cells.values()})
     _require_single("tool_fingerprint", {cell.tool_fingerprint for cell in ok})
     for arm in SweAbArm:
         in_arm = [cell for cell in cells.values() if cell.arm is arm]
@@ -830,8 +1178,8 @@ def validate_swe_ab_directory(
                 if cell.model == model and cell.arm is arm and cell.isolation.non_message_tokens
             }
             _require_single(f"{model} {arm} static prompt size", prefixes)
-    total_cost = sum(cell.usage.cost_usd for cell in cells.values())
-    largest = max((cell.usage.cost_usd for cell in cells.values()), default=0.0)
+    total_cost = sum(cell.usage.cost_usd for cell in [*cells.values(), *blocked])
+    largest = max((cell.usage.cost_usd for cell in [*cells.values(), *blocked]), default=0.0)
     if total_cost > plan.cost_ceiling_usd + largest:
         raise SweAbError(
             f"recorded cost ${total_cost:.2f} exceeds the ${plan.cost_ceiling_usd:.2f} ceiling"
@@ -841,6 +1189,7 @@ def validate_swe_ab_directory(
         present=len(cells),
         ok=len(ok),
         failed=len(cells) - len(ok),
+        quota_blocked=len(blocked),
         total_cost_usd=round(total_cost, 4),
     )
 
