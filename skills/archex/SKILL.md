@@ -16,13 +16,13 @@ Pick the first surface the host supports. The order is an investment order, not 
 
 | Order | Surface | What it does | Needs a decision from the agent? |
 | --- | --- | --- | --- |
-| 1 | **Hook** (`archex install-client omp --hooks`, `pi --hooks`, `claude-code --hooks`, `codex --hooks`) | Annotates the agent's own `grep`/`glob` and bash `rg`/`grep`/`git grep` results | No — it is always on |
+| 1 | **Hook** (`archex install-client omp --hooks`, `pi --hooks`, `opencode --hooks`, `claude-code --hooks`, `codex --hooks`) | Annotates the agent's own `grep`/`glob` and bash `rg`/`grep`/`git grep` results | No — it is always on |
 | 2 | **CLI** (`archex scout`, `symbol`, `impact`, `query`) | Location, structure, bodies, blast radius | Yes — the agent must choose to run it |
 | 3 | **MCP** (`archex mcp`) | The same retrieval as tools | Yes, plus a per-request tool-schema cost |
 
 ### 1. Hook: annotated search results
 
-On oh-my-pi and Pi, `archex install-client omp --hooks` (or `pi --hooks`) installs an extension that runs after every search-tool call. On Claude Code, `archex install-client claude-code --hooks` installs a `PostToolUse` hook on `Bash|Grep|Glob` that does the same, adding the lines as `additionalContext` (a system reminder next to the tool result); running it again on a settings file from an older archex replaces the retired `PreToolUse` pattern search. On Codex CLI, `archex install-client codex --hooks` installs a `PostToolUse` hook on the shell tool that annotates `rg`/`grep`/`git grep` output the same way (Codex records the lines as a developer message next to the command output), and replaces the retired diagnostics-only `PreToolUse` block; Codex runs a config-file hook only after you trust it (`/hooks`). In every case the search result reaches you byte-for-byte as it was, and one fact line per indexed code unit the hits fall in is appended:
+On oh-my-pi and Pi, `archex install-client omp --hooks` (or `pi --hooks`) installs an extension that runs after every search-tool call. On OpenCode, `archex install-client opencode --hooks` installs a `tool.execute.after` plugin that does the same for the native `grep`, `glob`, and `bash` tools, appending the lines after the tool's own text (MCP-routed calls are never touched). On Claude Code, `archex install-client claude-code --hooks` installs a `PostToolUse` hook on `Bash|Grep|Glob` that does the same, adding the lines as `additionalContext` (a system reminder next to the tool result); running it again on a settings file from an older archex replaces the retired `PreToolUse` pattern search. On Codex CLI, `archex install-client codex --hooks` installs a `PostToolUse` hook on the shell tool that annotates `rg`/`grep`/`git grep` output the same way (Codex records the lines as a developer message next to the command output), and replaces the retired diagnostics-only `PreToolUse` block; Codex runs a config-file hook only after you trust it (`/hooks`). In every case the search result reaches you byte-for-byte as it was, and one fact line per indexed code unit the hits fall in is appended:
 
 ```text
 [archex receipt] index_revision=e44d3a393e1a units=3
@@ -32,7 +32,7 @@ On oh-my-pi and Pi, `archex install-client omp --hooks` (or `pi --hooks`) instal
 
 Read each line as: qualified name, kind, full line span, and how many files import that file. `module-level` means the hit is outside every function and class. A unit already fully visible in the result gets no line; `+N more units` means the list was capped. Use the lines to decide which hit to open and how much of it to read (`read` with the unit's span, or `archex symbol`), instead of opening every matching file.
 
-No lines means the index is not fresh (stale or edited since indexing), the output format was not recognised, or no hit fell in indexed code. Search results are still complete and exact; nothing was removed. The OpenCode hook still uses the older pattern-based symbol lookup.
+No lines means the index is not fresh (stale or edited since indexing), the output format was not recognised, or no hit fell in indexed code. Search results are still complete and exact; nothing was removed.
 
 ### 2. CLI: route by question type
 
@@ -142,7 +142,7 @@ Every scout and query result carries a receipt. Check `context_complete_reason` 
 | --- | --- |
 | Trust check | `archex doctor .` |
 | Initialize | `archex init . && archex index .` |
-| Annotate search results (omp/Pi/Claude Code/Codex) | `archex install-client <omp\|pi\|claude-code\|codex> --hooks` |
+| Annotate search results (omp/Pi/OpenCode/Claude Code/Codex) | `archex install-client <omp\|pi\|opencode\|claude-code\|codex> --hooks` |
 | Scout map | `archex scout . "question" --budget 1000 --format json` |
 | Exact symbol body | `archex symbol . 'symbol:path.py::name#kind'` |
 | Blast radius | `archex impact . --changed-file path.py` |

@@ -658,15 +658,16 @@ def test_render_hook_install_preview_pi_install_does_not_write(tmp_path: Path) -
     assert not plan.target_path.exists()
 
 
-# --- OpenCode `tool.execute.after` plugin (M22) ---
+# --- OpenCode `tool.execute.after` plugin ---
 #
 # Structurally different from the omp/pi `tool_result` module: OpenCode's
-# hook contract is `(input, output) => Promise<void>` -- it mutates
-# `output.output` in place rather than returning a patch object, and its
-# dispatch table (`ARCHEX_AUGMENTED_TOOLS`) is keyed directly on OpenCode's
-# own native tool ids (`grep`, `glob`), not a `{claudeToolName, field}`
-# translation record, since both tools already carry their query in a field
-# named `pattern`. See `_OPENCODE_HOOK_MODULE_TEMPLATE` in `client_setup.py`.
+# hook contract is `(input, output) => Promise<void>` -- it appends the
+# annotation to `output.output` in place rather than returning a patch
+# object, and its dispatch table (`ANNOTATED_TOOLS`) is keyed directly on
+# OpenCode's own native tool ids (`grep`, `glob`, `bash`). See
+# `_OPENCODE_HOOK_MODULE_TEMPLATE` in `client_setup.py`; the plugin's runtime
+# behaviour is exercised under Bun in
+# `tests/integrations/test_opencode_annotate_plugin.py`.
 
 
 def test_build_hook_install_plan_opencode_project_scope_produces_ts_module_path(
@@ -764,43 +765,40 @@ def test_render_hook_install_preview_opencode_remove_does_not_write(tmp_path: Pa
     assert (repo / ".opencode" / "plugins" / "archex-hook.ts").read_text(encoding="utf-8") == before
 
 
-def _augmented_tools_keys(module_content: str) -> set[str]:
-    """Extract the ``ARCHEX_AUGMENTED_TOOLS`` table's keys from generated
-    OpenCode plugin source.
+def _annotated_tools_keys(module_content: str) -> set[str]:
+    """Extract the ``ANNOTATED_TOOLS`` table's keys from generated OpenCode
+    plugin source.
 
-    Same rationale as ``_query_field_keys`` above: this table is the
-    plugin's *only* tool-name dispatch (no if/else chain on ``input.tool``),
-    so its key set precisely determines which tools are ever touched --
-    stronger than a substring search, which would false-positive on the
-    module's own prose comments quoting the exact tool names/ids that must
-    never match.
+    This table is the plugin's *only* tool-name dispatch (no if/else chain on
+    ``input.tool``), so its key set precisely determines which tools are ever
+    touched -- stronger than a substring search, which would false-positive on
+    the module's own prose comments quoting tool names that must never match.
     """
     match = re.search(
-        r'ARCHEX_AUGMENTED_TOOLS: Readonly<Record<string, "Grep" \| "Glob">> = \{(.*?)\n\};',
+        r"ANNOTATED_TOOLS: Readonly<Record<string, string>> = \{(.*?)\n\};",
         module_content,
         re.DOTALL,
     )
-    assert match is not None, "ARCHEX_AUGMENTED_TOOLS table not found in generated module"
+    assert match is not None, "ANNOTATED_TOOLS table not found in generated module"
     return set(re.findall(r"^\s*(\w+):", match.group(1), re.MULTILINE))
 
 
 def test_opencode_ts_hook_module_native_vs_mcp_tool_routing(tmp_path: Path) -> None:
-    """M22 acceptance criterion (native-vs-MCP routing): the plugin's only
-    tool-name dispatch is ``ARCHEX_AUGMENTED_TOOLS``, keyed exactly on
-    OpenCode's two native search tool ids. OpenCode registers every MCP tool
-    under a mandatory ``{server}_{tool}`` id (confirmed against the
-    installed `opencode-ai` 1.14.33's own MCP tool-registration code), so no
-    realistic MCP-routed id -- including one from archex's own MCP server --
-    can ever collide with this table.
+    """The plugin's only tool-name dispatch is ``ANNOTATED_TOOLS``, keyed exactly
+    on OpenCode's three native search tool ids -- the same set ``archex.annotate``
+    accepts for host ``opencode``. OpenCode registers every MCP tool under a
+    mandatory ``{server}_{tool}`` id, so no realistic MCP-routed id -- including
+    one from archex's own MCP server -- can collide with this table.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
     plan = build_hook_install_plan("opencode", str(repo), action="install")
     assert isinstance(plan, TsHookInstallPlan)
 
-    keys = _augmented_tools_keys(plan.module_content)
+    keys = _annotated_tools_keys(plan.module_content)
 
-    assert keys == {"grep", "glob"}
+    assert keys == {"grep", "glob", "bash"}
+    assert keys == set(HOST_TOOLS["opencode"])
     assert "read" not in keys
     mcp_shaped_ids = {"archex_query_repo", "archex_scout_repo", "github_create_issue"}
     assert keys.isdisjoint(mcp_shaped_ids)
@@ -813,7 +811,8 @@ def test_opencode_ts_hook_module_bakes_in_active_python_interpreter(tmp_path: Pa
     assert isinstance(plan, TsHookInstallPlan)
 
     assert json.dumps(sys.executable) in plan.module_content
-    assert '["-m", "archex.integrations.hook"]' in plan.module_content
+    assert '["-m", "archex.integrations.annotate_hook"]' in plan.module_content
+    assert "archex.integrations.hook" not in plan.module_content
 
 
 def test_opencode_ts_hook_module_registers_exactly_one_tool_execute_after_and_never_before(
@@ -822,7 +821,7 @@ def test_opencode_ts_hook_module_registers_exactly_one_tool_execute_after_and_ne
     """The plugin only ever registers a `tool.execute.after` handler -- it
     never wires `tool.execute.before` (the hook OpenCode's own documented
     subagent-bypass bug affects), and registers no session/agent-type
-    conditional gating that handler, matching the M20 omp/pi module's
+    conditional gating that handler, matching the omp/pi module's
     unconditional-registration precedent.
     """
     repo = tmp_path / "repo"
@@ -833,6 +832,58 @@ def test_opencode_ts_hook_module_registers_exactly_one_tool_execute_after_and_ne
 
     assert content.count('"tool.execute.after"') == 1
     assert '"tool.execute.before"' not in content
+
+
+def test_opencode_hook_install_and_remove_leave_foreign_plugins_alone(tmp_path: Path) -> None:
+    """A foreign plugin -- and archex's own post-edit plugin -- in the same
+    plugin directory survive install, idempotent reinstall, and remove.
+    """
+    repo = tmp_path / "repo"
+    plugins = repo / ".opencode" / "plugins"
+    plugins.mkdir(parents=True)
+    foreign = plugins / "someone-elses-plugin.ts"
+    foreign.write_text("export const Foreign = async () => ({});\n", encoding="utf-8")
+    write_post_edit_hook_install_plan(
+        build_post_edit_hook_install_plan("opencode", str(repo), action="install")
+    )
+    post_edit = plugins / "archex-post-edit-hook.ts"
+    post_edit_text = post_edit.read_text(encoding="utf-8")
+
+    install = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(install, TsHookInstallPlan)
+    target = write_hook_install_plan(install)
+    write_hook_install_plan(install)
+
+    assert target == plugins / "archex-hook.ts"
+    assert target.read_text(encoding="utf-8") == install.module_content
+    assert foreign.read_text(encoding="utf-8") == "export const Foreign = async () => ({});\n"
+    assert post_edit.read_text(encoding="utf-8") == post_edit_text
+
+    write_hook_install_plan(build_hook_install_plan("opencode", str(repo), action="remove"))
+
+    assert not target.exists()
+    assert foreign.read_text(encoding="utf-8") == "export const Foreign = async () => ({});\n"
+    assert post_edit.read_text(encoding="utf-8") == post_edit_text
+
+
+def test_opencode_hooks_install_replaces_the_retired_pattern_search_plugin(tmp_path: Path) -> None:
+    """An older archex wrote the pattern-search plugin to the same file, so a
+    reinstall migrates it in place rather than leaving two behaviours.
+    """
+    repo = tmp_path / "repo"
+    plugins = repo / ".opencode" / "plugins"
+    plugins.mkdir(parents=True)
+    legacy = plugins / "archex-hook.ts"
+    legacy.write_text('const ARCHEX_PYTHON_ARGS = ["-m", "archex.integrations.hook"];\n', "utf-8")
+
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+    write_hook_install_plan(plan)
+
+    installed = legacy.read_text(encoding="utf-8")
+    assert installed == plan.module_content
+    assert "archex.integrations.hook" not in installed
+    assert "archex.integrations.annotate_hook" in installed
 
 
 # --- Codex CLI PostToolUse search-annotation hook ---
@@ -1530,9 +1581,9 @@ def test_cli_hooks_opencode_installed_file_never_targets_read_or_mcp_tool_ids(
     CliRunner().invoke(cli, ["install-client", "opencode", "--hooks"])
     target = tmp_path / ".config" / "opencode" / "plugins" / "archex-hook.ts"
 
-    keys = _augmented_tools_keys(target.read_text(encoding="utf-8"))
+    keys = _annotated_tools_keys(target.read_text(encoding="utf-8"))
 
-    assert keys == {"grep", "glob"}
+    assert keys == {"grep", "glob", "bash"}
     assert "read" not in keys
     mcp_shaped_ids = {"archex_query_repo", "archex_scout_repo", "github_create_issue"}
     assert keys.isdisjoint(mcp_shaped_ids)
@@ -1572,7 +1623,8 @@ def test_opencode_ts_hook_module_subagent_dispatch_reachability(tmp_path: Path) 
     content = plan.module_content
 
     handler_match = re.search(
-        r'"tool\.execute\.after": async \(input, output\) => \{(.*?)\n    \},',
+        r'"tool\.execute\.after": async \(input: ToolInputLike, output: ToolOutputLike\) => \{'
+        r"(.*?)\n    \},",
         content,
         re.DOTALL,
     )
