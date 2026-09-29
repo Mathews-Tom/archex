@@ -19,7 +19,8 @@ For install, MCP JSON, Docker, cache, network, freshness, and uninstall semantic
    - `chunk_first`: fetch listed `symbol:` and `chunk:` handles with `archex symbol`.
    - `hybrid_fetch`: fetch top handles, then run `archex query` if the fetched context is insufficient.
    - `direct_query`: run `archex query <path> "<question>" --format xml`.
-6. Stop when the returned bundle answers the code-context need. Do not run long benchmarks.
+6. If the receipt's `context_complete_reason` is `low_query_match` or `no_candidates`, rephrase the question with the codebase's own identifiers (`query_terms_unmatched` lists the words that found nothing) or fall back to grep.
+7. Stop when the returned bundle answers the code-context need. Do not run long benchmarks.
 
 ## Output
 
