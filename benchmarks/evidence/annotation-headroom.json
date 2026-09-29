@@ -1,0 +1,339 @@
+{
+  "artifact": "annotation-headroom",
+  "stage": "Stage -1 (spec \u00a72.2, \u00a78)",
+  "generated_on": "2026-09-29",
+  "archex_version": "0.32.0",
+  "question": "Share of eligible omp search calls whose hits span two or more indexed code units \u2014 the only calls where an annotation can change which file the agent opens \u2014 and the tokens the annotation would add.",
+  "corpus": {
+    "source": "local omp session transcripts (toolCall joined to toolResult by toolCallId)",
+    "session_files": 2999,
+    "session_days": [
+      "2026-06-12",
+      "2026-09-29"
+    ],
+    "eligible_calls_seen": 22743,
+    "measured_calls": 12220,
+    "excluded": {
+      "compressed_by_extension": 1844,
+      "no_index": 255,
+      "no_repository": 2161,
+      "tool_error": 795,
+      "unrecognized_format": 2452
+    },
+    "drift_skipped": {
+      "file_missing": 2614,
+      "line_past_end": 402
+    },
+    "drift_skipped_total": 3016,
+    "repositories_seen": 32,
+    "repositories_without_index": 10,
+    "repositories_measured": 22
+  },
+  "method": {
+    "renderer": "archex.annotate.annotate_parsed (the shipped hook's renderer)",
+    "index": "each repository's current local index, read from a snapshot; line numbers may have drifted since the session. Results whose files are gone or whose hit lines fall past the current file length are skipped (drift_skipped).",
+    "denominator": "every measured eligible call, including calls with no hit or with hits only in files holding no code unit (0 units)",
+    "ambiguous": "units_hit >= 2 (distinct units containing a hit, before suppression)",
+    "ci": "repository-clustered percentile bootstrap, 10000 resamples, seed 20260909",
+    "caps": {
+      "line_tokens": 30,
+      "call_tokens": 300
+    },
+    "tokenizer": "cl100k_base (archex.reporting.count_tokens)",
+    "privacy": "counts only; repositories pseudonymous; no text, paths, or prompts"
+  },
+  "ambiguous_share": {
+    "calls": 12220,
+    "repositories": 22,
+    "ambiguous_calls": 6015,
+    "share": 0.4922,
+    "ci95_repository_clustered": [
+      0.4279,
+      0.5328
+    ]
+  },
+  "ambiguous_share_by_tool": {
+    "grep": {
+      "calls": 9745,
+      "repositories": 21,
+      "ambiguous_calls": 5079,
+      "share": 0.5212,
+      "ci95_repository_clustered": [
+        0.4571,
+        0.5619
+      ]
+    },
+    "glob": {
+      "calls": 1899,
+      "repositories": 21,
+      "ambiguous_calls": 732,
+      "share": 0.3855,
+      "ci95_repository_clustered": [
+        0.331,
+        0.4413
+      ]
+    },
+    "bash": {
+      "calls": 576,
+      "repositories": 17,
+      "ambiguous_calls": 204,
+      "share": 0.3542,
+      "ci95_repository_clustered": [
+        0.2466,
+        0.4331
+      ]
+    }
+  },
+  "ambiguous_share_among_calls_with_a_unit": {
+    "calls": 7707,
+    "repositories": 20,
+    "ambiguous_calls": 6015,
+    "share": 0.7805,
+    "ci95_repository_clustered": [
+      0.7572,
+      0.8119
+    ]
+  },
+  "annotation_tokens": {
+    "annotated_calls": 7614,
+    "annotated_share_of_measured": 0.6231,
+    "p50": 119,
+    "p95": 294,
+    "max": 299,
+    "mean": 148.3,
+    "mean_per_measured_call": 92.4,
+    "cap_hit_rate": 0.2218
+  },
+  "not_annotated_reasons": {
+    "all_units_visible": 93,
+    "no_code_units": 2734,
+    "no_indexed_paths": 1779
+  },
+  "per_repository": [
+    {
+      "repo": "repo-01",
+      "calls": 3394,
+      "ambiguous_calls": 1814,
+      "share": 0.5345,
+      "ci95_wilson_call_level": [
+        0.5177,
+        0.5512
+      ]
+    },
+    {
+      "repo": "repo-02",
+      "calls": 64,
+      "ambiguous_calls": 39,
+      "share": 0.6094,
+      "ci95_wilson_call_level": [
+        0.4869,
+        0.7194
+      ]
+    },
+    {
+      "repo": "repo-03",
+      "calls": 480,
+      "ambiguous_calls": 129,
+      "share": 0.2687,
+      "ci95_wilson_call_level": [
+        0.231,
+        0.3101
+      ]
+    },
+    {
+      "repo": "repo-04",
+      "calls": 1008,
+      "ambiguous_calls": 599,
+      "share": 0.5942,
+      "ci95_wilson_call_level": [
+        0.5636,
+        0.6241
+      ]
+    },
+    {
+      "repo": "repo-05",
+      "calls": 908,
+      "ambiguous_calls": 497,
+      "share": 0.5474,
+      "ci95_wilson_call_level": [
+        0.5148,
+        0.5795
+      ]
+    },
+    {
+      "repo": "repo-06",
+      "calls": 831,
+      "ambiguous_calls": 455,
+      "share": 0.5475,
+      "ci95_wilson_call_level": [
+        0.5136,
+        0.5811
+      ]
+    },
+    {
+      "repo": "repo-07",
+      "calls": 951,
+      "ambiguous_calls": 546,
+      "share": 0.5741,
+      "ci95_wilson_call_level": [
+        0.5425,
+        0.6052
+      ]
+    },
+    {
+      "repo": "repo-08",
+      "calls": 134,
+      "ambiguous_calls": 37,
+      "share": 0.2761,
+      "ci95_wilson_call_level": [
+        0.2075,
+        0.3573
+      ]
+    },
+    {
+      "repo": "repo-11",
+      "calls": 346,
+      "ambiguous_calls": 133,
+      "share": 0.3844,
+      "ci95_wilson_call_level": [
+        0.3347,
+        0.4367
+      ]
+    },
+    {
+      "repo": "repo-13",
+      "calls": 344,
+      "ambiguous_calls": 208,
+      "share": 0.6047,
+      "ci95_wilson_call_level": [
+        0.5521,
+        0.6549
+      ]
+    },
+    {
+      "repo": "repo-14",
+      "calls": 231,
+      "ambiguous_calls": 124,
+      "share": 0.5368,
+      "ci95_wilson_call_level": [
+        0.4724,
+        0.6
+      ]
+    },
+    {
+      "repo": "repo-15",
+      "calls": 147,
+      "ambiguous_calls": 52,
+      "share": 0.3537,
+      "ci95_wilson_call_level": [
+        0.2811,
+        0.4339
+      ]
+    },
+    {
+      "repo": "repo-16",
+      "calls": 11,
+      "ambiguous_calls": 6,
+      "share": 0.5455,
+      "ci95_wilson_call_level": [
+        0.2801,
+        0.7873
+      ]
+    },
+    {
+      "repo": "repo-17",
+      "calls": 406,
+      "ambiguous_calls": 108,
+      "share": 0.266,
+      "ci95_wilson_call_level": [
+        0.2254,
+        0.311
+      ]
+    },
+    {
+      "repo": "repo-18",
+      "calls": 1299,
+      "ambiguous_calls": 609,
+      "share": 0.4688,
+      "ci95_wilson_call_level": [
+        0.4418,
+        0.496
+      ]
+    },
+    {
+      "repo": "repo-20",
+      "calls": 150,
+      "ambiguous_calls": 70,
+      "share": 0.4667,
+      "ci95_wilson_call_level": [
+        0.3887,
+        0.5463
+      ]
+    },
+    {
+      "repo": "repo-21",
+      "calls": 23,
+      "ambiguous_calls": 6,
+      "share": 0.2609,
+      "ci95_wilson_call_level": [
+        0.1255,
+        0.4647
+      ]
+    },
+    {
+      "repo": "repo-22",
+      "calls": 52,
+      "ambiguous_calls": 23,
+      "share": 0.4423,
+      "ci95_wilson_call_level": [
+        0.316,
+        0.5766
+      ]
+    },
+    {
+      "repo": "repo-24",
+      "calls": 1299,
+      "ambiguous_calls": 485,
+      "share": 0.3734,
+      "ci95_wilson_call_level": [
+        0.3475,
+        0.4
+      ]
+    },
+    {
+      "repo": "repo-25",
+      "calls": 132,
+      "ambiguous_calls": 75,
+      "share": 0.5682,
+      "ci95_wilson_call_level": [
+        0.4829,
+        0.6496
+      ]
+    },
+    {
+      "repo": "repo-31",
+      "calls": 1,
+      "ambiguous_calls": 0,
+      "share": 0.0,
+      "ci95_wilson_call_level": [
+        0.0,
+        0.7935
+      ]
+    },
+    {
+      "repo": "repo-32",
+      "calls": 9,
+      "ambiguous_calls": 0,
+      "share": 0.0,
+      "ci95_wilson_call_level": [
+        0.0,
+        0.2991
+      ]
+    }
+  ],
+  "gate": {
+    "rule": "proceed only if ambiguous share >= 15%",
+    "threshold": 0.15,
+    "verdict": "pass"
+  }
+}
