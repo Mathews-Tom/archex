@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.33.0] - 2026-09-29
+
+This release adds `archex annotate` and cuts the oh-my-pi and Pi hook over to it: the hook now annotates the agent's own search results instead of running a separate symbol search on the grep pattern. Reinstall the hook with `archex install-client omp --hooks` (or `pi`) to pick up the new module. It also adds the Stage 0 harness for an A/B test of archex surfaces; no A/B results exist yet.
 
 ### Added
 
