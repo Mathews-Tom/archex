@@ -83,10 +83,12 @@ def _is_interactive() -> bool:
         "PostToolUse hook on Bash|Grep|Glob does the same for search commands "
         "and search tools, and replaces the retired PreToolUse pattern-search "
         "hook; on opencode, augments grep/glob calls with archex symbol matches; "
-        "on codex and cursor ships a diagnostics-only fallback (no "
-        "Grep/Glob-equivalent tool-call event exists on codex, and cursor's "
-        "beforeSubmitPrompt hook has no context-injection output field at all, "
-        "so nothing is injected on either, only logged)."
+        "on codex, a PostToolUse hook on Bash does the same for shell search "
+        "commands and replaces the retired PreToolUse diagnostics hook (Codex "
+        "runs a new hook only after you review it in /hooks); on cursor ships "
+        "a diagnostics-only fallback (its beforeSubmitPrompt hook has no "
+        "context-injection output field at all, so nothing is injected, only "
+        "logged)."
     ),
 )
 @click.option(
@@ -96,7 +98,8 @@ def _is_interactive() -> bool:
     help=(
         "Remove the archex hook previously installed by --hooks (on claude-code, "
         "both the PostToolUse annotation hook and any retired PreToolUse "
-        "pattern-search entry)."
+        "pattern-search entry; on codex, the PostToolUse annotation block and "
+        "any retired PreToolUse diagnostics block)."
     ),
 )
 @click.option(

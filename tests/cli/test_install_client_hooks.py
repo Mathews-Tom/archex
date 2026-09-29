@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -26,7 +27,7 @@ from archex.client_setup import (
     write_session_primer_install_plan,
 )
 from archex.integrations.claude_code_annotate_hook import HOOK_MATCHER
-from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
+from archex.integrations.codex_annotate_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 
 if TYPE_CHECKING:
     from typing import Any
@@ -834,14 +835,28 @@ def test_opencode_ts_hook_module_registers_exactly_one_tool_execute_after_and_ne
     assert '"tool.execute.before"' not in content
 
 
-# --- Codex CLI diagnostics-only hook (M21) ---
+# --- Codex CLI PostToolUse search-annotation hook ---
 #
 # Unlike claude-code (a JSON entry merged into settings.json) or omp/pi (a
 # standalone .ts module), Codex's hook lives in the same config.toml the MCP
-# server registration writes to, as a marker-delimited `[[hooks.PreToolUse]]`
-# TOML block. See `archex.integrations.codex_hook` for why this hook is
-# diagnostics-only (Codex has no Grep/Glob-equivalent tool-call event) rather
-# than augmenting like the claude-code/omp/pi hooks above.
+# server registration writes to, as a marker-delimited `[[hooks.PostToolUse]]`
+# TOML block. See `archex.integrations.codex_annotate_hook` for the payload it
+# reads and the context it returns. Install also removes the retired
+# diagnostics-only `[[hooks.PreToolUse]]` block older archex versions wrote.
+
+# Byte-for-byte what `archex install-client codex --hooks` wrote before the
+# annotation hook replaced it.
+LEGACY_CODEX_BLOCK = (
+    "# archex:codex-hook start\n"
+    "[[hooks.PreToolUse]]\n"
+    'matcher = "^Bash$"\n'
+    "\n"
+    "[[hooks.PreToolUse.hooks]]\n"
+    'type = "command"\n'
+    'command = "/venv/bin/python -m archex.integrations.codex_hook"\n'
+    "timeout = 1\n"
+    "# archex:codex-hook end\n"
+)
 
 
 def test_build_hook_install_plan_codex_project_scope_produces_config_toml_path(
@@ -855,7 +870,7 @@ def test_build_hook_install_plan_codex_project_scope_produces_config_toml_path(
     assert isinstance(plan, CodexHookInstallPlan)
     assert plan.target_path == repo / ".codex" / "config.toml"
     assert CODEX_HOOK_MATCHER in plan.block_content
-    assert "archex.integrations.codex_hook" in plan.block_content
+    assert "archex.integrations.codex_annotate_hook" in plan.block_content
 
 
 def test_build_hook_install_plan_codex_user_scope_produces_config_toml_path(
@@ -880,7 +895,8 @@ def test_write_hook_install_plan_codex_writes_toml_block(tmp_path: Path) -> None
     assert target == plan.target_path
     content = target.read_text(encoding="utf-8")
     assert content == plan.block_content
-    assert "[[hooks.PreToolUse]]" in content
+    assert "[[hooks.PostToolUse]]" in content
+    assert "[[hooks.PreToolUse]]" not in content
     assert f'matcher = "{CODEX_HOOK_MATCHER}"' in content
 
 
@@ -914,7 +930,7 @@ def test_write_hook_install_plan_codex_preserves_unrelated_config_toml_content(
 
     content = target_path.read_text(encoding="utf-8")
     assert "[mcp_servers.archex]" in content
-    assert "[[hooks.PreToolUse]]" in content
+    assert "[[hooks.PostToolUse]]" in content
 
 
 def test_write_hook_install_plan_codex_remove_restores_original_content(tmp_path: Path) -> None:
@@ -965,7 +981,8 @@ def test_render_hook_install_preview_codex_install_does_not_write(tmp_path: Path
     preview = render_hook_install_preview(plan)
 
     assert "Install" in preview
-    assert "diagnostics-only" in preview
+    assert "PostToolUse search-annotation hook" in preview
+    assert "diagnostics-only" not in preview
     assert not plan.target_path.exists()
 
 
@@ -984,12 +1001,9 @@ def test_render_hook_install_preview_codex_remove_does_not_write(tmp_path: Path)
     assert target_path.read_text(encoding="utf-8") == before
 
 
-def test_codex_hook_toml_block_matcher_never_reaches_read(tmp_path: Path) -> None:
-    """M21 acceptance criterion: the installed hook config matches the
-    Grep/Glob-equivalent tool only, never Read. Codex has no Grep/Glob or
-    Read hook at all -- the only tool name this installer ever writes is the
-    literal `^Bash$` matcher, asserted structurally here rather than by
-    inspection.
+def test_codex_hook_toml_block_matches_the_shell_tool_only(tmp_path: Path) -> None:
+    """The installed matcher selects Codex's shell tool (`Bash`) and nothing else:
+    not `apply_patch` (the post-edit hook's tool), MCP tools, or agents.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -998,8 +1012,9 @@ def test_codex_hook_toml_block_matcher_never_reaches_read(tmp_path: Path) -> Non
     assert isinstance(plan, CodexHookInstallPlan)
     matches = re.findall(r'matcher = "([^"]+)"', plan.block_content)
     assert matches == ["^Bash$"]
-    for matcher in matches:
-        assert not re.fullmatch(matcher, "Read")
+    assert re.fullmatch(matches[0], "Bash")
+    for other in ["Read", "Grep", "Glob", "apply_patch", "spawn_agent", "bash", "Bashing"]:
+        assert not re.fullmatch(matches[0], other)
 
 
 def test_codex_hook_toml_block_bakes_in_active_python_interpreter(tmp_path: Path) -> None:
@@ -1010,7 +1025,59 @@ def test_codex_hook_toml_block_bakes_in_active_python_interpreter(tmp_path: Path
 
     assert isinstance(plan, CodexHookInstallPlan)
     assert sys.executable in plan.block_content
-    assert "-m archex.integrations.codex_hook" in plan.block_content
+    assert "-m archex.integrations.codex_annotate_hook" in plan.block_content
+
+
+def test_codex_hook_toml_block_is_valid_toml_with_one_post_tool_use_command(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+
+    assert isinstance(plan, CodexHookInstallPlan)
+    parsed = tomllib.loads(plan.block_content)
+
+    assert set(parsed["hooks"]) == {"PostToolUse"}
+    (group,) = parsed["hooks"]["PostToolUse"]
+    assert group["matcher"] == "^Bash$"
+    (handler,) = group["hooks"]
+    assert handler["type"] == "command"
+    assert handler["command"].endswith("-m archex.integrations.codex_annotate_hook")
+    assert handler["timeout"] >= 1
+
+
+def test_codex_install_replaces_the_retired_diagnostics_block(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target_path = repo / ".codex" / "config.toml"
+    target_path.parent.mkdir(parents=True)
+    seed = 'model = "gpt-5"\n'
+    target_path.write_text(seed + "\n" + LEGACY_CODEX_BLOCK, encoding="utf-8")
+
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+    assert isinstance(plan, CodexHookInstallPlan)
+    write_hook_install_plan(plan)
+
+    content = target_path.read_text(encoding="utf-8")
+    assert "archex.integrations.codex_hook" not in content
+    assert "PreToolUse" not in content
+    assert content == seed + "\n" + plan.block_content
+    assert tomllib.loads(content)["hooks"]["PostToolUse"][0]["matcher"] == "^Bash$"
+
+
+def test_codex_remove_strips_the_retired_diagnostics_block_too(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target_path = repo / ".codex" / "config.toml"
+    target_path.parent.mkdir(parents=True)
+    seed = 'model = "gpt-5"\n'
+    target_path.write_text(seed + "\n" + LEGACY_CODEX_BLOCK, encoding="utf-8")
+
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="remove")
+    write_hook_install_plan(plan)
+
+    assert target_path.read_text(encoding="utf-8") == seed
 
 
 # --- Cursor beforeSubmitPrompt hook (M23, diagnostics-only) ---
@@ -1376,7 +1443,7 @@ def test_cli_hooks_installs_codex_and_exits_zero(
     assert "Installed" in result.output
     target = tmp_path / ".codex" / "config.toml"
     assert target.exists()
-    assert "archex.integrations.codex_hook" in target.read_text(encoding="utf-8")
+    assert "archex.integrations.codex_annotate_hook" in target.read_text(encoding="utf-8")
 
 
 def test_cli_hooks_codex_dry_run_previews_without_writing(
@@ -1397,7 +1464,7 @@ def test_cli_remove_hooks_codex_removes_and_exits_zero(
     monkeypatch.setenv("HOME", str(tmp_path))
     CliRunner().invoke(cli, ["install-client", "codex", "--hooks"])
     target = tmp_path / ".codex" / "config.toml"
-    assert "archex.integrations.codex_hook" in target.read_text(encoding="utf-8")
+    assert "archex.integrations.codex_annotate_hook" in target.read_text(encoding="utf-8")
 
     result = CliRunner().invoke(cli, ["install-client", "codex", "--remove-hooks"])
 

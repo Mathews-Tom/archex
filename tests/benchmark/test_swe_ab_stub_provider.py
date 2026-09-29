@@ -1,4 +1,4 @@
-"""The stub's Anthropic Messages mode: the turn Claude Code gets for each request."""
+"""The stub's Anthropic Messages and OpenAI Responses modes: the turn each host gets per request."""
 
 from __future__ import annotations
 
@@ -128,3 +128,61 @@ def test_count_tokens_answers_json(stub_url: str) -> None:
         )
     )
     assert body["input_tokens"] > 0
+
+
+# --- OpenAI Responses mode (Codex CLI) -------------------------------------------
+
+
+def _responses_items(sse: str) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
+    """Event types in order, the `output_item.done` item, and the `response.completed` response."""
+    events = _events(sse)
+    item = next(e["item"] for e in events if e["type"] == "response.output_item.done")
+    completed = next(e["response"] for e in events if e["type"] == "response.completed")
+    return [e["type"] for e in events], item, completed
+
+
+def test_responses_first_turn_is_the_scripted_function_call_and_the_next_is_the_final_text(
+    stub_url: str,
+) -> None:
+    tools = [{"type": "function", "name": "exec_command"}]
+    order, call, completed = _responses_items(
+        _post(stub_url, "/v1/responses", {"tools": tools, "input": [{"type": "message"}]})
+    )
+    assert order == ["response.created", "response.output_item.done", "response.completed"]
+    assert call["type"] == "function_call"
+    assert call["name"] == "Bash"
+    assert call["call_id"] == "call_stub_0000"
+    assert json.loads(call["arguments"]) == {
+        "command": "rg -n hash_password",
+        "description": "search",
+    }
+    assert completed["usage"]["input_tokens"] > 0
+
+    _, final, _ = _responses_items(
+        _post(
+            stub_url,
+            "/v1/responses",
+            {
+                "tools": tools,
+                "input": [
+                    {"type": "message"},
+                    call,
+                    {"type": "function_call_output", "call_id": call["call_id"], "output": "x"},
+                ],
+            },
+        )
+    )
+    assert final["type"] == "message"
+    assert final["content"][0]["text"] == "done"
+
+
+def test_responses_request_without_tools_gets_text_and_does_not_advance_the_script(
+    stub_url: str,
+) -> None:
+    _, side, _ = _responses_items(_post(stub_url, "/v1/responses", {"input": []}))
+    assert side["type"] == "message"
+
+    _, real, _ = _responses_items(
+        _post(stub_url, "/v1/responses", {"tools": [{"name": "x"}], "input": []})
+    )
+    assert real["type"] == "function_call"

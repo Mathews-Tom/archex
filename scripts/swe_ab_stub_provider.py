@@ -27,6 +27,13 @@ with ``args`` passed through as the tool input), ``POST .../count_tokens``
 returns an estimate, and a request that advertises no tools (Claude Code's
 title and summary side requests) gets a text reply without consuming a turn.
 
+It also speaks the OpenAI Responses protocol for Codex CLI: point a
+``[model_providers.<id>]`` table with ``base_url = "http://127.0.0.1:<port>/v1"``
+and ``wire_api = "responses"`` at it and ``POST .../responses`` streams the
+scripted turn (a ``function_call`` item for a ``tool`` step, e.g. Codex's
+``exec_command`` with ``{"cmd": "rg -n x"}``; an assistant message for a ``text``
+step), keyed on the number of ``function_call_output`` items in the request.
+
 Usage: ``python scripts/swe_ab_stub_provider.py --port 47811 --script s.json
 --capture-dir /tmp/capture``. Cells driven through it record
 ``provider_endpoint_overridden: true`` and are refused for publication.
@@ -109,8 +116,12 @@ class _Handler(BaseHTTPRequestHandler):
         (self.capture_dir / f"request-{number:04d}.json").write_text(
             json.dumps(body, indent=1), encoding="utf-8"
         )
-        if self.path.split("?", 1)[0].endswith("/messages"):
+        route = self.path.split("?", 1)[0]
+        if route.endswith("/messages"):
             self._anthropic(body)
+            return
+        if route.endswith("/responses"):
+            self._responses(body)
             return
         messages = cast("list[dict[str, Any]]", body.get("messages") or [])
         turn = sum(1 for message in messages if message.get("role") == "tool")
@@ -220,6 +231,64 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         for name, event in events:
             self.wfile.write(f"event: {name}\ndata: {json.dumps(event)}\n\n".encode())
+        self.wfile.flush()
+
+    def _responses(self, body: dict[str, Any]) -> None:
+        """Answer an OpenAI Responses request (Codex CLI) over SSE.
+
+        The turn is the number of ``function_call_output`` items already in the
+        request ``input`` (Codex resends the whole history each turn). A request
+        that advertises no tools gets a short text reply and does not advance the
+        script. A ``tool`` step becomes a ``function_call`` output item whose
+        ``arguments`` are the step's ``args``; a ``text`` step becomes an
+        assistant message.
+        """
+        items = cast("list[dict[str, Any]]", body.get("input") or [])
+        turn = sum(1 for item in items if item.get("type") == "function_call_output")
+        step: dict[str, Any] = (
+            self.script[min(turn, len(self.script) - 1)] if body.get("tools") else {"text": "stub"}
+        )
+        if "tool" in step:
+            item: dict[str, Any] = {
+                "type": "function_call",
+                "id": f"fc_stub_{turn:04d}",
+                "call_id": f"call_stub_{turn:04d}",
+                "name": str(step["tool"]),
+                "arguments": json.dumps(step.get("args", {})),
+                "status": "completed",
+            }
+        else:
+            item = {
+                "type": "message",
+                "id": f"msg_stub_{turn:04d}",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": str(step["text"]), "annotations": []}],
+            }
+        input_tokens = len(json.dumps(items)) // 4
+        response_id = f"resp_stub_{turn:04d}"
+        events: list[dict[str, Any]] = [
+            {"type": "response.created", "response": {"id": response_id}},
+            {"type": "response.output_item.done", "item": item},
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": response_id,
+                    "usage": {
+                        "input_tokens": input_tokens,
+                        "input_tokens_details": {"cached_tokens": 0},
+                        "output_tokens": 20,
+                        "output_tokens_details": {"reasoning_tokens": 0},
+                        "total_tokens": input_tokens + 20,
+                    },
+                },
+            },
+        ]
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.end_headers()
+        for event in events:
+            self.wfile.write(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n".encode())
         self.wfile.flush()
 
     def _json(self, payload: dict[str, Any]) -> None:

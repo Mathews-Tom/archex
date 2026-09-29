@@ -30,15 +30,16 @@ reference/third-party-hooks`, fetched 2026-07-06 — not secondary sources):
 - The milestone's own objective describes "prompt-level context injection"
   as the mechanism; the finding above means that, as specified, Cursor's
   `beforeSubmitPrompt` cannot deliver it today. Per the same discipline M21
-  applied when Codex's hook schema turned out to have no Grep/Glob-
-  equivalent tool-call event to scope augmentation to, this module ships
+  applied when Codex's hook schema had no Grep/Glob-equivalent tool-call
+  event (Codex later moved to a `PostToolUse` result annotation instead),
+  this module ships
   the plan's own accepted fallback instead: a diagnostics-only hook that
   performs the same lookup and logs what it would have injected, but never
   returns it to Cursor and never blocks prompt submission. Every invocation
   returns exactly `{"continue": true}`.
 
-Every code path exits 0, mirroring `archex.integrations.hook`'s and
-`archex.integrations.codex_hook`'s contract: a missing/stale index, a
+Every code path exits 0, mirroring `archex.integrations.hook`'s
+contract: a missing/stale index, a
 timeout, a malformed payload, or an internal error all degrade to a
 no-injection, non-blocking no-op from Cursor's point of view, logged instead
 to the same local diagnostics log (`ARCHEX_HOOK_DIAGNOSTICS_LOG`, default

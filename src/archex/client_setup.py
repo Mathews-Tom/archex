@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from archex.integrations.claude_code_annotate_hook import HOOK_MATCHER
-from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
+from archex.integrations.codex_annotate_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.codex_post_edit_hook import POST_EDIT_MATCHER as CODEX_POST_EDIT_MATCHER
 from archex.integrations.mcp import resolve_tool_scope
 from archex.integrations.post_edit_hook import POST_EDIT_MATCHER
@@ -36,6 +36,10 @@ HookAction = Literal["install", "remove"]
 #: find and replace our own entry without disturbing any other hook the user
 #: has configured for the same matcher group.
 _HOOK_ARGS_MARKER = "archex.integrations.claude_code_annotate_hook"
+
+#: Substring in the Codex ``PostToolUse`` hook command that identifies it as the
+#: archex search-annotation hook.
+_CODEX_HOOK_ARGS_MARKER = "archex.integrations.codex_annotate_hook"
 
 #: The retired Claude Code ``PreToolUse`` pattern-search hook. Install and
 #: remove both strip any handler carrying this marker from ``PreToolUse``, so a
@@ -400,17 +404,17 @@ class TsHookInstallPlan:
 
 @dataclass(frozen=True)
 class CodexHookInstallPlan:
-    """Install or remove the Codex CLI diagnostics-only PreToolUse hook (M21).
+    """Install or remove the Codex CLI PostToolUse search-annotation hook.
 
     Unlike the Claude Code hook (a JSON command entry merged into
     ``settings.json``) or the omp/pi hook (a standalone ``.ts`` module), this
     appends a marker-delimited TOML block to the *same* ``config.toml`` the
     MCP server registration already writes to (``_target_path`` for
     ``client == "codex"``), mirroring that file's non-destructive append
-    behavior for a ``[[hooks.PreToolUse]]`` table instead of
-    ``[mcp_servers.archex]``. See ``archex.integrations.codex_hook`` for why
-    this ships a diagnostics-only hook rather than Grep/Glob-scoped
-    augmentation (Codex has no such tool-call event).
+    behavior for a ``[[hooks.PostToolUse]]`` table instead of
+    ``[mcp_servers.archex]``. Install also removes the retired diagnostics-only
+    ``[[hooks.PreToolUse]]`` block. See ``archex.integrations.codex_annotate_hook``
+    for the payload the hook reads and the context it returns.
     """
 
     client: ClientName
@@ -696,8 +700,14 @@ def _render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
         f"Scope: {plan.scope}",
         f"Target: {target}",
         (
-            f"Action: {action_label} PreToolUse hook "
-            f"(matcher: {CODEX_HOOK_MATCHER!r}, diagnostics-only)"
+            f"Action: {action_label} PostToolUse search-annotation hook "
+            f"(matcher: {CODEX_HOOK_MATCHER!r}; appends the indexed code units each hit "
+            "falls in to shell search results) and remove the retired archex PreToolUse "
+            "diagnostics block"
+            if plan.action == "install"
+            else f"Action: {action_label} the PostToolUse search-annotation hook "
+            f"(matcher: {CODEX_HOOK_MATCHER!r}) and any retired archex PreToolUse "
+            "diagnostics block"
         ),
     ]
     if updated == existing:
@@ -1354,23 +1364,33 @@ export const ArchexHookPlugin: Plugin = async ({ directory }) => {
 #: ``config.toml`` -- lets install/remove find and replace exactly the block
 #: this installer wrote (and nothing else a user configured in the same
 #: file) without parsing/re-serializing TOML.
-_CODEX_HOOK_BLOCK_START = "# archex:codex-hook start"
-_CODEX_HOOK_BLOCK_END = "# archex:codex-hook end"
+_CODEX_HOOK_BLOCK_START = "# archex:codex-annotate-hook start"
+_CODEX_HOOK_BLOCK_END = "# archex:codex-annotate-hook end"
+
+#: Markers of the retired diagnostics-only ``PreToolUse`` block. It is stripped
+#: on install and remove so an upgrade leaves exactly one archex search hook.
+_CODEX_LEGACY_HOOK_BLOCK_START = "# archex:codex-hook start"
+_CODEX_LEGACY_HOOK_BLOCK_END = "# archex:codex-hook end"
+
+#: Codex kills a hook command after this many seconds. The hook enforces its own
+#: 0.5 s budget (``ARCHEX_HOOK_TIMEOUT_SECONDS``); this is only the outer bound,
+#: and Codex clamps it to at least one second.
+_CODEX_HOOK_TIMEOUT_SECONDS = 2
 
 
 def _render_codex_hook_block() -> str:
-    command = f"{sys.executable} -m archex.integrations.codex_hook"
+    command = f"{sys.executable} -m {_CODEX_HOOK_ARGS_MARKER}"
     return (
         "\n".join(
             [
                 _CODEX_HOOK_BLOCK_START,
-                "[[hooks.PreToolUse]]",
+                "[[hooks.PostToolUse]]",
                 f'matcher = "{CODEX_HOOK_MATCHER}"',
                 "",
-                "[[hooks.PreToolUse.hooks]]",
+                "[[hooks.PostToolUse.hooks]]",
                 'type = "command"',
                 f'command = "{command}"',
-                "timeout = 1",
+                f"timeout = {_CODEX_HOOK_TIMEOUT_SECONDS}",
                 _CODEX_HOOK_BLOCK_END,
             ]
         )
@@ -1378,33 +1398,71 @@ def _render_codex_hook_block() -> str:
     )
 
 
-def _strip_codex_hook_block(existing: str) -> str:
-    start = existing.find(_CODEX_HOOK_BLOCK_START)
+def _marked_block_span(existing: str, start_marker: str, end_marker: str) -> tuple[int, int] | None:
+    """Where one marker-delimited block sits, including its trailing newline."""
+    start = existing.find(start_marker)
     if start == -1:
-        return existing
-    end = existing.find(_CODEX_HOOK_BLOCK_END, start)
+        return None
+    end = existing.find(end_marker, start)
     if end == -1:
-        return existing  # malformed marker pair -- leave untouched rather than guess
-    end += len(_CODEX_HOOK_BLOCK_END)
+        return None  # malformed marker pair -- leave untouched rather than guess
+    end += len(end_marker)
     if end < len(existing) and existing[end] == "\n":
         end += 1
-    before, after = existing[:start], existing[end:]
-    # `_render_codex_hook_block`/`_apply_codex_hook_block` always separate a
-    # freshly appended block from prior content with exactly one blank line
-    # -- strip that same separator back out so a strip+re-add round-trips
-    # byte-for-byte (idempotent reinstall, and a clean `remove`).
+    return start, end
+
+
+def _strip_marked_toml_block(existing: str, start_marker: str, end_marker: str) -> str:
+    """Remove one marker-delimited block, restoring the bytes around it."""
+    span = _marked_block_span(existing, start_marker, end_marker)
+    if span is None:
+        return existing
+    before, after = existing[: span[0]], existing[span[1] :]
+    # The block renderers always separate a freshly appended block from prior
+    # content with exactly one blank line -- strip that same separator back out
+    # so a strip+re-add round-trips byte-for-byte (idempotent reinstall, and a
+    # clean `remove`).
     if before.endswith("\n\n"):
         before = before[:-1]
     return before + after
 
 
+def _strip_codex_hook_block(existing: str) -> str:
+    """Remove the annotation hook block and the retired diagnostics-only block."""
+    without_legacy = _strip_marked_toml_block(
+        existing, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
+    )
+    return _strip_marked_toml_block(without_legacy, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
+
+
+def _upsert_marked_toml_block(existing: str, block: str, start_marker: str, end_marker: str) -> str:
+    """Replace a marker-delimited block where it sits, or append it after other content."""
+    span = _marked_block_span(existing, start_marker, end_marker)
+    if span is not None:
+        return existing[: span[0]] + block + existing[span[1] :]
+    if not existing.strip():
+        return block
+    return existing.rstrip("\n") + "\n\n" + block
+
+
 def _apply_codex_hook_block(existing: str, plan: CodexHookInstallPlan) -> str:
-    without_block = _strip_codex_hook_block(existing)
     if plan.action == "remove":
-        return without_block
-    if not without_block.strip():
-        return plan.block_content
-    return without_block.rstrip("\n") + "\n\n" + plan.block_content
+        return _strip_codex_hook_block(existing)
+    # A block is replaced where it sits (the annotation block on a reinstall,
+    # else the retired one on an upgrade), so neighbouring archex blocks never
+    # reorder; only a first install appends.
+    own = _marked_block_span(existing, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
+    legacy = _marked_block_span(
+        existing, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
+    )
+    if own is None and legacy is not None:
+        return existing[: legacy[0]] + plan.block_content + existing[legacy[1] :]
+    upserted = _upsert_marked_toml_block(
+        existing, plan.block_content, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END
+    )
+    return _strip_marked_toml_block(
+        upserted, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
+    )
 
 
 #: Substring in a Cursor hook entry's ``command`` string that identifies it
@@ -1883,7 +1941,7 @@ class CodexPostEditHookInstallPlan:
     """Install or remove the Codex CLI PostToolUse post-edit hook (R21).
 
     Appends a marker-delimited ``[[hooks.PostToolUse]]`` block to the same
-    ``config.toml`` the MCP registration and the M21 ``PreToolUse`` block
+    ``config.toml`` the MCP registration and the search-annotation block
     already write to, using its own marker pair so the three coexist.
     """
 
@@ -2088,28 +2146,17 @@ def _render_codex_post_edit_block() -> str:
 
 
 def _strip_codex_post_edit_block(existing: str) -> str:
-    start = existing.find(_CODEX_POST_EDIT_BLOCK_START)
-    if start == -1:
-        return existing
-    end = existing.find(_CODEX_POST_EDIT_BLOCK_END, start)
-    if end == -1:
-        return existing  # malformed marker pair -- leave untouched rather than guess
-    end += len(_CODEX_POST_EDIT_BLOCK_END)
-    if end < len(existing) and existing[end] == "\n":
-        end += 1
-    before, after = existing[:start], existing[end:]
-    if before.endswith("\n\n"):
-        before = before[:-1]
-    return before + after
+    return _strip_marked_toml_block(
+        existing, _CODEX_POST_EDIT_BLOCK_START, _CODEX_POST_EDIT_BLOCK_END
+    )
 
 
 def _apply_codex_post_edit_block(existing: str, plan: CodexPostEditHookInstallPlan) -> str:
-    without_block = _strip_codex_post_edit_block(existing)
     if plan.action == "remove":
-        return without_block
-    if not without_block.strip():
-        return plan.block_content
-    return without_block.rstrip("\n") + "\n\n" + plan.block_content
+        return _strip_codex_post_edit_block(existing)
+    return _upsert_marked_toml_block(
+        existing, plan.block_content, _CODEX_POST_EDIT_BLOCK_START, _CODEX_POST_EDIT_BLOCK_END
+    )
 
 
 def _ts_post_edit_module_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:

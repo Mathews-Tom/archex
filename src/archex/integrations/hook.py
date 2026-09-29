@@ -9,8 +9,8 @@ installs the `PostToolUse` annotation hook
   `archex.client_setup`), which shells out to `python -m archex.integrations.hook`
   with a Claude-shaped `{tool_name, tool_input, cwd}` payload until it moves to
   the annotation engine;
-- `archex.integrations.cursor_hook` and `archex.integrations.codex_hook`, which
-  import `lookup_with_timeout` and `IDENTIFIER_TOKEN_RE`;
+- `archex.integrations.cursor_hook`, which imports `lookup_with_timeout` and
+  `IDENTIFIER_TOKEN_RE`;
 - `_lookup`, which the index-provenance tests call directly.
 
 Contract (M19 — non-blocking client hook integration):
