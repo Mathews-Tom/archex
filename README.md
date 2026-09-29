@@ -45,7 +45,7 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 | If you are evaluating... | Start here | Why |
 | --- | --- | --- |
 | Agent workflows | `archex doctor`, then `archex context "question"` | Checks local trust first, then returns a candidate map, exact fetch handles, selected code, relation paths, a route decision, and a receipt in one call. |
-| Already using an agent that calls Grep/Glob | `archex install-client <client> --hooks` | Zero added context cost — augments existing tool calls instead of registering a new MCP tool surface. |
+| Already using an agent that searches with grep/glob | `archex install-client omp --hooks` (or `pi`) | No new tool for the agent to choose: annotates the agent's own search results with the code units they hit, capped at about 300 tokens per call, and leaves the results themselves untouched. See [Surfaces](#surfaces). |
 | Want the full tool surface (graph, impact, symbol lookup, session records, etc.) | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts. Starts with two retrieval schemas and exposes 20 after the first retrieval — heavier than hooks, richer than grep/glob augmentation. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
 | Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, raw-ripgrep/read baseline, bundle-only evaluator reports, required-file trust gates, and TurboQuant storage/recall evidence. |
@@ -164,6 +164,16 @@ archex is a selection and assembly layer. Compression tools can shrink the final
 
 ## Use it your way
 
+### Surfaces
+
+archex reaches an agent three ways. Prefer them in this order:
+
+1. **Hook.** `archex install-client omp --hooks` (or `pi --hooks`) annotates the agent's own `grep`/`glob` and bash `rg`/`grep`/`git grep` results: one line per code unit the hits fall in (name, kind, span, importers), appended after the unchanged result. The agent does not have to decide to use archex. Claude Code and OpenCode hooks still run the older pattern-based symbol lookup.
+2. **CLI.** `archex scout` then `archex symbol` for location and structure questions, `archex impact` before changing a widely imported file, `archex query` for a bundle. Any host with a shell can run it; the agent must choose to.
+3. **MCP.** `archex mcp`, for clients without a shell. It carries a per-request tool-schema cost.
+
+Exact strings and "every occurrence" questions stay with grep. Contracts for each surface live in the [compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md).
+
 ### CLI
 
 ```bash
@@ -181,7 +191,7 @@ archex session prime --budget 512 --format markdown
 
 ### MCP and Claude Code
 
-Fresh MCP sessions advertise two retrieval schemas (765 measured tokens). After the first retrieval, the server exposes all 20 archex tools (4,192 measured tokens), including explicit project-session ledger operations. Tool-calling APIs are stateless, so a client receives the surface it has reached on every following turn. `uv run archex mcp-schema-size --format json` reports both figures from the schemas in `src/archex/integrations/mcp.py`. If a client only needs grep/glob-shaped lookups, `archex install-client <client> --hooks` (documented further down this section) gets the same retrieval quality with zero added schema cost. Use MCP when the fuller surface — graph inspection, impact analysis, batch symbol lookup, or session continuity — is worth that post-retrieval cost. The `context` tool is the same primary agent path as the CLI's `archex context`: query/intent/profile/filters/budgets/handles in, candidate map/fetch handles/selected code/relation paths/route/receipt out. The `session` tool is explicit-only: it can record, list, invalidate, delete, or render a fresh-index bounded primer; it never records prompts, transcripts, inferred facts, or arbitrary tool output.
+Fresh MCP sessions advertise two retrieval schemas (765 measured tokens). After the first retrieval, the server exposes all 20 archex tools (4,192 measured tokens), including explicit project-session ledger operations. Tool-calling APIs are stateless, so a client receives the surface it has reached on every following turn. `uv run archex mcp-schema-size --format json` reports both figures from the schemas in `src/archex/integrations/mcp.py`. Hosts with a shell have the hook and the CLI first (see [Surfaces](#surfaces)); neither adds a tool schema. Use MCP when the client cannot run the CLI, or when the fuller surface — graph inspection, impact analysis, batch symbol lookup, or session continuity — is worth that post-retrieval cost. The `context` tool is the same primary agent path as the CLI's `archex context`: query/intent/profile/filters/budgets/handles in, candidate map/fetch handles/selected code/relation paths/route/receipt out. The `session` tool is explicit-only: it can record, list, invalidate, delete, or render a fresh-index bounded primer; it never records prompts, transcripts, inferred facts, or arbitrary tool output.
 
 Install the MCP extra and register the stdio server:
 

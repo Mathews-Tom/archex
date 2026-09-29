@@ -32,7 +32,7 @@ jobs:
 
       - name: Run dogfood gate
         run: |
-          uv run archex dogfood . --format json > dogfood-output.json
+          uv run archex dogfood . --format json --baseline benchmarks/dogfood_baseline.json > dogfood-output.json
           jq '{baseline_path, tasks, regressions}' dogfood-output.json
 
       - name: Upload dogfood report

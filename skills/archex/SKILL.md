@@ -1,14 +1,66 @@
 ---
 name: archex
-description: Use when an agent needs local-first codebase context, architecture maps, scout/fetch bundles, or archex MCP setup for an existing repository.
-version: 0.1.0
+description: Use when an agent needs local-first codebase context, architecture maps, scout/fetch bundles, grep-result annotation hooks, or archex MCP setup for an existing repository.
+version: 0.2.0
 ---
 
 # archex
 
 ## Overview
 
-archex is a local code-context layer. It indexes the repository, returns structural maps and token-budgeted context bundles, and never requires hosted inference or API keys.
+archex is a local code-context layer. It indexes the repository, annotates search results with the code units they hit, returns structural maps and token-budgeted context bundles, and never requires hosted inference or API keys.
+
+## Surfaces, in order
+
+Pick the first surface the host supports. The order is an investment order, not a substitution chain: the hook cannot answer "where is X implemented" before any search has run, and the CLI is still how you fetch bodies, scout, and check blast radius.
+
+| Order | Surface | What it does | Needs a decision from the agent? |
+| --- | --- | --- | --- |
+| 1 | **Hook** (`archex install-client omp --hooks`, `pi --hooks`) | Annotates the agent's own `grep`/`glob` and bash `rg`/`grep`/`git grep` results | No — it is always on |
+| 2 | **CLI** (`archex scout`, `symbol`, `impact`, `query`) | Location, structure, bodies, blast radius | Yes — the agent must choose to run it |
+| 3 | **MCP** (`archex mcp`) | The same retrieval as tools | Yes, plus a per-request tool-schema cost |
+
+### 1. Hook: annotated search results
+
+On oh-my-pi and Pi, `archex install-client omp --hooks` (or `pi --hooks`) installs an extension that runs after every search-tool call. It leaves the search result byte-for-byte as it was and appends one fact line per indexed code unit the hits fall in:
+
+```text
+[archex receipt] index_revision=e44d3a393e1a units=3
+[archex] src/archex/benchmark/runner.py::clone_at_commit function L196-229 · importers 22
+[archex] src/archex/doctor.py module-level · units 32 · importers 3
+```
+
+Read each line as: qualified name, kind, full line span, and how many files import that file. `module-level` means the hit is outside every function and class. A unit already fully visible in the result gets no line; `+N more units` means the list was capped. Use the lines to decide which hit to open and how much of it to read (`read` with the unit's span, or `archex symbol`), instead of opening every matching file.
+
+No lines means the index is not fresh (stale or edited since indexing), the output format was not recognised, or no hit fell in indexed code. Search results are still complete and exact; nothing was removed. The Claude Code and OpenCode hooks still use the older pattern-based symbol lookup.
+
+### 2. CLI: route by question type
+
+| Question | Use |
+| --- | --- |
+| Exact identifier, literal string, regex, or "every occurrence" | `grep` / `rg`. Completeness matters more than ranking. |
+| "Where is X implemented", "how does Y flow", unfamiliar subsystem | `archex scout . "<question>" --budget 1000 --format json`, then `archex symbol` on the returned handles |
+| Body of a known symbol | `archex symbol . 'symbol:path.py::Name#kind'` rather than reading the whole file |
+| Changing an exported symbol or a widely imported file | `archex impact . --changed-file <path>` first |
+| A broader token-budgeted bundle | `archex query . "<question>" --format xml` |
+
+### 3. MCP: clients without a shell
+
+Use MCP only where the client cannot run the CLI. Install the extra and register the stdio server:
+
+```bash
+uv tool install "archex[mcp]"
+```
+
+```json
+{
+  "mcpServers": {
+    "archex": { "command": "archex", "args": ["mcp"] }
+  }
+}
+```
+
+Fresh sessions advertise two retrieval tools; the rest appear after the first retrieval. For long-running sessions, keep the server warm with `archex mcp --watch --watch-path .`. The full installation and trust contract is in `docs/INSTALLATION_TRUST_CONTRACT.md`.
 
 ## First Use
 
@@ -27,11 +79,9 @@ archex index .
 
 If `index_staleness` is `warning`, run `archex index .` before relying on results. If diagnostics still fail, stop and report the exact `archex doctor` check and message.
 
-For exact install, MCP JSON, Docker, cache, network, freshness, and uninstall semantics, read `docs/INSTALLATION_TRUST_CONTRACT.md`.
-
 ## Scout → Fetch Protocol
 
-Use this for broad or architectural questions.
+Use this for location and structure questions.
 
 1. Scout without code bodies:
 
@@ -74,29 +124,17 @@ bundle = query(
 print(bundle.to_prompt(format="xml"))
 ```
 
-## MCP Wiring
+## Reading Receipts
 
-Install the MCP extra and register the stdio server with the client:
+Every scout and query result carries a receipt. Check `context_complete_reason` before trusting the result:
 
-```bash
-uv tool install "archex[mcp]"
-```
+| Reason | Meaning | Do |
+| --- | --- | --- |
+| `no_candidates` | Retrieval found nothing for these words | Rephrase with the codebase's own identifiers, paths, or error text, or fall back to grep |
+| `low_query_match` | Fewer than half the query's terms occur in what came back; `query_terms_unmatched` lists them | Same: rephrase or grep. Raising the budget returns more of the same mismatch |
+| `stale_index` | The index is behind the checkout | `archex index .` |
 
-```json
-{
-  "mcpServers": {
-    "archex": { "command": "archex", "args": ["mcp"] }
-  }
-}
-```
-
-The full installation and trust contract is in `docs/INSTALLATION_TRUST_CONTRACT.md`.
-
-Optional warm-container or long-running local sessions can keep the MCP server alive with watch mode:
-
-```bash
-archex mcp --watch --watch-path .
-```
+`recommended_next_action: rephrase_query` accompanies both of the first two. archex output is context selection, not proof: verify with read or grep before editing.
 
 ## Quick Reference
 
@@ -104,15 +142,17 @@ archex mcp --watch --watch-path .
 | --- | --- |
 | Trust check | `archex doctor .` |
 | Initialize | `archex init . && archex index .` |
+| Annotate search results (omp/Pi) | `archex install-client omp --hooks` |
 | Scout map | `archex scout . "question" --budget 1000 --format json` |
-| Context bundle | `archex query . "question" --format xml` |
 | Exact symbol body | `archex symbol . 'symbol:path.py::name#kind'` |
+| Blast radius | `archex impact . --changed-file path.py` |
+| Context bundle | `archex query . "question" --format xml` |
 | Architecture guide | `archex onboard .` |
 
 ## Rules
 
 - Use local models only. Do not add hosted embedding providers or API-key dependencies.
-- Prefer scout before reading files for broad questions.
+- Exact strings and "every occurrence" go to grep; location and structure go to scout first.
 - Use exact handles from scout output; do not re-search when a handle already identifies the target.
 - Keep `.archex/` generated and uncommitted.
 - Run `archex doctor .` for troubleshooting before changing configuration.

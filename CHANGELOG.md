@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **`archex annotate`: search hits in, code-unit facts out.** A host-neutral command reads a `grep`, `glob`, or bash `rg`/`grep`/`git grep` result on stdin, maps every `(path, line)` hit to the smallest indexed code unit containing it, and prints one neutral line per distinct unit — qualified name, kind, line span, and the file's importer count — under a receipt header carrying the index revision. A unit whose whole span is already visible gets no line; output is capped at about 30 tokens per line and 300 per call, with excess units collapsed into `+N more units`. A stale or dirty index, an unrecognised format, or any error prints nothing and logs the reason. The parser covers the omp `grep` and `glob` output shapes and bash search output as observed in real omp sessions. The index stores no call edges, so no caller count is shown. `python -m archex.cli.annotate_cmd` is the same command without the full CLI's start-up cost; on this repository's 23,908-chunk index it runs end to end in about 390 ms (p50) and 430–490 ms (p95).
+- **Annotation headroom evidence.** `scripts/annotation_headroom.py` replays real omp search results through the annotation renderer against each repository's current index. Of 12,220 eligible calls across 22 local repositories, 49.2% hit two or more code units (repository-clustered 95% CI 42.8–53.3%) — the calls where an annotation can change which file an agent opens. Annotated calls would add a median of 119 tokens; 22% reach the 300-token cap. Aggregates only, in `benchmarks/evidence/annotation-headroom.json`.
+
+### Changed
+
+- **The omp and Pi hook now annotates the agent's actual search results.** `archex install-client omp --hooks` / `pi --hooks` used to run an archex symbol search on the grep *pattern* and ignore what grep found. The module now sends the tool's own result text to `archex annotate` and appends its lines, for `grep`, `glob`/`find`, and bash commands running `rg`, `grep`, or `git grep`. The patch is a deep copy of the host's content with one text block appended, so the original result reaches the model byte-for-byte; any failure adds nothing. Each search-tool result writes one line to `~/.archex/annotation-ledger.jsonl` (`ARCHEX_ANNOTATION_LEDGER`) recording whether it was eligible and annotated, units, tokens, index freshness, and the reason when nothing was added. Reinstall with `archex install-client omp --hooks` to pick up the new module. The Claude Code `PreToolUse` hook and the OpenCode plugin keep the pattern-based lookup for now.
+- **Surfaces are documented in the order hooks, CLI, MCP.** The `archex` skill and the README lead with the hook — which needs no decision from the agent — then the CLI routed by question type (grep for exact strings and every occurrence; `archex scout` then `archex symbol` for location and structure; `archex impact` before changing an exported symbol), then MCP for clients without a shell. The skill explains how to read annotation lines and receipts reporting `low_query_match` or `no_candidates`. The README no longer describes the hook as zero-cost or as matching MCP retrieval quality.
+
+### Fixed
+
+- **The dogfood workflow passes its baseline.** `archex dogfood` requires `--baseline` and the scheduled workflow called it without one, so every run stopped at the usage error before measuring anything. It now passes `benchmarks/dogfood_baseline.json`. That baseline predates 0.32.0's removal of benchmark-tuned query vocabulary, so the gate currently reports regressions against it (28 on a local run) and exits 1 until the baseline is refreshed.
+
 ## [0.32.0] - 2026-09-28
 
 This release corrects archex's own benchmark numbers downward. Retrieval quality on the checked-in corpus is lower than previously published because the earlier figures were inflated by query vocabulary fitted to the benchmark questions; see the first entry below. Receipts gain new fields and enum values (`query_terms_matched`, `query_terms_unmatched`, `low_query_match`, `freshness_unchecked`, `rephrase_query`), so consumers that validate receipt enums strictly must accept them.
