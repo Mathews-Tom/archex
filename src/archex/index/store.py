@@ -6,6 +6,7 @@ import json
 import logging
 import shutil
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -60,6 +61,19 @@ _DOCUMENTATION_ADR_RECORDS_KEY = "documentation_adr_records"
 _DOCUMENTATION_OWNERSHIP_RECORDS_KEY = "documentation_ownership_records"
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkSpan:
+    """One chunk's line span and symbol identity, without its content."""
+
+    file_path: str
+    start_line: int
+    end_line: int
+    symbol_id: str | None
+    qualified_name: str | None
+    symbol_name: str | None
+    symbol_kind: str | None
 
 
 _CREATE_CHUNKS = """
@@ -812,6 +826,52 @@ class IndexStore:
         placeholders = ",".join("?" for _ in file_paths)
         cur = self._conn.execute(f"{_CHUNK_SELECT} WHERE file_path IN ({placeholders})", file_paths)
         return [_row_to_chunk(row) for row in cur.fetchall()]
+
+    def get_chunk_spans_for_files(self, file_paths: list[str]) -> list[ChunkSpan]:
+        """Line spans and symbol identity of every chunk in ``file_paths``.
+
+        Unlike `get_chunks_for_files`, this reads no chunk content, so it stays
+        cheap on a large index; callers that only map lines to code units
+        (the grep-result annotator) need nothing else.
+        """
+        if not file_paths:
+            return []
+        placeholders = ",".join("?" for _ in file_paths)
+        cur = self._conn.execute(
+            "SELECT file_path, start_line, end_line, symbol_id, qualified_name, symbol_name, "
+            f"symbol_kind FROM chunks WHERE file_path IN ({placeholders}) "
+            "ORDER BY file_path, start_line, end_line, id",
+            file_paths,
+        )
+        return [
+            ChunkSpan(
+                file_path=str(row[0]),
+                start_line=int(row[1]),
+                end_line=int(row[2]),
+                symbol_id=None if row[3] is None else str(row[3]),
+                qualified_name=None if row[4] is None else str(row[4]),
+                symbol_name=None if row[5] is None else str(row[5]),
+                symbol_kind=None if row[6] is None else str(row[6]),
+            )
+            for row in cur.fetchall()
+        ]
+
+    def count_importers(self, file_paths: list[str]) -> dict[str, int]:
+        """Distinct files importing each of ``file_paths``, as `DependencyGraph.imported_by`.
+
+        Counts traversable (non-ambiguous) import edges from another file;
+        a path with no importer is absent from the result.
+        """
+        if not file_paths:
+            return {}
+        placeholders = ",".join("?" for _ in file_paths)
+        cur = self._conn.execute(
+            "SELECT target, COUNT(DISTINCT source) FROM edges "
+            f"WHERE target IN ({placeholders}) AND kind = ? AND confidence != ? "
+            "AND source != target GROUP BY target",
+            [*file_paths, EdgeKind.IMPORTS.value, EdgeConfidence.AMBIGUOUS.value],
+        )
+        return {str(row[0]): int(row[1]) for row in cur.fetchall()}
 
     def get_modules(self) -> list[Module]:
         cur = self._conn.execute("SELECT module_json FROM modules ORDER BY ordinal")
