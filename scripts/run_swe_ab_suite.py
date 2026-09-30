@@ -9,7 +9,7 @@ uv run python scripts/run_swe_ab_suite.py run --plan stage1.json --runtime docke
     --output benchmarks/swe_ab/results/stage1 --work-root /scratch/swe-ab \
     --tasks-root SWE-bench_Pro-os/v2/tasks --omp-dir /opt/omp-linux-x64 \
     --omp-command "/opt/omp/bin/omp" --profile-dir ~/.omp/profiles/swebench/agent \
-    --archex-wheel dist/archex-0.33.0-py3-none-any.whl --uv-binary /opt/uv/uv \
+    --archex-wheel dist/archex-0.34.0-py3-none-any.whl --uv-binary /opt/uv/uv \
     --broker-url http://127.0.0.1:8765 --jobs 4
 
 # No-spend rehearsal against the local stub provider:
