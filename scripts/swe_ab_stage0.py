@@ -31,10 +31,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import shlex
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -68,6 +70,7 @@ from archex.benchmark.swe_ab import (
     validate_swe_ab_directory,
 )
 from archex.client_setup import render_annotation_hook_module
+from archex.integrations.diagnostics import DEFAULT_HOOK_TIMEOUT_SECONDS
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_swe_ab_cell as cell_runner  # noqa: E402 - sibling script, importable only via sys.path
@@ -78,6 +81,55 @@ _SUITE = _ROOT / "scripts" / "run_swe_ab_suite.py"
 _DRY_RUN_PLAN = _ROOT / "benchmarks" / "swe_ab" / "dry-run-plan.json"
 _STUB_SCRIPT = _ROOT / "benchmarks" / "swe_ab" / "stub-script.json"
 _CAMPAIGN_PYTHON = "/opt/archex/venv/bin/python"
+_LATENCY_SAMPLES = 10
+_LATENCY_DRIVER = """
+import json, os, subprocess, sys, time
+python, samples = sys.argv[1], int(sys.argv[2])
+command = ["git", "grep", "-n", "-I", "-w", "-e", "return"]
+hits = subprocess.run(command, capture_output=True, text=True).stdout.splitlines()[:20]
+request = json.dumps({"host": "omp", "tool": "bash", "input": {"command": " ".join(command)},
+                      "text": "\\n".join(hits), "cwd": os.getcwd()})
+env = {**os.environ, "ARCHEX_HOOK_DIAGNOSTICS_LOG": "/dev/null"}
+env.pop("ARCHEX_ANNOTATION_LEDGER", None)
+rows = []
+for _ in range(samples):
+    started = time.monotonic()
+    done = subprocess.run([python, "-m", "archex.integrations.annotate_hook"], input=request,
+                          capture_output=True, text=True, env=env)
+    ms = round((time.monotonic() - started) * 1000)
+    try:
+        record = json.loads(done.stdout)
+    except ValueError:
+        record = {}
+    rows.append({"ms": ms, "annotated": record.get("annotated") is True,
+                 "reason": record.get("reason")})
+print(json.dumps({"hits": len(hits), "rows": rows}))
+"""
+
+
+def annotate_latency(rt: Any, python: str = _CAMPAIGN_PYTHON) -> dict[str, Any]:
+    """Time the annotate entry end to end, as the hook spawns it, on a real multi-hit search.
+
+    Runs inside the container after setup (index fresh, entry pre-warmed), so the numbers are
+    the steady-state cost every agent search pays under this host's emulation, against the
+    hook's wall-clock budget. A call over budget is dropped by the hook and adds nothing.
+    """
+    done = rt.run([python, "-c", _LATENCY_DRIVER, python, str(_LATENCY_SAMPLES)])
+    report = cast("dict[str, Any]", json.loads(done.stdout))
+    rows = cast("list[dict[str, Any]]", report["rows"])
+    latencies = sorted(int(row["ms"]) for row in rows)
+    budget_ms = round(DEFAULT_HOOK_TIMEOUT_SECONDS * 1000)
+    return {
+        "hits": report["hits"],
+        "samples": len(rows),
+        "p50_ms": statistics.median(latencies),
+        "p90_ms": latencies[max(0, math.ceil(0.9 * len(latencies)) - 1)],
+        "max_ms": latencies[-1],
+        "budget_ms": budget_ms,
+        "over_budget": sum(1 for ms in latencies if ms > budget_ms),
+        "annotated": sum(1 for row in rows if row["annotated"]),
+        "reasons": sorted({str(row["reason"]) for row in rows if not row["annotated"]}),
+    }
 
 
 def _check(check_id: str, status: str, detail: str, **data: Any) -> dict[str, Any]:
@@ -427,7 +479,9 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
     }  # fmt: skip
     checks: list[dict[str, Any]] = []
     validity: dict[str, dict[str, bool]] = {}
+    scoring_errors: dict[str, str] = {}
     index_seconds: dict[str, float | None] = {}
+    latency: dict[str, dict[str, Any] | None] = {}
     omp_ok: dict[str, bool] = {}
     timings: dict[str, dict[str, float | str | None]] = {}
     for instance in instances:
@@ -442,14 +496,19 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
         timing: dict[str, float | str | None] = {}
         timings[instance] = timing
         lap = time.monotonic()
-        gold_resolves = cell_runner.score_patch(spec, task_dir / "solution" / "gold_patch.diff")
-        timing["gold_score_seconds"] = round(time.monotonic() - lap, 1)
-        lap = time.monotonic()
-        validity[instance] = {
-            "gold_resolves": gold_resolves,
-            "empty_fails": not cell_runner.score_patch(spec, empty),
-        }
-        timing["empty_score_seconds"] = round(time.monotonic() - lap, 1)
+        try:
+            gold_resolves = cell_runner.score_patch(spec, task_dir / "solution" / "gold_patch.diff")
+            timing["gold_score_seconds"] = round(time.monotonic() - lap, 1)
+            lap = time.monotonic()
+            validity[instance] = {
+                "gold_resolves": gold_resolves,
+                "empty_fails": not cell_runner.score_patch(spec, empty),
+            }
+            timing["empty_score_seconds"] = round(time.monotonic() - lap, 1)
+        except Exception as exc:  # noqa: BLE001 - an unscorable instance is a named failure
+            # Not a validity verdict: the pool excludes only instances whose gold patch does not
+            # resolve or whose empty patch does not fail, so this stops the gate instead.
+            scoring_errors[instance] = repr(exc)[-300:]
         lap = time.monotonic()
         rt = cell_runner.DockerRuntime(spec, mounts=[(args.omp_dir, "/opt/omp")])
         timing["container_start_seconds"] = round(time.monotonic() - lap, 1)
@@ -462,17 +521,32 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
             lap = time.monotonic()
             index_seconds[instance] = cell_runner.index_in_container(spec, rt)
             timing["install_and_index_seconds"] = round(time.monotonic() - lap, 1)
+            latency[instance] = annotate_latency(rt)
         except Exception as exc:  # noqa: BLE001 - reported as a failed check, not raised
-            index_seconds[instance] = None
+            index_seconds.setdefault(instance, None)
+            latency.setdefault(instance, None)
             omp_ok.setdefault(instance, False)
             checks.append(_check(f"container_setup:{instance}", "fail", repr(exc)))
         finally:
             rt.close()
     invalid = [i for i, v in validity.items() if not (v["gold_resolves"] and v["empty_fails"])]
+    source = f"stage0 gold_empty_validity, emulated={is_emulated('docker', platform.machine())}"
+    exclusions = [
+        {
+            "instance_id": instance,
+            "reason": "gold_not_resolved"
+            if not validity[instance]["gold_resolves"]
+            else "empty_not_failing",
+            "source": source,
+        }
+        for instance in invalid
+    ]
     checks.append(_check(
-        "gold_empty_validity", "fail" if invalid else "pass",
-        "gold patch resolves and empty patch fails, per instance (invalid ones leave the pool)",
-        per_instance=validity, excluded=invalid,
+        "gold_empty_validity", "fail" if invalid or scoring_errors else "pass",
+        "gold patch resolves and empty patch fails, per instance (invalid ones leave the pool; "
+        "an instance that could not be scored is an error, not an exclusion)",
+        per_instance=validity, excluded=invalid, exclusions=exclusions,
+        scoring_errors=scoring_errors,
     ))  # fmt: skip
     checks.append(_check(
         "omp_runs_in_container", "pass" if all(omp_ok.values()) else "fail",
@@ -483,6 +557,18 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
         "archex installs into /opt/archex, indexes the checkout to `fresh`, and the annotate "
         "entry pre-warms on a real search hit",
         index_seconds=index_seconds,
+    ))  # fmt: skip
+    slow = [
+        instance
+        for instance, measured in latency.items()
+        if measured is None or measured["p50_ms"] > measured["budget_ms"]
+    ]
+    checks.append(_check(
+        "annotate_latency_in_container", "fail" if slow else "pass",
+        f"steady-state annotate calls on a real search, {_LATENCY_SAMPLES} per instance, end to "
+        "end as the hook spawns them; the median must fit the hook's wall-clock budget, or the "
+        "hook arms drop most annotations (kill criterion 5)",
+        per_instance=latency, over_budget_instances=slow,
     ))  # fmt: skip
     emulated = is_emulated("docker", platform.machine())
     wrong_arch = [i for i, t in timings.items() if t.get("container_arch") != "x86_64"]
@@ -515,6 +601,10 @@ def container_checks_pending(why: str) -> list[dict[str, Any]]:
         _requires_host(check_id, f"{detail}; {why}")
         for check_id, detail in (
             ("gold_empty_validity", "Pro images: gold patch resolves, empty fails"),
+            (
+                "annotate_latency_in_container",
+                "steady-state annotate latency against the hook budget inside a Pro image",
+            ),
             ("omp_runs_in_container", "the omp linux-x64 build inside each Pro image"),
             (
                 "archex_indexes_in_container",

@@ -75,6 +75,7 @@ from archex.benchmark.swe_ab import (
     localize,
     observations,
     omp_argv,
+    out_of_patch_read_tokens_compounded,
     parse_omp_events,
     parse_omp_session,
     provider_endpoint_overridden,
@@ -115,6 +116,7 @@ class CellSpec:
         self.local_repo = Path(str(raw["local_repo"])) if raw.get("local_repo") else None
         self.prompt_file = Path(str(raw["prompt_file"])) if raw.get("prompt_file") else None
         self.gold_patch = Path(str(raw["gold_patch"])) if raw.get("gold_patch") else None
+        self.test_patch = Path(str(raw["test_patch"])) if raw.get("test_patch") else None
         self.archex_python = str(raw.get("archex_python") or sys.executable)
         self.archex_wheel = Path(str(raw["archex_wheel"])) if raw.get("archex_wheel") else None
         self.uv_binary = Path(str(raw["uv_binary"])) if raw.get("uv_binary") else None
@@ -579,7 +581,12 @@ def score_patch(spec: CellSpec, patch: Path) -> bool:
                     "/tmp/replay.patch || patch --fuzz=3 -p1 -i /tmp/replay.patch",
                 ]
             )
-        rt.run(["bash", "/tests/test.sh"], timeout=_VERIFIER_TIMEOUT_SECONDS)
+        try:
+            rt.run(["bash", "/tests/test.sh"], timeout=_VERIFIER_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            # The task's verifier cap is part of scoring: a run past it has not resolved the task.
+            # Raising instead would turn the cell into a harness error and zero its tokens.
+            return False
         reward = rt.run(["cat", "/logs/verifier/reward.txt"], cwd="/").stdout.strip()
         return reward == "1"
     finally:
@@ -675,6 +682,7 @@ def failed_cell(
         tool_calls=0,
         channel_tokens_once=zero,
         channel_tokens_compounded=dict(zero),
+        out_of_patch_read_tokens_compounded=0,
         hook_ledger=HookLedgerSummary(results=0, eligible=0, annotated=0, units=0, tokens=0)
         if spec.arm.hook
         else None,
@@ -785,6 +793,8 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         if sub is not None
     ]
     gold = diff_files(spec.gold_patch.read_text()) if spec.gold_patch else []
+    tests = diff_files(spec.test_patch.read_text()) if spec.test_patch else []
+    repo_prefixes = [rt.repo, "/app", "/testbed"]
     isolation = _isolation(spec, session)
 
     status, reason, detail = CellStatus.OK, None, None
@@ -868,11 +878,14 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         tool_call_mix=dict(sorted(_count(e.tool for e in session.exchanges).items())),
         channel_tokens_once=once,
         channel_tokens_compounded=compounded,
+        out_of_patch_read_tokens_compounded=out_of_patch_read_tokens_compounded(
+            session, [*gold, *tests], repo_prefixes, count_tokens
+        ),
         hook_ledger=summarize_ledger(ledger_rows, after_first_edit) if spec.arm.hook else None,
         archex_cli_calls=len(cli_calls),
         archex_cli_subcommands=dict(sorted(_count(cli_calls).items())),
         isolation=isolation,
-        localization=localize(session, gold, patch_files, [rt.repo, "/app", "/testbed"]),
+        localization=localize(session, gold, patch_files, repo_prefixes),
         patch_sha256=sha256_file(patch_path),
         patch_bytes=patch_path.stat().st_size,
         patch_files=patch_files,
