@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.34.0] - 2026-09-30
+
+This release brings search-result annotation to Claude Code, Codex CLI, and OpenCode. Each host's old hook (the Claude Code `PreToolUse` pattern search, the diagnostics-only Codex `PreToolUse` hook, and the OpenCode pattern-search plugin) is replaced by one that annotates the agent's own search results, and non-search shell calls now exit in about 40 ms. Re-run `archex install-client <host> --hooks` to migrate; on Codex CLI, review the new hook in `/hooks`, since Codex runs a config-file hook only once it is trusted. The release also readies the SWE A/B harness to run on Claude and ChatGPT subscriptions through omp's auth broker; no A/B results exist yet.
 
 ### Added
 

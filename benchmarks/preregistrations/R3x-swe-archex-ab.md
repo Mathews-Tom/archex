@@ -17,7 +17,7 @@ Design source: the approved design `SWE-task A/B of archex surfaces under omp` (
 | --- | --- |
 | Agent | omp `18.4.4` (`OMP_VERSION`), auto-update off, isolated `--profile swebench` with no login store |
 | archex | the release that ships the annotation hook; wheel SHA-256 recorded per cell *(set at freeze)* |
-| Hook module | `render_annotation_hook_module("/opt/archex/venv/bin/python")`, SHA-256 `3ab3ae16cfc52c113c83ce135947f74ac3fec3b9e468f2680e1c79adb0982f46` at archex 0.33.0 + the annotate host-format stack (the `annotate_hook` entry point) *(re-pin at freeze)* |
+| Hook module | `render_annotation_hook_module("/opt/archex/venv/bin/python")`, SHA-256 `3ab3ae16cfc52c113c83ce135947f74ac3fec3b9e468f2680e1c79adb0982f46` at archex 0.34.0 *(re-pin at freeze)* |
 | CLI guide | `benchmarks/swe_ab/cli-guide.md`, SHA-256 `2741251d17a923fbd703eb5adea494fbfa0245f5d842ab38083d6e5a60ee0597` |
 | Models | `anthropic/claude-sonnet-5-5`, `anthropic/claude-opus-5-5`, `openai-codex/gpt-6-sol`, `openai-codex/gpt-6-luna`, as omp selectors; each resolves in the omp 18.4.4 catalog to its own provider (`anthropic` or `openai-codex`) and that provider has an enabled login in omp's `agent.db` (Stage 0 `model_routes_and_logins`, 2026-09-30) |
 | Billing and auth | operator subscriptions via `omp auth-broker`; the container gets `OMP_AUTH_BROKER_URL` and `OMP_AUTH_BROKER_TOKEN` only (*Billing mode and route*) |

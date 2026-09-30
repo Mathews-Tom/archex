@@ -15,7 +15,7 @@ uv run python scripts/swe_ab_stage0.py --output /tmp/stage0.json \
 uv run python scripts/swe_ab_stage0.py --output stage0.json --host \
     --tasks-root SWE-bench_Pro-os/v2/tasks --instances instances.txt \
     --omp-dir /opt/omp-linux-x64 --omp-command /opt/omp/bin/omp \
-    --archex-wheel dist/archex-0.33.0-py3-none-any.whl --uv-binary /opt/uv/uv \
+    --archex-wheel dist/archex-0.34.0-py3-none-any.whl --uv-binary /opt/uv/uv \
     --broker-url http://127.0.0.1:8765 --broker-bind 127.0.0.1:8765
 ```
 
