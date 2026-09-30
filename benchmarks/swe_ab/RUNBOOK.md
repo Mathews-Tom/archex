@@ -147,8 +147,9 @@ The agent container should reach only the broker and the two provider endpoints,
 ## 4. Stage 0 checks (no model spend)
 
 ```bash
-# Instances for the validity check: the frozen Stage 1 sample, one id per line
-printf '%s\n' <instance_id> ... > stage0-instances.txt
+# Frozen Stage 1 draw (seed is a constant in the script) and the ids for the validity check
+uv run python scripts/swe_ab_sample.py --tasks-root "$TASKS" --stage 1 --cost-ceiling <usd> \
+  --plan-out stage1-plan.json --manifest-out stage1-sample.json --instances-out stage0-instances.txt
 
 uv run python scripts/swe_ab_stage0.py --output benchmarks/swe_ab/stage0.json --host \
   --tasks-root "$TASKS" --instances stage0-instances.txt \
@@ -157,6 +158,11 @@ uv run python scripts/swe_ab_stage0.py --output benchmarks/swe_ab/stage0.json --
   --broker-url http://127.0.0.1:8765 --broker-bind 127.0.0.1:8765
 jq '.summary, .gate, [.checks[] | select(.status != "pass") | {id, status, detail}]' benchmarks/swe_ab/stage0.json
 ```
+
+The draw is a pure function of the tasks root, the exclusions and the stage.
+An instance that fails Stage 0 validity (gold patch does not resolve, or the empty patch does not fail) goes into an exclusions file, `{"exclusions": [{"instance_id": ..., "reason": "gold_not_resolved" | "empty_not_failing", "source": ...}]}`, and the sampler is re-run with `--exclusions <file> --force`: each failure is replaced by the next valid instance in its repository's rank order, and a repository that runs out has its shortfall reassigned to the one with the most left.
+Repeat until Stage 0 passes on the whole draw, then keep `stage1-plan.json` and `stage1-sample.json`.
+Stage 2 uses the same exclusions plus `--stage1-plan stage1-plan.json` and refuses a plan that differs from its own Stage 1 recompute.
 
 Without `--host` (or when `docker info` fails) the script runs only the local checks and leaves the container checks `requires_host`:
 
