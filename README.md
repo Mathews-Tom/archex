@@ -18,13 +18,43 @@
 
 **Verified local code context for agents.**
 
-AI coding agents usually start by opening a file, following an import, checking a type definition, and backtracking through the repo until the context window is partly spent before the real task starts. archex does that retrieval and structural expansion up front and returns a ranked, token-budgeted context bundle plus a receipt that records what was included, what was skipped, and whether the bundle is complete enough to act on.
+Coding agents already grep. archex annotates the agent's own search results: after a `grep`, `glob`, or shell `rg`, it appends one line per indexed code unit the hits fall in (name, kind, line span, importers), and leaves the result itself untouched. That runs on omp, Pi, OpenCode, Claude Code, and Codex through opt-in hooks (Cursor gets a diagnostics-only fallback), with the CLI and MCP server available when an agent needs to ask for context explicitly. It is local and deterministic, needs no hosted inference or API key, and fails open: a stale index, an error, or a call past the 0.5 s budget adds nothing. See [Surfaces](#surfaces) for the three ways in, in order of preference.
 
-It runs locally, uses deterministic retrieval and analysis, and does not require hosted inference or an API key. Current capabilities: 26 declared language IDs across `full`, `structured` (markup/config, with a Maven POM dependency-graph plugin), and `chunk-only` tiers; portable index artifacts for team-shared bootstrap; diff-scoped blast-radius analysis with per-symbol risk classification; slimmed `--format json` chunk output with an opt-in `--format toon` encoding; and opt-in, non-blocking search-annotation hooks for oh-my-pi, Pi, OpenCode, Claude Code, and Codex CLI (Cursor gets a diagnostics-only fallback) that append the code units a host's own `grep`/`glob`/shell-search results hit. See the [changelog](CHANGELOG.md) for per-release detail.
+```bash
+uv tool install archex
+archex init                                   # in your repository; builds the index the hook reads
+archex install-client claude-code --hooks     # or: omp, pi, opencode, codex
+```
+
+This is the output of `archex annotate` on this repository's own source, after `rg -n 'TIMEOUT_SECONDS' src/archex` (37 hit lines; trimmed here, the annotation was computed from all of them):
+
+```text
+$ rg -n 'TIMEOUT_SECONDS' src/archex
+src/archex/benchmark/strategies.py:583:_RIPGREP_TIMEOUT_SECONDS = 30
+src/archex/benchmark/strategies.py:623:                timeout=_RIPGREP_TIMEOUT_SECONDS,
+src/archex/benchmark/strategies.py:627:                f"raw_ripgrep timed out after {_RIPGREP_TIMEOUT_SECONDS}s for keyword {keyword!r}"
+src/archex/benchmark/strategies.py:696:            "timeout_seconds": str(_RIPGREP_TIMEOUT_SECONDS),
+... [33 more hit lines elided] ...
+
+[archex receipt] index_revision=f7d01aba5224 units=16
+[archex] src/archex/benchmark/strategies.py module-level · units 118 · importers 33
+[archex] src/archex/benchmark/strategies.py::run_raw_ripgrep function L586-699 · importers 33
+[archex] src/archex/client_setup.py module-level · units 91 · importers 12
+[archex] src/archex/client_setup.py::_render_codex_hook_block function L1485-1502 · importers 12
+[archex] src/archex/integrations/diagnostics.py module-level · units 4 · importers 11
+[archex] src/archex/integrations/diagnostics.py::hook_timeout_seconds function L22-32 · importers 11
+[archex] src/archex/integrations/post_tool_use_annotate.py module-level · units 7 · importers 2
+[archex] src/archex/post_edit/state.py module-level · units 14 · importers 3
+[archex] src/archex/post_edit/state.py::_state_lock function L312-318 · importers 3
+[archex] src/archex/post_edit/impact.py module-level · units 10 · importers 3
+[archex] +6 more units
+```
+
+The first block is ripgrep's output, the second is what archex appends, exactly as printed. Capabilities beyond hooks: 26 declared language IDs across `full`, `structured`, and `chunk-only` tiers; portable index artifacts for team-shared bootstrap; diff-scoped blast-radius analysis; and a receipt-bearing `archex context` bundle. See the [changelog](CHANGELOG.md) for per-release detail, and [What we refuse to claim](#what-we-refuse-to-claim) for what none of this proves.
 
 **Start:** [30-second quickstart](#30-second-quickstart) · [MCP and Claude Code](#mcp-and-claude-code) · [Python API](#python-api) · [Local metrics](docs/LOCAL_METRICS.md) · [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) · [Installation trust contract](docs/INSTALLATION_TRUST_CONTRACT.md) · [Security policy](SECURITY.md)
 
-**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Advanced workflows](#advanced-workflows) · [Installation details](#installation-details) · [Language support](#language-support) · [Development](#development) · [Documentation map](#documentation-map)
+**Quick links:** [Proof bar](#proof-bar) · [Fast paths](#fast-paths) · [What archex returns](#what-archex-returns) · [Use it your way](#use-it-your-way) · [Trust and operations](#trust-and-operations) · [Measured results](#measured-results) · [Advanced workflows](#advanced-workflows) · [Installation details](#installation-details) · [Language support](#language-support) · [What we refuse to claim](#what-we-refuse-to-claim) · [Verify the claims above](#verify-the-claims-above) · [Development](#development) · [Documentation map](#documentation-map)
 
 [![archex explainer](assets/archex-explainer.gif)](assets/archex-explainer.gif)
 
@@ -439,6 +469,15 @@ For the full trust contract, including exact MCP JSON, Docker commands, cache lo
 
 Need another language? Register an adapter via Python entry points. See [System Design](docs/SYSTEM_DESIGN.md) for the extension contract.
 
+## What we refuse to claim
+
+- **No SWE A/B result exists yet.** The harness ([runbook](benchmarks/swe_ab/RUNBOOK.md)) and a draft pre-registration ([R3x](benchmarks/preregistrations/R3x-swe-archex-ab.md)) are committed; nothing has been run through them, so archex makes no claim that hooks, the CLI, or MCP change how often an agent solves a task.
+- **Annotation headroom is not an effect.** [`annotation-headroom.json`](benchmarks/evidence/annotation-headroom.json) (generated 2026-09-29, archex 0.32.0, from local omp session transcripts across 22 measured repositories) reports that 49.22% of 12,220 measured search calls (6,015) hit two or more indexed code units, with a repository-clustered 95% interval of 42.79%–53.28%. The denominator is every measured eligible call, including calls with no hit or with hits only in files that hold no code unit. That measures how often an annotation could change which file an agent opens; it does not measure tokens saved or tasks solved. The same file puts the annotation itself at a median of 119 tokens and p95 294 under a 300-token per-call cap, so an annotation also costs tokens.
+- **Hook latency sits close to its budget.** The hook has a 0.5 s wall-clock guard (`ARCHEX_HOOK_TIMEOUT_SECONDS`). On this repository's index a search call measured p50 419 ms and p95 466 ms over 60 runs; under a machine load average near 17, the OpenCode plugin had 9 of 60 `grep` calls over budget (both in the [changelog](CHANGELOG.md)). A call that runs past the budget is killed and the host's own search result goes through unannotated: it adds nothing, and it never blocks the tool.
+- **Cross-tool token figures are not money.** The comparison figures under [Measured results](#measured-results) count tokens at a fixed recall on named corpora. They are not a price or a bill, and they do not transfer to a different model, tokenizer, or workload.
+
+The list below is what archex is not, for the same reason.
+
 ## What archex is not
 
 - **Not a chatbot** — it emits context bundles; another agent or LLM does the explaining.
@@ -447,6 +486,33 @@ Need another language? Register an adapter via Python entry points. See [System 
 - **Not an LSP replacement** — use LSAP/LSP where compiler-backed type resolution matters; archex packages repository-scale context for agents.
 - **Not a prompt template library** — output is structured retrieval evidence, not prompt prose.
 - **Not a multimodal knowledge-graph builder** — no LLM-driven concept extraction over PDFs, images, or notes, and no persistent cross-session graph artifact; archex indexes source code deterministically to assemble token-budgeted retrieval context, not a browsable knowledge base.
+
+## Verify the claims above
+
+The collect-only, language-count, schema-size, and headroom commands were run against this repository at the commit that carries this README; the `archex init` / `archex annotate` pair is a template to run in your own repository. The full suite takes longer; its pass count and coverage are the badges at the top.
+
+```bash
+# Test count (badge: 5445 passing; 9 more are deselected by default)
+uv run pytest --collect-only -q --no-cov | tail -1        # 5445/5454 tests collected (9 deselected)
+
+# Language count (badge: 26)
+uv run python -c "from archex.languages import LANGUAGE_SUPPORT; print(len(LANGUAGE_SUPPORT))"   # 26
+
+# MCP schema cost (765 tokens for two retrieval schemas, 4,272 for all 20 tools)
+uv run archex mcp-schema-size --format json
+
+# Annotation headroom evidence: read the file, including its denominator and gate
+python3 -c "import json; d = json.load(open('benchmarks/evidence/annotation-headroom.json')); print(d['method']['denominator']); print(d['ambiguous_share']); print(d['gate'])"
+
+# The hook's output on your own repository (the index must be fresh; otherwise it prints nothing)
+archex init
+rg -n 'some_symbol' src | archex annotate --host claude-code --tool Bash --input-json '{"command": "rg -n some_symbol src"}'
+
+# Full suite with coverage (badge: 89.6%)
+uv run pytest
+```
+
+The headroom evidence was computed from private session transcripts, so you can read the file but not regenerate it; the repositories in it are pseudonymized. Coverage and the full pass count come from a full run with coverage enabled; the collect-only line above checks the count without running the suite.
 
 ## Development
 
@@ -475,6 +541,8 @@ Authority chain: README → [System Design](docs/SYSTEM_DESIGN.md) / [archex vs.
 - [Worktree Index Seeding](docs/WORKTREE_INDEX_SEEDING.md) — how a fresh linked worktree bootstraps from a verified same-repository index instead of a full cold build
 - [Language Promotion Gate](docs/LANGUAGE_PROMOTION_GATE.md) — the recall/ranking-stability regression gate every language-tier promotion runs against
 - [Explorer Usability Evidence](docs/EXPLORER_USABILITY_EVIDENCE.md) — the timed orientation paths, browser verification, and offline-export evidence behind `archex explore`
+- [Client Compatibility Matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) — per-client MCP registration, the search-annotation hooks for omp, Pi, OpenCode, Claude Code, and Codex, and what each was verified against
+- [Installation Trust Contract](docs/INSTALLATION_TRUST_CONTRACT.md) — what every installer writes, where, how to remove it, and what the local ledgers record
 - [Compact Orientation Profile](docs/COMPACT_ORIENTATION.md) — the opt-in strict-budget orientation view, its budget and omission-receipt contract, and why the `SessionStart` hook does not carry it
 
 ## License
