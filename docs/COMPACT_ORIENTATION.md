@@ -64,7 +64,7 @@ Control characters cannot be contained by inline escaping, since a newline ends 
 
 ## Why the `SessionStart` hook does not carry it
 
-The Claude Code `SessionStart` hook renders the primer inside a single future bounded by `DEFAULT_HOOK_TIMEOUT_SECONDS` (0.5 s, override with `ARCHEX_HOOK_TIMEOUT`), and a timeout produces **no output at all**. On this repository `render_session_primer` already costs 0.13–0.31 s and building the graph costs a further ~0.46 s, so requesting orientation on that path would reliably blow the deadline and silently suppress the records primer the hook exists to deliver.
+The Claude Code `SessionStart` hook renders the primer inside a single future bounded by `DEFAULT_HOOK_TIMEOUT_SECONDS` (0.5 s, override with `ARCHEX_HOOK_TIMEOUT_SECONDS`), and a timeout produces **no output at all**. On this repository `render_session_primer` already costs 0.13–0.31 s and building the graph costs a further ~0.46 s, so requesting orientation on that path would reliably blow the deadline and silently suppress the records primer the hook exists to deliver.
 
 The hook therefore stays records-only, and orientation is an explicit per-call argument on `archex session prime` and the library. There is no repository-settings or environment switch that turns it on for the hook: a repository can ship its own `.archex/settings.toml`, and a switch deciding whether archex injects repository-derived content into an agent session must not be flippable by that content.
 

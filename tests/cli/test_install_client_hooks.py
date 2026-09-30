@@ -3,30 +3,34 @@ from __future__ import annotations
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from click.testing import CliRunner
 
+from archex.annotate import HOST_TOOLS
 from archex.cli.main import cli
 from archex.client_setup import (
     CodexHookInstallPlan,
     CursorHookInstallPlan,
+    HookAction,
     TsHookInstallPlan,
     build_hook_install_plan,
+    build_post_edit_hook_install_plan,
     build_session_primer_install_plan,
     render_hook_install_preview,
     render_session_primer_install_preview,
     write_hook_install_plan,
+    write_post_edit_hook_install_plan,
     write_session_primer_install_plan,
 )
-from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
-from archex.integrations.hook import HOOK_MATCHER
+from archex.integrations.claude_code_annotate_hook import HOOK_MATCHER
+from archex.integrations.codex_annotate_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 
 if TYPE_CHECKING:
     from typing import Any
-
-    import pytest
 
 
 def _seed_payload() -> dict[str, Any]:
@@ -55,24 +59,6 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _hook_group_has_archex_entry(group: object) -> bool:
-    if not isinstance(group, dict):
-        return False
-    handlers = cast("dict[str, object]", group).get("hooks")
-    if not isinstance(handlers, list):
-        return False
-    for handler in cast("list[object]", handlers):
-        if not isinstance(handler, dict):
-            continue
-        args = cast("dict[str, object]", handler).get("args")
-        if not isinstance(args, list):
-            continue
-        items = cast("list[object]", args)
-        if any(isinstance(item, str) and "archex.integrations.hook" in item for item in items):
-            return True
-    return False
-
-
 def _session_start_group_has_archex_entry(group: object) -> bool:
     if not isinstance(group, dict):
         return False
@@ -89,7 +75,47 @@ def _session_start_group_has_archex_entry(group: object) -> bool:
     )
 
 
-# --- build_hook_install_plan / write_hook_install_plan / render_hook_install_preview ---
+# --- Claude Code PostToolUse search-annotation hook ---
+
+ANNOTATE_MARKER = "archex.integrations.claude_code_annotate_hook"
+LEGACY_MARKER = "archex.integrations.hook"
+POST_EDIT_MARKER = "archex.integrations.post_edit_hook"
+SESSION_MARKER = "archex.integrations.session_hook"
+
+
+def _legacy_pre_tool_use_group() -> dict[str, Any]:
+    """The entry archex <= 0.33 wrote: a PreToolUse pattern-search hook on Glob|Grep."""
+    return {
+        "matcher": "Glob|Grep",
+        "hooks": [{"type": "command", "command": sys.executable, "args": ["-m", LEGACY_MARKER]}],
+    }
+
+
+def _write_claude(repo: Path, action: HookAction) -> Path:
+    return write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action=action))
+
+
+def _handlers_with(payload: dict[str, Any], event: str, marker: str) -> list[dict[str, Any]]:
+    """Every handler under ``hooks.<event>`` whose args carry ``marker``."""
+    found: list[dict[str, Any]] = []
+    for group in payload.get("hooks", {}).get(event, []):
+        for handler in group.get("hooks", []):
+            if any(marker in str(item) for item in handler.get("args", [])):
+                found.append(handler)
+    return found
+
+
+def _group_carries(group: dict[str, Any], marker: str) -> bool:
+    return bool(_handlers_with({"hooks": {"E": [group]}}, "E", marker))
+
+
+def _by_matcher(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(groups, key=lambda group: str(group["matcher"]))
+
+
+def test_claude_hook_matcher_is_the_annotate_cores_claude_search_tools() -> None:
+    assert HOOK_MATCHER == "Bash|Grep|Glob"
+    assert HOOK_MATCHER.split("|") == list(HOST_TOOLS["claude-code"])
 
 
 def test_build_hook_install_plan_project_scope_produces_expected_shape(tmp_path: Path) -> None:
@@ -104,14 +130,14 @@ def test_build_hook_install_plan_project_scope_produces_expected_shape(tmp_path:
     payload = json.loads(target.read_text(encoding="utf-8"))
     assert payload == {
         "hooks": {
-            "PreToolUse": [
+            "PostToolUse": [
                 {
-                    "matcher": HOOK_MATCHER,
+                    "matcher": "Bash|Grep|Glob",
                     "hooks": [
                         {
                             "type": "command",
                             "command": sys.executable,
-                            "args": ["-m", "archex.integrations.hook"],
+                            "args": ["-m", ANNOTATE_MARKER],
                         }
                     ],
                 }
@@ -131,23 +157,74 @@ def test_build_hook_install_plan_user_scope_produces_expected_shape(
     assert plan.scope == "user"
     assert target == tmp_path / ".claude" / "settings.json"
     payload = json.loads(target.read_text(encoding="utf-8"))
-    group = payload["hooks"]["PreToolUse"][0]
+    group = payload["hooks"]["PostToolUse"][0]
     assert group["matcher"] == HOOK_MATCHER
-    assert group["hooks"][0]["args"] == ["-m", "archex.integrations.hook"]
+    assert group["hooks"][0]["args"] == ["-m", ANNOTATE_MARKER]
     assert group["hooks"][0]["command"] == sys.executable
 
 
 def test_write_hook_install_plan_idempotent_on_reinstall(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
+    _write_json(repo / ".claude" / "settings.json", _seed_payload())
 
-    plan = build_hook_install_plan("claude-code", str(repo), action="install")
-    target = write_hook_install_plan(plan)
+    target = _write_claude(repo, "install")
     after_first = target.read_text(encoding="utf-8")
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="install"))
-    after_second = target.read_text(encoding="utf-8")
+    _write_claude(repo, "install")
 
-    assert after_first == after_second
+    assert target.read_text(encoding="utf-8") == after_first
+    assert len(_handlers_with(json.loads(after_first), "PostToolUse", ANNOTATE_MARKER)) == 1
+
+
+def test_install_replaces_the_legacy_pre_tool_use_search_entry(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / ".claude" / "settings.json"
+    foreign_in_legacy_group = {"type": "command", "command": "echo foreign-glob-grep"}
+    legacy = _legacy_pre_tool_use_group()
+    legacy["hooks"].append(foreign_in_legacy_group)
+    seed = _seed_payload()
+    seed["hooks"]["PreToolUse"].append(legacy)
+    _write_json(target, seed)
+
+    _write_claude(repo, "install")
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert _handlers_with(payload, "PreToolUse", LEGACY_MARKER) == []
+    assert payload["hooks"]["PreToolUse"] == [
+        seed["hooks"]["PreToolUse"][0],
+        {"matcher": "Glob|Grep", "hooks": [foreign_in_legacy_group]},
+    ]
+    assert len(_handlers_with(payload, "PostToolUse", ANNOTATE_MARKER)) == 1
+
+
+def test_install_over_only_a_legacy_entry_leaves_no_pre_tool_use_event(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / ".claude" / "settings.json"
+    _write_json(target, {"hooks": {"PreToolUse": [_legacy_pre_tool_use_group()]}})
+
+    _write_claude(repo, "install")
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert set(payload["hooks"]) == {"PostToolUse"}
+
+
+def test_remove_clears_both_the_annotation_and_the_legacy_entry(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / ".claude" / "settings.json"
+    seed = _seed_payload()
+    _write_json(target, seed)
+    _write_claude(repo, "install")
+    # A legacy entry lands next to the new one, as after an old archex ran install again.
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    payload["hooks"]["PreToolUse"].append(_legacy_pre_tool_use_group())
+    _write_json(target, payload)
+
+    _write_claude(repo, "remove")
+
+    assert json.loads(target.read_text(encoding="utf-8")) == seed
 
 
 def test_write_hook_install_plan_preserves_unrelated_content(tmp_path: Path) -> None:
@@ -156,73 +233,55 @@ def test_write_hook_install_plan_preserves_unrelated_content(tmp_path: Path) -> 
     target = repo / ".claude" / "settings.json"
     _write_json(target, _seed_payload())
 
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="install"))
+    _write_claude(repo, "install")
 
     payload = json.loads(target.read_text(encoding="utf-8"))
+    seed = _seed_payload()
     assert payload["otherTopLevelKey"] == "unrelated-value"
-    assert payload["hooks"]["PostToolUse"] == _seed_payload()["hooks"]["PostToolUse"]
-    pre_tool_use = payload["hooks"]["PreToolUse"]
-    assert {
-        "matcher": "Bash",
-        "hooks": [{"type": "command", "command": "echo bash-hook"}],
-    } in pre_tool_use
-    archex_groups = [g for g in pre_tool_use if _hook_group_has_archex_entry(g)]
+    assert payload["hooks"]["PreToolUse"] == seed["hooks"]["PreToolUse"]
+    post_tool_use = payload["hooks"]["PostToolUse"]
+    assert seed["hooks"]["PostToolUse"][0] in post_tool_use
+    archex_groups = [g for g in post_tool_use if _group_carries(g, ANNOTATE_MARKER)]
     assert len(archex_groups) == 1
     assert archex_groups[0]["matcher"] == HOOK_MATCHER
 
 
-def test_write_hook_install_plan_config_assertion_matcher_excludes_read(tmp_path: Path) -> None:
-    """M19 acceptance criterion: the archex hook entry is reachable ONLY from a
-    PreToolUse group matched exactly by Glob|Grep -- never from a group whose
-    matcher includes Read, and never from any other hook event.
+def test_the_annotation_entry_is_reachable_only_from_its_post_tool_use_group(
+    tmp_path: Path,
+) -> None:
+    """The archex entry sits only under PostToolUse, in a group matched by exactly
+    Bash|Grep|Glob, never in a group that matches Read, and never under another event.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
     target = repo / ".claude" / "settings.json"
     seed = _seed_payload()
-    # A pre-existing group that matches Read must never end up carrying the
-    # archex entry.
-    seed["hooks"]["PreToolUse"].append(
+    seed["hooks"]["PostToolUse"].append(
         {"matcher": "Read", "hooks": [{"type": "command", "command": "echo read-hook"}]}
     )
     _write_json(target, seed)
 
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="install"))
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    hooks_root = payload["hooks"]
-    pre_tool_use = hooks_root["PreToolUse"]
+    _write_claude(repo, "install")
 
-    archex_groups = [g for g in pre_tool_use if _hook_group_has_archex_entry(g)]
-    assert len(archex_groups) == 1, "exactly one PreToolUse group should carry the archex entry"
-    archex_group = archex_groups[0]
-
-    # (a) the archex-carrying group's matcher is exactly Glob|Grep, matching Grep
-    # and Glob only, and nothing else.
-    assert HOOK_MATCHER == "Glob|Grep"
-    assert archex_group["matcher"] == HOOK_MATCHER
-
-    # (b) no matcher that includes "Read" ever carries an archex entry.
-    for group in pre_tool_use:
-        if "Read" in str(group["matcher"]):
-            assert not _hook_group_has_archex_entry(group)
-
-    # (c) the archex entry lives only under PreToolUse -- no other hook event
-    # (e.g. the pre-existing PostToolUse) gained an archex entry from install.
+    hooks_root = json.loads(target.read_text(encoding="utf-8"))["hooks"]
     for event_name, groups in hooks_root.items():
-        if event_name == "PreToolUse":
-            continue
         for group in groups:
-            assert not _hook_group_has_archex_entry(group)
+            carries = _group_carries(group, ANNOTATE_MARKER)
+            if event_name == "PostToolUse" and group["matcher"] == HOOK_MATCHER:
+                assert carries
+            else:
+                assert not carries, f"{event_name}/{group['matcher']} must not carry the entry"
+            if "Read" in str(group["matcher"]):
+                assert not carries
 
 
 def test_write_hook_install_plan_remove_reduces_to_empty_object(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    target = repo / ".claude" / "settings.json"
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="install"))
+    target = _write_claude(repo, "install")
     assert target.exists()
 
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="remove"))
+    _write_claude(repo, "remove")
 
     assert json.loads(target.read_text(encoding="utf-8")) == {}
 
@@ -232,17 +291,11 @@ def test_write_hook_install_plan_remove_preserves_unrelated_content(tmp_path: Pa
     repo.mkdir()
     target = repo / ".claude" / "settings.json"
     _write_json(target, _seed_payload())
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="install"))
+    _write_claude(repo, "install")
 
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="remove"))
+    _write_claude(repo, "remove")
 
-    payload = json.loads(target.read_text(encoding="utf-8"))
-    assert payload["otherTopLevelKey"] == "unrelated-value"
-    assert payload["hooks"]["PostToolUse"] == _seed_payload()["hooks"]["PostToolUse"]
-    pre_tool_use = payload["hooks"]["PreToolUse"]
-    assert len(pre_tool_use) == 1
-    assert pre_tool_use[0]["matcher"] == "Bash"
-    assert not any(_hook_group_has_archex_entry(g) for g in pre_tool_use)
+    assert json.loads(target.read_text(encoding="utf-8")) == _seed_payload()
 
 
 def test_write_hook_install_plan_remove_missing_file_is_noop(tmp_path: Path) -> None:
@@ -250,9 +303,7 @@ def test_write_hook_install_plan_remove_missing_file_is_noop(tmp_path: Path) -> 
     repo.mkdir()
     target = repo / ".claude" / "settings.json"
 
-    result_target = write_hook_install_plan(
-        build_hook_install_plan("claude-code", str(repo), action="remove")
-    )
+    result_target = _write_claude(repo, "remove")
 
     assert result_target == target
     assert not target.exists()
@@ -266,9 +317,84 @@ def test_write_hook_install_plan_remove_without_archex_entry_is_noop(tmp_path: P
     _write_json(target, _seed_payload())
     before = target.read_text(encoding="utf-8")
 
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="remove"))
+    _write_claude(repo, "remove")
 
     assert target.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize(
+    "annotation_first", [True, False], ids=["annotation-first", "others-first"]
+)
+def test_the_claude_surfaces_survive_each_others_install_reinstall_and_remove(
+    tmp_path: Path, annotation_first: bool
+) -> None:
+    """Foreign handlers, the post-edit PostToolUse entry, and the SessionStart primer
+    survive the annotation hook's install, reinstall and remove -- and it survives theirs --
+    whichever installs first.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / ".claude" / "settings.json"
+    seed = _seed_payload()
+    foreign_session = {
+        "matcher": "startup",
+        "hooks": [{"type": "command", "command": "echo existing-session-start"}],
+    }
+    seed["hooks"]["SessionStart"] = [foreign_session]
+    _write_json(target, seed)
+    seed_with_legacy = json.loads(target.read_text(encoding="utf-8"))
+    seed_with_legacy["hooks"]["PreToolUse"].append(_legacy_pre_tool_use_group())
+    _write_json(target, seed_with_legacy)
+
+    def install_others() -> None:
+        write_post_edit_hook_install_plan(
+            build_post_edit_hook_install_plan("claude-code", str(repo), action="install")
+        )
+        write_session_primer_install_plan(
+            build_session_primer_install_plan(str(repo), action="install")
+        )
+
+    def assert_others_intact() -> dict[str, Any]:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        assert payload["otherTopLevelKey"] == "unrelated-value"
+        assert payload["hooks"]["PreToolUse"] == seed["hooks"]["PreToolUse"]
+        assert seed["hooks"]["PostToolUse"][0] in payload["hooks"]["PostToolUse"]
+        assert foreign_session in payload["hooks"]["SessionStart"]
+        assert len(_handlers_with(payload, "PostToolUse", POST_EDIT_MARKER)) == 1
+        assert len(_handlers_with(payload, "SessionStart", SESSION_MARKER)) == 1
+        return payload
+
+    if annotation_first:
+        _write_claude(repo, "install")
+        install_others()
+    else:
+        install_others()
+        _write_claude(repo, "install")
+    payload = assert_others_intact()
+    assert len(_handlers_with(payload, "PostToolUse", ANNOTATE_MARKER)) == 1
+    assert _handlers_with(payload, "PreToolUse", LEGACY_MARKER) == []
+
+    # A reinstall converges on the same handlers (group order within an event may move).
+    _write_claude(repo, "install")
+    reinstalled = json.loads(target.read_text(encoding="utf-8"))
+    for event in ("PreToolUse", "PostToolUse", "SessionStart"):
+        assert _by_matcher(reinstalled["hooks"][event]) == _by_matcher(payload["hooks"][event])
+
+    _write_claude(repo, "remove")
+    payload = assert_others_intact()
+    assert _handlers_with(payload, "PostToolUse", ANNOTATE_MARKER) == []
+
+    # The other direction: removing the others leaves a reinstalled annotation hook alone.
+    _write_claude(repo, "install")
+    write_post_edit_hook_install_plan(
+        build_post_edit_hook_install_plan("claude-code", str(repo), action="remove")
+    )
+    write_session_primer_install_plan(build_session_primer_install_plan(str(repo), action="remove"))
+    after = json.loads(target.read_text(encoding="utf-8"))
+    assert len(_handlers_with(after, "PostToolUse", ANNOTATE_MARKER)) == 1
+    assert _handlers_with(after, "PostToolUse", POST_EDIT_MARKER) == []
+    assert after["hooks"]["SessionStart"] == [foreign_session]
+    assert seed["hooks"]["PostToolUse"][0] in after["hooks"]["PostToolUse"]
 
 
 def test_render_hook_install_preview_install_does_not_write(tmp_path: Path) -> None:
@@ -280,6 +406,10 @@ def test_render_hook_install_preview_install_does_not_write(tmp_path: Path) -> N
     preview = render_hook_install_preview(plan)
 
     assert "Install" in preview
+    assert "PostToolUse" in preview
+    assert "Bash|Grep|Glob" in preview
+    assert "retired archex PreToolUse" in preview
+    assert "grep/glob-equivalent" not in preview
     assert not target.exists()
 
 
@@ -287,7 +417,7 @@ def test_render_hook_install_preview_remove_does_not_write(tmp_path: Path) -> No
     repo = tmp_path / "repo"
     repo.mkdir()
     target = repo / ".claude" / "settings.json"
-    write_hook_install_plan(build_hook_install_plan("claude-code", str(repo), action="install"))
+    _write_claude(repo, "install")
     before = target.read_text(encoding="utf-8")
 
     preview = render_hook_install_preview(
@@ -528,15 +658,16 @@ def test_render_hook_install_preview_pi_install_does_not_write(tmp_path: Path) -
     assert not plan.target_path.exists()
 
 
-# --- OpenCode `tool.execute.after` plugin (M22) ---
+# --- OpenCode `tool.execute.after` plugin ---
 #
 # Structurally different from the omp/pi `tool_result` module: OpenCode's
-# hook contract is `(input, output) => Promise<void>` -- it mutates
-# `output.output` in place rather than returning a patch object, and its
-# dispatch table (`ARCHEX_AUGMENTED_TOOLS`) is keyed directly on OpenCode's
-# own native tool ids (`grep`, `glob`), not a `{claudeToolName, field}`
-# translation record, since both tools already carry their query in a field
-# named `pattern`. See `_OPENCODE_HOOK_MODULE_TEMPLATE` in `client_setup.py`.
+# hook contract is `(input, output) => Promise<void>` -- it appends the
+# annotation to `output.output` in place rather than returning a patch
+# object, and its dispatch table (`ANNOTATED_TOOLS`) is keyed directly on
+# OpenCode's own native tool ids (`grep`, `glob`, `bash`). See
+# `_OPENCODE_HOOK_MODULE_TEMPLATE` in `client_setup.py`; the plugin's runtime
+# behaviour is exercised under Bun in
+# `tests/integrations/test_opencode_annotate_plugin.py`.
 
 
 def test_build_hook_install_plan_opencode_project_scope_produces_ts_module_path(
@@ -634,43 +765,40 @@ def test_render_hook_install_preview_opencode_remove_does_not_write(tmp_path: Pa
     assert (repo / ".opencode" / "plugins" / "archex-hook.ts").read_text(encoding="utf-8") == before
 
 
-def _augmented_tools_keys(module_content: str) -> set[str]:
-    """Extract the ``ARCHEX_AUGMENTED_TOOLS`` table's keys from generated
-    OpenCode plugin source.
+def _annotated_tools_keys(module_content: str) -> set[str]:
+    """Extract the ``ANNOTATED_TOOLS`` table's keys from generated OpenCode
+    plugin source.
 
-    Same rationale as ``_query_field_keys`` above: this table is the
-    plugin's *only* tool-name dispatch (no if/else chain on ``input.tool``),
-    so its key set precisely determines which tools are ever touched --
-    stronger than a substring search, which would false-positive on the
-    module's own prose comments quoting the exact tool names/ids that must
-    never match.
+    This table is the plugin's *only* tool-name dispatch (no if/else chain on
+    ``input.tool``), so its key set precisely determines which tools are ever
+    touched -- stronger than a substring search, which would false-positive on
+    the module's own prose comments quoting tool names that must never match.
     """
     match = re.search(
-        r'ARCHEX_AUGMENTED_TOOLS: Readonly<Record<string, "Grep" \| "Glob">> = \{(.*?)\n\};',
+        r"ANNOTATED_TOOLS: Readonly<Record<string, string>> = \{(.*?)\n\};",
         module_content,
         re.DOTALL,
     )
-    assert match is not None, "ARCHEX_AUGMENTED_TOOLS table not found in generated module"
+    assert match is not None, "ANNOTATED_TOOLS table not found in generated module"
     return set(re.findall(r"^\s*(\w+):", match.group(1), re.MULTILINE))
 
 
 def test_opencode_ts_hook_module_native_vs_mcp_tool_routing(tmp_path: Path) -> None:
-    """M22 acceptance criterion (native-vs-MCP routing): the plugin's only
-    tool-name dispatch is ``ARCHEX_AUGMENTED_TOOLS``, keyed exactly on
-    OpenCode's two native search tool ids. OpenCode registers every MCP tool
-    under a mandatory ``{server}_{tool}`` id (confirmed against the
-    installed `opencode-ai` 1.14.33's own MCP tool-registration code), so no
-    realistic MCP-routed id -- including one from archex's own MCP server --
-    can ever collide with this table.
+    """The plugin's only tool-name dispatch is ``ANNOTATED_TOOLS``, keyed exactly
+    on OpenCode's three native search tool ids -- the same set ``archex.annotate``
+    accepts for host ``opencode``. OpenCode registers every MCP tool under a
+    mandatory ``{server}_{tool}`` id, so no realistic MCP-routed id -- including
+    one from archex's own MCP server -- can collide with this table.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
     plan = build_hook_install_plan("opencode", str(repo), action="install")
     assert isinstance(plan, TsHookInstallPlan)
 
-    keys = _augmented_tools_keys(plan.module_content)
+    keys = _annotated_tools_keys(plan.module_content)
 
-    assert keys == {"grep", "glob"}
+    assert keys == {"grep", "glob", "bash"}
+    assert keys == set(HOST_TOOLS["opencode"])
     assert "read" not in keys
     mcp_shaped_ids = {"archex_query_repo", "archex_scout_repo", "github_create_issue"}
     assert keys.isdisjoint(mcp_shaped_ids)
@@ -683,7 +811,8 @@ def test_opencode_ts_hook_module_bakes_in_active_python_interpreter(tmp_path: Pa
     assert isinstance(plan, TsHookInstallPlan)
 
     assert json.dumps(sys.executable) in plan.module_content
-    assert '["-m", "archex.integrations.hook"]' in plan.module_content
+    assert '["-m", "archex.integrations.annotate_hook"]' in plan.module_content
+    assert "archex.integrations.hook" not in plan.module_content
 
 
 def test_opencode_ts_hook_module_registers_exactly_one_tool_execute_after_and_never_before(
@@ -692,7 +821,7 @@ def test_opencode_ts_hook_module_registers_exactly_one_tool_execute_after_and_ne
     """The plugin only ever registers a `tool.execute.after` handler -- it
     never wires `tool.execute.before` (the hook OpenCode's own documented
     subagent-bypass bug affects), and registers no session/agent-type
-    conditional gating that handler, matching the M20 omp/pi module's
+    conditional gating that handler, matching the omp/pi module's
     unconditional-registration precedent.
     """
     repo = tmp_path / "repo"
@@ -705,14 +834,80 @@ def test_opencode_ts_hook_module_registers_exactly_one_tool_execute_after_and_ne
     assert '"tool.execute.before"' not in content
 
 
-# --- Codex CLI diagnostics-only hook (M21) ---
+def test_opencode_hook_install_and_remove_leave_foreign_plugins_alone(tmp_path: Path) -> None:
+    """A foreign plugin -- and archex's own post-edit plugin -- in the same
+    plugin directory survive install, idempotent reinstall, and remove.
+    """
+    repo = tmp_path / "repo"
+    plugins = repo / ".opencode" / "plugins"
+    plugins.mkdir(parents=True)
+    foreign = plugins / "someone-elses-plugin.ts"
+    foreign.write_text("export const Foreign = async () => ({});\n", encoding="utf-8")
+    write_post_edit_hook_install_plan(
+        build_post_edit_hook_install_plan("opencode", str(repo), action="install")
+    )
+    post_edit = plugins / "archex-post-edit-hook.ts"
+    post_edit_text = post_edit.read_text(encoding="utf-8")
+
+    install = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(install, TsHookInstallPlan)
+    target = write_hook_install_plan(install)
+    write_hook_install_plan(install)
+
+    assert target == plugins / "archex-hook.ts"
+    assert target.read_text(encoding="utf-8") == install.module_content
+    assert foreign.read_text(encoding="utf-8") == "export const Foreign = async () => ({});\n"
+    assert post_edit.read_text(encoding="utf-8") == post_edit_text
+
+    write_hook_install_plan(build_hook_install_plan("opencode", str(repo), action="remove"))
+
+    assert not target.exists()
+    assert foreign.read_text(encoding="utf-8") == "export const Foreign = async () => ({});\n"
+    assert post_edit.read_text(encoding="utf-8") == post_edit_text
+
+
+def test_opencode_hooks_install_replaces_the_retired_pattern_search_plugin(tmp_path: Path) -> None:
+    """An older archex wrote the pattern-search plugin to the same file, so a
+    reinstall migrates it in place rather than leaving two behaviours.
+    """
+    repo = tmp_path / "repo"
+    plugins = repo / ".opencode" / "plugins"
+    plugins.mkdir(parents=True)
+    legacy = plugins / "archex-hook.ts"
+    legacy.write_text('const ARCHEX_PYTHON_ARGS = ["-m", "archex.integrations.hook"];\n', "utf-8")
+
+    plan = build_hook_install_plan("opencode", str(repo), action="install")
+    assert isinstance(plan, TsHookInstallPlan)
+    write_hook_install_plan(plan)
+
+    installed = legacy.read_text(encoding="utf-8")
+    assert installed == plan.module_content
+    assert "archex.integrations.hook" not in installed
+    assert "archex.integrations.annotate_hook" in installed
+
+
+# --- Codex CLI PostToolUse search-annotation hook ---
 #
 # Unlike claude-code (a JSON entry merged into settings.json) or omp/pi (a
 # standalone .ts module), Codex's hook lives in the same config.toml the MCP
-# server registration writes to, as a marker-delimited `[[hooks.PreToolUse]]`
-# TOML block. See `archex.integrations.codex_hook` for why this hook is
-# diagnostics-only (Codex has no Grep/Glob-equivalent tool-call event) rather
-# than augmenting like the claude-code/omp/pi hooks above.
+# server registration writes to, as a marker-delimited `[[hooks.PostToolUse]]`
+# TOML block. See `archex.integrations.codex_annotate_hook` for the payload it
+# reads and the context it returns. Install also removes the retired
+# diagnostics-only `[[hooks.PreToolUse]]` block older archex versions wrote.
+
+# Byte-for-byte what `archex install-client codex --hooks` wrote before the
+# annotation hook replaced it.
+LEGACY_CODEX_BLOCK = (
+    "# archex:codex-hook start\n"
+    "[[hooks.PreToolUse]]\n"
+    'matcher = "^Bash$"\n'
+    "\n"
+    "[[hooks.PreToolUse.hooks]]\n"
+    'type = "command"\n'
+    'command = "/venv/bin/python -m archex.integrations.codex_hook"\n'
+    "timeout = 1\n"
+    "# archex:codex-hook end\n"
+)
 
 
 def test_build_hook_install_plan_codex_project_scope_produces_config_toml_path(
@@ -726,7 +921,7 @@ def test_build_hook_install_plan_codex_project_scope_produces_config_toml_path(
     assert isinstance(plan, CodexHookInstallPlan)
     assert plan.target_path == repo / ".codex" / "config.toml"
     assert CODEX_HOOK_MATCHER in plan.block_content
-    assert "archex.integrations.codex_hook" in plan.block_content
+    assert "archex.integrations.codex_annotate_hook" in plan.block_content
 
 
 def test_build_hook_install_plan_codex_user_scope_produces_config_toml_path(
@@ -751,7 +946,8 @@ def test_write_hook_install_plan_codex_writes_toml_block(tmp_path: Path) -> None
     assert target == plan.target_path
     content = target.read_text(encoding="utf-8")
     assert content == plan.block_content
-    assert "[[hooks.PreToolUse]]" in content
+    assert "[[hooks.PostToolUse]]" in content
+    assert "[[hooks.PreToolUse]]" not in content
     assert f'matcher = "{CODEX_HOOK_MATCHER}"' in content
 
 
@@ -785,7 +981,7 @@ def test_write_hook_install_plan_codex_preserves_unrelated_config_toml_content(
 
     content = target_path.read_text(encoding="utf-8")
     assert "[mcp_servers.archex]" in content
-    assert "[[hooks.PreToolUse]]" in content
+    assert "[[hooks.PostToolUse]]" in content
 
 
 def test_write_hook_install_plan_codex_remove_restores_original_content(tmp_path: Path) -> None:
@@ -836,7 +1032,8 @@ def test_render_hook_install_preview_codex_install_does_not_write(tmp_path: Path
     preview = render_hook_install_preview(plan)
 
     assert "Install" in preview
-    assert "diagnostics-only" in preview
+    assert "PostToolUse search-annotation hook" in preview
+    assert "diagnostics-only" not in preview
     assert not plan.target_path.exists()
 
 
@@ -855,12 +1052,9 @@ def test_render_hook_install_preview_codex_remove_does_not_write(tmp_path: Path)
     assert target_path.read_text(encoding="utf-8") == before
 
 
-def test_codex_hook_toml_block_matcher_never_reaches_read(tmp_path: Path) -> None:
-    """M21 acceptance criterion: the installed hook config matches the
-    Grep/Glob-equivalent tool only, never Read. Codex has no Grep/Glob or
-    Read hook at all -- the only tool name this installer ever writes is the
-    literal `^Bash$` matcher, asserted structurally here rather than by
-    inspection.
+def test_codex_hook_toml_block_matches_the_shell_tool_only(tmp_path: Path) -> None:
+    """The installed matcher selects Codex's shell tool (`Bash`) and nothing else:
+    not `apply_patch` (the post-edit hook's tool), MCP tools, or agents.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -869,8 +1063,9 @@ def test_codex_hook_toml_block_matcher_never_reaches_read(tmp_path: Path) -> Non
     assert isinstance(plan, CodexHookInstallPlan)
     matches = re.findall(r'matcher = "([^"]+)"', plan.block_content)
     assert matches == ["^Bash$"]
-    for matcher in matches:
-        assert not re.fullmatch(matcher, "Read")
+    assert re.fullmatch(matches[0], "Bash")
+    for other in ["Read", "Grep", "Glob", "apply_patch", "spawn_agent", "bash", "Bashing"]:
+        assert not re.fullmatch(matches[0], other)
 
 
 def test_codex_hook_toml_block_bakes_in_active_python_interpreter(tmp_path: Path) -> None:
@@ -881,7 +1076,59 @@ def test_codex_hook_toml_block_bakes_in_active_python_interpreter(tmp_path: Path
 
     assert isinstance(plan, CodexHookInstallPlan)
     assert sys.executable in plan.block_content
-    assert "-m archex.integrations.codex_hook" in plan.block_content
+    assert "-m archex.integrations.codex_annotate_hook" in plan.block_content
+
+
+def test_codex_hook_toml_block_is_valid_toml_with_one_post_tool_use_command(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+
+    assert isinstance(plan, CodexHookInstallPlan)
+    parsed = tomllib.loads(plan.block_content)
+
+    assert set(parsed["hooks"]) == {"PostToolUse"}
+    (group,) = parsed["hooks"]["PostToolUse"]
+    assert group["matcher"] == "^Bash$"
+    (handler,) = group["hooks"]
+    assert handler["type"] == "command"
+    assert handler["command"].endswith("-m archex.integrations.codex_annotate_hook")
+    assert handler["timeout"] >= 1
+
+
+def test_codex_install_replaces_the_retired_diagnostics_block(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target_path = repo / ".codex" / "config.toml"
+    target_path.parent.mkdir(parents=True)
+    seed = 'model = "gpt-5"\n'
+    target_path.write_text(seed + "\n" + LEGACY_CODEX_BLOCK, encoding="utf-8")
+
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="install")
+    assert isinstance(plan, CodexHookInstallPlan)
+    write_hook_install_plan(plan)
+
+    content = target_path.read_text(encoding="utf-8")
+    assert "archex.integrations.codex_hook" not in content
+    assert "PreToolUse" not in content
+    assert content == seed + "\n" + plan.block_content
+    assert tomllib.loads(content)["hooks"]["PostToolUse"][0]["matcher"] == "^Bash$"
+
+
+def test_codex_remove_strips_the_retired_diagnostics_block_too(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target_path = repo / ".codex" / "config.toml"
+    target_path.parent.mkdir(parents=True)
+    seed = 'model = "gpt-5"\n'
+    target_path.write_text(seed + "\n" + LEGACY_CODEX_BLOCK, encoding="utf-8")
+
+    plan = build_hook_install_plan("codex", str(repo), scope="project", action="remove")
+    write_hook_install_plan(plan)
+
+    assert target_path.read_text(encoding="utf-8") == seed
 
 
 # --- Cursor beforeSubmitPrompt hook (M23, diagnostics-only) ---
@@ -1085,7 +1332,8 @@ def test_cli_hooks_installs_and_exits_zero(tmp_path: Path, monkeypatch: pytest.M
     target = tmp_path / ".claude" / "settings.json"
     assert target.exists()
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert payload["hooks"]["PreToolUse"][0]["matcher"] == HOOK_MATCHER
+    assert payload["hooks"]["PostToolUse"][0]["matcher"] == HOOK_MATCHER
+    assert "PreToolUse" not in payload["hooks"]
 
 
 def test_cli_hooks_dry_run_previews_without_writing(
@@ -1112,6 +1360,21 @@ def test_cli_remove_hooks_removes_and_exits_zero(
     assert "Removed" in result.output
     target = tmp_path / ".claude" / "settings.json"
     assert json.loads(target.read_text(encoding="utf-8")) == {}
+
+
+def test_cli_hooks_migrates_a_legacy_pre_tool_use_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / ".claude" / "settings.json"
+    _write_json(target, {"hooks": {"PreToolUse": [_legacy_pre_tool_use_group()]}})
+
+    result = CliRunner().invoke(cli, ["install-client", "claude-code", "--hooks"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert set(payload["hooks"]) == {"PostToolUse"}
+    assert _handlers_with(payload, "PostToolUse", ANNOTATE_MARKER)
 
 
 def test_cli_hooks_and_remove_hooks_are_mutually_exclusive(
@@ -1231,7 +1494,7 @@ def test_cli_hooks_installs_codex_and_exits_zero(
     assert "Installed" in result.output
     target = tmp_path / ".codex" / "config.toml"
     assert target.exists()
-    assert "archex.integrations.codex_hook" in target.read_text(encoding="utf-8")
+    assert "archex.integrations.codex_annotate_hook" in target.read_text(encoding="utf-8")
 
 
 def test_cli_hooks_codex_dry_run_previews_without_writing(
@@ -1252,7 +1515,7 @@ def test_cli_remove_hooks_codex_removes_and_exits_zero(
     monkeypatch.setenv("HOME", str(tmp_path))
     CliRunner().invoke(cli, ["install-client", "codex", "--hooks"])
     target = tmp_path / ".codex" / "config.toml"
-    assert "archex.integrations.codex_hook" in target.read_text(encoding="utf-8")
+    assert "archex.integrations.codex_annotate_hook" in target.read_text(encoding="utf-8")
 
     result = CliRunner().invoke(cli, ["install-client", "codex", "--remove-hooks"])
 
@@ -1318,9 +1581,9 @@ def test_cli_hooks_opencode_installed_file_never_targets_read_or_mcp_tool_ids(
     CliRunner().invoke(cli, ["install-client", "opencode", "--hooks"])
     target = tmp_path / ".config" / "opencode" / "plugins" / "archex-hook.ts"
 
-    keys = _augmented_tools_keys(target.read_text(encoding="utf-8"))
+    keys = _annotated_tools_keys(target.read_text(encoding="utf-8"))
 
-    assert keys == {"grep", "glob"}
+    assert keys == {"grep", "glob", "bash"}
     assert "read" not in keys
     mcp_shaped_ids = {"archex_query_repo", "archex_scout_repo", "github_create_issue"}
     assert keys.isdisjoint(mcp_shaped_ids)
@@ -1360,7 +1623,8 @@ def test_opencode_ts_hook_module_subagent_dispatch_reachability(tmp_path: Path) 
     content = plan.module_content
 
     handler_match = re.search(
-        r'"tool\.execute\.after": async \(input, output\) => \{(.*?)\n    \},',
+        r'"tool\.execute\.after": async \(input: ToolInputLike, output: ToolOutputLike\) => \{'
+        r"(.*?)\n    \},",
         content,
         re.DOTALL,
     )

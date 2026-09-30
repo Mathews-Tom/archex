@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
-from archex.integrations.codex_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
+from archex.integrations.claude_code_annotate_hook import HOOK_MATCHER
+from archex.integrations.codex_annotate_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.codex_post_edit_hook import POST_EDIT_MATCHER as CODEX_POST_EDIT_MATCHER
-from archex.integrations.hook import HOOK_MATCHER
 from archex.integrations.mcp import resolve_tool_scope
 from archex.integrations.post_edit_hook import POST_EDIT_MATCHER
 from archex.integrations.session_hook import SESSION_START_MATCHER
@@ -31,10 +31,22 @@ _USER_ONLY_CLIENTS: frozenset[ClientName] = frozenset({"pi", "omp"})
 
 HookAction = Literal["install", "remove"]
 
-#: Substring in a hook handler's ``args`` that identifies it as archex-owned,
-#: so install/remove can find and replace our own entry without disturbing any
-#: other hook the user has configured for the same matcher group.
-_HOOK_ARGS_MARKER = "archex.integrations.hook"
+#: Substring in a Claude Code ``PostToolUse`` handler's ``args`` that
+#: identifies it as the archex search-annotation hook, so install/remove can
+#: find and replace our own entry without disturbing any other hook the user
+#: has configured for the same matcher group.
+_HOOK_ARGS_MARKER = "archex.integrations.claude_code_annotate_hook"
+
+#: Substring in the Codex ``PostToolUse`` hook command that identifies it as the
+#: archex search-annotation hook.
+_CODEX_HOOK_ARGS_MARKER = "archex.integrations.codex_annotate_hook"
+
+#: The retired Claude Code ``PreToolUse`` pattern-search hook. Install and
+#: remove both strip any handler carrying this marker from ``PreToolUse``, so a
+#: settings file written by an older archex converges on the annotation hook.
+_LEGACY_SEARCH_HOOK_ARGS_MARKER = "archex.integrations.hook"
+_LEGACY_SEARCH_HOOK_EVENT = "PreToolUse"
+_LEGACY_SEARCH_HOOK_MATCHER = "Glob|Grep"
 
 #: Substring in a SessionStart handler's ``args`` that identifies it as
 #: archex-owned, so the session-primer installer can preserve existing search
@@ -356,7 +368,11 @@ def render_agent_guidance_preview(agent_file: Path) -> str:
 
 @dataclass(frozen=True)
 class ClaudeCodeHookInstallPlan:
-    """Install or remove the Claude Code PreToolUse hook (M19; claude-code only)."""
+    """Install or remove the Claude Code ``PostToolUse`` search-annotation hook.
+
+    Installing also removes the retired ``PreToolUse`` pattern-search entry;
+    removing removes both (claude-code only).
+    """
 
     client: ClientName
     scope: ClientScope
@@ -376,7 +392,7 @@ class TsHookInstallPlan:
     ``pi.on("tool_result", ...)`` handler returning a content patch);
     opencode uses a structurally different one
     (``_OPENCODE_HOOK_MODULE_TEMPLATE``, a ``tool.execute.after`` plugin
-    that mutates its output argument in place instead).
+    that appends to its output argument's text in place instead).
     """
 
     client: ClientName
@@ -388,17 +404,17 @@ class TsHookInstallPlan:
 
 @dataclass(frozen=True)
 class CodexHookInstallPlan:
-    """Install or remove the Codex CLI diagnostics-only PreToolUse hook (M21).
+    """Install or remove the Codex CLI PostToolUse search-annotation hook.
 
     Unlike the Claude Code hook (a JSON command entry merged into
     ``settings.json``) or the omp/pi hook (a standalone ``.ts`` module), this
     appends a marker-delimited TOML block to the *same* ``config.toml`` the
     MCP server registration already writes to (``_target_path`` for
     ``client == "codex"``), mirroring that file's non-destructive append
-    behavior for a ``[[hooks.PreToolUse]]`` table instead of
-    ``[mcp_servers.archex]``. See ``archex.integrations.codex_hook`` for why
-    this ships a diagnostics-only hook rather than Grep/Glob-scoped
-    augmentation (Codex has no such tool-call event).
+    behavior for a ``[[hooks.PostToolUse]]`` table instead of
+    ``[mcp_servers.archex]``. Install also removes the retired diagnostics-only
+    ``[[hooks.PreToolUse]]`` block. See ``archex.integrations.codex_annotate_hook``
+    for the payload the hook reads and the context it returns.
     """
 
     client: ClientName
@@ -587,7 +603,16 @@ def render_hook_install_preview(plan: HookInstallPlan) -> str:
         f"Client: {plan.client}",
         f"Scope: {plan.scope}",
         f"Target: {plan.target_path}",
-        f"Action: {action_label} PreToolUse hook (matcher: {HOOK_MATCHER!r})",
+        (
+            f"Action: {action_label} PostToolUse search-annotation hook "
+            f"(matcher: {HOOK_MATCHER!r}; appends the indexed code units each hit falls in "
+            "to Bash/Grep/Glob search results) and remove the retired archex PreToolUse "
+            "pattern-search entry"
+            if plan.action == "install"
+            else f"Action: {action_label} the PostToolUse search-annotation hook "
+            f"(matcher: {HOOK_MATCHER!r}) and any retired archex PreToolUse "
+            "pattern-search entry"
+        ),
     ]
     if not changed:
         lines.append(
@@ -637,10 +662,8 @@ def _render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
         f"Client: {plan.client}",
         f"Scope: {plan.scope}",
         f"Target: {target}",
-        (
-            f"Action: {action_label} archex {_ts_hook_event_label(plan.client)} "
-            "(grep/glob-equivalent tools only)"
-        ),
+        f"Action: {action_label} archex {_ts_hook_event_label(plan.client)} "
+        f"({_ts_hook_coverage(plan.client)})",
     ]
     if plan.action == "install":
         lines.append(
@@ -659,6 +682,16 @@ def _render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _ts_hook_coverage(client: ClientName) -> str:
+    """What the installed module acts on, as the preview states it."""
+    if client == "opencode":
+        return (
+            "native grep, glob, and bash search results: appends one line per indexed code unit hit"
+        )
+    finder = "glob" if client == "omp" else "find"
+    return f"grep, {finder}, and bash search results: appends one line per indexed code unit hit"
+
+
 def _render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
     target = plan.target_path
     existing = target.read_text(encoding="utf-8") if target.exists() else ""
@@ -669,8 +702,14 @@ def _render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
         f"Scope: {plan.scope}",
         f"Target: {target}",
         (
-            f"Action: {action_label} PreToolUse hook "
-            f"(matcher: {CODEX_HOOK_MATCHER!r}, diagnostics-only)"
+            f"Action: {action_label} PostToolUse search-annotation hook "
+            f"(matcher: {CODEX_HOOK_MATCHER!r}; appends the indexed code units each hit "
+            "falls in to shell search results) and remove the retired archex PreToolUse "
+            "diagnostics block"
+            if plan.action == "install"
+            else f"Action: {action_label} the PostToolUse search-annotation hook "
+            f"(matcher: {CODEX_HOOK_MATCHER!r}) and any retired archex PreToolUse "
+            "diagnostics block"
         ),
     ]
     if updated == existing:
@@ -739,8 +778,9 @@ def _ts_hook_event_label(client: ClientName) -> str:
     """Preview wording for the two structurally different TS hook shapes.
 
     omp/pi install a `tool_result` handler returning a content patch;
-    opencode installs a `tool.execute.after` plugin that mutates its output
-    argument in place (see `_OPENCODE_HOOK_MODULE_TEMPLATE`).
+    opencode installs a `tool.execute.after` plugin that appends the
+    annotation to its output argument's text in place (see
+    `_OPENCODE_HOOK_MODULE_TEMPLATE`).
     """
     return "tool.execute.after plugin" if client == "opencode" else "tool_result hook module"
 
@@ -781,8 +821,9 @@ _TS_HOOK_MODULE_TEMPLATE = r"""/**
  *   carried over unchanged. `details` and `isError` are never returned.
  * - Search tools only: `grep`, `glob` (oh-my-pi), `find` (Pi), and `bash`.
  *   `archex annotate` decides whether a bash command is a search (`rg`,
- *   `grep`, `git grep`); a bash command that does not even mention one is
- *   not sent. `read` and every other tool are never touched.
+ *   `grep`, `ugrep`, `git grep`, or a path lister such as `find`, `fd`, or
+ *   `git ls-files`); a bash command that mentions none of them is not sent.
+ *   `read` and every other tool are never touched.
  * - Fail open. A stale or dirty index, an unrecognised format, a spawn
  *   failure, a timeout, or any error returns `undefined`, leaving the
  *   original result untouched; faults go to the diagnostics log
@@ -806,17 +847,11 @@ import { dirname, join } from "node:path";
 /** Python interpreter active when `--hooks` ran, so the module always runs
  * archex from the environment it was installed into. */
 const ARCHEX_PYTHON_COMMAND = __ARCHEX_PYTHON_COMMAND__;
-/** The annotate command's own module entry: `archex annotate` through the
- * full CLI imports every subcommand, which alone exceeds the budget. */
-const ARCHEX_ANNOTATE_ARGS = [
-  "-m",
-  "archex.cli.annotate_cmd",
-  "--stdin-json",
-  "--format",
-  "json",
-];
+/** The host-neutral hook entry: it decides whether a call is a search before
+ * importing the index or the tokenizer, and skips the full CLI's imports. */
+const ARCHEX_ANNOTATE_ARGS = ["-m", "archex.integrations.annotate_hook"];
 
-/** Matches `DEFAULT_HOOK_TIMEOUT_SECONDS` in `archex.integrations.hook`. */
+/** Matches `DEFAULT_HOOK_TIMEOUT_SECONDS` in `archex.integrations.diagnostics`. */
 const ARCHEX_DEFAULT_TIMEOUT_MS = 500;
 const ARCHEX_TIMEOUT_ENV_VAR = "ARCHEX_HOOK_TIMEOUT_SECONDS";
 const ARCHEX_DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG";
@@ -833,8 +868,8 @@ const ANNOTATED_TOOLS: Readonly<Record<string, string>> = {
 };
 
 /** Spawn guard only: every command `archex annotate` accepts as a search
- * names `rg` or `grep`, so a command naming neither is never sent. */
-const BASH_SEARCH_MENTION = /rg|grep/;
+ * names one of these programs, so a command naming none is never sent. */
+const BASH_SEARCH_MENTION = /rg|grep|find|bfs|fd|ls-files/;
 
 // --- Minimal structural types for the `tool_result` contract ---
 //
@@ -919,6 +954,7 @@ function recordLedger(
       envPath(ARCHEX_LEDGER_ENV_VAR, join(homedir(), ".archex", "annotation-ledger.jsonl")),
       {
         timestamp: new Date().toISOString(),
+        host: "omp",
         toolCallId: typeof event.toolCallId === "string" ? event.toolCallId : null,
         tool: event.toolName,
         eligible: outcome.eligible,
@@ -935,7 +971,7 @@ function recordLedger(
   }
 }
 
-// --- Subprocess call: `python -m archex.cli.annotate_cmd` ---
+// --- Subprocess call: `python -m archex.integrations.annotate_hook` ---
 
 function timeoutMs(): number {
   const seconds = Number(process.env[ARCHEX_TIMEOUT_ENV_VAR]);
@@ -1075,7 +1111,7 @@ export default function archexHook(pi: HookHost): void {
       if (text === null) return decline("no_text_content");
 
       const cwd = process.cwd();
-      const response = await runAnnotate({ tool, input, text, cwd }, cwd);
+      const response = await runAnnotate({ host: "omp", tool, input, text, cwd }, cwd);
       if ("failure" in response) return decline(response.failure);
       const record = parseRecord(response.stdout);
       if (record === null) {
@@ -1106,68 +1142,50 @@ export default function archexHook(pi: HookHost): void {
 
 
 _OPENCODE_HOOK_MODULE_TEMPLATE = r"""/**
- * archex OpenCode `tool.execute.after` plugin (M22 — OpenCode hook integration).
+ * archex grep-result annotation plugin (OpenCode).
  *
  * Installed by `archex install-client opencode --hooks` (opt-in; never
  * installed by default) as a standalone plugin file OpenCode auto-loads from
  * its native plugin directory -- `.opencode/plugins/archex-hook.ts`
  * (project-local) or `~/.config/opencode/plugins/archex-hook.ts` (global).
- * No `opencode.json` entry is required: per OpenCode's own docs, files in
- * these directories "are automatically loaded at startup."
+ * No `opencode.json` entry is required.
  *
- * Mirrors the oh-my-pi/Pi `tool_result` hook (M20, `_TS_HOOK_MODULE_TEMPLATE`)
- * which this module shells out to unmodified -- no lookup/ranking/freshness
- * logic lives here, only the `python -m archex.integrations.hook` subprocess
- * contract from M19.
+ * On every `tool.execute.after` for a search tool it sends the tool name, the
+ * tool's arguments, and the tool's own output text to
+ * `python -m archex.integrations.annotate_hook` and appends the returned
+ * lines: one fact line per indexed code unit the search hit. Parsing,
+ * resolution, freshness, and caps all live in Python; this module only
+ * gathers inputs and appends output.
  *
  * Contract:
- * - Only OpenCode's native `grep` and `glob` tools are inspected
- *   (`ARCHEX_AUGMENTED_TOOLS`, this module's only tool-name dispatch).
- *   `read` is never touched, and an MCP-routed tool call can never match
- *   this table: OpenCode registers every MCP tool under a mandatory
- *   `{server}_{tool}` id (confirmed against the installed `opencode-ai`
- *   1.14.33's own MCP tool-registration code), so an exact `"grep"`/`"glob"`
- *   collision with an MCP tool id is structurally impossible, not merely
- *   unlikely.
- * - `tool.execute.after`'s contract differs structurally from oh-my-pi/Pi's
- *   `tool_result`: its handler signature is `(input, output) => Promise<void>`
- *   -- it mutates the `output.output` string IN PLACE rather than returning
- *   a patch object. A degraded path (spawn failure, timeout, malformed
- *   subprocess response, or any thrown error) simply returns without
- *   touching `output`, leaving the native tool's own result untouched.
- * - Every path resolves without throwing past this handler. A missing/stale
- *   index, a spawn failure, a timeout, or a malformed subprocess response
- *   all degrade to leaving `output` untouched; failures are appended to the
- *   same diagnostics log the Python subprocess and the M20 TS module use
- *   (`ARCHEX_HOOK_DIAGNOSTICS_LOG` or `~/.archex/hook-diagnostics.log`),
- *   never surfaced to the agent flow.
- * - The lookup runs under the same ~500ms wall-clock budget as the Python
- *   hook's own internal timeout; this module additionally guards the
- *   subprocess call itself so a hung `python` process can never block the
- *   host agent past the budget.
- *
- * Two OpenCode-side reliability gaps this milestone's own tests assert
- * against rather than assume away, both confirmed by reading `opencode-ai`
- * 1.14.33's own tool-resolution source (the version installed during
- * development), not secondary documentation:
- * - MCP tool calls DO trigger `tool.execute.after`, but the hook receives
- *   the tool's raw MCP `CallToolResult` as `output` (a `{content, metadata}`
- *   shape), not the `{title, output, metadata}` shape this type declares --
- *   the text actually sent to the model is rebuilt from `result.content`
- *   AFTER the hook runs, discarding any `output.output` mutation. Moot for
- *   this plugin: its dispatch table never contains an MCP-shaped tool id.
- * - A Task-tool-spawned subagent's own turn is processed by the exact same
- *   tool-resolution code path as a top-level turn (the subagent's prompt
- *   loop is a recursive call into the identical function that built the
- *   top-level session's own tool table), so a subagent-issued `grep`/`glob`
- *   call triggers `tool.execute.after` identically to a top-level one in
- *   the version this was verified against. This module itself makes no
- *   session/agent distinction either way -- see the installer test suite
- *   for the specific structural check and its citation.
+ * - Augment, never replace. `output.output` is only ever reassigned to
+ *   `original + "\n\n" + annotation`, so the host's own text stays a
+ *   byte-for-byte prefix. `output.title`, `output.metadata`, and every field
+ *   this module does not know about are never touched.
+ * - Search tools only: OpenCode's native `grep`, `glob`, and `bash`. `archex
+ *   annotate` decides whether a bash command is a search (`rg`, `grep`,
+ *   `ugrep`, `git grep`, or a path lister such as `find`, `fd`, or `git
+ *   ls-files`); a bash command that mentions none of them is not sent.
+ *   `read` and every other tool are never touched. MCP-routed tool calls
+ *   are excluded on purpose: OpenCode registers every MCP tool under a
+ *   `{server}_{tool}` id, so none can collide with these names, and for MCP
+ *   `tool.execute.after` receives the raw MCP result (a `{content}` shape)
+ *   that OpenCode rebuilds into the model-visible text after the hook runs,
+ *   discarding any `output.output` mutation (`session/prompt.ts`, v1.14.33).
+ * - Fail open. A stale or dirty index, an unrecognised format, a spawn
+ *   failure, a timeout, or any error leaves `output` untouched; faults go to
+ *   the diagnostics log (`ARCHEX_HOOK_DIAGNOSTICS_LOG` or
+ *   `~/.archex/hook-diagnostics.log`), never to the agent flow.
+ * - Bounded. The subprocess runs under the hook budget
+ *   (`ARCHEX_HOOK_TIMEOUT_SECONDS`, default 0.5s) and is killed past it.
+ * - Ledger. One JSONL line per search-tool call
+ *   (`ARCHEX_ANNOTATION_LEDGER` or `~/.archex/annotation-ledger.jsonl`), with
+ *   OpenCode's `callID` as `toolCallId`: whether the call was eligible and
+ *   annotated, the units and tokens added, the index freshness, and the
+ *   reason when nothing was added.
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
-import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -1175,121 +1193,201 @@ import { dirname, join } from "node:path";
 
 // --- Baked in at install time (`archex install-client opencode --hooks`) ---
 
-/** Python interpreter active when `--hooks` ran -- mirrors the Claude Code
- * JSON hook's `command`, so this always runs in the same environment archex
- * was installed into. */
+/** Python interpreter active when `--hooks` ran, so the plugin always runs
+ * archex from the environment it was installed into. */
 const ARCHEX_PYTHON_COMMAND = __ARCHEX_PYTHON_COMMAND__;
-const ARCHEX_PYTHON_ARGS = ["-m", "archex.integrations.hook"];
+/** The host-neutral hook entry: it decides whether a call is a search before
+ * importing the index or the tokenizer, and skips the full CLI's imports. */
+const ARCHEX_ANNOTATE_ARGS = ["-m", "archex.integrations.annotate_hook"];
 
-/** Matches `DEFAULT_HOOK_TIMEOUT_SECONDS` in `archex.integrations.hook`. */
-const ARCHEX_HOOK_TIMEOUT_MS = 500;
-
+/** Matches `DEFAULT_HOOK_TIMEOUT_SECONDS` in `archex.integrations.diagnostics`. */
+const ARCHEX_DEFAULT_TIMEOUT_MS = 500;
+const ARCHEX_TIMEOUT_ENV_VAR = "ARCHEX_HOOK_TIMEOUT_SECONDS";
 const ARCHEX_DIAGNOSTICS_LOG_ENV_VAR = "ARCHEX_HOOK_DIAGNOSTICS_LOG";
+const ARCHEX_LEDGER_ENV_VAR = "ARCHEX_ANNOTATION_LEDGER";
 
-// --- OpenCode native tool id -> archex subprocess Claude-shape tool_name ---
-//
-// OpenCode's `grep` and `glob` tools both carry their query pattern in an
-// `args.pattern` field (confirmed against the bundled tool definitions) --
-// both translate directly onto the subprocess's existing
-// `{"tool_name": "Grep"|"Glob", "tool_input": {"pattern": ...}}` contract.
-// This table is this module's *only* tool-name dispatch: `read`, every
-// other native tool, and every MCP-routed tool id fall through unmatched.
-const ARCHEX_AUGMENTED_TOOLS: Readonly<Record<string, "Grep" | "Glob">> = {
-  grep: "Grep",
-  glob: "Glob",
+/** OpenCode tool id -> the tool name `archex.annotate` expects for host
+ * `opencode`. This table is the plugin's only tool dispatch. */
+const ANNOTATED_TOOLS: Readonly<Record<string, string>> = {
+  grep: "grep",
+  glob: "glob",
+  bash: "bash",
 };
 
-// --- Diagnostics (parity with hook.py's `log_diagnostic`) ---
+/** Spawn guard only: every command `archex annotate` accepts as a search
+ * names one of these programs, so a command naming none is never sent. */
+const BASH_SEARCH_MENTION = /rg|grep|find|bfs|fd|ls-files/;
+
+// --- Minimal structural types for `tool.execute.after` ---
+//
+// The hook's public types omit fields OpenCode adds at runtime, so only the
+// members this module reads are declared, and defensively.
+
+interface ToolInputLike {
+  tool?: unknown;
+  callID?: unknown;
+  args?: unknown;
+}
+
+interface ToolOutputLike {
+  output?: unknown;
+}
+
+interface AnnotateRecord {
+  annotation: string;
+  eligible: boolean;
+  annotated: boolean;
+  units_hit: number;
+  tokens: number;
+  freshness: string;
+  reason: string | null;
+}
+
+interface Outcome {
+  eligible: boolean;
+  annotated: boolean;
+  units: number;
+  tokens: number;
+  freshness: string;
+  reason: string | null;
+  latencyMs: number;
+}
+
+// --- Diagnostics and ledger ---
+
+function envPath(name: string, fallback: string): string {
+  const override = process.env[name];
+  return override && override.trim().length > 0 ? override : fallback;
+}
+
+function appendJsonLine(path: string, entry: Record<string, unknown>): void {
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, `${JSON.stringify(entry)}\n`, "utf-8");
+}
 
 function logDiagnostic(kind: string, detail: string, cwd?: string): void {
   try {
-    const override = process.env[ARCHEX_DIAGNOSTICS_LOG_ENV_VAR];
-    const path = override && override.trim().length > 0
-      ? override
-      : join(homedir(), ".archex", "hook-diagnostics.log");
-    mkdirSync(dirname(path), { recursive: true });
     const entry: Record<string, string> = {
       timestamp: new Date().toISOString(),
       kind,
       detail,
     };
     if (cwd) entry.cwd = cwd;
-    appendFileSync(path, `${JSON.stringify(entry)}\n`, "utf-8");
+    appendJsonLine(
+      envPath(ARCHEX_DIAGNOSTICS_LOG_ENV_VAR, join(homedir(), ".archex", "hook-diagnostics.log")),
+      entry,
+    );
   } catch {
     // Diagnostics logging must never raise into the hook's return path.
   }
 }
 
-// --- Subprocess call: `python -m archex.integrations.hook` ---
-
-function runArchexHookSubprocess(
-  payload: Record<string, unknown>,
-  cwd: string,
-): Promise<string | null> {
-  const { promise, resolve } = Promise.withResolvers<string | null>();
-  let settled = false;
-  const finish = (value: string | null): void => {
-    if (settled) return;
-    settled = true;
-    resolve(value);
-  };
-
-  let child: ChildProcess;
+function recordLedger(input: ToolInputLike, outcome: Outcome): void {
   try {
-    child = spawn(ARCHEX_PYTHON_COMMAND, ARCHEX_PYTHON_ARGS, {
-      cwd,
-      stdio: ["pipe", "pipe", "ignore"],
-    });
+    appendJsonLine(
+      envPath(ARCHEX_LEDGER_ENV_VAR, join(homedir(), ".archex", "annotation-ledger.jsonl")),
+      {
+        timestamp: new Date().toISOString(),
+        host: "opencode",
+        toolCallId: typeof input.callID === "string" ? input.callID : null,
+        tool: typeof input.tool === "string" ? input.tool : null,
+        eligible: outcome.eligible,
+        annotated: outcome.annotated,
+        units: outcome.units,
+        tokens: outcome.tokens,
+        freshness: outcome.freshness,
+        reason: outcome.reason,
+        latency_ms: Math.round(outcome.latencyMs),
+      },
+    );
   } catch (err) {
-    logDiagnostic("ts_spawn_error", String(err), cwd);
-    finish(null);
-    return promise;
+    logDiagnostic("ts_ledger_error", String(err));
   }
-
-  const timer = setTimeout(() => {
-    logDiagnostic("ts_timeout", `lookup exceeded ${ARCHEX_HOOK_TIMEOUT_MS}ms`, cwd);
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // Already exited.
-    }
-    finish(null);
-  }, ARCHEX_HOOK_TIMEOUT_MS);
-
-  let stdout = "";
-  child.stdout?.on("data", (chunk: Buffer) => {
-    stdout += chunk.toString("utf-8");
-  });
-  child.on("error", (err) => {
-    clearTimeout(timer);
-    logDiagnostic("ts_spawn_error", String(err), cwd);
-    finish(null);
-  });
-  child.on("close", () => {
-    clearTimeout(timer);
-    finish(stdout.length > 0 ? stdout : null);
-  });
-
-  try {
-    child.stdin?.write(JSON.stringify(payload));
-    child.stdin?.end();
-  } catch (err) {
-    clearTimeout(timer);
-    logDiagnostic("ts_stdin_error", String(err), cwd);
-    finish(null);
-  }
-
-  return promise;
 }
 
-function extractAdditionalContext(rawStdout: string): string | null {
+// --- Subprocess call: `python -m archex.integrations.annotate_hook` ---
+
+function timeoutMs(): number {
+  const seconds = Number(process.env[ARCHEX_TIMEOUT_ENV_VAR]);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : ARCHEX_DEFAULT_TIMEOUT_MS;
+}
+
+type SubprocessOutcome = { stdout: string } | { failure: string };
+
+function runAnnotate(request: Record<string, unknown>, cwd: string): Promise<SubprocessOutcome> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: SubprocessOutcome): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(ARCHEX_PYTHON_COMMAND, ARCHEX_ANNOTATE_ARGS, {
+        cwd,
+        stdio: ["pipe", "pipe", "ignore"],
+      });
+    } catch (err) {
+      logDiagnostic("ts_spawn_error", String(err), cwd);
+      finish({ failure: "spawn_error" });
+      return;
+    }
+
+    const budget = timeoutMs();
+    const timer = setTimeout(() => {
+      logDiagnostic("ts_timeout", `annotate exceeded ${budget}ms`, cwd);
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Already exited.
+      }
+      finish({ failure: "timeout" });
+    }, budget);
+
+    let stdout = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf-8");
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      logDiagnostic("ts_spawn_error", String(err), cwd);
+      finish({ failure: "spawn_error" });
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      finish(stdout.length > 0 ? { stdout } : { failure: "no_output" });
+    });
+
+    try {
+      child.stdin?.write(JSON.stringify(request));
+      child.stdin?.end();
+    } catch (err) {
+      clearTimeout(timer);
+      logDiagnostic("ts_stdin_error", String(err), cwd);
+      finish({ failure: "stdin_error" });
+    }
+  });
+}
+
+function parseRecord(stdout: string): AnnotateRecord | null {
   try {
-    const parsed: unknown = JSON.parse(rawStdout);
+    const parsed: unknown = JSON.parse(stdout);
     if (typeof parsed !== "object" || parsed === null) return null;
-    const hookSpecificOutput = (parsed as Record<string, unknown>).hookSpecificOutput;
-    if (typeof hookSpecificOutput !== "object" || hookSpecificOutput === null) return null;
-    const context = (hookSpecificOutput as Record<string, unknown>).additionalContext;
-    return typeof context === "string" && context.length > 0 ? context : null;
+    const record = parsed as Record<string, unknown>;
+    if (typeof record.annotation !== "string" || typeof record.annotated !== "boolean") {
+      return null;
+    }
+    return {
+      annotation: record.annotation,
+      eligible: record.eligible === true,
+      annotated: record.annotated,
+      units_hit: typeof record.units_hit === "number" ? record.units_hit : 0,
+      tokens: typeof record.tokens === "number" ? record.tokens : 0,
+      freshness: typeof record.freshness === "string" ? record.freshness : "unknown",
+      reason: typeof record.reason === "string" ? record.reason : null,
+    };
   } catch {
     return null;
   }
@@ -1299,27 +1397,66 @@ function extractAdditionalContext(rawStdout: string): string | null {
 
 export const ArchexHookPlugin: Plugin = async ({ directory }) => {
   return {
-    "tool.execute.after": async (input, output) => {
+    "tool.execute.after": async (input: ToolInputLike, output: ToolOutputLike) => {
+      const tool = typeof input?.tool === "string" ? ANNOTATED_TOOLS[input.tool] : undefined;
+      if (tool === undefined) return; // never touches `read`, an MCP tool, or any other tool
+      const started = Date.now();
+      const outcome: Outcome = {
+        eligible: true,
+        annotated: false,
+        units: 0,
+        tokens: 0,
+        freshness: "unchecked",
+        reason: null,
+        latencyMs: 0,
+      };
+      const decline = (reason: string): void => {
+        outcome.reason = reason;
+        outcome.latencyMs = Date.now() - started;
+        recordLedger(input, outcome);
+      };
       try {
-        const claudeToolName = ARCHEX_AUGMENTED_TOOLS[input.tool];
-        if (!claudeToolName) return; // never "read", never an MCP-routed tool
+        const args = input.args;
+        if (typeof args !== "object" || args === null || Array.isArray(args)) {
+          return decline("malformed_input");
+        }
+        if (tool === "bash") {
+          const command = (args as Record<string, unknown>).command;
+          if (typeof command !== "string" || !BASH_SEARCH_MENTION.test(command)) {
+            outcome.eligible = false;
+            return decline("not_search_command");
+          }
+        }
+        const text = output?.output;
+        if (typeof text !== "string") return decline("malformed_output");
 
-        const args = (input.args ?? {}) as Record<string, unknown>;
-        const pattern = args.pattern;
-        if (typeof pattern !== "string" || pattern.trim().length === 0) return;
-
-        const rawStdout = await runArchexHookSubprocess(
-          { tool_name: claudeToolName, tool_input: { pattern }, cwd: directory },
-          directory,
+        const cwd =
+          typeof directory === "string" && directory.length > 0 ? directory : process.cwd();
+        const response = await runAnnotate(
+          { host: "opencode", tool, input: args, text, cwd },
+          cwd,
         );
-        if (rawStdout === null) return;
+        if ("failure" in response) return decline(response.failure);
+        const record = parseRecord(response.stdout);
+        if (record === null) {
+          logDiagnostic("ts_malformed_response", response.stdout.slice(0, 200), cwd);
+          return decline("malformed_response");
+        }
+        outcome.eligible = record.eligible;
+        outcome.units = record.units_hit;
+        outcome.freshness = record.freshness;
+        if (!record.annotated || record.annotation.length === 0) {
+          return decline(record.reason ?? "not_annotated");
+        }
 
-        const context = extractAdditionalContext(rawStdout);
-        if (context === null) return;
-
-        output.output = `${output.output}\n\n${context}`;
+        output.output = `${text}\n\n${record.annotation}`;
+        outcome.annotated = true;
+        outcome.tokens = record.tokens;
+        outcome.latencyMs = Date.now() - started;
+        recordLedger(input, outcome);
       } catch (err) {
         logDiagnostic("ts_internal_error", String(err));
+        decline("internal_error");
       }
     },
   };
@@ -1331,23 +1468,33 @@ export const ArchexHookPlugin: Plugin = async ({ directory }) => {
 #: ``config.toml`` -- lets install/remove find and replace exactly the block
 #: this installer wrote (and nothing else a user configured in the same
 #: file) without parsing/re-serializing TOML.
-_CODEX_HOOK_BLOCK_START = "# archex:codex-hook start"
-_CODEX_HOOK_BLOCK_END = "# archex:codex-hook end"
+_CODEX_HOOK_BLOCK_START = "# archex:codex-annotate-hook start"
+_CODEX_HOOK_BLOCK_END = "# archex:codex-annotate-hook end"
+
+#: Markers of the retired diagnostics-only ``PreToolUse`` block. It is stripped
+#: on install and remove so an upgrade leaves exactly one archex search hook.
+_CODEX_LEGACY_HOOK_BLOCK_START = "# archex:codex-hook start"
+_CODEX_LEGACY_HOOK_BLOCK_END = "# archex:codex-hook end"
+
+#: Codex kills a hook command after this many seconds. The hook enforces its own
+#: 0.5 s budget (``ARCHEX_HOOK_TIMEOUT_SECONDS``); this is only the outer bound,
+#: and Codex clamps it to at least one second.
+_CODEX_HOOK_TIMEOUT_SECONDS = 2
 
 
 def _render_codex_hook_block() -> str:
-    command = f"{sys.executable} -m archex.integrations.codex_hook"
+    command = f"{sys.executable} -m {_CODEX_HOOK_ARGS_MARKER}"
     return (
         "\n".join(
             [
                 _CODEX_HOOK_BLOCK_START,
-                "[[hooks.PreToolUse]]",
+                "[[hooks.PostToolUse]]",
                 f'matcher = "{CODEX_HOOK_MATCHER}"',
                 "",
-                "[[hooks.PreToolUse.hooks]]",
+                "[[hooks.PostToolUse.hooks]]",
                 'type = "command"',
                 f'command = "{command}"',
-                "timeout = 1",
+                f"timeout = {_CODEX_HOOK_TIMEOUT_SECONDS}",
                 _CODEX_HOOK_BLOCK_END,
             ]
         )
@@ -1355,33 +1502,71 @@ def _render_codex_hook_block() -> str:
     )
 
 
-def _strip_codex_hook_block(existing: str) -> str:
-    start = existing.find(_CODEX_HOOK_BLOCK_START)
+def _marked_block_span(existing: str, start_marker: str, end_marker: str) -> tuple[int, int] | None:
+    """Where one marker-delimited block sits, including its trailing newline."""
+    start = existing.find(start_marker)
     if start == -1:
-        return existing
-    end = existing.find(_CODEX_HOOK_BLOCK_END, start)
+        return None
+    end = existing.find(end_marker, start)
     if end == -1:
-        return existing  # malformed marker pair -- leave untouched rather than guess
-    end += len(_CODEX_HOOK_BLOCK_END)
+        return None  # malformed marker pair -- leave untouched rather than guess
+    end += len(end_marker)
     if end < len(existing) and existing[end] == "\n":
         end += 1
-    before, after = existing[:start], existing[end:]
-    # `_render_codex_hook_block`/`_apply_codex_hook_block` always separate a
-    # freshly appended block from prior content with exactly one blank line
-    # -- strip that same separator back out so a strip+re-add round-trips
-    # byte-for-byte (idempotent reinstall, and a clean `remove`).
+    return start, end
+
+
+def _strip_marked_toml_block(existing: str, start_marker: str, end_marker: str) -> str:
+    """Remove one marker-delimited block, restoring the bytes around it."""
+    span = _marked_block_span(existing, start_marker, end_marker)
+    if span is None:
+        return existing
+    before, after = existing[: span[0]], existing[span[1] :]
+    # The block renderers always separate a freshly appended block from prior
+    # content with exactly one blank line -- strip that same separator back out
+    # so a strip+re-add round-trips byte-for-byte (idempotent reinstall, and a
+    # clean `remove`).
     if before.endswith("\n\n"):
         before = before[:-1]
     return before + after
 
 
+def _strip_codex_hook_block(existing: str) -> str:
+    """Remove the annotation hook block and the retired diagnostics-only block."""
+    without_legacy = _strip_marked_toml_block(
+        existing, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
+    )
+    return _strip_marked_toml_block(without_legacy, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
+
+
+def _upsert_marked_toml_block(existing: str, block: str, start_marker: str, end_marker: str) -> str:
+    """Replace a marker-delimited block where it sits, or append it after other content."""
+    span = _marked_block_span(existing, start_marker, end_marker)
+    if span is not None:
+        return existing[: span[0]] + block + existing[span[1] :]
+    if not existing.strip():
+        return block
+    return existing.rstrip("\n") + "\n\n" + block
+
+
 def _apply_codex_hook_block(existing: str, plan: CodexHookInstallPlan) -> str:
-    without_block = _strip_codex_hook_block(existing)
     if plan.action == "remove":
-        return without_block
-    if not without_block.strip():
-        return plan.block_content
-    return without_block.rstrip("\n") + "\n\n" + plan.block_content
+        return _strip_codex_hook_block(existing)
+    # A block is replaced where it sits (the annotation block on a reinstall,
+    # else the retired one on an upgrade), so neighbouring archex blocks never
+    # reorder; only a first install appends.
+    own = _marked_block_span(existing, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
+    legacy = _marked_block_span(
+        existing, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
+    )
+    if own is None and legacy is not None:
+        return existing[: legacy[0]] + plan.block_content + existing[legacy[1] :]
+    upserted = _upsert_marked_toml_block(
+        existing, plan.block_content, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END
+    )
+    return _strip_marked_toml_block(
+        upserted, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
+    )
 
 
 #: Substring in a Cursor hook entry's ``command`` string that identifies it
@@ -1566,15 +1751,28 @@ def _apply_claude_event_hook_action(
 def _apply_hook_action(
     payload: dict[str, object], plan: ClaudeCodeHookInstallPlan
 ) -> tuple[dict[str, object], bool]:
-    """Merge one owned PreToolUse search handler into Claude Code settings."""
-    return _apply_claude_event_hook_action(
+    """Merge the owned PostToolUse annotation handler into Claude Code settings.
+
+    The retired archex ``PreToolUse`` pattern-search handler is stripped first
+    on every action, so install replaces it and remove clears both.
+    """
+    without_legacy, _ = _apply_claude_event_hook_action(
         payload,
-        event="PreToolUse",
+        event=_LEGACY_SEARCH_HOOK_EVENT,
+        marker=_LEGACY_SEARCH_HOOK_ARGS_MARKER,
+        matcher=_LEGACY_SEARCH_HOOK_MATCHER,
+        hook_entry=plan.hook_entry,
+        action="remove",
+    )
+    updated, _ = _apply_claude_event_hook_action(
+        without_legacy,
+        event="PostToolUse",
         marker=_HOOK_ARGS_MARKER,
         matcher=HOOK_MATCHER,
         hook_entry=plan.hook_entry,
         action=plan.action,
     )
+    return updated, updated != payload
 
 
 def _apply_session_primer_action(
@@ -1792,8 +1990,8 @@ def _tested_status(client: ClientName) -> str:
 # R21 — post-edit impact hooks
 #
 # A separate, independently installable and removable surface from the
-# PreToolUse search hook above. It owns its own event, its own ownership
-# marker, and its own module filename on every client, so installing or
+# PostToolUse search-annotation hook above. It owns its own ownership
+# marker and its own module filename on every client, so installing or
 # removing one never disturbs the other.
 #
 # Client dispositions are evidence-based, not aspirational:
@@ -1805,8 +2003,9 @@ def _tested_status(client: ClientName) -> str:
 # ---------------------------------------------------------------------------
 
 #: Substring in a PostToolUse handler's ``args`` identifying it as the
-#: archex post-edit hook. Distinct from ``_HOOK_ARGS_MARKER`` (and not a
-#: superstring of it), so the two installers cannot strip each other.
+#: archex post-edit hook. Distinct from ``_HOOK_ARGS_MARKER`` and from
+#: ``_LEGACY_SEARCH_HOOK_ARGS_MARKER`` (and not a superstring of either), so
+#: the installers cannot strip each other.
 _POST_EDIT_ARGS_MARKER = "archex.integrations.post_edit_hook"
 _CODEX_POST_EDIT_ARGS_MARKER = "archex.integrations.codex_post_edit_hook"
 
@@ -1846,7 +2045,7 @@ class CodexPostEditHookInstallPlan:
     """Install or remove the Codex CLI PostToolUse post-edit hook (R21).
 
     Appends a marker-delimited ``[[hooks.PostToolUse]]`` block to the same
-    ``config.toml`` the MCP registration and the M21 ``PreToolUse`` block
+    ``config.toml`` the MCP registration and the search-annotation block
     already write to, using its own marker pair so the three coexist.
     """
 
@@ -2051,28 +2250,17 @@ def _render_codex_post_edit_block() -> str:
 
 
 def _strip_codex_post_edit_block(existing: str) -> str:
-    start = existing.find(_CODEX_POST_EDIT_BLOCK_START)
-    if start == -1:
-        return existing
-    end = existing.find(_CODEX_POST_EDIT_BLOCK_END, start)
-    if end == -1:
-        return existing  # malformed marker pair -- leave untouched rather than guess
-    end += len(_CODEX_POST_EDIT_BLOCK_END)
-    if end < len(existing) and existing[end] == "\n":
-        end += 1
-    before, after = existing[:start], existing[end:]
-    if before.endswith("\n\n"):
-        before = before[:-1]
-    return before + after
+    return _strip_marked_toml_block(
+        existing, _CODEX_POST_EDIT_BLOCK_START, _CODEX_POST_EDIT_BLOCK_END
+    )
 
 
 def _apply_codex_post_edit_block(existing: str, plan: CodexPostEditHookInstallPlan) -> str:
-    without_block = _strip_codex_post_edit_block(existing)
     if plan.action == "remove":
-        return without_block
-    if not without_block.strip():
-        return plan.block_content
-    return without_block.rstrip("\n") + "\n\n" + plan.block_content
+        return _strip_codex_post_edit_block(existing)
+    return _upsert_marked_toml_block(
+        existing, plan.block_content, _CODEX_POST_EDIT_BLOCK_START, _CODEX_POST_EDIT_BLOCK_END
+    )
 
 
 def _ts_post_edit_module_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:

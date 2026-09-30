@@ -1,8 +1,8 @@
 """Codex CLI `PostToolUse` hook: bounded post-edit impact feedback (R21).
 
-Unlike M21's `PreToolUse` adapter, which had to ship diagnostics-only
-because Codex has no Grep/Glob-equivalent tool-call event to scope
-augmentation to, the post-edit event is fully supported. Verified against
+Unlike the search-annotation hook (`codex_annotate_hook`), which reads a
+shell command's output, the post-edit event names the edited paths itself.
+Verified against
 `openai/codex@main`, not secondary docs:
 
 - `codex-rs/hooks/src/schema.rs` declares `HookEventNameWire::PostToolUse`.
@@ -34,7 +34,7 @@ import os
 import sys
 from typing import Any, cast
 
-from archex.integrations.hook import log_diagnostic
+from archex.integrations.diagnostics import log_diagnostic
 from archex.integrations.post_edit_hook import POST_EDIT_EVENT_NAME, run_post_edit_cycle
 
 #: Codex's canonical serialized tool name for file edits.

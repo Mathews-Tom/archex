@@ -340,8 +340,12 @@ archex parses code structurally using tree-sitter — no regex, no heuristics, n
 | **Kotlin**                  | `.kt`, `.kts`                | Classes, objects, functions, properties, extensions, companions              | Package imports, alias imports                      |
 | **C#**                      | `.cs`                        | Classes, structs, interfaces, enums, methods, properties, events             | `using` directives, namespace-qualified resolution  |
 | **Swift**                   | `.swift`                     | Classes, structs, enums, protocols, actors, extensions, functions            | `import` declarations                               |
+| **C / C++**                 | `.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.hh`, `.hpp`, `.hxx` | Functions, structs, classes, enums, namespaces, templates (C++)      | `#include` directives                               |
+| **PHP**                     | `.php`                       | Classes, interfaces, traits, functions, methods                              | `use` and `namespace` declarations                  |
+| **Ruby**                    | `.rb`                        | Classes, modules, methods                                                    | `require`, `require_relative`                       |
+| **Scala**                   | `.scala`, `.sc`              | Classes, objects, traits, functions                                          | `import` declarations                               |
 
-Adapters are extensible via Python entry points — add a new language without modifying archex core.
+Beyond these `full`-tier languages, archex declares 26 language IDs in total: a `structured` tier (HTML, XML, YAML, Markdown, CSS) with outline and cross-file reference edges, and a `chunk-only` tier (Lua, Bash/Shell, SQL, TOML, JSON, Solidity) with AST chunking and retrieval but no symbol or import graph claim. The README's [Language support](../README.md#language-support) table has the tier definitions. Adapters are extensible via Python entry points — add a new language without modifying archex core.
 
 ---
 
@@ -439,7 +443,11 @@ print(bundle.to_prompt(format="xml"))
 }
 ```
 
-Your agent now has access to `analyze_repo`, `scout_repo`, `query_repo`, `compare_repos`, file/symbol precision tools, and graph exploration tools.
+A fresh session advertises only the two retrieval entry points, `context` and `query_repo`; after the first retrieval the server exposes all 20 tools — `analyze_repo`, `scout_repo`, `compare_repos`, file/symbol precision tools, graph exploration tools, and session records. `archex mcp-schema-size` reports the schema cost of each surface.
+
+### Hooks: no tool for the agent to choose
+
+Hosts with a shell can skip both the CLI and MCP schemas. `archex install-client <host> --hooks` (hosts: `omp`, `pi`, `opencode`, `claude-code`, `codex`) installs an opt-in, non-blocking hook that runs `archex annotate` on the agent's own `grep`/`glob`/shell-search results and appends one line per enclosing code unit (name, kind, span, importers), leaving the original result unchanged. Cursor has no matching tool-call hook and gets a diagnostics-only fallback. Every call is logged to `~/.archex/annotation-ledger.jsonl`. See the [compatibility matrix](CLIENT_COMPATIBILITY_MATRIX.md) for per-host contracts.
 
 ---
 
@@ -451,7 +459,7 @@ Your agent now has access to `analyze_repo`, `scout_repo`, `query_repo`, `compar
 │          │   │          │   │          │   │          │   │          │
 │ git clone│   │tree-sitter│   │ BM25     │   │ Leiden  │   │ArchProfile│
 │ local    │   │ AST walk │   │ Vector   │   │ Patterns │   │ Context  │
-│ discover │   │25 langs  │   │ Dep Graph│   │ Interfaces│   │ Compare  │
+│ discover │   │26 langs  │   │ Dep Graph│   │ Interfaces│   │ Compare  │
 └──────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
                                     │
                               ┌─────┴─────┐

@@ -1,11 +1,12 @@
 """Annotate an agent's own search results with the indexed code units they hit.
 
 Host-neutral core of the grep-result annotation hook. A host adapter (the
-omp/Pi extension module, or a user at a shell via `archex annotate`) passes
-the tool name, the tool's input, and the tool's model-facing result text.
-This module parses the hits out of that text, maps every ``(path, line)`` hit
-to the smallest indexed code unit containing it, and renders one fact line per
-distinct unit:
+omp/Pi extension module, the Claude Code and Codex hooks, the OpenCode plugin,
+or a user at a shell via `archex annotate`) passes the host, the tool name as
+that host's hook reports it, the tool's input, and the tool's result text.
+This module decides whether the call is a search at all, parses the hits out
+of that text, maps every ``(path, line)`` hit to the smallest indexed code
+unit containing it, and renders one fact line per distinct unit:
 
     [archex] src/pkg/service.py::Service.authenticate method L120-168 · importers 2
 
@@ -35,20 +36,30 @@ import re
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
-
-from archex.index.store import IndexStore
-from archex.receipt import index_revision_from_store
-from archex.reporting import count_tokens
-from archex.status import inspect_index_freshness
+from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
     from archex.index.store import ChunkSpan
 
-AnnotateTool = Literal["grep", "glob", "find", "bash"]
-ANNOTATE_TOOLS: tuple[AnnotateTool, ...] = ("grep", "glob", "find", "bash")
+# The index store, the tokenizer, and the freshness check are imported where
+# they are used: deciding that a call is not a search must stay cheap, because
+# hosts that can only hook their shell tool run this for every shell command.
+
+AnnotateHost = Literal["omp", "claude-code", "codex", "opencode"]
+ANNOTATE_HOSTS: tuple[AnnotateHost, ...] = ("omp", "claude-code", "codex", "opencode")
+
+_ToolKind = Literal["omp-grep", "omp-glob", "shell", "claude-grep", "opencode-grep", "path-list"]
+
+#: Each host's search tools, named as its hook payload names them, and the
+#: result shape each one produces. Pi's `find` shares omp's glob output.
+HOST_TOOLS: dict[AnnotateHost, dict[str, _ToolKind]] = {
+    "omp": {"grep": "omp-grep", "glob": "omp-glob", "find": "omp-glob", "bash": "shell"},
+    "claude-code": {"Bash": "shell", "Grep": "claude-grep", "Glob": "path-list"},
+    "codex": {"Bash": "shell"},
+    "opencode": {"bash": "shell", "grep": "opencode-grep", "glob": "path-list"},
+}
 
 MAX_LINE_TOKENS = 30
 MAX_CALL_TOKENS = 300
@@ -74,22 +85,83 @@ _GREP_NO_MATCHES = "No matches found"
 _GLOB_NO_MATCHES = "No files found matching pattern"
 _PATH_GLOB_CHARS = re.compile(r"[*?\[{]")
 
-# --- bash search output ---
+# --- shell search output (every host's shell tool) ---
+#
+# Derived from Claude Code, Codex, and omp session transcripts and from
+# payloads recorded at a Claude Code PostToolUse hook; shapes are the same
+# whichever host ran the command.
 #
 # plain:    `path:line:text` matches, `path-line-text` context (rg -n,
-#           grep -rn, git grep -n)
+#           grep -rn, git grep -n, and the ugrep Claude Code embeds as `grep`)
+# one file: `line:text` / `line-text` with no path, when grep/rg/ugrep search
+#           a single file operand (`grep -n x src/a.py`, `rg -n x src/a.py`)
+# files:    one path per line from `find` (bfs in Claude Code), `fd`,
+#           `rg --files`, `git ls-files`, and `-l` / `--files-with-matches`
 # grouped:  a condensed view seen in omp bash results (which component
 #           produced it is not pinned): a "grep: 6 matches in 2 files" line,
 #           then per file a "path:" line and indented "  315: text" entries
-# empty:    the omp bash tool prints "(no output)" when a search matched nothing
+# empty:    omp and OpenCode print "(no output)" when a search matched nothing
 _PATH_LINE_MATCH = re.compile(r"^(?P<path>[^:\n]+):(?P<line>\d+):")
 _PATH_LINE_CONTEXT = re.compile(r"^(?P<path>.+?)-(?P<line>\d+)-")
+_LINE_ENTRY = re.compile(r"^(?P<line>\d+)(?P<sep>[:-])")
 _GROUPED_SUMMARY = re.compile(r"^\S+: \d+ match(?:es)? in \d+ files?$")
 _GROUPED_FILE = re.compile(r"^(?P<path>\S[^:]*):$")
 _GROUPED_ENTRY = re.compile(r"^\s+(?P<line>\d+)(?P<sep>[:-]) ")
 _BASH_NO_OUTPUT = "(no output)"
-_SEARCH_PROGRAMS = frozenset({"rg", "grep", "egrep", "fgrep"})
 _SHELL_OPERATORS = frozenset({"|", "||", "&&", ";", "&", ";;", "(", ")", "|&"})
+_SHELLS = frozenset({"bash", "sh", "zsh"})
+
+#: Line searchers, each with its short options that take a value.
+_SEARCHERS: dict[str, str] = {
+    "grep": "efmABCdD",
+    "egrep": "efmABCdD",
+    "fgrep": "efmABCdD",
+    "ugrep": "efmABCdDgtJKMNO",
+    "ug": "efmABCdDgtJKMNO",
+    "rg": "efmABCdEgjMrtT",
+    "git grep": "efmABC",
+}
+#: Long options (across the searchers) whose value may be the next token.
+_LONG_WITH_VALUE = frozenset(
+    {
+        "--regexp", "--file", "--max-count", "--after-context", "--before-context",
+        "--context", "--include", "--exclude", "--exclude-dir", "--exclude-from",
+        "--label", "--devices", "--directories", "--binary-files", "--glob", "--iglob",
+        "--type", "--type-not", "--type-add", "--type-clear", "--max-depth", "--replace",
+        "--encoding", "--max-columns", "--threads", "--sort", "--sortr", "--pre",
+        "--pre-glob", "--max-filesize", "--ignore-file", "--path-separator", "--engine",
+        "--context-separator", "--field-match-separator", "--field-context-separator",
+    }
+)  # fmt: skip
+_PATTERN_OPTIONS = frozenset({"e", "f", "--regexp", "--file"})
+_FILES_OUTPUT_OPTIONS: dict[str, frozenset[str]] = {
+    "rg": frozenset({"l", "--files", "--files-with-matches", "--files-without-match"}),
+    "git grep": frozenset(
+        {"l", "L", "--name-only", "--files-with-matches", "--files-without-match"}
+    ),
+}
+_DEFAULT_FILES_OUTPUT = frozenset({"l", "L", "--files-with-matches", "--files-without-match"})
+_NO_HIT_OUTPUT_OPTIONS = frozenset({"c", "q", "--count", "--count-matches", "--quiet"})
+#: Programs whose whole output is a path list.
+_FINDERS = frozenset({"find", "bfs", "fd", "fdfind", "git ls-files"})
+
+# --- Claude Code and OpenCode search tools ---
+#
+# Claude Code Grep (recorded PostToolUse payloads): `tool_response.content` in
+#   content mode is ripgrep's `path:line:text` (or `line:text` when `path` is
+#   one file); in files_with_matches mode the adapter forwards
+#   `tool_response.filenames`, one per line. Glob forwards `filenames` too.
+# OpenCode grep (packages/opencode/src/tool/grep.ts, v1.14.33): a
+#   "Found N matches" line, then per file an absolute "path:" line and
+#   "  Line N: text" entries; "No files found" when nothing matched.
+# OpenCode glob: absolute paths, one per line, or "No files found".
+# OpenCode bash appends a "<bash_metadata>" block and may prefix a
+#   "...output truncated..." notice; both are stripped before parsing.
+_LIST_HEADER = re.compile(r"^Found \d+ (?:files?|matches?)\b")
+_NO_FILES = "No files found"
+_OPENCODE_ENTRY = re.compile(r"^\s+Line (?P<line>\d+): ")
+_OPENCODE_METADATA = re.compile(r"\n*<bash_metadata>.*?</bash_metadata>\s*$", re.DOTALL)
+_OPENCODE_TRUNCATED = re.compile(r"^\.\.\.output truncated\.\.\.\n\nFull output saved to: .*\n\n")
 
 
 @dataclass
@@ -170,16 +242,72 @@ def _decline(
     )
 
 
-# --- Parsing ---------------------------------------------------------------
+# --- Classification ------------------------------------------------------------
 
 
-def bash_search_base(command: str) -> str | None:
-    """Directory a bash search command runs in, or `None` if it is not a search.
+@dataclass(frozen=True)
+class ShellSearch:
+    """What a shell command's output will look like, if the command is a search.
 
-    A search is a command whose first program is `rg`, `grep`/`egrep`/`fgrep`,
-    or `git grep`, optionally after one leading ``cd <dir> &&``. The returned
-    string is that directory ("" when there is none), against which printed
-    relative paths resolve.
+    ``base_dir`` is the directory of a leading ``cd <dir> &&`` ("" when there
+    is none); ``output`` is ``lines`` for line searchers and ``files`` for path
+    listings; ``operands`` are the search's path operands, which name the file
+    when a single-file search prints bare ``line:text`` entries.
+    """
+
+    program: str
+    base_dir: str
+    output: Literal["lines", "files"]
+    operands: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SearchCall:
+    """A tool call that is a search on its host, and how to read its result."""
+
+    host: AnnotateHost
+    kind: _ToolKind
+    shell: ShellSearch | None = None
+    workdir: str = ""
+
+
+def _scan_search_args(args: list[str], value_options: str) -> tuple[set[str], list[str]]:
+    """Split a searcher's arguments into option names and operands."""
+    options: set[str] = set()
+    operands: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        index += 1
+        if token == "--":
+            operands.extend(args[index:])
+            break
+        if token.startswith("--"):
+            name = token.split("=", 1)[0]
+            options.add(name)
+            if "=" not in token and name in _LONG_WITH_VALUE:
+                index += 1
+            continue
+        if token.startswith("-") and len(token) > 1:
+            for position, letter in enumerate(token[1:], start=1):
+                options.add(letter)
+                if letter in value_options:
+                    if position == len(token) - 1:
+                        index += 1
+                    break
+            continue
+        operands.append(token)
+    return options, operands
+
+
+def parse_shell_search(command: str) -> ShellSearch | None:
+    """How a shell command's output reads, or `None` if it is not a search.
+
+    A search is a command whose first program is a line searcher (`rg`,
+    `grep`/`egrep`/`fgrep`, `ugrep`, `git grep`) or a path lister (`find`,
+    `bfs`, `fd`, `git ls-files`), optionally after one leading
+    ``cd <dir> &&``. Counting (`-c`) and quiet (`-q`) searches print no hits,
+    so they are not searches here.
     """
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
@@ -199,11 +327,62 @@ def bash_search_base(command: str) -> str | None:
     if not first:
         return None
     program = os.path.basename(first[0])
-    if program in _SEARCH_PROGRAMS:
-        return base
-    if program == "git" and len(first) > 1 and first[1] == "grep":
-        return base
+    args = first[1:]
+    if program == "git" and args and args[0] in ("grep", "ls-files"):
+        program = f"git {args[0]}"
+        args = args[1:]
+    if program in _FINDERS:
+        return ShellSearch(program, base, "files")
+    value_options = _SEARCHERS.get(program)
+    if value_options is None:
+        return None
+    options, operands = _scan_search_args(args, value_options)
+    if options & _NO_HIT_OUTPUT_OPTIONS:
+        return None
+    if options & _FILES_OUTPUT_OPTIONS.get(program, _DEFAULT_FILES_OUTPUT):
+        return ShellSearch(program, base, "files")
+    if operands and not options & _PATTERN_OPTIONS:
+        operands = operands[1:]
+    return ShellSearch(program, base, "lines", tuple(operands))
+
+
+def _shell_command(tool_input: Mapping[str, object]) -> str | None:
+    """The command a shell tool ran: a string, or an argv list (Codex `shell`)."""
+    raw = tool_input.get("command")
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        argv = [part for part in cast("list[object]", raw) if isinstance(part, str)]
+        if not argv or len(argv) != len(cast("list[object]", raw)):
+            return None
+        if len(argv) == 3 and os.path.basename(argv[0]) in _SHELLS and argv[1] in ("-c", "-lc"):
+            return argv[2]
+        return shlex.join(argv)
     return None
+
+
+def classify_call(host: str, tool: str, tool_input: Mapping[str, object]) -> SearchCall | str:
+    """Whether a tool call is a search on its host, or the reason it is not.
+
+    Reads only the tool name and input; never the result, the index, or the
+    tokenizer, so a hook can use it to exit early on every other call.
+    """
+    if host not in HOST_TOOLS:
+        return "unsupported_host"
+    kind = HOST_TOOLS[host].get(tool)
+    if kind is None:
+        return "unsupported_tool"
+    if kind != "shell":
+        return SearchCall(host, kind)
+    command = _shell_command(tool_input)
+    shell = None if command is None else parse_shell_search(command)
+    if shell is None:
+        return "not_search_command"
+    workdir = tool_input.get("workdir")
+    return SearchCall(host, kind, shell=shell, workdir=workdir if isinstance(workdir, str) else "")
+
+
+# --- Parsing ---------------------------------------------------------------
 
 
 def _single_input_path(tool_input: Mapping[str, object]) -> str | None:
@@ -308,60 +487,162 @@ def _parse_grouped(lines: list[str]) -> list[_FileHits]:
     return [hits for hits in files.values() if hits.matches]
 
 
+def _parse_line_entries(lines: list[str], path: str) -> _FileHits | None:
+    """A one-file search's `line:text` / `line-text` entries; `None` off-shape."""
+    hits = _FileHits(path)
+    for raw in lines:
+        if not raw.strip() or raw == "--":
+            continue
+        entry = _LINE_ENTRY.match(raw)
+        if entry is None:
+            return None
+        line_no = int(entry.group("line"))
+        hits.visible.add(line_no)
+        if entry.group("sep") == ":":
+            hits.matches.append(line_no)
+    return hits if hits.visible else None
+
+
+def _parse_path_list(lines: list[str]) -> list[_FileHits]:
+    """One path per line; count headers, "No files found", and notes are skipped."""
+    files: dict[str, _FileHits] = {}
+    for raw in lines:
+        name = raw.strip()
+        if (
+            not name
+            or name == _NO_FILES
+            or name.startswith("(")
+            or name.endswith("/")
+            or _LIST_HEADER.match(name)
+        ):
+            continue
+        files.setdefault(name, _FileHits(name))
+    return list(files.values())
+
+
+def _parse_opencode_grep(lines: list[str]) -> list[_FileHits]:
+    files: dict[str, _FileHits] = {}
+    current: _FileHits | None = None
+    for raw in lines:
+        entry = _OPENCODE_ENTRY.match(raw)
+        if entry is not None:
+            if current is not None:
+                line_no = int(entry.group("line"))
+                current.matches.append(line_no)
+                current.visible.add(line_no)
+            continue
+        header = _GROUPED_FILE.match(raw)
+        if header is not None:
+            current = files.setdefault(header.group("path"), _FileHits(header.group("path")))
+    return [hits for hits in files.values() if hits.matches]
+
+
+def _parse_lines_result(
+    lines: list[str], first: str, single_path: str | None, base: str
+) -> ParsedSearch | str:
+    """Hits from `path:line:` output, or from a one-file search's `line:` output."""
+    if single_path is not None:
+        single = _parse_line_entries(lines, single_path)
+        if single is not None:
+            return ParsedSearch("line-numbered", "lines", (single,), base_dir=base)
+    files = _parse_path_line(lines)
+    if not files:
+        return "unrecognized_format" if first else "no_hits"
+    return ParsedSearch("path-line", "lines", tuple(files), base_dir=base)
+
+
+def _parse_shell(call: SearchCall, shell: ShellSearch, text: str) -> ParsedSearch | str:
+    if call.host == "opencode":
+        text = _OPENCODE_METADATA.sub("", _OPENCODE_TRUNCATED.sub("", text))
+    base = os.path.join(call.workdir, shell.base_dir) if call.workdir else shell.base_dir
+    lines = text.split("\n")
+    first = next((line.strip() for line in lines if line.strip()), "")
+    if first == _BASH_NO_OUTPUT:
+        return ParsedSearch("path-line", "lines", (), base_dir=base)
+    if shell.output == "files":
+        return ParsedSearch("path-list", "files", tuple(_parse_path_list(lines)), base_dir=base)
+    if _GROUPED_SUMMARY.match(first):
+        start = next(index for index, line in enumerate(lines) if line.strip() == first)
+        grouped = _parse_grouped(lines[start:])
+        return ParsedSearch("grouped", "lines", tuple(grouped), base_dir=base)
+    single_path = shell.operands[0] if len(shell.operands) == 1 else None
+    return _parse_lines_result(lines, first, single_path, base)
+
+
+def _parse_omp_grep(tool_input: Mapping[str, object], lines: list[str]) -> ParsedSearch | str:
+    first = next((line for line in lines if line.strip()), "")
+    if first.strip() == _GREP_NO_MATCHES:
+        return ParsedSearch("omp-grep", "lines", ())
+    if _TREE_HEADER.match(first):
+        tree = _parse_omp_tree(lines, entries="lines")
+        if tree is None:
+            return "unrecognized_format"
+        return ParsedSearch("omp-grep-tree", "lines", tuple(tree))
+    single = _SINGLE_HEADER.match(first)
+    if single is not None:
+        path = _strip_tag(single.group("name"))
+        return ParsedSearch("omp-grep-file", "lines", (_parse_grep_entries(lines, path),))
+    if _GREP_LINE.match(first):
+        path = _single_input_path(tool_input)
+        if path is None:
+            return "unrecognized_format"
+        return ParsedSearch("omp-grep-bare", "lines", (_parse_grep_entries(lines, path),))
+    return "unrecognized_format"
+
+
+def _parse_omp_glob(lines: list[str]) -> ParsedSearch | str:
+    first = next((line for line in lines if line.strip()), "")
+    if first.strip() == _GLOB_NO_MATCHES:
+        return ParsedSearch("omp-glob", "files", ())
+    if any(_TREE_HEADER.match(line) for line in lines):
+        tree = _parse_omp_tree(lines, entries="files")
+        if tree is None:
+            return "unrecognized_format"
+        return ParsedSearch("omp-glob-tree", "files", tuple(tree))
+    names = [line.strip() for line in lines if line.strip()]
+    if names and all(" " not in name and not name.startswith("[") for name in names):
+        paths = tuple(_FileHits(name) for name in names if not name.endswith("/"))
+        return ParsedSearch("path-list", "files", paths)
+    return "unrecognized_format"
+
+
+def _parse_claude_grep(tool_input: Mapping[str, object], lines: list[str]) -> ParsedSearch | str:
+    mode = tool_input.get("output_mode", "files_with_matches")
+    if mode == "count":
+        return "count_output"
+    if mode != "content":
+        return ParsedSearch("path-list", "files", tuple(_parse_path_list(lines)))
+    first = next((line.strip() for line in lines if line.strip()), "")
+    if first in ("", _GREP_NO_MATCHES, _NO_FILES):
+        return ParsedSearch("path-line", "lines", ())
+    return _parse_lines_result(lines, first, _single_input_path(tool_input), "")
+
+
+def _parse_call(
+    call: SearchCall, tool_input: Mapping[str, object], text: str
+) -> ParsedSearch | str:
+    lines = text.split("\n")
+    if call.shell is not None:
+        return _parse_shell(call, call.shell, text)
+    if call.kind == "omp-grep":
+        return _parse_omp_grep(tool_input, lines)
+    if call.kind == "omp-glob":
+        return _parse_omp_glob(lines)
+    if call.kind == "claude-grep":
+        return _parse_claude_grep(tool_input, lines)
+    if call.kind == "opencode-grep":
+        return ParsedSearch("opencode-grep", "lines", tuple(_parse_opencode_grep(lines)))
+    return ParsedSearch("path-list", "files", tuple(_parse_path_list(lines)))
+
+
 def parse_search_result(
-    tool: str, tool_input: Mapping[str, object], text: str
+    tool: str, tool_input: Mapping[str, object], text: str, *, host: str = "omp"
 ) -> ParsedSearch | str:
     """Recover hits from a tool result, or return the reason it can't be read."""
-    lines = text.split("\n")
-    first = next((line for line in lines if line.strip()), "")
-    if tool == "grep":
-        if first.strip() == _GREP_NO_MATCHES:
-            return ParsedSearch("omp-grep", "lines", ())
-        if _TREE_HEADER.match(first):
-            tree = _parse_omp_tree(lines, entries="lines")
-            if tree is None:
-                return "unrecognized_format"
-            return ParsedSearch("omp-grep-tree", "lines", tuple(tree))
-        single = _SINGLE_HEADER.match(first)
-        if single is not None:
-            path = _strip_tag(single.group("name"))
-            return ParsedSearch("omp-grep-file", "lines", (_parse_grep_entries(lines, path),))
-        if _GREP_LINE.match(first):
-            path = _single_input_path(tool_input)
-            if path is None:
-                return "unrecognized_format"
-            return ParsedSearch("omp-grep-bare", "lines", (_parse_grep_entries(lines, path),))
-        return "unrecognized_format"
-    if tool in ("glob", "find"):
-        if first.strip() == _GLOB_NO_MATCHES:
-            return ParsedSearch("omp-glob", "files", ())
-        if any(_TREE_HEADER.match(line) for line in lines):
-            tree = _parse_omp_tree(lines, entries="files")
-            if tree is None:
-                return "unrecognized_format"
-            return ParsedSearch("omp-glob-tree", "files", tuple(tree))
-        names = [line.strip() for line in lines if line.strip()]
-        if names and all(" " not in name and not name.startswith("[") for name in names):
-            paths = tuple(_FileHits(name) for name in names if not name.endswith("/"))
-            return ParsedSearch("path-list", "files", paths)
-        return "unrecognized_format"
-    if tool == "bash":
-        command = tool_input.get("command")
-        if not isinstance(command, str):
-            return "not_search_command"
-        base = bash_search_base(command)
-        if base is None:
-            return "not_search_command"
-        if first.strip() == _BASH_NO_OUTPUT:
-            return ParsedSearch("path-line", "lines", (), base_dir=base)
-        if _GROUPED_SUMMARY.match(first.strip()):
-            grouped = _parse_grouped(lines[lines.index(first) :])
-            return ParsedSearch("grouped", "lines", tuple(grouped), base_dir=base)
-        files = _parse_path_line(lines)
-        if not files:
-            return "unrecognized_format" if first.strip() else "no_hits"
-        return ParsedSearch("path-line", "lines", tuple(files), base_dir=base)
-    return "unsupported_tool"
+    call = classify_call(host, tool, tool_input)
+    if isinstance(call, str):
+        return call
+    return _parse_call(call, tool_input, text)
 
 
 # --- Resolution --------------------------------------------------------------
@@ -482,6 +763,8 @@ def _shorten(line_parts: tuple[str, str, str], tokens_of: dict[str, int]) -> str
 
 
 def _tokens(text: str, cache: dict[str, int]) -> int:
+    from archex.reporting import count_tokens
+
     if text not in cache:
         cache[text] = count_tokens(text)
     return cache[text]
@@ -490,6 +773,8 @@ def _tokens(text: str, cache: dict[str, int]) -> int:
 def _render(
     lines: list[str], units_hit: int, revision: str, cache: dict[str, int]
 ) -> tuple[str, int, int, bool]:
+    from archex.reporting import count_tokens
+
     header = f"{RECEIPT_PREFIX} index_revision={revision[:12]} units={units_hit}"
     kept: list[str] = [header]
     used = _tokens(header + "\n", cache)
@@ -516,15 +801,24 @@ def annotate(
     tool_input: Mapping[str, object],
     text: str,
     cwd: str | Path,
+    *,
+    host: str = "omp",
 ) -> Annotation:
-    """Annotation for one tool result; never raises for expected declines."""
-    if tool not in ANNOTATE_TOOLS:
-        return _decline("unsupported_tool", eligible=False)
-    parsed = parse_search_result(tool, tool_input, text)
+    """Annotation for one tool result; never raises for expected declines.
+
+    A call that is not a search on its host is declined before the index, the
+    tokenizer, or the freshness check is imported.
+    """
+    call = classify_call(host, tool, tool_input)
+    if isinstance(call, str):
+        return _decline(call, eligible=False)
+    parsed = _parse_call(call, tool_input, text)
     if isinstance(parsed, str):
-        return _decline(parsed, eligible=parsed != "not_search_command")
+        return _decline(parsed)
     if not parsed.files:
         return _decline("no_hits", fmt=parsed.format)
+
+    from archex.status import inspect_index_freshness
 
     freshness = inspect_index_freshness(cwd)
     if freshness.state != "fresh":
@@ -551,6 +845,9 @@ def annotate_parsed(
     Performs no freshness check: `annotate` gates on it; offline replays that
     measure against a repository's current index call this directly.
     """
+    from archex.index.store import IndexStore
+    from archex.receipt import index_revision_from_store
+
     root = Path(os.path.realpath(repo_root))
     base_dir = Path(os.path.realpath(Path(cwd).expanduser()))
     if parsed.base_dir:

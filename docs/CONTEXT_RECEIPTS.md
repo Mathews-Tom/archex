@@ -19,6 +19,8 @@ Every receipt includes:
 - `context_complete_reason`
 - `recommended_next_action`
 
+A receipt also carries optional fields that stay empty unless the corresponding step ran (`ContextReceipt` in `src/archex/models.py`): `expanded_query` and `expansion_provenance` when query expansion rewrote the query, and evidence-provider blocks `semantic_providers` (SCIP/LSP), `runtime_providers` (coverage/profile), `history_providers` with `history_eligibility` (repository memory), and `documentation_providers` (ADR, doc-link, ownership).
+
 ## Freshness
 
 `freshness` is one of:

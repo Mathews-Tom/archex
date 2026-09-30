@@ -42,7 +42,7 @@ from archex.cache import CacheManager
 from archex.config import load_config, load_index_config
 from archex.impact import ImpactFileChange, ImpactReport, analyze_impact
 from archex.index.delta import compute_working_tree_signature
-from archex.integrations.hook import log_diagnostic
+from archex.integrations.diagnostics import log_diagnostic
 from archex.models import RepoSource
 from archex.post_edit.models import PostEditState, PostEditStatus
 from archex.post_edit.state import mark_synchronized, read_state, utc_now_iso

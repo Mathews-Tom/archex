@@ -1,6 +1,6 @@
 """`install-client --post-edit-hooks` across every supported client (R21).
 
-The post-edit hook is a second, independent surface beside the PreToolUse
+The post-edit hook is a second, independent surface beside the PostToolUse
 search hook and the SessionStart primer. These tests pin the two properties
 that make that safe: each surface owns its own event/marker/filename so
 installing one never disturbs another, and an unsupported client is refused
@@ -9,6 +9,7 @@ explicitly rather than silently no-op'ing.
 
 from __future__ import annotations
 
+import itertools
 import json
 import sys
 import tomllib
@@ -30,10 +31,12 @@ from archex.client_setup import (
     write_post_edit_hook_install_plan,
     write_session_primer_install_plan,
 )
+from archex.integrations.codex_annotate_hook import HOOK_MATCHER as CODEX_SEARCH_MATCHER
 from archex.integrations.codex_post_edit_hook import POST_EDIT_MATCHER as CODEX_POST_EDIT_MATCHER
 from archex.integrations.post_edit_hook import POST_EDIT_MATCHER
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from typing import Any
 
     import pytest
@@ -194,27 +197,80 @@ def test_the_three_claude_surfaces_coexist_and_uninstall_independently(tmp_path:
     target = _install(tmp_path, "claude-code")
 
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert set(payload["hooks"]) == {"PreToolUse", "SessionStart", "PostToolUse"}
+    assert set(payload["hooks"]) == {"SessionStart", "PostToolUse"}
+    assert {group["matcher"] for group in payload["hooks"]["PostToolUse"]} == {
+        "Bash|Grep|Glob",
+        POST_EDIT_MATCHER,
+    }
 
     _remove(tmp_path, "claude-code")
 
     payload = json.loads(target.read_text(encoding="utf-8"))
-    assert set(payload["hooks"]) == {"PreToolUse", "SessionStart"}
+    assert set(payload["hooks"]) == {"SessionStart", "PostToolUse"}
+    assert [group["matcher"] for group in payload["hooks"]["PostToolUse"]] == ["Bash|Grep|Glob"]
 
 
-def test_codex_post_edit_block_coexists_with_the_search_hook_block(tmp_path: Path) -> None:
-    write_hook_install_plan(build_hook_install_plan("codex", str(tmp_path), action="install"))
-    target = _install(tmp_path, "codex")
+def _register_codex_mcp(repo: Path) -> None:
+    result = CliRunner().invoke(cli, ["install-client", "codex", str(repo)])
+    assert result.exit_code == 0, result.output
 
-    parsed = tomllib.loads(target.read_text(encoding="utf-8"))
-    assert "PreToolUse" in parsed["hooks"]
-    assert "PostToolUse" in parsed["hooks"]
 
-    _remove(tmp_path, "codex")
+def _install_codex_search_hook(repo: Path) -> None:
+    write_hook_install_plan(build_hook_install_plan("codex", str(repo), action="install"))
 
-    raw = target.read_text(encoding="utf-8")
-    assert "PostToolUse" not in tomllib.loads(raw)["hooks"]
-    assert "PreToolUse" in tomllib.loads(raw)["hooks"]
+
+def _remove_codex_search_hook(repo: Path) -> None:
+    write_hook_install_plan(build_hook_install_plan("codex", str(repo), action="remove"))
+
+
+def test_codex_search_hook_post_edit_hook_and_mcp_registration_coexist_in_every_order(
+    tmp_path: Path,
+) -> None:
+    steps: dict[str, Callable[[Path], object]] = {
+        "mcp": _register_codex_mcp,
+        "search": _install_codex_search_hook,
+        "post-edit": lambda repo: _install(repo, "codex"),
+    }
+    for index, order in enumerate(itertools.permutations(steps)):
+        repo = tmp_path / f"repo{index}"
+        repo.mkdir()
+        target = repo / ".codex" / "config.toml"
+        for step in order:
+            steps[step](repo)
+
+        parsed = tomllib.loads(target.read_text(encoding="utf-8"))
+        assert "archex" in parsed["mcp_servers"], order
+        assert "PreToolUse" not in parsed["hooks"], order
+        assert sorted(group["matcher"] for group in parsed["hooks"]["PostToolUse"]) == sorted(
+            [CODEX_SEARCH_MATCHER, CODEX_POST_EDIT_MATCHER]
+        ), order
+
+        _remove_codex_search_hook(repo)
+        parsed = tomllib.loads(target.read_text(encoding="utf-8"))
+        assert "archex" in parsed["mcp_servers"], order
+        assert [group["matcher"] for group in parsed["hooks"]["PostToolUse"]] == [
+            CODEX_POST_EDIT_MATCHER
+        ], order
+
+        _remove(repo, "codex")
+        parsed = tomllib.loads(target.read_text(encoding="utf-8"))
+        assert "archex" in parsed["mcp_servers"], order
+        assert "hooks" not in parsed, order
+
+
+def test_codex_search_hook_reinstall_beside_the_other_surfaces_changes_nothing(
+    tmp_path: Path,
+) -> None:
+    _register_codex_mcp(tmp_path)
+    _install(tmp_path, "codex")
+    _install_codex_search_hook(tmp_path)
+    target = tmp_path / ".codex" / "config.toml"
+    settled = target.read_text(encoding="utf-8")
+
+    _install_codex_search_hook(tmp_path)
+    _install(tmp_path, "codex")
+
+    assert target.read_text(encoding="utf-8") == settled
 
 
 def test_ts_post_edit_module_is_a_different_file_from_the_search_module(tmp_path: Path) -> None:

@@ -1,9 +1,13 @@
 """Tests for `archex annotate`: search hits in, per-unit fact lines out.
 
 Every tool-output fixture below is synthetic text shaped exactly like a format
-observed in local omp session transcripts (omp `grep` single-file, header-tree,
-and bare forms; omp `glob` header tree; `path:line:` output of `rg -n`,
-`grep -rn`, and `git grep -n` run through the `bash` tool).
+observed in local session transcripts or recorded hook payloads: omp `grep`
+single-file, header-tree, and bare forms and `glob` header tree; shell
+`path:line:` output of `rg -n`, `grep -rn`, and `git grep -n`; one-file
+`line:text` output; `find`/`rg --files` path lists; Claude Code `Grep`
+content and file lists and `Glob` file lists (from `tool_response`); Codex
+`exec_command` output; OpenCode `grep`/`glob` output (from its v1.14.33 tool
+source) and `bash` output with its trailing metadata block.
 
 `python_simple` indexes to these units (1-based, inclusive):
 
@@ -18,6 +22,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -26,9 +31,11 @@ from click.testing import CliRunner
 from archex.annotate import (
     MAX_CALL_TOKENS,
     MAX_LINE_TOKENS,
+    ShellSearch,
     annotate,
-    bash_search_base,
+    classify_call,
     parse_search_result,
+    parse_shell_search,
 )
 from archex.cli.main import cli
 from archex.project import init_project
@@ -254,19 +261,34 @@ def test_bash_context_lines_count_as_visible(indexed_repo: Path) -> None:
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
-        ('rg -n "a|b" src', ""),
-        ("grep -rn foo . | head -20", ""),
-        ("cd sub && git grep -n foo", "sub"),
-        ("cd 'with space' && egrep -n foo x", "with space"),
-        ("/usr/bin/grep -n foo x", ""),
+        ('rg -n "a|b" src', ShellSearch("rg", "", "lines", ("src",))),
+        ("grep -rn foo . | head -20", ShellSearch("grep", "", "lines", (".",))),
+        ("cd sub && git grep -n foo", ShellSearch("git grep", "sub", "lines")),
+        ("cd 'with space' && egrep -n foo x", ShellSearch("egrep", "with space", "lines", ("x",))),
+        ("/usr/bin/grep -n foo x", ShellSearch("grep", "", "lines", ("x",))),
+        ("grep -n -A 3 -e foo -e bar a.py", ShellSearch("grep", "", "lines", ("a.py",))),
+        ("grep -nA3 foo a.py b.py", ShellSearch("grep", "", "lines", ("a.py", "b.py"))),
+        ("rg -n --glob '*.py' -r X foo -- -dash", ShellSearch("rg", "", "lines", ("-dash",))),
+        ("ugrep -n foo a.py", ShellSearch("ugrep", "", "lines", ("a.py",))),
+        ("grep -rln foo .", ShellSearch("grep", "", "files")),
+        ("rg --files src", ShellSearch("rg", "", "files")),
+        ("rg -L -n foo", ShellSearch("rg", "", "lines")),
+        ("git grep --name-only foo", ShellSearch("git grep", "", "files")),
+        ("find . -name '*.py'", ShellSearch("find", "", "files")),
+        ("fd -e py | head", ShellSearch("fd", "", "files")),
+        ("git ls-files", ShellSearch("git ls-files", "", "files")),
+        ("grep -c foo a.py", None),
+        ("rg -q foo", None),
         ("cat x | grep foo", None),
         ("echo grep", None),
         ("git log --grep foo", None),
         ('rg "unterminated', None),
     ],
 )
-def test_bash_search_base_accepts_only_search_programs(command: str, expected: str | None) -> None:
-    assert bash_search_base(command) == expected
+def test_shell_search_classifies_command_and_output(
+    command: str, expected: ShellSearch | None
+) -> None:
+    assert parse_shell_search(command) == expected
 
 
 def test_non_search_bash_command_is_ineligible(indexed_repo: Path) -> None:
@@ -274,6 +296,220 @@ def test_non_search_bash_command_is_ineligible(indexed_repo: Path) -> None:
 
     assert not result.eligible
     assert result.reason == "not_search_command"
+
+
+@pytest.mark.parametrize(
+    ("host", "tool", "tool_input", "reason"),
+    [
+        ("claude-code", "Read", {}, "unsupported_tool"),
+        ("claude-code", "grep", {}, "unsupported_tool"),
+        ("claude-code", "Bash", {"command": "ls -la"}, "not_search_command"),
+        ("codex", "Bash", {"command": ["bash", "-lc", "cargo test"]}, "not_search_command"),
+        ("codex", "apply_patch", {}, "unsupported_tool"),
+        ("opencode", "Grep", {}, "unsupported_tool"),
+        ("cursor", "grep", {}, "unsupported_host"),
+    ],
+)
+def test_calls_that_are_not_searches_on_their_host_are_declined(
+    host: str, tool: str, tool_input: dict[str, object], reason: str
+) -> None:
+    assert classify_call(host, tool, tool_input) == reason
+
+
+# --- Claude Code, Codex, and OpenCode formats -----------------------------------
+
+LOGIN_LINE = "[archex] services/auth.py::AuthService.login method L15-18 · importers 1"
+HASH_LINE = "[archex] utils.py::hash_password function L9-10 · importers 2"
+
+# Claude Code Bash `grep -rn x .` stdout (paths carry the `./` of the operand).
+CLAUDE_BASH_DOT = (
+    './services/auth.py:16:        token = hash_password(f"{user.id}:{password}")\n'
+    "./utils.py:9:def hash_password(password: str) -> str:"
+)
+# One-file search: `grep -n x utils.py` / `rg -n x utils.py` print no path.
+ONE_FILE = "9:def hash_password(password: str) -> str:"
+
+
+def test_claude_code_bash_grep_output_is_annotated(indexed_repo: Path) -> None:
+    result = annotate(
+        "Bash",
+        {"command": "grep -rn hash_password .", "description": "search"},
+        CLAUDE_BASH_DOT,
+        indexed_repo,
+        host="claude-code",
+    )
+
+    assert result.format == "path-line"
+    assert _unit_lines(result.text) == [LOGIN_LINE, HASH_LINE]
+
+
+@pytest.mark.parametrize(
+    "command", ["grep -n hash_password utils.py", "rg -n hash_password utils.py"]
+)
+def test_one_file_search_takes_its_path_from_the_operand(indexed_repo: Path, command: str) -> None:
+    result = annotate("Bash", {"command": command}, ONE_FILE, indexed_repo, host="claude-code")
+
+    assert result.format == "line-numbered"
+    assert _unit_lines(result.text) == [HASH_LINE]
+
+
+def test_one_file_context_entries_count_as_visible(indexed_repo: Path) -> None:
+    output = "9:def hash_password(password: str) -> str:\n10-    return x"
+    result = annotate(
+        "Bash",
+        {"command": "grep -n -A1 hash_password utils.py"},
+        output,
+        indexed_repo,
+        host="codex",
+    )
+
+    assert result.reason == "all_units_visible"
+
+
+def test_line_entries_without_a_single_operand_are_unrecognized(indexed_repo: Path) -> None:
+    result = annotate(
+        "Bash",
+        {"command": "grep -hn hash_password utils.py main.py"},
+        ONE_FILE,
+        indexed_repo,
+        host="claude-code",
+    )
+
+    assert result.reason == "unrecognized_format"
+
+
+@pytest.mark.parametrize(
+    ("command", "output"),
+    [
+        ("find . -name '*.py'", "./utils.py\n./services/auth.py\n./services/__init__.py"),
+        ("rg --files", "utils.py\nservices/auth.py"),
+        ("grep -rl hash_password .", "./utils.py\n./services/auth.py"),
+    ],
+)
+def test_shell_path_listings_annotate_each_file(
+    indexed_repo: Path, command: str, output: str
+) -> None:
+    result = annotate("Bash", {"command": command}, output, indexed_repo, host="claude-code")
+
+    assert result.format == "path-list"
+    assert _unit_lines(result.text) == [
+        "[archex] utils.py · units 2 · importers 2",
+        "[archex] services/auth.py · units 1 · importers 1",
+    ]
+
+
+def test_claude_code_grep_content_mode_is_annotated(indexed_repo: Path) -> None:
+    tool_input = {"pattern": "hash_password", "output_mode": "content", "-n": True}
+    content = CLAUDE_BASH_DOT.replace("./", "")
+
+    result = annotate("Grep", tool_input, content, indexed_repo, host="claude-code")
+
+    assert _unit_lines(result.text) == [LOGIN_LINE, HASH_LINE]
+
+
+def test_claude_code_grep_on_one_file_takes_its_path_from_the_input(indexed_repo: Path) -> None:
+    tool_input = {"pattern": "hash_password", "path": "utils.py", "output_mode": "content"}
+
+    result = annotate("Grep", tool_input, ONE_FILE, indexed_repo, host="claude-code")
+
+    assert result.format == "line-numbered"
+    assert _unit_lines(result.text) == [HASH_LINE]
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [("Grep", {"pattern": "hash_password"}), ("Glob", {"pattern": "**/*.py"})],
+)
+def test_claude_code_file_lists_annotate_each_file(
+    indexed_repo: Path, tool: str, tool_input: dict[str, object]
+) -> None:
+    filenames = "utils.py\nservices/auth.py"
+
+    result = annotate(tool, tool_input, filenames, indexed_repo, host="claude-code")
+
+    assert result.format == "path-list"
+    assert len(_unit_lines(result.text)) == 2
+
+
+def test_claude_code_grep_count_mode_adds_nothing(indexed_repo: Path) -> None:
+    tool_input = {"pattern": "hash_password", "output_mode": "count"}
+
+    result = annotate("Grep", tool_input, "utils.py:1", indexed_repo, host="claude-code")
+
+    assert result.reason == "count_output"
+    assert result.text == ""
+
+
+def test_codex_argv_shell_command_is_read_through_its_shell(indexed_repo: Path) -> None:
+    tool_input = {"command": ["bash", "-lc", "rg -n hash_password utils.py"]}
+
+    result = annotate("Bash", tool_input, ONE_FILE, indexed_repo, host="codex")
+
+    assert _unit_lines(result.text) == [HASH_LINE]
+
+
+def test_opencode_grep_output_is_annotated(indexed_repo: Path) -> None:
+    root = indexed_repo.resolve()
+    output = (
+        "Found 2 matches\n"
+        f"{root}/services/auth.py:\n"
+        '  Line 16:         token = hash_password(f"{user.id}:{password}")\n'
+        "\n"
+        f"{root}/utils.py:\n"
+        "  Line 9: def hash_password(password: str) -> str:"
+    )
+
+    result = annotate("grep", {"pattern": "hash_password"}, output, indexed_repo, host="opencode")
+
+    assert result.format == "opencode-grep"
+    assert _unit_lines(result.text) == [LOGIN_LINE, HASH_LINE]
+
+
+def test_opencode_glob_output_skips_its_truncation_note(indexed_repo: Path) -> None:
+    root = indexed_repo.resolve()
+    output = (
+        f"{root}/utils.py\n{root}/main.py\n\n"
+        "(Results are truncated: showing first 2 results. Consider using a more specific "
+        "path or pattern.)"
+    )
+
+    result = annotate("glob", {"pattern": "**/*.py"}, output, indexed_repo, host="opencode")
+
+    assert _unit_lines(result.text) == [
+        "[archex] utils.py · units 2 · importers 2",
+        "[archex] main.py · units 1 · importers 0",
+    ]
+
+
+def test_opencode_bash_workdir_and_metadata_block(indexed_repo: Path) -> None:
+    output = (
+        '16:        token = hash_password(f"{user.id}:{password}")\n\n'
+        "<bash_metadata>\nUser aborted the command\n</bash_metadata>"
+    )
+    tool_input = {"command": "grep -n hash_password auth.py", "workdir": "services"}
+
+    result = annotate("bash", tool_input, output, indexed_repo, host="opencode")
+
+    assert result.format == "line-numbered"
+    assert _unit_lines(result.text) == [LOGIN_LINE]
+
+
+def test_non_search_call_is_declined_without_loading_the_index_or_tokenizer() -> None:
+    probe = (
+        "import json, sys\n"
+        "from archex.integrations.annotate_hook import parse_request, run_request\n"
+        "request = parse_request(json.dumps("
+        "{'host': 'claude-code', 'tool': 'Bash', 'input': {'command': 'ls -la'}, "
+        "'text': 'x', 'cwd': '.'}))\n"
+        "assert run_request(request).reason == 'not_search_command'\n"
+        "heavy = ('archex.index.store', 'archex.reporting', 'archex.status', 'pydantic', 'click')\n"
+        "print(json.dumps(sorted(m for m in heavy if m in sys.modules)))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+
+    assert json.loads(completed.stdout) == []
 
 
 # --- resolution boundaries ------------------------------------------------------
@@ -439,7 +675,9 @@ def test_cli_logs_unrecognized_format_and_prints_nothing(
     assert "reason=unrecognized_format" in entry["detail"]
 
 
-@pytest.mark.parametrize("stdin", ["not json", "[]", '{"tool": "read"}'])
+@pytest.mark.parametrize(
+    "stdin", ["not json", "[]", '{"tool": 3}', '{"tool": "grep", "input": []}']
+)
 def test_cli_malformed_envelope_fails_open(
     tmp_path: Path, diagnostics_log: Path, stdin: str
 ) -> None:

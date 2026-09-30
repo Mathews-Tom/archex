@@ -34,6 +34,13 @@ The machine-local SQLite ledger lives at:
 
 This is separate from repo-local `.archex/` state.
 
+### Other local state under `~/.archex/`
+
+The annotation hooks (`archex annotate` and the host adapters for omp/Pi, Claude Code, Codex, and OpenCode) keep two further machine-local files. Neither is part of the SQLite metrics ledger, neither is read by `archex metrics`, and neither is controlled by `ARCHEX_USAGE_METRICS`:
+
+- `~/.archex/annotation-ledger.jsonl` (override with `ARCHEX_ANNOTATION_LEDGER`): one JSON line per *search* tool call the hook saw, written by `archex.integrations.annotate_hook.append_ledger`. A tool call that is not a search writes no line. Fields: `timestamp`, `host` (`omp`, `claude-code`, `codex`, or `opencode`), `toolCallId`, `tool`, `eligible`, `annotated`, `units`, `tokens`, `freshness`, `reason`, `latency_ms`. It stores no query text, file paths, or annotation bodies.
+- `~/.archex/hook-diagnostics.log` (override with `ARCHEX_HOOK_DIAGNOSTICS_LOG`): one line per hook fault, written by `archex.integrations.diagnostics`. Normal declines are not logged.
+
 ## What gets stored when metrics are enabled
 
 When metrics are enabled, default event rows store anonymous counters only:
@@ -181,8 +188,8 @@ this table supersedes it.
 
 "Comparable tasks" counts only tasks where both paths reach 100% required-file recall; every
 token figure sums over exactly that set, so no figure compares unequal recall. The reduction
-is therefore conditioned on archex fully localizing the task — it measures how much cheaper
-archex localizes when it succeeds, not that archex always succeeds. In this artifact the
+is therefore conditioned on archex fully localizing the task — it measures how many fewer tokens
+archex spends to localize when it succeeds, not that archex always succeeds. In this artifact the
 naive grep/read path reaches full recall on every comparable task, and all 12 excluded tasks
 (of 64: 8 self, 3 external-comprehension, 1 external-localization) are archex recall misses —
 cases where archex did not return all required files within its token budget (archex recall

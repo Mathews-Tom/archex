@@ -708,6 +708,6 @@ def _snapshot_lock(repo_root: Path, timeout: float | None = None) -> ExclusiveLo
 
 
 def _log_diagnostic(kind: str, detail: str, repo_root: Path) -> None:
-    from archex.integrations.hook import log_diagnostic
+    from archex.integrations.diagnostics import log_diagnostic
 
     log_diagnostic(kind, detail=detail, cwd=str(repo_root))

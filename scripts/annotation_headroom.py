@@ -50,7 +50,7 @@ from archex.annotate import (
     MAX_LINE_TOKENS,
     ParsedSearch,
     annotate_parsed,
-    bash_search_base,
+    classify_call,
     parse_search_result,
 )
 
@@ -228,10 +228,8 @@ def _replay_one(
     message: dict[str, Any],
     cwd_text: str | None,
 ) -> None:
-    if tool == "bash":
-        command = arguments.get("command")
-        if not isinstance(command, str) or bash_search_base(command) is None:
-            return
+    if isinstance(classify_call("omp", tool, arguments), str):
+        return
     collector.eligible += 1
     day = message.get("_day")
     if isinstance(day, str):

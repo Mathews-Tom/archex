@@ -53,7 +53,7 @@ def _log(kind: str, detail: str, cwd: Path) -> None:
     reader must not pull in the search hook (and through it the index store)
     merely to read a cached JSON document.
     """
-    from archex.integrations.hook import log_diagnostic
+    from archex.integrations.diagnostics import log_diagnostic
 
     log_diagnostic(kind, detail=detail, cwd=str(cwd))
 

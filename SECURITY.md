@@ -33,6 +33,7 @@ In scope:
 - Docker images published for archex
 - model-loading paths and local model cache handling
 - repo-local `.archex/` index, vector, graph, and settings state
+- opt-in tool-call hooks installed by `archex install-client <host> --hooks` (omp, Pi, OpenCode, Claude Code, Codex CLI; Cursor diagnostics-only) and the `archex annotate` command they invoke, including the client config files the installer edits
 - dependency and model supply-chain risks that affect normal archex operation
 
 Out of scope:
@@ -46,6 +47,8 @@ Out of scope:
 ## Telemetry and data handling
 
 archex does not send telemetry from core CLI, Python API, MCP, or Docker slim workflows. It reads the repository paths you point it at and writes generated state under repo-local `.archex/` or configured cache directories.
+
+Opt-in hooks write a local annotation ledger at `~/.archex/annotation-ledger.jsonl` (override with `ARCHEX_ANNOTATION_LEDGER`). Each line records timestamp, host, tool name, tool-call ID, eligibility, unit and token counts, index freshness, a reason code, and latency; it does not record the search pattern or the tool result. Hooks run with a 0.5 s wall-clock guard, add nothing on failure, and never block a tool call.
 
 Core operation does not require hosted inference credentials or API keys. Optional integrations may require their own client configuration, but archex does not need hosted API keys for core retrieval, indexing, MCP, or Docker slim use.
 

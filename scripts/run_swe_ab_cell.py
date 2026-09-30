@@ -8,23 +8,35 @@ Two runtimes share one flow:
 
 * ``docker`` — the campaign runtime (spec §5). The official SWE-bench Pro V2
   image runs with the pinned omp linux-x64 build and a copy of the provisioned
-  `swebench` profile; archex is installed into ``/opt/archex`` with its own
-  uv-managed Python; the patch is scored in a fresh container by the task's own
-  verifier (``tests/test.sh`` → ``/logs/verifier/reward.txt``).
+  `swebench` profile (which must hold no login store); archex is installed into
+  ``/opt/archex`` with its own uv-managed Python; the agent authenticates through
+  the host's auth broker, its only credentials being the two allow-listed
+  variables ``OMP_AUTH_BROKER_URL`` and ``OMP_AUTH_BROKER_TOKEN``; the patch is
+  scored in a fresh container by the task's own verifier (``tests/test.sh`` →
+  ``/logs/verifier/reward.txt``). The cell records ``emulated`` (an arm64 host
+  runs the amd64 image under emulation) and the credential variable names.
 * ``local`` — the no-spend rehearsal runtime: a copy of a local git
   repository, the host's omp and archex, an isolated ``HOME``, and no scoring.
 
 Flow: prepare → (H/HC/C) exclude ``.archex/``, ``archex init --no-index``,
 restore any ``.gitignore`` edit, ``archex index`` → (H/HC) render the hook
-module → run omp with the frozen command line → parse the session and the
+module and pre-warm the annotate entry once on a real search hit → run omp
+with the frozen command line → parse the session, omp's event stream, and the
 hook ledger → take ``git diff`` against the base commit (``.archex/`` is
 excluded) → score → record.
+
+A run that ends in a subscription rate-limit or quota block is recorded as
+``quota_block`` (phase ``before_first_tool_call`` or ``mid_run``), unscored; the
+suite re-runs it once the quota clears. A non-quota provider failure before the
+first tool call is retried once here.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -37,6 +49,7 @@ from typing import Any, Literal, Protocol, cast
 from archex.benchmark.swe_ab import (
     ANNOTATION_MARKER,
     BASE_TOOLS,
+    BROKER_ENV_NAMES,
     CHANNELS,
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
@@ -47,16 +60,22 @@ from archex.benchmark.swe_ab import (
     HookLedgerSummary,
     Isolation,
     Localization,
+    OmpRunEvents,
     OmpSession,
+    QuotaEvidence,
     SweAbArm,
     SweAbCell,
     Usage,
     archex_subcommand,
     compound,
+    credential_files_in_profile,
     diff_files,
+    is_emulated,
+    is_quota_error,
     localize,
     observations,
     omp_argv,
+    parse_omp_events,
     parse_omp_session,
     provider_endpoint_overridden,
     read_ledger,
@@ -101,6 +120,12 @@ class CellSpec:
         self.uv_binary = Path(str(raw["uv_binary"])) if raw.get("uv_binary") else None
         self.omp_dir = Path(str(raw["omp_dir"])) if raw.get("omp_dir") else None
         self.network = str(raw.get("network") or "bridge")
+        self.broker_url = str(raw["broker_url"]) if raw.get("broker_url") else None
+        self.prior_blocked_attempts = int(raw.get("prior_blocked_attempts") or 0)
+
+    @property
+    def emulated(self) -> bool:
+        return is_emulated(self.runtime, platform.machine())
 
 
 class Runtime(Protocol):
@@ -194,6 +219,24 @@ class LocalRuntime:
         return
 
 
+def docker_exec_env(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
+    """``-e`` arguments for ``docker exec`` and the environment the docker client runs in.
+
+    The broker credentials are passed as a bare ``-e NAME`` and their values travel in the
+    client's own environment, so the token never appears in a process listing or in the argv the
+    harness could log. Everything else is an ordinary ``-e NAME=value``.
+    """
+    args: list[str] = []
+    client_env = dict(os.environ)
+    for key, value in env.items():
+        if key in BROKER_ENV_NAMES:
+            args += ["-e", key]
+            client_env[key] = value
+        else:
+            args += ["-e", f"{key}={value}"]
+    return args, client_env
+
+
 class DockerRuntime:
     """One throwaway container of the task's official image (linux/amd64)."""
 
@@ -212,6 +255,10 @@ class DockerRuntime:
             "--entrypoint",
             "sleep",
         ]
+        if spec.broker_url:
+            # Linux hosts have no `host.docker.internal` unless it is mapped; Docker Desktop
+            # already resolves it, so the mapping is harmless there.
+            argv += ["--add-host", "host.docker.internal:host-gateway"]
         for host, target in mounts:
             argv += ["-v", f"{host}:{target}:ro"]
         _checked(
@@ -238,15 +285,15 @@ class DockerRuntime:
         env: dict[str, str] | None = None,
         timeout: float = _SETUP_TIMEOUT_SECONDS,
     ) -> subprocess.CompletedProcess[str]:
-        command = ["docker", "exec", "-w", cwd or getattr(self, "repo", "/")]
-        for key, value in (env or {}).items():
-            command += ["-e", f"{key}={value}"]
+        env_args, client_env = docker_exec_env(env or {})
+        command = ["docker", "exec", "-w", cwd or getattr(self, "repo", "/"), *env_args]
         return subprocess.run(
             [*command, self.name, *argv],
             capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
+            env=client_env,
         )
 
     def put(self, source: Path, target: str) -> None:
@@ -288,6 +335,7 @@ class _Setup:
     extra_path: list[str] = field(default_factory=list[str])
     setup_seconds: float = 0.0
     index_seconds: float | None = None
+    prewarm_seconds: float | None = None
 
 
 def _git(rt: Runtime, *args: str) -> str:
@@ -360,6 +408,7 @@ def _prepare_archex(spec: CellSpec, rt: Runtime, setup: _Setup) -> None:
             else "/opt/archex/omp-annotate.ts"
         )
         rt.put(module, setup.hook_path)
+        setup.prewarm_seconds = _prewarm_annotate(rt, python)
     if spec.arm.cli:
         bin_dir = (
             f"{Path(rt.out).parent}/archex-bin" if spec.runtime == "local" else "/opt/archex/bin"
@@ -370,6 +419,43 @@ def _prepare_archex(spec: CellSpec, rt: Runtime, setup: _Setup) -> None:
             "archex on PATH",
         )
         setup.extra_path.append(bin_dir)
+
+
+def _prewarm_annotate(rt: Runtime, python: str) -> float:
+    """Run the annotate entry once on a real search hit, so the agent's first call is warm.
+
+    The first call in a fresh container pays for bytecode compilation, the tokenizer load, and
+    cold file caches, which can exceed the hook's 0.5 s budget and drop the annotation. This
+    call goes down the same path as an agent search (index open, unit lookup, render) and
+    logs nothing to the cell's diagnostics log. It must reach the search path, or the cell
+    fails at setup rather than measuring an inert hook.
+    """
+    sample = rt.run(["sh", "-c", "git grep -n '' | head -n 1"]).stdout.strip() or "x:1:x"
+    request = json.dumps(
+        {
+            "host": "omp",
+            "tool": "bash",
+            "input": {"command": "git grep -n ''"},
+            "text": sample,
+            "cwd": rt.repo,
+        }
+    )
+    command = (
+        f"printf %s {shlex.quote(request)} | ARCHEX_HOOK_DIAGNOSTICS_LOG=/dev/null "
+        f"{shlex.quote(python)} -m archex.integrations.annotate_hook"
+    )
+    started = time.monotonic()
+    done = rt.run(["sh", "-c", command])
+    seconds = round(time.monotonic() - started, 3)
+    try:
+        record = json.loads(done.stdout)
+    except ValueError:
+        record = None
+    if not isinstance(record, dict) or cast("dict[str, Any]", record).get("eligible") is not True:
+        raise RuntimeError(
+            f"annotate pre-warm did not reach the search path: {done.stdout[-200:]!r}"
+        )
+    return seconds
 
 
 def _setup(spec: CellSpec, rt: Runtime) -> _Setup:
@@ -384,6 +470,9 @@ def _setup(spec: CellSpec, rt: Runtime) -> _Setup:
             f"{rt.out}/cli-guide.md" if spec.runtime == "local" else "/task/cli-guide.md"
         )
         rt.put(spec.cli_guide, setup.guide_path)
+    if spec.runtime == "docker" and (leaked := credential_files_in_profile(spec.profile_dir)):
+        # Logins reach a container only through the auth broker, never as a copied vault.
+        raise ValueError(f"the profile carries credential stores {leaked}; remove them")
     rt.put(spec.profile_dir, f"{rt.home}/.omp/profiles/swebench/agent")
     prompt = spec.prompt_file or (spec.task_dir / "instruction.md" if spec.task_dir else None)
     if prompt is None:
@@ -391,6 +480,18 @@ def _setup(spec: CellSpec, rt: Runtime) -> _Setup:
     rt.put(prompt, f"{rt.out}/prompt.md" if spec.runtime == "local" else "/task/prompt.md")
     setup.setup_seconds = round(time.monotonic() - started, 3)
     return setup
+
+
+def broker_env(spec: CellSpec) -> dict[str, str]:
+    """The only credential variables an agent container receives (an explicit allow-list).
+
+    Docker cells carry the auth broker's URL and bearer token from this process's environment,
+    which the suite sets; nothing else from the host environment reaches the container, and the
+    local rehearsal runtime carries none.
+    """
+    if spec.runtime != "docker":
+        return {}
+    return {name: os.environ[name] for name in BROKER_ENV_NAMES if os.environ.get(name)}
 
 
 def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
@@ -409,6 +510,7 @@ def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
         base = {}
     return {
         **base,
+        **broker_env(spec),
         "HOME": rt.home,
         "PATH": os.pathsep.join([*setup.extra_path, *path]),
         "ARCHEX_ANNOTATION_LEDGER": f"{rt.out}/annotation-ledger.jsonl",
@@ -416,7 +518,9 @@ def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
     }
 
 
-def _run_agent(spec: CellSpec, rt: Runtime, setup: _Setup, attempt: int) -> tuple[int | None, Path]:
+def _run_agent(
+    spec: CellSpec, rt: Runtime, setup: _Setup, attempt: int
+) -> tuple[int | None, Path, str]:
     session_dir = f"{rt.out}/session-{attempt}"
     prompt = f"{rt.out}/prompt.md" if spec.runtime == "local" else "/task/prompt.md"
     argv = omp_argv(
@@ -428,12 +532,14 @@ def _run_agent(spec: CellSpec, rt: Runtime, setup: _Setup, attempt: int) -> tupl
         hook_module_path=setup.hook_path,
         cli_guide_path=setup.guide_path,
     )
+    stdout = ""
     try:
         done = rt.run(
             argv, env=_agent_env(spec, rt, setup), timeout=_MAX_TIME_SECONDS + _OMP_GRACE_SECONDS
         )
         code: int | None = done.returncode
-        (spec.work_dir / f"omp-stdout-{attempt}.jsonl").write_text(done.stdout, encoding="utf-8")
+        stdout = done.stdout
+        (spec.work_dir / f"omp-stdout-{attempt}.jsonl").write_text(stdout, encoding="utf-8")
     except subprocess.TimeoutExpired:
         code = None
     local_sessions = spec.work_dir / f"session-{attempt}"
@@ -441,7 +547,7 @@ def _run_agent(spec: CellSpec, rt: Runtime, setup: _Setup, attempt: int) -> tupl
         rt.get(session_dir, local_sessions)
     else:
         local_sessions = Path(session_dir)
-    return code, local_sessions
+    return code, local_sessions, stdout
 
 
 def _patch(rt: Runtime, base: str) -> str:
@@ -518,7 +624,28 @@ def _isolation(spec: CellSpec, session: OmpSession) -> Isolation:
     )
 
 
-def failed_cell(spec: CellSpec, reason: FailureReason, detail: str, **identity: Any) -> SweAbCell:
+def _quota(
+    spec: CellSpec,
+    runs: list[OmpRunEvents],
+    phase: Literal["before_first_tool_call", "mid_run"] | None,
+) -> QuotaEvidence:
+    """Rate-limit activity across a cell's omp runs, and the phase of a block that ended it."""
+    return QuotaEvidence(
+        omp_retries=sum(run.quota_retries for run in runs),
+        omp_retry_wait_seconds=round(sum(run.quota_wait_seconds for run in runs), 3),
+        block_phase=phase,
+        prior_blocked_attempts=spec.prior_blocked_attempts,
+    )
+
+
+def failed_cell(
+    spec: CellSpec,
+    reason: FailureReason,
+    detail: str,
+    *,
+    quota: QuotaEvidence | None = None,
+    **identity: Any,
+) -> SweAbCell:
     """A recorded failure: zero usage and counts, the reason, and whatever identity is known."""
     zero = dict.fromkeys(CHANNELS, 0)
     return SweAbCell(
@@ -540,6 +667,9 @@ def failed_cell(spec: CellSpec, reason: FailureReason, detail: str, **identity: 
         tool_fingerprint=tool_fingerprint(BASE_TOOLS),
         provider=None,
         provider_endpoint_overridden=provider_endpoint_overridden(spec.profile_dir, spec.model),
+        emulated=spec.emulated,
+        network=spec.network,
+        credential_env_names=sorted(broker_env(spec)),
         usage=Usage(input=0, output=0, cache_read=0, cache_write=0, cost_usd=0.0),
         requests=0,
         tool_calls=0,
@@ -563,6 +693,7 @@ def failed_cell(spec: CellSpec, reason: FailureReason, detail: str, **identity: 
         score_source="failed_before_patch",
         wall_seconds=0.0,
         setup_seconds=0.0,
+        quota=quota or QuotaEvidence(prior_blocked_attempts=spec.prior_blocked_attempts),
     )
 
 
@@ -588,7 +719,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         setup = _setup(spec, rt)
     except Exception as exc:  # noqa: BLE001 - a setup failure is a recorded cell, never a crash
         return failed_cell(spec, FailureReason.HARNESS_ERROR, f"setup: {exc!r}")
-    identity = {
+    identity: dict[str, Any] = {
         "archex_version": setup.archex_version,
         "wheel_sha": setup.wheel_sha,
         "hook_sha": setup.hook_sha,
@@ -596,14 +727,33 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
     }
 
     retried = False
-    code, session_dir = _run_agent(spec, rt, setup, attempt=1)
+    code, session_dir, stdout = _run_agent(spec, rt, setup, attempt=1)
+    runs = [parse_omp_events(stdout)]
     session = _load_session(session_dir)
-    if session is not None and session.error_message and not session.exchanges:
-        retried = True  # provider failure before the first tool call: retry once, logged
+    if (
+        session is not None
+        and session.error_message
+        and not session.exchanges
+        and not is_quota_error(session.error_message)
+    ):
+        # A provider failure that is not a quota block, before the first tool call: retry once,
+        # logged. A quota block is never retried here; the suite re-runs it once the quota clears.
+        retried = True
         rt.run(["git", "checkout", "--", "."])
-        code, session_dir = _run_agent(spec, rt, setup, attempt=2)
+        code, session_dir, stdout = _run_agent(spec, rt, setup, attempt=2)
+        runs.append(parse_omp_events(stdout))
         session = _load_session(session_dir)
     if session is None:
+        gave_up = runs[-1].gave_up
+        if is_quota_error(gave_up):
+            phase = "mid_run" if runs[-1].tool_calls_started else "before_first_tool_call"
+            return failed_cell(
+                spec,
+                FailureReason.QUOTA_BLOCK,
+                str(gave_up),
+                quota=_quota(spec, runs, phase),
+                **identity,
+            )
         reason = FailureReason.TIMEOUT if code is None else FailureReason.SESSION_UNPARSABLE
         return failed_cell(spec, reason, f"omp exit {code}; no parsable session", **identity)
 
@@ -638,6 +788,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
     isolation = _isolation(spec, session)
 
     status, reason, detail = CellStatus.OK, None, None
+    phase: Literal["before_first_tool_call", "mid_run"] | None = None
     if code is None or (session.requests and session.requests[-1].stop_reason == "aborted"):
         status, reason, detail = (
             CellStatus.FAILED,
@@ -645,11 +796,19 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
             f"omp exceeded {MAX_TIME}",
         )
     elif session.error_message:
-        status, reason, detail = (
-            CellStatus.FAILED,
-            FailureReason.PROVIDER_ERROR,
-            session.error_message,
-        )
+        if is_quota_error(session.error_message):
+            status, reason, detail = (
+                CellStatus.FAILED,
+                FailureReason.QUOTA_BLOCK,
+                session.error_message,
+            )
+            phase = "before_first_tool_call" if not session.exchanges else "mid_run"
+        else:
+            status, reason, detail = (
+                CellStatus.FAILED,
+                FailureReason.PROVIDER_ERROR,
+                session.error_message,
+            )
     elif (
         sorted(isolation.tools_advertised) != sorted(BASE_TOOLS)
         or isolation.undeclared_tool_calls
@@ -664,8 +823,11 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         )
 
     resolved: bool | None = None
-    score_source: Literal["pro_verifier", "not_scored"] = "not_scored"
-    if spec.runtime == "docker":
+    score_source: Literal["pro_verifier", "not_scored", "failed_before_patch"] = "not_scored"
+    if reason is FailureReason.QUOTA_BLOCK:
+        # A quota block is not a task outcome: nothing is scored, and the suite re-runs the cell.
+        resolved, score_source = False, "failed_before_patch"
+    elif spec.runtime == "docker":
         resolved = score_patch(spec, patch_path)
         score_source = "pro_verifier"
     if status is CellStatus.FAILED:
@@ -691,6 +853,9 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         tool_fingerprint=tool_fingerprint(isolation.tools_advertised),
         provider=requests[0].provider if requests else None,
         provider_endpoint_overridden=provider_endpoint_overridden(spec.profile_dir, spec.model),
+        emulated=spec.emulated,
+        network=spec.network,
+        credential_env_names=sorted(broker_env(spec)),
         usage=Usage(
             input=sum(r.input for r in requests),
             output=sum(r.output for r in requests),
@@ -716,6 +881,8 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         wall_seconds=round(time.monotonic() - started, 3),
         setup_seconds=setup.setup_seconds,
         index_seconds=setup.index_seconds,
+        annotate_prewarm_seconds=setup.prewarm_seconds,
+        quota=_quota(spec, runs, phase),
     )
 
 

@@ -12,7 +12,7 @@ Upstream contract this adapter is built against (verified against
   (`notebook_path` for `NotebookEdit`), and `Write`'s documented response is
   `{"filePath": ..., "success": true}`.
 - Output supports `hookSpecificOutput.additionalContext`, the same field the
-  existing `PreToolUse` search hook uses.
+  search-annotation hook (`claude_code_annotate_hook`) uses.
 - Matcher values are regex-searched against the tool name, which is why the
   installed matcher `Edit|Write` also selects `MultiEdit` and `NotebookEdit`;
   `AUGMENTED_TOOLS` below is the authoritative runtime filter.
@@ -37,7 +37,7 @@ import os
 import sys
 from typing import Any, cast
 
-from archex.integrations.hook import log_diagnostic
+from archex.integrations.diagnostics import log_diagnostic
 from archex.post_edit import PostEditOutcome, build_event, record_edit
 from archex.post_edit.impact import synchronize_and_report_with_timeout
 from archex.project import ProjectState
@@ -78,7 +78,7 @@ def main() -> None:
     except BaseException as exc:  # noqa: BLE001 - the non-blocking contract requires this
         log_diagnostic("post_edit_unhandled_exception", detail=repr(exc))
     # Skip interpreter teardown so an abandoned refresh thread cannot delay
-    # the agent, mirroring `archex.integrations.hook`.
+    # the agent, mirroring `archex.integrations.claude_code_annotate_hook`.
     os._exit(0)
 
 

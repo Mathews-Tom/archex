@@ -3,6 +3,8 @@
 > Historical execution record from scaffold through the completed 2026-06-12 unified roadmap.
 > Current capability details live in [README](../README.md) and [System Design](SYSTEM_DESIGN.md).
 > Completed-work history is summarized in this roadmap; default-strategy evidence remains authoritative in [Retrieval Default Decisions](RETRIEVAL_DEFAULT_DECISIONS.md).
+>
+> **After 2026-06-12 (added 2026-09-30; the record below is unchanged).** Work shipped after this roadmap is recorded in [CHANGELOG.md](../CHANGELOG.md) by version, `0.12.0` (local metrics, 2026-06-17) through `0.33.0` (2026-09-29) plus `[Unreleased]`. Headlines by range: local metrics and the targeted-read baseline (`0.12.0`–`0.15.0`); hook integrations and `archex setup` (`0.17.0`–`0.19.0`); the warm query runtime, `archex context`, and the local explorer (`0.22.0`–`0.23.0`); retrieval-gated MCP disclosure and the corpus-validity audit (`0.25.0`); query-vocabulary cleanup and honest receipts (`0.32.0`); and `archex annotate` (`0.33.0`). `[Unreleased]` adds annotation hook adapters for omp/Pi, Claude Code, Codex, and OpenCode, and a SWE A/B harness (`benchmarks/swe_ab/RUNBOOK.md`). **No SWE A/B results exist yet**: the harness and a draft pre-registration (`benchmarks/preregistrations/R3x-swe-archex-ab.md`) are checked in, and no campaign cell has been run.
 
 ---
 

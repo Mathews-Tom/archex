@@ -74,8 +74,8 @@ Language adapters live in `src/archex/parse/adapters/`. Each adapter implements 
 2. Implement the `LanguageAdapter` protocol (see existing adapters for reference)
 3. Register the adapter in `src/archex/parse/adapters/__init__.py`
 4. Add the tree-sitter grammar dependency to `pyproject.toml`
-5. Add tests in `tests/test_parse/test_your_language.py`
-6. Add fixture files in `tests/fixtures/your_language/`
+5. Add tests in `tests/parse/adapters/test_your_language.py`
+6. Add fixture files in `tests/fixtures/your_language_simple/`
 
 External adapters can be registered via entry points without modifying archex core:
 
@@ -86,7 +86,7 @@ dart = "mypackage.adapters:DartAdapter"
 
 ## Adding a Pattern Detector
 
-Pattern detectors are registered via the `PatternRegistry`. See `src/archex/analysis/patterns/` for existing detectors.
+Pattern detectors are registered via the `PatternRegistry`. See `src/archex/analyze/patterns.py` for the registry and existing detectors.
 
 1. Create your detector function with signature: `(list[ParsedFile], DependencyGraph) -> DetectedPattern | None`
 2. Register via entry points:

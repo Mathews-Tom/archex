@@ -89,7 +89,7 @@ The primary value proposition is _getting the right code into the right context 
 
 Tree-sitter provides language-agnostic AST parsing across 100+ languages. archex's core algorithms operate on abstract symbol types and AST node categories, not language-specific heuristics. Language-specific knowledge (import conventions, module systems, entry point patterns) is isolated behind a `LanguageAdapter` protocol with ~150 lines per language.
 
-**Shipped adapters:** Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, C#, Swift.
+**Shipped adapters:** 26 declared language IDs in three tiers. `full` (symbols, imports, graph edges): Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, C#, Swift, PHP, Ruby, Scala, C, C++. `structured` (outline and cross-file reference edges): HTML, XML, YAML, Markdown, CSS. `chunk-only` (AST chunking and retrieval, no symbol or import graph claim): Lua, Bash/Shell, SQL, TOML, JSON, Solidity.
 
 ### 3.5 No Magic
 
@@ -264,6 +264,10 @@ archex mcp
 ```
 
 LangChain and LlamaIndex integrations adapt archex bundles to their retriever/query-engine interfaces without changing the core retrieval pipeline.
+
+A fresh MCP session advertises only `context` and `query_repo`; the remaining tools appear after the first retrieval (`archex mcp-schema-size` reports both costs).
+
+Hosts that run their own `grep`/`glob`/shell searches can skip the tool choice entirely: `archex install-client <host> --hooks` (`omp`, `pi`, `opencode`, `claude-code`, `codex`) installs an opt-in, non-blocking hook that runs `archex annotate` on the host's own search results and appends one line per enclosing code unit, leaving the original result unchanged. Cursor has no matching tool-call hook and gets a diagnostics-only fallback.
 
 ### 5.4 As a Sub-Agent via CLI
 

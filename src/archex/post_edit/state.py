@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
-from archex.integrations.hook import log_diagnostic
+from archex.integrations.diagnostics import log_diagnostic
 from archex.post_edit.models import (
     MAX_EVENT_PATHS,
     MAX_PATH_LENGTH,

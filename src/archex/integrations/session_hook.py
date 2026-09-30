@@ -16,7 +16,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, cast
 
-from archex.integrations.hook import hook_timeout_seconds, log_diagnostic
+from archex.integrations.diagnostics import hook_timeout_seconds, log_diagnostic
 from archex.session import render_session_primer
 
 if TYPE_CHECKING:
