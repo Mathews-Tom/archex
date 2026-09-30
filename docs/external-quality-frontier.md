@@ -20,7 +20,8 @@ The M3 stack (`#533`–`#536`) built:
 # Self-repo scope (no network, ~8 minutes on this machine):
 ARCHEX_M3_SELF_ONLY=1 bash scripts/m3_frontier_pipeline.sh
 
-# Full public corpus (64 tasks, network clones for pinned external repos,
+# Full public corpus (66 tasks at HEAD: 26 self, 40 external; the dated results below were
+# produced on the earlier 64-task corpus. Network clones for pinned external repos,
 # significantly longer -- local-operator only, never run in CI):
 bash scripts/m3_frontier_pipeline.sh
 
@@ -75,7 +76,7 @@ uv run archex benchmark gate --input .archex/m3-frontier/cast --tasks-dir benchm
 
 - `fast`/`balanced`: no measured recall/F1/MRR/required-file-completeness regression, but no genuine warm-latency evidence exists yet (methodology gap above) and the M3 promotion rule requires staying inside profile p95 budgets with *evidence*, not by default.
 - cAST: measurable recall/F1/required-file-completeness regression on this scope; already excluded by the absolute-threshold gate.
-- symbolic-rerank: not run (only-if-defined; not exercised in this delivery).
+- symbolic-rerank: not run (only-if-defined; not exercised in this delivery). It has since been defined as the benchmark-only `archex_query_symbolic_rerank` lane and validated per corpus in [symbolic-rerank-validation.md](symbolic-rerank-validation.md); `ARCHEX_M3_INCLUDE_SYMBOLIC_RERANK=1` adds it to `scripts/m3_frontier_pipeline.sh`.
 - Full pinned-external and sealed-holdout corpus scope: not yet executed (see reproduction commands above).
 
 This is consistent with the M3 constraints: no automatic product-default promotion, no cross-family winner claim, and no result cherry-picking — the retrieval harness's default (`archex_query`, default chunker) remains the shipped product default. The mechanism to reach a GO decision — lane matrix, scorecards, and the extended promotion gate — is complete, tested, and reproducible; reaching a promotion verdict on the full external/sealed corpus, and fixing the `--warm-cache`/`balanced`-profile interaction, are follow-on local-operator activities this stack unblocks but does not itself complete.

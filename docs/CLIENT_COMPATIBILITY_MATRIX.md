@@ -1,6 +1,6 @@
 # Client Compatibility Matrix
 
-Last updated: 2026-09-10
+Last updated: 2026-09-30
 
 This matrix separates config-shape verification from actual client smoke tests. `archex install-client <client>` writes the config by default (global/user scope; a SOURCE path or `--scope project` installs repo-local). Add `--dry-run` to preview the exact target and config without writing.
 
@@ -372,7 +372,7 @@ echo '{"host":"opencode","tool":"bash","input":{"command":"rg -n compute_delta s
 
 ## Post-edit impact hooks (opt-in)
 
-Installed separately from every other archex surface with `--post-edit-hooks`, removed with `--remove-post-edit-hooks`. Never installed by default. Each supported client gets a different mechanism but the same core contract, because all of them shell into one Python entry point (`archex.integrations.post_edit_hook`); no client-specific impact logic exists.
+Installed separately from every other archex surface with `--post-edit-hooks`, removed with `--remove-post-edit-hooks`. Never installed by default. Each supported client gets a different mechanism but the same core contract, because all of them run one shared synchronize-and-report cycle (`archex.integrations.post_edit_hook.run_post_edit_cycle`); the Codex adapter is a thin wrapper (`archex.integrations.codex_post_edit_hook`) over that cycle, and no client-specific impact logic exists.
 
 ### What it does
 

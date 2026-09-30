@@ -77,8 +77,8 @@ grep/read workflow, and it says nothing about the advantage over an agent that t
 Two further conditions apply to every figure derived from the artifact:
 
 - The reduction is conditioned on archex reaching the target recall. Tasks where archex
-  misses are excluded rather than scored at unequal recall, so the number measures how much
-  cheaper archex localizes *when it succeeds*.
+  misses are excluded rather than scored at unequal recall, so the number measures how many
+  fewer tokens archex spends to localize *when it succeeds*.
 - The self-repo corpus is withdrawn from every currently published figure; its comparisons
   remain in the artifact and are not deleted.
 

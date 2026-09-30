@@ -42,7 +42,7 @@ import click
     help=(
         "Advertise only the retrieval entry points until the client retrieves, "
         "then advertise everything and send notifications/tools/list_changed. "
-        "Cuts the fixed per-turn schema cost from 4192 to 765 tokens. Pass "
+        "Cuts the fixed per-turn schema cost from 4272 to 765 tokens. Pass "
         "--no-disclosure for the pre-R5 behavior, which every client can use. "
         "Note --tools does not disable the gate: it bounds what is advertised "
         "once the gate opens, so --tools all still starts minimal. Tools remain "

@@ -97,22 +97,33 @@ graph TD
 
 ```text
 archex/
-├── __init__.py             # Public re-exports: analyze, query, compare, scout
-├── api.py                  # Top-level public API functions
+├── __init__.py             # Lazy public re-exports: analyze, query, compare, record_usage_event, __version__
+├── api.py                  # Top-level public API functions (analyze, query, compare, scout, ...)
 ├── config.py               # Config loading from user/project/env
 ├── models.py               # Shared Pydantic models
 ├── exceptions.py           # Structured exception hierarchy
+├── languages.py            # Language support registry and tier metadata
 ├── project.py              # Repo-local .archex project state and paths
+├── state_file.py           # Atomically published repo-local state documents
 ├── status.py               # Index freshness / health inspection
+├── status_snapshot.py      # Bounded, versioned cached status snapshot
 ├── doctor.py               # Trust diagnostics for repo-local installs
 ├── onboarding.py           # Getting-started summaries and setup guidance
+├── client_setup.py         # MCP client install/bootstrap helpers
 ├── scout.py                # Structural scout map + fetch-plan protocol
+├── context_facade.py       # Primary agent-facing context contract (query, intent, profile, filters, budgets, handles)
+├── receipt.py              # Deterministic context receipt construction
+├── annotate.py             # Annotate core: map a host's grep/glob/shell-search output to indexed code units
 ├── precision.py            # Symbol / batch symbol lookup helpers
+├── explain.py              # Deterministic explain-context models and renderers
+├── impact.py               # Deterministic blast-radius analysis from git changes and index dependencies
 ├── cache.py                # Index cache management
 ├── graph_query.py          # Graph-backed neighborhood queries
 ├── graph_artifact.py       # Saved graph artifact generation
+├── dogfood.py              # Self-benchmark dogfood orchestration
 ├── observe.py              # Observability helpers
 ├── reporting.py            # Shared CLI/reporting utilities
+├── utils.py                # Shared utilities for the CLI and integrations
 │
 ├── acquire/                # ① Source Acquisition
 │   ├── git.py              # clone_repo(), shallow_clone(), sparse_checkout()
@@ -133,14 +144,24 @@ archex/
 ├── index/                  # ④ Indexing & Retrieval Primitives
 │   ├── bm25.py             # BM25Index: SQLite FTS5 wrapper
 │   ├── vector.py           # Optional local embedding index
+│   ├── quantize.py         # TurboQuant data-oblivious vector quantization
 │   ├── fusion.py           # BM25/vector fusion
 │   ├── rerank.py           # Optional local reranker
 │   ├── splade.py           # Optional sparse retrieval path
 │   ├── delta.py            # Delta re-indexing
 │   ├── graph.py            # DependencyGraph: NetworkX wrapper
 │   ├── store.py            # SQLite persistence for index artifacts
-│   ├── chunker.py          # Compatibility shim into pipeline chunkers
-│   └── embeddings/         # Local embedding backends
+│   ├── compat.py           # Index-config compatibility predicates over stored metadata
+│   ├── artifact.py         # Portable, compressed index artifact for team-shared bootstrap
+│   ├── adopt.py            # Make an index that came from elsewhere describe this checkout
+│   ├── worktree_seed.py    # Same-repository worktree index seed discovery
+│   ├── semantic_evidence.py       # Conditional SCIP/LSP evidence collection
+│   ├── history_evidence.py        # Conditional repository-memory evidence collection
+│   ├── documentation_evidence.py  # Conditional documentation-graph evidence collection
+│   ├── runtime_evidence.py        # Conditional runtime/coverage evidence collection
+│   ├── huggingface.py      # Hugging Face model resolution helpers
+│   ├── model_policy.py     # Central model-loading security policy
+│   └── embeddings/         # Local embedding backends (fast, sentence_tf, nomic, coderank)
 │
 ├── analyze/                # ⑤ Structural Analysis
 │   ├── modules.py          # detect_modules() via Leiden with Louvain fallback
@@ -150,47 +171,101 @@ archex/
 │
 ├── serve/                  # ⑥ Output Assembly
 │   ├── profile.py          # build_profile() → ArchProfile
+│   ├── profiles.py         # Named retrieval profiles: fast/balanced/deep IndexConfig presets
 │   ├── context.py          # assemble_context() → ContextBundle
 │   ├── intent.py           # Query intent and budget heuristics
+│   ├── modality.py         # Query-modality and budget-tier classification
+│   ├── packing.py          # Efficiency-aware packing score model
+│   ├── compression.py      # Deterministic post-retrieval content compression primitives
+│   ├── generation.py       # Immutable generation identity for warm-serving snapshots
+│   ├── runtime.py          # In-process warm serving cache for repeat query() calls
 │   ├── compare/            # Dimension-specific comparison renderers
-│   └── renderers/          # XML / Markdown / JSON output renderers
+│   └── renderers/          # XML / Markdown / JSON / TOON output renderers
 │
-├── integrations/           # Optional ecosystem integrations
+├── post_edit/              # Client-neutral post-edit edit tracking and bounded impact summary
+│   ├── models.py           # Post-edit event and state models
+│   ├── state.py            # Bounded, atomically written post-edit state
+│   └── impact.py           # Recorded-edit sync and impact projection
+│
+├── session/                # Explicit local project-session ledger
+│   ├── models.py           # Revision-aware session record models
+│   ├── service.py          # Explicit capture and bounded rendering
+│   └── store.py            # SQLite persistence for session records
+│
+├── report/                 # Read-only diff-review artifacts
+│   ├── artifact.py         # AnalysisArtifactV1: canonical diff-review artifact
+│   ├── delta.py            # Bounded diff-review delta summary
+│   ├── release_artifact.py # Per-release CompatibilityArtifact
+│   ├── status_card.py      # StatusCard: dimensioned, evidence-linked status summary
+│   └── render_*.py         # Markdown+Mermaid, static HTML, and status-card projections
+│
+├── explorer/               # Local, loopback-only explorer over an exported AnalysisArtifactV1
+│   └── loader / viewmodel / render / server / export / security
+│
+├── metrics/                # Local-first usage metrics (ledger, policy, recorder, reporter)
+│
+├── integrations/           # Agent-host hooks and optional ecosystem adapters
 │   ├── mcp.py              # MCP tool definitions and stdio server
 │   ├── langchain.py        # LangChain retriever
 │   ├── llamaindex.py       # LlamaIndex query engine
-│   └── lsap.py             # LSP-assisted type enrichment
+│   ├── lsap.py             # LSP-assisted type enrichment (data models in lsap_models.py)
+│   ├── annotate_hook.py    # Host-neutral annotate hook entry (fast exit for non-search calls)
+│   ├── post_tool_use_annotate.py    # PostToolUse annotate runner shared by Claude Code and Codex
+│   ├── claude_code_annotate_hook.py # Claude Code PostToolUse (Bash|Grep|Glob) annotate adapter
+│   ├── codex_annotate_hook.py       # Codex PostToolUse (shell) annotate adapter
+│   ├── diagnostics.py      # Diagnostics log and latency budget shared by every client hook
+│   ├── hook.py             # Symbol-search lookup engine used by the Cursor hook
+│   ├── cursor_hook.py      # Cursor beforeSubmitPrompt diagnostics-only hook
+│   ├── post_edit_hook.py   # Claude Code PostToolUse bounded post-edit impact feedback
+│   ├── codex_post_edit_hook.py      # Codex PostToolUse bounded post-edit impact feedback
+│   ├── session_hook.py     # Claude Code SessionStart project-session context
+│   └── docs/ history/ runtime/ semantic/   # Evidence providers (ADR/doc-link/ownership, git-log/rationale, coverage/profile, LSP/SCIP)
 │
 ├── benchmark/              # Retrieval evaluation, gating, and head-to-head runs
 │   ├── runner.py           # Benchmark orchestration
 │   ├── reporter.py         # Human-readable reports
 │   ├── gate.py             # Baseline/regression gates
 │   ├── strategies.py       # Retrieval strategies under test
-│   └── headtohead.py       # archex vs ccc vs raw-ripgrep/read harness
+│   ├── headtohead.py       # archex vs ccc vs raw-ripgrep/read harness
+│   ├── competitive.py      # Public cross-lane comparison manifest and report
+│   ├── swe_ab.py           # SWE-task A/B harness under omp (draft R3x protocol; no results exist)
+│   ├── product_loop.py     # Paired product-loop benchmark (with product_loop_hook_recorder.py)
+│   ├── scope_aware_*.py    # R30 scope-aware campaign modules
+│   └── ...                 # Candidate lanes, corpus audits, replication, and scoring modules
 │
-└── cli/                    # Click entry points
+└── cli/                    # Click entry points (one `<name>_cmd.py` per command)
     ├── main.py             # Root click group definition
+    ├── setup_cmd.py        # archex setup
     ├── init_cmd.py         # archex init
     ├── index_cmd.py        # archex index
     ├── status_cmd.py       # archex status
     ├── doctor_cmd.py       # archex doctor
+    ├── reset_cmd.py        # archex reset
+    ├── install_client_cmd.py # archex install-client
     ├── query_cmd.py        # archex query
+    ├── context_cmd.py      # archex context
     ├── scout_cmd.py        # archex scout
+    ├── annotate_cmd.py     # archex annotate --host {omp,claude-code,codex,opencode}
     ├── symbol_cmd.py       # archex symbol
     ├── symbols_cmd.py      # archex symbols
     ├── analyze_cmd.py      # archex analyze
     ├── explain_cmd.py      # archex explain
     ├── impact_cmd.py       # archex impact
-    ├── graph_cmd.py        # archex graph
+    ├── graph_cmd.py        # archex graph {export,inspect,neighbors,hubs,path,stats}
     ├── outline_cmd.py      # archex outline
     ├── tree_cmd.py         # archex tree
     ├── compare_cmd.py      # archex compare
     ├── onboard_cmd.py      # archex onboard
+    ├── report_cmd.py       # archex report {diff,delta,status-card,release-artifact}
+    ├── explore_cmd.py      # archex explore
+    ├── session_cmd.py      # archex session {record,list,prime,invalidate,delete}
+    ├── metrics_cmd.py      # archex metrics ...
     ├── mcp_cmd.py          # archex mcp
+    ├── mcp_schema_size_cmd.py # archex mcp-schema-size
     ├── cache_cmd.py        # archex cache
-    ├── reset_cmd.py        # archex reset
     ├── benchmark_cmd.py    # archex benchmark ...
-    └── dogfood_cmd.py      # archex dogfood
+    ├── dogfood_cmd.py      # archex dogfood
+    └── indexing.py         # Shared indexing summary helpers (run_indexing_and_get_summary, worktree-seed formatting)
 ```
 
 ### 1.2.1 Distribution Surfaces
@@ -198,6 +273,7 @@ archex/
 - **CLI:** repo-local workflows run through `archex init/index/status/doctor/query/scout/...`.
 - **MCP server:** `archex mcp` wraps the stdio server implemented in `integrations/mcp.py`.
 - **Claude Code skill:** `skills/archex/` codifies the doctor-first, scout→fetch workflow for agents.
+- **Agent-host annotate hooks:** `archex annotate --host {omp,claude-code,codex,opencode}` annotates a host's own grep/glob/shell-search output with the indexed code units it hit. Adapters: omp/Pi `tool_result`, Claude Code `PostToolUse` on `Bash|Grep|Glob` (`archex.integrations.claude_code_annotate_hook`), Codex `PostToolUse` on shell (`archex.integrations.codex_annotate_hook`), and an OpenCode `tool.execute.after` plugin, all over the shared `archex.annotate` core and the host-neutral `archex.integrations.annotate_hook` entry. Cursor remains diagnostics-only (`archex.integrations.cursor_hook`). The retired `PreToolUse` pattern-search hooks are listed in `docs/CLIENT_COMPATIBILITY_MATRIX.md`.
 - **Containers:** `docker/Dockerfile.slim` ships BM25-only onboarding; `docker/Dockerfile.full` ships local FastEmbed without requiring a build-time model download.
 
 ### 1.2.2 Repo-Local Trust and Freshness
@@ -267,7 +343,7 @@ graph BT
         GraphExtra["python-igraph + leidenalg<br/>(archex[graph])"]
         Torch["sentence-transformers / torch<br/>(archex[vector-torch])"]
         SPLADE["SPLADE deps<br/>(archex[splade])"]
-        MCPExtra["MCP SDK<br/>(archex[mcp])"]
+        MCPExtra["MCP SDK<br/>(core dependency,<br/>archex[mcp] is an empty extra)"]
         LSAP["LSP client<br/>(archex[lsap])"]
     end
 
@@ -313,6 +389,7 @@ class Config:
     parallel: bool = True                       # ProcessPoolExecutor auto-enables above 10 files
     strict: bool = False
     delta_threshold: float = 0.5                # Full rebuild threshold for changed files
+    worktree_seed: bool = True                  # Fresh linked worktrees may seed from a same-repository index (machine-level only)
 
 class IndexConfig:
     """Index construction configuration."""
@@ -322,15 +399,23 @@ class IndexConfig:
     module_prefilter: bool = False
     embedder: str | None = None                 # Registered local embedder name
     vector_mode: VectorMode = VectorMode.RAW
+    surrogate_version: str = "v1"
     retrieval_policy: RetrievalPolicy = RetrievalPolicy.AUTO
     rerank: bool = False                        # Optional local cross-encoder rerank
     rerank_model: str | None = None
+    rerank_candidate_limit: int = 4
     chunker: Literal["default", "cast"] = "default"
     chunk_max_tokens: int = 500
     chunk_min_tokens: int = 50
     token_encoding: str = "cl100k_base"
+    allow_remote_code: bool = False             # Explicit opt-in for built-in remote-code models
     quantize_vectors: bool = True               # Enable 4-bit TurboQuant vector storage by default
     quantize_bits: int = 4                      # Supported TurboQuant bit widths: 2 or 4
+    identifier_fragment_tokenization: bool = False  # Off by default; see RETRIEVAL_DEFAULT_DECISIONS.md
+    semantic_evidence_providers: list[str] = []      # "scip", "lsp"; empty = none run
+    runtime_evidence_providers: list[str] = []
+    history_evidence_providers: list[str] = []
+    documentation_evidence_providers: list[str] = []
 ```
 
 ### 2.2 Intermediate Models (Pipeline Outputs)
@@ -972,10 +1057,10 @@ class VectorIndex:
 
 #### 3.3.5 Index Persistence (SQLite)
 
-Single SQLite database per indexed repo:
+Single SQLite database per indexed repo. `src/archex/index/store.py` owns the DDL (`CURRENT_SCHEMA_VERSION = "5"`); it is abbreviated here:
 
 ```sql
--- Chunks table
+-- Chunks table (symbol fields are denormalized onto the chunk row)
 CREATE TABLE chunks (
     id TEXT PRIMARY KEY,
     content TEXT NOT NULL,
@@ -985,23 +1070,13 @@ CREATE TABLE chunks (
     symbol_name TEXT,
     symbol_kind TEXT,
     language TEXT NOT NULL,
-    imports_context TEXT,
-    token_count INTEGER NOT NULL,
-    module TEXT
-);
-
--- Symbols table
-CREATE TABLE symbols (
-    qualified_name TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    start_line INTEGER,
-    end_line INTEGER,
-    visibility TEXT,
+    imports_context TEXT DEFAULT '',
+    token_count INTEGER DEFAULT 0,
+    symbol_id TEXT,
+    qualified_name TEXT,
+    visibility TEXT DEFAULT 'public',
     signature TEXT,
-    docstring TEXT,
-    parent TEXT
+    docstring TEXT
 );
 
 -- Edges table
@@ -1013,17 +1088,34 @@ CREATE TABLE edges (
     confidence TEXT NOT NULL DEFAULT 'extracted',
     confidence_score REAL NOT NULL DEFAULT 1.0,
     evidence TEXT NOT NULL DEFAULT '[]',
-    PRIMARY KEY (source, target, kind)
+    provider TEXT,
+    provider_version TEXT
 );
+
+-- Per-file content state used by working-tree delta detection
+CREATE TABLE file_states (
+    file_path TEXT PRIMARY KEY,
+    size_bytes INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    token_count INTEGER
+);
+
+-- Persisted module boundaries (ordinal, name, root_path, responsibility, module_json)
+CREATE TABLE modules (...);
+
+-- Optional chunk surrogates (chunk_id, file_path, surrogate_text, surrogate_version)
+CREATE TABLE chunk_surrogates (...);
 
 -- Metadata table
 CREATE TABLE metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
--- Keys: commit_hash, indexed_at, config_hash, languages, stats, chunker, chunker_revision
+-- Keys include: commit_hash, indexed_at, config_hash, languages, stats, chunker, chunker_revision
 
--- FTS5 index (see BM25 section above)
+-- FTS5 indexes: chunks_fts (see BM25 section above) and symbols_fts
+--   symbols_fts(symbol_id, symbol_name, qualified_name, file_path, tokenize='unicode61')
 ```
 
 ### 3.4 Stage ④ — Analyze
@@ -1225,18 +1317,23 @@ Graph-native commands and MCP tools answer structural questions directly from an
 .archex/                         # repo-local generated state
 ├── settings.toml                 # Project settings created by `archex init`
 ├── metadata.json                 # archex version and project metadata
-├── index.db                      # SQLite: chunks, symbols, edges, FTS5, metadata
+├── index.db                      # SQLite: chunks, edges, file_states, modules, metadata, FTS5
+├── index.meta                    # Authenticated cache marker: an index is reused only with this marker
 ├── vectors/                      # Optional local embedding artifacts
+├── post-edit-state.json          # Bounded post-edit state (only with the post-edit hooks)
+├── archgraph.json                # When graph export is requested
 └── dogfood/
     └── history/                  # Local dogfood result history
 
 ~/.archex/
-├── config.toml                   # User-level defaults
+├── config.toml                   # User-level defaults (machine-level settings such as worktree_seed)
+├── machine-id                    # Machine-local secret behind the cache marker HMAC
 ├── cache/                        # Remote-repo and non-project cache entries
-└── models/                       # Optional local model caches
-    ├── fastembed/
-    ├── sentence-transformers/
-    └── splade/
+├── usage.sqlite                  # Local usage-metrics ledger
+├── hook-diagnostics.log          # Hook degradation log (only with installed hooks)
+└── annotation-ledger.jsonl       # Per-call annotate ledger (only with installed annotate hooks)
+
+# Embedding model caches live outside ~/.archex: Hugging Face (`$HF_HOME/hub`) and FastEmbed (`~/.cache/fastembed`).
 ```
 
 ### 4.2 Cache Invalidation
@@ -1271,36 +1368,40 @@ class ArchexError(Exception):
     """Base exception for all archex errors."""
 
 class AcquireError(ArchexError):
-    """Errors during source acquisition."""
-
-class CloneError(AcquireError):
-    """Git clone failed (network, auth, not found)."""
-    url: str
-    exit_code: int
-    stderr: str
-
-class PrivateRepoError(AcquireError):
-    """Repository requires authentication."""
-    url: str
+    """Repository acquisition failed."""
 
 class ParseError(ArchexError):
-    """Errors during AST parsing."""
+    """Parsing source files failed."""
 
-class UnsupportedLanguageError(ParseError):
-    """No adapter registered for this language."""
-    language: str
-    file_path: str
+class ArchexIndexError(ArchexError):
+    """Indexing operations failed."""
 
-class IndexError(ArchexError):
-    """Errors during index construction."""
+class DeltaIndexError(ArchexError):
+    """Delta indexing operations failed."""
+
+class AnalyzeError(ArchexError):
+    """Architecture analysis failed."""
 
 class ProviderError(ArchexError):
-    """Errors from optional model providers or legacy provider integrations."""
-    provider: str
-    status_code: int | None
+    """A provider call failed."""
 
 class CacheError(ArchexError):
-    """Errors reading/writing the index cache."""
+    """Index cache read/write failed."""
+
+class ConfigError(ArchexError):
+    """Configuration is invalid or missing."""
+
+class LSAPError(ArchexError):
+    """LSAP/LSP client operations failed."""
+
+class BenchmarkCloneError(ArchexError):
+    """Cloning or checking out a benchmark task repository failed."""
+
+class ArtifactError(ArchexError):
+    """Portable index artifact export or import failed."""
+
+class ArtifactVersionError(ArtifactError):
+    """Artifact format or archex-version compat range is unsupported."""
 ```
 
 ### 5.2 Graceful Degradation
@@ -1327,7 +1428,7 @@ class CacheError(ArchexError):
 | Large (e.g., FastAPI)      | ~500  | 5-10s      | 5-8s       | < 1s       |
 | Very Large (e.g., Next.js) | ~5000 | 30-60s     | 20-40s     | 1-3s       |
 
-_Parse + index is a one-time cost, amortized by caching. Query time is per-request._
+_Parse + index is a one-time cost, amortized by caching. Query time is per-request. These are design targets, not figures from a checked-in measurement artifact._
 
 ### 6.2 Optimization Strategies
 
@@ -1348,9 +1449,9 @@ _Parse + index is a one-time cost, amortized by caching. Query time is per-reque
 
 | Concern                    | Mitigation                                                                                                                                                                       |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Arbitrary repo cloning** | Validate URL format. Only support https:// and git:// protocols. Block file:// and ssh:// by default (configurable).                                                             |
+| **Arbitrary repo cloning** | `validate_url()` in `acquire/git.py` accepts only `http://` and `https://` remote URLs (case-insensitive scheme match). Every other `scheme://` form (including `file://`, `ssh://`, `git://`), git `<transport>::` remote-helper syntax such as `ext::`, and scp-like `host:path` shorthand are rejected; the allow-list is a module constant, not a setting. |
 | **Path traversal**         | All file paths are resolved relative to clone root. Reject paths containing `..`.                                                                                                |
 | **Prompt injection boundary** | archex emits structured evidence and never treats repository text as instructions. Downstream agents decide how to consume the bundle. |
 | **Secret posture**           | No hosted inference or API key is required for core, MCP, skill, Docker slim, or benchmark-gate workflows. User config stays local. Bundle-only eval inherits only the normal process environment of the operator-supplied local command and does not store credentials in result fields. |
-| **Disk space**             | Default cache TTL of 7 days. `archex cache clean` for manual management. Warning at 5GB total cache size.                                                                        |
+| **Disk space**             | `archex cache clean` removes entries older than `--max-age` hours (default 24). Non-project caches also evict the oldest entries beyond a 500-entry cap after each write; a repo-local `.archex` layout holds one entry and is exempt. `archex cache info` reports entry count and total size. |
 | **No code execution by default** | Core retrieval never executes cloned code. No `eval()`, no subprocess calls on repo content. Tree-sitter parsing is static analysis only. The optional bundle-only eval lane can run an explicit operator-supplied local command; it is not part of default benchmarks or gates. |

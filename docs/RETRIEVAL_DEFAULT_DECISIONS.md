@@ -2,6 +2,8 @@
 
 Operator evidence from the 2026-06-09 retrieval-default benchmark keeps `archex_query` as the product default. CodeRankEmbed and reranker default changes remain blocked until a clean full run clears the recall/F1, token-efficiency, and p95 latency rules.
 
+References below to `.docs/…` design and plan files name local planning documents kept in the gitignored `.docs/` directory. They are not part of the repository, so the workstream labels (R3, L1–L4, Workstream 2–6) are provenance only; the checked-in evidence for each decision is the artifact or doc it links.
+
 ## Invariants
 
 - Run core retrieval benchmarks locally only; no network or generative LLM inference. Bundle-only eval is separate and runs only when an operator supplies a local evaluator command.
