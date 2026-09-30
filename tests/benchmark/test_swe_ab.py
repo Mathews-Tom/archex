@@ -32,12 +32,14 @@ from archex.benchmark.swe_ab import (
     observations,
     omp_argv,
     omp_channel,
+    out_of_patch_read_tokens_compounded,
     parse_omp_events,
     parse_omp_session,
     provider_endpoint_overridden,
     provider_logins,
     quota_blocked_relative_path,
     quota_reading,
+    summarize_ledger,
     swe_agent_channel_of,
     tool_fingerprint,
     validate_swe_ab_directory,
@@ -215,6 +217,31 @@ def test_localization_uses_normalized_read_and_edit_targets(tmp_path: Path) -> N
     assert loc.edited_non_gold is True
 
 
+def test_out_of_patch_reads_exclude_files_either_accepted_patch_touches(tmp_path: Path) -> None:
+    session = parse_omp_session(_session_file(tmp_path))
+
+    def words(text: str) -> int:
+        return len(text.split())
+
+    # The read of pkg/a.py is request 1 of 4, so its 2-word result is re-sent twice.
+    assert out_of_patch_read_tokens_compounded(session, ["pkg/b.py"], ["/app"], words) == 4
+    assert out_of_patch_read_tokens_compounded(session, ["pkg/a.py"], ["/app"], words) == 0
+
+
+def test_ledger_counts_stale_declines_only_after_the_first_edit() -> None:
+    rows = [
+        {"toolCallId": "c0", "eligible": True, "annotated": False, "reason": "index_not_fresh"},
+        {"toolCallId": "c1", "eligible": True, "annotated": True, "reason": None},
+        {"toolCallId": "c4", "eligible": True, "annotated": False, "reason": "index_not_fresh"},
+        {"toolCallId": "c5", "eligible": True, "annotated": False, "reason": "no_hits"},
+    ]
+
+    summary = summarize_ledger(rows, {"c4", "c5"})
+
+    assert summary.not_fresh_after_first_edit == 1
+    assert (summary.eligible, summary.annotated) == (4, 1)
+
+
 # --- the frozen command line -----------------------------------------------------------
 
 
@@ -297,6 +324,7 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
         "tool_calls": 0,
         "channel_tokens_once": zero,
         "channel_tokens_compounded": dict(zero),
+        "out_of_patch_read_tokens_compounded": 0,
         "hook_ledger": (
             {"results": 0, "eligible": 0, "annotated": 0, "units": 0, "tokens": 0}
             if arm.hook

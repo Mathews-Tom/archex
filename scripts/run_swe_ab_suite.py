@@ -337,6 +337,9 @@ def _spec(
         gold = task_dir / "solution" / "gold_patch.diff"
         if gold.exists():
             spec["gold_patch"] = str(gold)
+        tests = task_dir / "tests" / "test_patch.patch"
+        if tests.exists():
+            spec["test_patch"] = str(tests)
     if args.runtime == "docker":
         spec.update(
             image=_task_image(task),

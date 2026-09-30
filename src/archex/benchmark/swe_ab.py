@@ -670,6 +670,16 @@ class HookLedgerSummary(BaseModel):
     tokens: int = Field(ge=0)
     fail_open: dict[str, int] = Field(default_factory=dict)
     annotated_after_first_edit: int = Field(default=0, ge=0)
+    not_fresh_after_first_edit: int = Field(default=0, ge=0)
+    """Eligible calls declined because the agent's edits left the index behind the tree.
+
+    Kill criterion 5 excludes exactly these from the hook-activity denominator; a stale decline
+    before the first edit is not excluded (the index is fresh at setup, so it would be a defect).
+    """
+
+
+STALE_INDEX_REASON = "index_not_fresh"
+"""The annotate core's decline reason when the index is not ``fresh`` (``archex.annotate``)."""
 
 
 def read_ledger(path: Path) -> list[dict[str, Any]]:
@@ -703,6 +713,14 @@ def summarize_ledger(
             1
             for row in rows
             if row.get("annotated") and str(row.get("toolCallId")) in first_edit_call_ids
+        ),
+        not_fresh_after_first_edit=sum(
+            1
+            for row in rows
+            if row.get("eligible")
+            and not row.get("annotated")
+            and row.get("reason") == STALE_INDEX_REASON
+            and str(row.get("toolCallId")) in first_edit_call_ids
         ),
     )
 
@@ -801,6 +819,33 @@ def localize(
         read_all_gold=bool(gold_files) and all(touches(g, read) for g in gold_files),
         edited_non_gold=any(not touches(p, gold_files) for p in patch_files),
     )
+
+
+def out_of_patch_read_tokens_compounded(
+    session: OmpSession,
+    patch_files: Sequence[str],
+    repo_prefixes: Sequence[str],
+    count: Callable[[str], int],
+) -> int:
+    """Compounded tokens of ``read``-channel results outside the task's gold and test patches.
+
+    The lever the headroom gate measures (kill criterion 3), defined as in
+    ``scripts/swebench_pro_token_headroom.py``: a read of a file either accepted patch touches is
+    not displaceable (the agent must see those lines to patch them); every other read is, and so
+    is a read whose target cannot be resolved. Weighted like `compound`: a result produced by
+    request ``i`` of ``n`` is charged ``n - 1 - i`` times.
+    """
+    request_count = len(session.requests)
+    total = 0
+    for exchange in session.exchanges:
+        if not exchange.answered or omp_channel(exchange.tool, exchange.arguments) != "read":
+            continue
+        target = read_target(exchange.tool, exchange.arguments)
+        if target is not None and touches(_normalize(target, repo_prefixes), patch_files):
+            continue
+        weight = max(0, request_count - 1 - exchange.request_index)
+        total += count(exchange.result_text) * weight
+    return total
 
 
 # --- cell schema ------------------------------------------------------------------
@@ -919,6 +964,8 @@ class SweAbCell(BaseModel):
     tool_call_mix: dict[str, int] = Field(default_factory=dict)
     channel_tokens_once: dict[str, int]
     channel_tokens_compounded: dict[str, int]
+    out_of_patch_read_tokens_compounded: int = Field(ge=0)
+    """The ``read`` share of ``channel_tokens_compounded`` outside the gold and test patches."""
     channel_tokenizer: str = "cl100k_base"
     hook_ledger: HookLedgerSummary | None
     archex_cli_calls: int = Field(ge=0)
@@ -952,6 +999,8 @@ class SweAbCell(BaseModel):
             self.channel_tokens_compounded
         ) != set(CHANNELS):
             raise ValueError("channel totals must cover exactly the frozen channel set")
+        if self.out_of_patch_read_tokens_compounded > self.channel_tokens_compounded["read"]:
+            raise ValueError("out-of-patch read tokens exceed the read channel's compounded total")
         arm = self.arm
         if arm.archex_installed != (self.archex_version is not None):
             raise ValueError(f"arm {arm} archex installation does not match archex_version")
