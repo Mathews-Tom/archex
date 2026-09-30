@@ -581,7 +581,12 @@ def score_patch(spec: CellSpec, patch: Path) -> bool:
                     "/tmp/replay.patch || patch --fuzz=3 -p1 -i /tmp/replay.patch",
                 ]
             )
-        rt.run(["bash", "/tests/test.sh"], timeout=_VERIFIER_TIMEOUT_SECONDS)
+        try:
+            rt.run(["bash", "/tests/test.sh"], timeout=_VERIFIER_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            # The task's verifier cap is part of scoring: a run past it has not resolved the task.
+            # Raising instead would turn the cell into a harness error and zero its tokens.
+            return False
         reward = rt.run(["cat", "/logs/verifier/reward.txt"], cwd="/").stdout.strip()
         return reward == "1"
     finally:
