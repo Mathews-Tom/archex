@@ -159,10 +159,7 @@ uv run python scripts/swe_ab_stage0.py --output benchmarks/swe_ab/stage0.json --
 jq '.summary, .gate, [.checks[] | select(.status != "pass") | {id, status, detail}]' benchmarks/swe_ab/stage0.json
 ```
 
-The draw is a pure function of the tasks root, the exclusions and the stage.
-An instance that fails Stage 0 validity (gold patch does not resolve, or the empty patch does not fail) goes into an exclusions file, `{"exclusions": [{"instance_id": ..., "reason": "gold_not_resolved" | "empty_not_failing", "source": ...}]}`, and the sampler is re-run with `--exclusions <file> --force`: each failure is replaced by the next valid instance in its repository's rank order, and a repository that runs out has its shortfall reassigned to the one with the most left.
-Repeat until Stage 0 passes on the whole draw, then keep `stage1-plan.json` and `stage1-sample.json`.
-Stage 2 uses the same exclusions plus `--stage1-plan stage1-plan.json` and refuses a plan that differs from its own Stage 1 recompute.
+The draw is a pure function of the tasks root, the exclusions and the stage. An instance that fails Stage 0 validity (gold patch does not resolve, or the empty patch does not fail) goes into an exclusions file, `{"exclusions": [{"instance_id": ..., "reason": "gold_not_resolved" | "empty_not_failing", "source": ...}]}` (the `gold_empty_validity` check lists them in that shape under `exclusions`), and the sampler is re-run with `--exclusions <file> --force`: each failure is replaced by the next valid instance in its repository's rank order, and a repository that runs out has its shortfall reassigned to the one with the most left. Run Stage 0 on the replacements and repeat until the whole draw is valid, then keep `stage1-plan.json` and `stage1-sample.json`. Stage 2 uses the same exclusions plus `--stage1-plan stage1-plan.json` and refuses a plan that differs from its own Stage 1 recompute.
 
 Without `--host` (or when `docker info` fails) the script runs only the local checks and leaves the container checks `requires_host`:
 
@@ -176,6 +173,7 @@ Without `--host` (or when `docker info` fails) the script runs only the local ch
 | `gold_empty_validity` | per instance, the gold patch resolves and the empty patch fails (invalid instances leave the pool) | no |
 | `omp_runs_in_container` | the pinned omp build starts inside each Pro image | no |
 | `archex_indexes_in_container` | archex installs into `/opt/archex`, indexes the checkout to `fresh`, and the annotate entry is pre-warmed on a real search hit | no |
+| `annotate_latency_in_container` | 10 annotate calls on a real 20-hit search after setup, timed end to end as the hook spawns them; fails when the median exceeds the hook's 0.5 s budget (the hook would drop most annotations) | no |
 | `emulated_wall_times` | container start, gold/empty scoring, omp start, and install+index seconds per instance; `emulated` and the container architecture | no |
 | `broker_reachable_from_container` | a container reaches the host broker and receives only the two allow-listed variables | no |
 | `bun_runs_under_emulation` | Bun's default x86-64 build starts under emulation, or the baseline build does (§2.1) | no |
@@ -259,7 +257,18 @@ uv run python scripts/run_swe_ab_suite.py run --plan benchmarks/swe_ab/dry-run-p
 
 ## 8. Stage 1 and Stage 2
 
-Freeze the pre-registration first (fill every *(set at freeze)* field), then run each stage with its plan exactly as in §5 with `--runtime docker`, and validate the result directory before any analysis. The run resumes by skipping cells whose artifact exists. A harness defect found after data exists means discarding and restarting the affected stage, never repairing cells. Rotate the broker token between stages (§3.2).
+Stage 1 (the pilot) runs on the draft pre-registration with its own ceiling; freeze the pre-registration after it (fill every *(set at freeze)* field) and before any Stage 2 cell. Run each stage with its plan exactly as in §5 with `--runtime docker`, and validate the result directory before any analysis. The run resumes by skipping cells whose artifact exists. A harness defect found after data exists means discarding and restarting the affected stage, never repairing cells. Rotate the broker token between stages (§3.2).
+
+The pre-registered analysis (`scripts/swe_ab_analysis.py`) refuses anything `validate` refuses:
+
+```bash
+uv run python scripts/swe_ab_analysis.py --plan stage1-plan.json \
+  --input benchmarks/swe_ab/results/stage1 --output benchmarks/evidence/r3x-swe-ab-pilot.json
+# Stage 1 gates: .gates.headroom, .gates.hc_adoption, .gates.hook_activity, .gates.a0_noise
+uv run python scripts/swe_ab_analysis.py --plan stage2-plan.json \
+  --input benchmarks/swe_ab/results/stage2 --output benchmarks/evidence/r3x-swe-ab.json \
+  --pilot-analysis benchmarks/evidence/r3x-swe-ab-pilot.json
+```
 
 ## 9. No-spend rehearsal (any machine with omp and archex)
 

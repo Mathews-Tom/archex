@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **R3x population sampler.** `scripts/swe_ab_sample.py` draws the Stage 1 (24 tasks) and Stage 2 (100 tasks) SWE-bench Pro V2 samples deterministically: a seed fixed in code, a sha256 rank order within each repository, Stage 1 at two per repository plus one for the two largest, Stage 2 by largest-remainder allocation and disjoint from Stage 1. Instances that fail Stage 0 validity are replaced by the next valid instance of the same repository; the tool emits the suite's plan JSON, a manifest of every walked instance, and the Stage 0 instance list.
+- **R3x pre-registered analysis.** `scripts/swe_ab_analysis.py` computes exactly the pre-registration's primary metrics on a validated result directory: per-model geometric-mean billed-token ratios for H and HC against A0 with Holm adjustment, the pooled solve-rate guardrail with the model as stratum, repository-clustered bootstrap intervals (10,000 resamples, seed 20260909), a stratified McNemar cross-check, a sensitivity check without quota-blocked pairs, and every Stage 1 gate (lever share, HC adoption, hook activity, A0-vs-A0 noise with the implied power). It refuses mixed-emulation stages and unscored cells.
+- **Cells record the inputs the Stage 1 gates need.** `out_of_patch_read_tokens_compounded` (reads of files outside the gold and test patches) and the ledger's `not_fresh_after_first_edit`; Stage 0 adds `annotate_latency_in_container`, the steady-state annotate latency inside each Pro image against the hook's 0.5 s budget.
+
+### Fixed
+
+- **A verifier that runs past its 3,000-second cap now scores the cell unresolved** instead of recording a harness error with zero tokens. Stage 0 records an instance it cannot score as an error instead of aborting the whole run.
+
 ## [0.34.0] - 2026-09-30
 
 This release brings search-result annotation to Claude Code, Codex CLI, and OpenCode. Each host's old hook (the Claude Code `PreToolUse` pattern search, the diagnostics-only Codex `PreToolUse` hook, and the OpenCode pattern-search plugin) is replaced by one that annotates the agent's own search results, and non-search shell calls now exit in about 40 ms. Re-run `archex install-client <host> --hooks` to migrate; on Codex CLI, review the new hook in `/hooks`, since Codex runs a config-file hook only once it is trusted. The release also readies the SWE A/B harness to run on Claude and ChatGPT subscriptions through omp's auth broker; no A/B results exist yet.
