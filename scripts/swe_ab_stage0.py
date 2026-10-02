@@ -601,9 +601,10 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
             # resolve or whose empty patch does not fail, so this stops the gate instead.
             scoring_errors[instance] = repr(exc)[-300:]
         lap = time.monotonic()
-        rt = cell_runner.DockerRuntime(spec, mounts=[(args.omp_dir, "/opt/omp")])
-        timing["container_start_seconds"] = round(time.monotonic() - lap, 1)
+        rt: Any = None
         try:
+            rt = cell_runner.DockerRuntime(spec, mounts=[(args.omp_dir, "/opt/omp")])
+            timing["container_start_seconds"] = round(time.monotonic() - lap, 1)
             timing["container_arch"] = rt.run(["uname", "-m"], cwd="/").stdout.strip()
             lap = time.monotonic()
             version = rt.run([*spec.omp_command, "--version"], cwd="/").stdout.strip()
@@ -619,7 +620,8 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
             omp_ok.setdefault(instance, False)
             checks.append(_check(f"container_setup:{instance}", "fail", repr(exc)))
         finally:
-            rt.close()
+            if rt is not None:
+                rt.close()
     invalid = [i for i, v in validity.items() if not (v["gold_resolves"] and v["empty_fails"])]
     source = f"stage0 gold_empty_validity, emulated={is_emulated('docker', platform.machine())}"
     exclusions = [

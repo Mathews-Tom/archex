@@ -775,3 +775,35 @@ def test_a_stub_rehearsal_ends_ok_and_the_validator_refuses_its_cells(
     assert cell.credential_env_names == []
     with pytest.raises(SweAbError, match="local stub"):
         validate_swe_ab_directory(out, load_plan(plan_path), require_complete=False)
+
+
+def _pull_runner(pull_codes: list[int], calls: list[list[str]]) -> Any:
+    """A fake `subprocess.run`: the image is absent, and each pull answers the next code."""
+    codes = iter(pull_codes)
+
+    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        code = 1 if argv[1] == "image" else next(codes)
+        return subprocess.CompletedProcess(argv, code, stdout="", stderr="401 Unauthorized")
+
+    return run
+
+
+def test_a_transient_pull_failure_is_retried_until_the_image_arrives() -> None:
+    calls: list[list[str]] = []
+    pauses: list[float] = []
+
+    cell_runner.ensure_image("img", run=_pull_runner([1, 1, 0], calls), sleep=pauses.append)
+
+    assert [argv[1] for argv in calls] == ["image", "pull", "pull", "pull"]
+    assert pauses == [30.0, 60.0]
+
+
+def test_a_pull_that_keeps_failing_raises_after_the_last_attempt() -> None:
+    calls: list[list[str]] = []
+    pauses: list[float] = []
+
+    with pytest.raises(RuntimeError, match="4 attempts"):
+        cell_runner.ensure_image("img", run=_pull_runner([1, 1, 1, 1], calls), sleep=pauses.append)
+
+    assert sum(argv[1] == "pull" for argv in calls) == 4

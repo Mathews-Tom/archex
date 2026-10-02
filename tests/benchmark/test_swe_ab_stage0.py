@@ -186,13 +186,15 @@ def test_route_check_requires_every_configuration_selector_under_muna() -> None:
     assert elsewhere["status"] == "fail"
 
 
-def test_the_in_container_omp_check_runs_the_bundle_not_the_host_binary(
+def test_container_checks_run_the_bundle_and_survive_an_instance_that_cannot_start(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ran: list[list[str]] = []
 
     class FakeRuntime:
         def __init__(self, spec: Any, *, mounts: list[tuple[Path, str]]) -> None:
+            if spec.task_id == "t0":
+                raise RuntimeError("docker run failed (125): 401 Unauthorized")
             self.spec = spec
 
         def run(self, argv: list[str], **kwargs: Any) -> Any:
@@ -229,7 +231,9 @@ def test_the_in_container_omp_check_runs_the_bundle_not_the_host_binary(
     task = tmp_path / "tasks" / "t1" / "solution"
     task.mkdir(parents=True)
     (task / "gold_patch.diff").write_text("diff --git a/x b/x\n")
-    (tmp_path / "instances.txt").write_text("t1\n")
+    (tmp_path / "instances.txt").write_text("t0\nt1\n")
+    (tmp_path / "tasks" / "t0" / "solution").mkdir(parents=True)
+    (tmp_path / "tasks" / "t0" / "solution" / "gold_patch.diff").write_text("diff --git a/x b/x\n")
     args = stage0.argparse.Namespace(
         instances=tmp_path / "instances.txt", tasks_root=tmp_path / "tasks",
         omp_command="/host/omp-18.4.4", container_omp_command=stage0.CONTAINER_OMP_COMMAND,
@@ -239,5 +243,7 @@ def test_the_in_container_omp_check_runs_the_bundle_not_the_host_binary(
 
     checks = {c["id"]: c for c in stage0.host_checks(args)}
 
-    assert checks["omp_runs_in_container"]["status"] == "pass"
+    # t0's container never starts: a named failure, and t1 is still checked with the bundle.
+    assert checks["container_setup:t0"]["status"] == "fail"
+    assert checks["omp_runs_in_container"]["per_instance"] == {"t0": False, "t1": True}
     assert not any("/host/omp-18.4.4" in part for argv in ran for part in argv)
