@@ -27,7 +27,21 @@ from archex.benchmark.swe_ab import MODELS, SweAbArm, SweAbError, SweAbPlan, loa
 
 SEED = 20260909
 STAGE1_TASKS = 24
-STAGE2_TASKS = 100
+STAGE2_MIN_TASKS = 100
+GUARDRAIL_PAIRS = 370
+"""Task-pair count that powers the pooled non-inferiority guardrail."""
+
+
+def stage2_task_count(passing_configurations: int) -> int:
+    """Stage 2 tasks: ``max(100, ceil(370 / k))`` for ``k`` Stage 1 solve-floor configurations."""
+    if not 1 <= passing_configurations <= len(MODELS):
+        raise SweAbError(
+            f"stage 2 size rule needs 1..{len(MODELS)} floor-passing configurations, "
+            f"got {passing_configurations}"
+        )
+    return max(STAGE2_MIN_TASKS, -(-GUARDRAIL_PAIRS // passing_configurations))
+
+
 STAGE1_PER_REPO = 2
 STAGE1_EXTRA_REPOS = 2
 EXCLUSION_REASONS = ("gold_not_resolved", "empty_not_failing")
@@ -106,7 +120,7 @@ def stage1_allocation(sizes: dict[str, int]) -> dict[str, int]:
     return alloc
 
 
-def stage2_allocation(sizes: dict[str, int], total: int = STAGE2_TASKS) -> dict[str, int]:
+def stage2_allocation(sizes: dict[str, int], total: int) -> dict[str, int]:
     pool = sum(sizes.values())
     base = {r: total * n // pool for r, n in sizes.items()}
     remainder = {r: total * n % pool for r, n in sizes.items()}
@@ -132,9 +146,10 @@ def draw(
     pool: dict[str, list[str]],
     exclusions: dict[str, dict[str, str]],
     stage1_ids: frozenset[str] = frozenset(),
+    stage2_tasks: int = STAGE2_MIN_TASKS,
 ) -> Draw:
     sizes = {r: len(ids) for r, ids in pool.items()}
-    wanted = stage1_allocation(sizes) if stage == 1 else stage2_allocation(sizes)
+    wanted = stage1_allocation(sizes) if stage == 1 else stage2_allocation(sizes, stage2_tasks)
 
     def disposition(iid: str) -> str | None:
         if iid in exclusions:
@@ -192,6 +207,7 @@ def build_manifest(
     exclusions: dict[str, dict[str, str]],
     sums_sha: str | None,
     stage1_ids: list[str] | None,
+    stage2_tasks: int | None = None,
 ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         "seed": SEED,
@@ -206,6 +222,8 @@ def build_manifest(
     }
     if stage1_ids is not None:
         manifest["stage1_plan_task_ids"] = stage1_ids
+    if stage2_tasks is not None:
+        manifest["stage2_tasks"] = stage2_tasks
     return manifest
 
 
@@ -227,6 +245,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise SweAbError("--cost-ceiling must be > 0")
     if stage == 1 and (args.stage1_plan is not None or args.without_hc):
         raise SweAbError("--stage1-plan and --without-hc apply to stage 2 only")
+    if stage == 1 and args.stage2_tasks is not None:
+        raise SweAbError("--stage2-tasks applies to stage 2 only")
+    stage2_tasks: int | None = args.stage2_tasks
+    if stage == 2:
+        if stage2_tasks is None:
+            raise SweAbError("stage 2 requires --stage2-tasks")
+        if stage2_tasks < STAGE2_MIN_TASKS:
+            raise SweAbError(f"--stage2-tasks must be >= {STAGE2_MIN_TASKS}")
     if stage == 2 and args.stage1_plan is None:
         raise SweAbError("stage 2 requires --stage1-plan")
     outs = [args.plan_out, args.manifest_out, args.instances_out]
@@ -249,14 +275,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "stage 1 plan does not match the recomputed stage 1 draw "
                 "(different tasks root, exclusions, or plan)"
             )
-        result = draw(2, pool, exclusions, frozenset(stage1_ids))
+        result = draw(2, pool, exclusions, frozenset(stage1_ids), stage2_tasks or 0)
         if set(stage1_ids) & {i for _, i in result.selected}:
             raise SweAbError("stage 2 overlaps stage 1")
 
     plan = build_plan(result, args.cost_ceiling, args.without_hc)
     sums = args.tasks_root.parent / "SHA256SUMS"
     sums_sha = hashlib.sha256(sums.read_bytes()).hexdigest() if sums.is_file() else None
-    manifest = build_manifest(result, exclusions, sums_sha, stage1_ids)
+    manifest = build_manifest(result, exclusions, sums_sha, stage1_ids, stage2_tasks)
     instances = "".join(f"{i}\n" for _, i in result.selected)
     _atomic_write(args.plan_out, _dump(plan.model_dump(mode="json", exclude_none=True)))
     _atomic_write(args.manifest_out, _dump(manifest))
@@ -279,6 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--plan-out", type=Path, required=True)
     p.add_argument("--manifest-out", type=Path, required=True)
     p.add_argument("--instances-out", type=Path, required=True)
+    p.add_argument("--stage2-tasks", type=int, help="stage 2 task count (stage 2 only; >= 100)")
     p.add_argument("--force", action="store_true")
     return p
 

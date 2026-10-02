@@ -1,0 +1,22 @@
+# Frozen omp settings overlay for the R3x campaign, passed to every cell as `--config`
+# (same file for every arm and model; its SHA-256 is recorded per cell as `omp_config_sha256`).
+# Pre-registration: benchmarks/preregistrations/R3x-swe-archex-ab.md.
+#
+# WHY. Muna swaps models in and out of capacity: a request can be answered `429
+# model_capacity_exhausted` or `429 model_loading` (no `retry-after`) for ~6 minutes while another
+# model is displaced. omp 18.4.4 retries an API error `retry.maxRetries` times (default 10) with
+# exponential backoff capped at 8 s (`retry.baseDelayMs` 500). Each retry also spends ~30 s in the
+# provider client's own request retries, so the default budget gave up after ~400 s wall-clock
+# (measured against the local stub, 4 runs, before and after the first tool call, both error
+# codes: 10 retries, 48-50 s of omp backoff, 398-400 s total) — shorter than a capacity wait.
+#
+# maxRetries 20 keeps omp retrying for 785-789 s (~13 min) wall-clock before giving up (measured
+# the same way: 20 retries, 118-122 s of omp backoff); the backoff cap and base are left at their
+# defaults, as is `maxDelayMs` (5 min). RUNBOOK §6 has both measurements.
+#
+# waitForUsageReset stays false (explicit): a usage-limit 429 that states a long reset (hours)
+# must still end the turn at once (`Provider requested Nms wait, exceeds retry.maxDelayMs`) so
+# the harness files the cell as a quota block instead of holding it past its 60-minute cap.
+retry:
+  maxRetries: 20
+  waitForUsageReset: false

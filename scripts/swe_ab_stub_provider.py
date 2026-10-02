@@ -18,8 +18,12 @@ Script steps (JSON list), one per model turn:
   most recent ``read`` returned, addressed by that read's hashline anchor;
 * ``{"text": "done"}`` — a final answer, which ends the session;
 * ``{"http_error": 429, "message": "usage limit reached", "retry_after": 600}`` — an HTTP error
-  answered to every request that reaches this step, as a subscription rate limit or quota
-  block would be (a step at index 0 blocks before the first tool call; a later one, mid-run).
+  answered to every request that reaches this step, as a provider rate limit, capacity, or
+  credit block would be (a step at index 0 blocks before the first tool call; a later one, mid-run).
+  ``"body"`` (a JSON object) replaces the generated error body and is returned verbatim, so
+  provider-shaped errors such as Muna's ``{"error": {"code": "model_capacity_exhausted", ...}}``
+  can be replayed; the ``retry-after`` header is sent only when ``retry_after`` is given.
+  The last step repeats for every later turn, so a final error step loops forever.
 
 The same server also speaks the Anthropic Messages protocol, so Claude Code can
 be driven against it with ``ANTHROPIC_BASE_URL=http://127.0.0.1:<port>`` and a
@@ -298,15 +302,14 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _error(self, step: dict[str, Any]) -> None:
-        """Answer the request with an HTTP error, as a subscription rate limit or quota block."""
-        payload = json.dumps(
-            {
-                "error": {
-                    "type": "rate_limit_error",
-                    "message": str(step.get("message", "rate limited")),
-                }
+        """Answer the request with an HTTP error, as a provider rate-limit or credit block."""
+        body = step.get("body") or {
+            "error": {
+                "type": "rate_limit_error",
+                "message": str(step.get("message", "rate limited")),
             }
-        ).encode()
+        }
+        payload = json.dumps(body).encode()
         self.send_response(int(step["http_error"]))
         self.send_header("content-type", "application/json")
         if "retry_after" in step:

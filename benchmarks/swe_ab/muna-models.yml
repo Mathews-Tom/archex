@@ -1,0 +1,45 @@
+# Frozen omp models.yml for the R3x campaign: the Muna provider, its models, and their prices.
+# Installed as `models.yml` in every container's profile copy; its SHA-256 is recorded per cell
+# as `provider_config_sha256`. Pre-registration: benchmarks/preregistrations/R3x-swe-archex-ab.md.
+#
+# PRICES — THE ONE PLACE TO FILL THEM. `cost` is USD per million tokens, from Muna's price list.
+# They are 0 until the operator sets them; `run_swe_ab_suite.py run --runtime docker` refuses to
+# start while `input`, `output`, or `cacheRead` is 0 for any model, so the cost ceiling can never
+# be silently inert. `cacheWrite` stays 0: an openai-completions response reports no cache-write
+# tokens. Set them before the pull request opens; changing them later changes the file's hash.
+providers:
+  muna:
+    baseUrl: https://inference.muna.ai/v1
+    api: openai-completions
+    apiKey: MUNA_ACCESS_KEY
+    models:
+      # Qwen: omp sends `enable_thinking: true` with no effort unless `thinkingFormat: openai`
+      # is set, which makes `--thinking low|high` send `reasoning_effort: "low"|"high"`.
+      - id: "@qwen/qwen-3.8-27b"
+        name: Qwen 3.8 27B
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [low, medium, high, xhigh]
+        compat:
+          thinkingFormat: openai
+        cost:
+          input: 0
+          output: 0
+          cacheRead: 0
+          cacheWrite: 0
+        contextWindow: 262144
+        maxTokens: 65536
+      - id: "@google/gemma-4-26b-a4b-it"
+        name: Gemma 4 26B A4B IT
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [low, medium, high, xhigh]
+        cost:
+          input: 0
+          output: 0
+          cacheRead: 0
+          cacheWrite: 0
+        contextWindow: 262144
+        maxTokens: 65536

@@ -1,29 +1,26 @@
 """Stage 0 feasibility checks for the SWE A/B campaign (spec §2.5, §8), as JSON.
 
 ```bash
-# Local checks (no spend, no containers): model routes and logins from omp's own catalog and
-# agent.db (login metadata only), the broker if one is running, and every arm once against the
-# local stub provider, inspecting what omp actually sent.
+# Local checks (no spend, no containers): omp's route to the Muna models, the Muna key
+# (a zero-token request for a model that does not exist), the `reasoning_effort` each
+# configuration's request carries, and every arm once against the local stub provider,
+# inspecting what omp actually sent. MUNA_ACCESS_KEY comes from the environment, else from
+# the MUNA_ACCESS_KEY= line of --env-file (default: the repo-root .env).
 uv run python scripts/swe_ab_stage0.py --output /tmp/stage0.json
-
-# With a running auth broker (omp auth-broker serve --bind 127.0.0.1:8765):
-uv run python scripts/swe_ab_stage0.py --output /tmp/stage0.json \
-    --broker-url http://127.0.0.1:8765 --broker-bind 127.0.0.1:8765
 
 # On a host with a running Docker daemon (x86_64 Linux, or Docker Desktop on Apple silicon,
 # where cells are emulated and recorded as such), add the container checks:
 uv run python scripts/swe_ab_stage0.py --output stage0.json --host \
     --tasks-root SWE-bench_Pro-os/v2/tasks --instances instances.txt \
     --omp-dir /opt/omp-linux-x64 --omp-command /opt/omp/bin/omp \
-    --archex-wheel dist/archex-0.34.0-py3-none-any.whl --uv-binary /opt/uv/uv \
-    --broker-url http://127.0.0.1:8765 --broker-bind 127.0.0.1:8765
+    --archex-wheel dist/archex-0.34.0-py3-none-any.whl --uv-binary /opt/uv/uv
 ```
 
 Each check reports ``pass``, ``fail``, or ``requires_host`` (needs a running Docker daemon,
 the omp bundle and task images, or a hosted model, and was not run). The gate passes only
-when no check fails and none is left ``requires_host``. No check here calls a model: the
-broker checks read ``/v1/healthz`` and ``/v1/usage``, and the container checks use only the
-task images, ``alpine``, and Bun's own images.
+when no check fails and none is left ``requires_host``. No check here generates a token: the
+key check asks Muna for a model that does not exist (404 for a good key, 401 for a bad one),
+and the container checks use only the task images, ``alpine``, and Bun's own images.
 """
 
 from __future__ import annotations
@@ -36,11 +33,13 @@ import os
 import platform
 import shlex
 import shutil
+import socket
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
@@ -49,21 +48,24 @@ from typing import Any, cast
 from archex.benchmark.swe_ab import (
     ANNOTATION_MARKER,
     BASE_TOOLS,
-    BROKER_ENV_NAMES,
+    CAMPAIGN_PROVIDER,
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
+    CONFIGURATIONS,
+    CREDENTIAL_ENV_NAMES,
     MODELS,
+    MUNA_BASE_URL,
+    OMP_CONFIG_PATH,
     OMP_VERSION,
-    QUOTA_MIN_HEADROOM,
-    SUBSCRIPTION_PROVIDERS,
-    ProviderLogins,
+    PROFILE,
+    PROVIDER_CONFIG_PATH,
+    Configuration,
     SweAbArm,
     SweAbError,
     is_emulated,
     load_cell,
     load_plan,
-    provider_logins,
-    quota_reading,
+    omp_argv,
     search_routing_rules,
     sha256_file,
     system_prompt_violations,
@@ -78,6 +80,7 @@ import run_swe_ab_suite as cell_suite  # noqa: E402 - sibling script, importable
 
 _ROOT = Path(__file__).resolve().parent.parent
 _SUITE = _ROOT / "scripts" / "run_swe_ab_suite.py"
+_STUB_PROVIDER = _ROOT / "scripts" / "swe_ab_stub_provider.py"
 _DRY_RUN_PLAN = _ROOT / "benchmarks" / "swe_ab" / "dry-run-plan.json"
 _STUB_SCRIPT = _ROOT / "benchmarks" / "swe_ab" / "stub-script.json"
 _CAMPAIGN_PYTHON = "/opt/archex/venv/bin/python"
@@ -147,124 +150,208 @@ def omp_version_check(omp_command: list[str]) -> dict[str, Any]:
     return _check("omp_version", status, f"omp reports {found!r}; pinned {OMP_VERSION}")
 
 
-def default_agent_db() -> Path:
-    """omp's login vault: ``$PI_CODING_AGENT_DIR/agent.db``, else ``~/.omp/agent/agent.db``."""
-    if agent_dir := os.environ.get("PI_CODING_AGENT_DIR"):
-        return Path(agent_dir) / "agent.db"
-    return Path.home() / (os.environ.get("PI_CONFIG_DIR") or ".omp") / "agent" / "agent.db"
+_KEY_ENV = CREDENTIAL_ENV_NAMES[0]
+_NO_KEY = f"{_KEY_ENV} is neither exported nor in the env file; no request was made"
+_KEY_PROBE_MODEL = "@nobody/does-not-exist"
+_STUB_REPLY = [{"text": "ok"}]
 
 
-def route_and_login_check(
-    catalog: list[dict[str, Any]], logins: dict[str, ProviderLogins]
-) -> dict[str, Any]:
-    """Each campaign model resolves to its own subscription provider, which holds a login."""
-    routes: dict[str, str | None] = {}
-    problems: list[str] = []
-    for model in MODELS:
-        provider, _, model_id = model.partition("/")
-        found = [
-            str(entry.get("provider"))
-            for entry in catalog
-            if entry.get("selector") == model
-            or (entry.get("provider") == provider and entry.get("id") == model_id)
-        ]
-        route = found[0] if found else None
-        routes[model] = route
-        if route is None:
-            problems.append(f"{model} is not in this omp's model catalog")
-        elif route != provider or route not in SUBSCRIPTION_PROVIDERS:
-            problems.append(
-                f"{model} routes through {route!r}, not the subscription provider {provider!r}"
-            )
-        if not logins.get(provider, ProviderLogins(0, 0, ())).enabled:
-            problems.append(f"omp holds no enabled login for provider {provider!r}")
-    return _check(
-        "model_routes_and_logins",
-        "fail" if problems else "pass",
-        "every campaign model id routes through its subscription provider and that provider "
-        "has an enabled login (catalog and login metadata only; no model call)"
-        if not problems
-        else "; ".join(problems),
-        routes=routes,
-        logins={
-            provider: {
-                "enabled": logins[provider].enabled if provider in logins else 0,
-                "disabled": logins[provider].disabled if provider in logins else 0,
-                "types": list(logins[provider].types) if provider in logins else [],
-            }
-            for provider in SUBSCRIPTION_PROVIDERS
-        },
-        note="the login is exercised, and its quota read, by the one-real-cell-per-model check",
-    )
+def _omp_env(home: Path, agent_dir: Path | None = None) -> dict[str, str]:
+    """The host environment minus omp's own variables, under an isolated ``HOME``."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("OMP_", "PI_"))}
+    env["HOME"] = str(home)
+    if agent_dir is not None:
+        env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+    return env
 
 
-def model_ids_check(omp_command: list[str], agent_db: Path) -> dict[str, Any]:
-    """Model routes from omp's own catalog and logins from ``agent.db``; makes no model call."""
-    done = subprocess.run(
-        [*omp_command, "models", "--json"], capture_output=True, text=True, check=False
-    )
+def muna_route_check(omp_command: list[str], *, run: Any = subprocess.run) -> dict[str, Any]:
+    """omp lists every configuration's selector under provider ``muna``; makes no model call.
+
+    ``omp models --json`` runs in a throwaway profile holding only the frozen ``muna-models.yml``.
+    """
+    expected = sorted({config.selector for config in CONFIGURATIONS})
+    with tempfile.TemporaryDirectory(prefix="swe-ab-route-") as tmp:
+        agent_dir, home = Path(tmp) / "agent", Path(tmp) / "home"
+        agent_dir.mkdir()
+        home.mkdir()
+        shutil.copy2(_ROOT / PROVIDER_CONFIG_PATH, agent_dir / "models.yml")
+        done = run(
+            [*omp_command, "models", "--json"],
+            capture_output=True, text=True, check=False, env=_omp_env(home, agent_dir),
+            timeout=120,
+        )  # fmt: skip
     try:
         catalog = cast("list[dict[str, Any]]", json.loads(done.stdout)["models"])
     except (json.JSONDecodeError, KeyError, TypeError):
-        return _check(
-            "model_routes_and_logins", "fail", "`omp models --json` did not return a model list"
+        return _check("muna_route", "fail", "`omp models --json` did not return a model list")
+    found = sorted(
+        str(entry.get("selector"))
+        for entry in catalog
+        if entry.get("provider") == CAMPAIGN_PROVIDER
+    )
+    missing = [selector for selector in expected if selector not in found]
+    return _check(
+        "muna_route",
+        "fail" if missing else "pass",
+        f"omp lists every configuration's selector under provider {CAMPAIGN_PROVIDER!r} "
+        "(catalog only; no model call)"
+        if not missing
+        else f"not listed under provider {CAMPAIGN_PROVIDER!r}: {', '.join(missing)}",
+        expected=expected,
+        listed=found,
+    )
+
+
+def muna_access_key(env_file: Path) -> str | None:
+    """The key from the environment, else from the env file's ``MUNA_ACCESS_KEY=`` line only."""
+    try:
+        return cell_suite.campaign_key(env_file)
+    except SystemExit:
+        return None
+
+
+def _post_json(url: str, headers: dict[str, str], body: bytes) -> tuple[int, str]:
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")  # noqa: S310
+    try:
+        with urllib.request.urlopen(request, timeout=30) as reply:  # noqa: S310
+            return int(reply.status), reply.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", "replace")
+
+
+def muna_key_check(env_file: Path, *, post: Any = _post_json) -> dict[str, Any]:
+    """Zero-token key check: a chat request for a model that does not exist generates nothing.
+
+    Muna answers 401 ``invalid_api_key`` for a bad key and 404 ``model_not_found`` for a good
+    one. The key and the Authorization header appear in no detail, log, or report.
+    """
+    key = muna_access_key(env_file)
+    if key is None:
+        return _check("muna_key_accepted", "fail", _NO_KEY)
+    body = json.dumps({
+        "model": _KEY_PROBE_MODEL,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "."}],
+    }).encode()  # fmt: skip
+    try:
+        status, text = post(
+            f"{MUNA_BASE_URL}/chat/completions",
+            {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            body,
         )
-    try:
-        logins = provider_logins(agent_db)
-    except SweAbError as exc:
-        return _check("model_routes_and_logins", "fail", str(exc))
-    return route_and_login_check(catalog, logins)
-
-
-def broker_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
-    """The host-side broker: alive, and its usage report readable (the quota guard's input)."""
-    if not args.broker_url:
-        return [
-            _requires_host("broker_healthy", "start `omp auth-broker serve` and pass --broker-url"),
-            _requires_host("broker_usage_readable", "needs the running broker"),
-        ]
-    checks: list[dict[str, Any]] = []
-    try:
-        with urllib.request.urlopen(
-            f"{args.broker_url.rstrip('/')}/v1/healthz", timeout=10
-        ) as reply:  # noqa: S310
-            health = json.loads(reply.read())
-        ok = health.get("ok") is True
-        checks.append(_check(
-            "broker_healthy", "pass" if ok else "fail",
-            f"{args.broker_url}/v1/healthz answered", bind=args.broker_bind,
-            broker_version=health.get("version"),
-        ))  # fmt: skip
     except (OSError, ValueError) as exc:
-        return [
-            _check("broker_healthy", "fail", f"{args.broker_url}: {type(exc).__name__}"),
-            _requires_host("broker_usage_readable", "needs a healthy broker"),
-        ]
+        return _check("muna_key_accepted", "fail", f"Muna unreachable: {type(exc).__name__}")
     try:
-        token = cell_suite.read_broker_token(args.broker_token_file)
-        usage = cell_suite.fetch_usage(args.broker_url, token)
-    except (cell_suite.BrokerError, SystemExit) as exc:
-        checks.append(_check("broker_usage_readable", "fail", str(exc)))
-        return checks
-    readings: dict[str, dict[str, Any]] = {}
-    for model in MODELS:
-        reading = quota_reading(
-            usage,
-            cell_suite.provider_of(model),
-            model_id=model.split("/", 1)[1],
-            min_headroom=QUOTA_MIN_HEADROOM,
-        )
-        readings[model] = {
-            "status": reading.status.value,
-            "headroom": reading.headroom,
-            "detail": reading.detail,
-        }
-    checks.append(_check(
-        "broker_usage_readable", "pass",
-        "GET /v1/usage answered; per-model subscription headroom as the quota guard reads it",
-        reports=len(cast("list[object]", usage.get("reports") or [])), quota=readings,
-    ))  # fmt: skip
-    return checks
+        code = cast("dict[str, Any]", json.loads(text)).get("error", {}).get("code")
+    except (ValueError, AttributeError):
+        code = None
+    if status == 404 and code == "model_not_found":
+        return _check(
+            "muna_key_accepted", "pass",
+            "Muna accepted the key (404 model_not_found for a nonexistent model; no tokens spent)",
+            http_status=status,
+        )  # fmt: skip
+    if status == 401:
+        return _check("muna_key_accepted", "fail", "key rejected (HTTP 401)", http_status=status)
+    return _check(
+        "muna_key_accepted", "fail", f"unexpected answer: HTTP {status}, code {code!r}",
+        http_status=status,
+    )  # fmt: skip
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def capture_first_request(
+    omp_command: list[str], config: Configuration, work: Path
+) -> dict[str, Any] | None:
+    """One stub-backed omp run of ``config``; the first request body omp sent, if any.
+
+    The command line is the one cells run (`omp_argv`, arm A0); the profile is the frozen
+    ``muna-models.yml`` with only its base URL pointed at the stub.
+    """
+    work.mkdir(parents=True, exist_ok=True)
+    reply = work / "reply.json"
+    reply.write_text(json.dumps(_STUB_REPLY), encoding="utf-8")
+    capture = work / "capture"
+    port = _free_port()
+    home = work / "home"
+    profile = home / ".omp" / "profiles" / PROFILE / "agent"
+    profile.mkdir(parents=True)
+    (profile / "models.yml").write_text(cell_suite.stub_provider_config(port), encoding="utf-8")
+    prompt = work / "prompt.md"
+    prompt.write_text("Say ok.\n", encoding="utf-8")
+    repo = work / "repo"
+    repo.mkdir()
+    argv = omp_argv(
+        omp_command,
+        arm=SweAbArm.A0,
+        model=config.label,
+        prompt_path=str(prompt),
+        session_dir=str(work / "session"),
+        hook_module_path=None,
+        cli_guide_path=None,
+        omp_config_path=str(_ROOT / OMP_CONFIG_PATH),
+    )
+    stub = subprocess.Popen(
+        [sys.executable, str(_STUB_PROVIDER), "--port", str(port), "--script", str(reply)]
+        + ["--capture-dir", str(capture)],
+        stdout=subprocess.PIPE, text=True,
+    )  # fmt: skip
+    try:
+        assert stub.stdout is not None
+        stub.stdout.readline()  # "stub listening on ..."
+        subprocess.run(
+            argv, cwd=repo, env=_omp_env(home),
+            capture_output=True, text=True, check=False, timeout=240,
+        )  # fmt: skip
+    finally:
+        stub.terminate()
+        stub.wait()
+    first = sorted(capture.glob("request-*.json"))[:1]
+    return cast("dict[str, Any]", json.loads(first[0].read_text())) if first else None
+
+
+def effort_request_shape_check(
+    omp_command: list[str], work: Path, *, capture: Any = capture_first_request
+) -> dict[str, Any]:
+    """Each configuration's first request carries ``reasoning_effort`` equal to its effort.
+
+    omp sends no effort for a Qwen model unless the model has ``thinkingFormat: openai``, which
+    would make the low and high configurations byte-identical requests.
+    """
+    sent: dict[str, Any] = {}
+    problems: list[str] = []
+    for config in CONFIGURATIONS:
+        try:
+            body = capture(omp_command, config, work / config.label)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            sent[config.label] = None
+            problems.append(f"{config.label}: omp run failed ({type(exc).__name__})")
+            continue
+        if body is None:
+            sent[config.label] = None
+            problems.append(f"{config.label}: omp sent no request")
+            continue
+        effort = body.get("reasoning_effort")
+        sent[config.label] = effort
+        if effort != config.thinking:
+            problems.append(
+                f"{config.label}: expected reasoning_effort {config.thinking!r}, "
+                f"the request carried {effort!r}"
+            )
+    return _check(
+        "effort_request_shape",
+        "fail" if problems else "pass",
+        "every configuration's first request carries its thinking effort as `reasoning_effort`"
+        if not problems
+        else "; ".join(problems),
+        reasoning_effort=sent,
+    )
 
 
 def stub_arm_checks(omp_command: list[str], work: Path) -> list[dict[str, Any]]:
@@ -342,7 +429,7 @@ def stub_arm_checks(omp_command: list[str], work: Path) -> list[dict[str, Any]]:
         refused = "fail"
         detail = "the validator accepted stub-endpoint cells for publication"
     except SweAbError as exc:
-        refused = "pass" if "overridden provider endpoint" in str(exc) else "fail"
+        refused = "pass" if "a local stub or another endpoint" in str(exc) else "fail"
         detail = str(exc)
     checks.append(_check("validator_refuses_stub_cells", refused, detail))
     return checks
@@ -356,6 +443,8 @@ def identity_checks() -> list[dict[str, Any]]:
             cli_guide_sha256=sha256_file(_ROOT / CLI_GUIDE_PATH),
             hook_module_sha256=hashlib.sha256(module.encode()).hexdigest(),
             hook_module_python=_CAMPAIGN_PYTHON,
+            provider_config_sha256=sha256_file(_ROOT / PROVIDER_CONFIG_PATH),
+            omp_config_sha256=sha256_file(_ROOT / OMP_CONFIG_PATH),
         )
     ]  # fmt: skip
 
@@ -371,59 +460,56 @@ def docker_running() -> bool:
     return done.returncode == 0
 
 
-def broker_container_check(
-    container_url: str, bind: str | None, *, run: Any = subprocess.run
-) -> dict[str, Any]:
-    """From a throwaway container: reach the host broker, and see only the allow-listed env.
+def muna_container_check(env_file: Path, *, run: Any = subprocess.run) -> dict[str, Any]:
+    """From a throwaway container: reach Muna, and see only the allow-listed environment.
 
-    The probe container is started like a cell's (``--add-host`` for Linux hosts) with no
-    environment; the allow-listed variables are then passed the way the cell runner passes them,
-    with dummy values, and the names visible inside are compared with what the host exports.
-    Nothing here authenticates: ``/v1/healthz`` needs no token.
+    The probe container is started like a cell's; the allow-listed variable is then passed the
+    way the cell runner passes it (a bare ``-e NAME``, the value in the docker client's
+    environment), and the names visible inside are compared with what the host exports. The
+    fetch is the unauthenticated ``GET /v1/models``; the key never goes on a command line.
     """
+    check_id = "muna_reachable_from_container"
+    key = muna_access_key(env_file)
+    if key is None:
+        return _check(check_id, "fail", _NO_KEY)
     name = f"swe-ab-probe-{uuid.uuid4().hex[:8]}"
     started = time.monotonic()
-    data: dict[str, Any] = {"bind": bind, "container_url": container_url}
     try:
         up = run(
-            ["docker", "run", "-d", "--rm", "--name", name, "--add-host",
-             "host.docker.internal:host-gateway", "alpine:3", "sleep", "120"],
+            ["docker", "run", "-d", "--rm", "--name", name, "alpine:3", "sleep", "120"],
             capture_output=True, text=True, check=False,
         )  # fmt: skip
         if up.returncode != 0:
-            return _check("broker_reachable_from_container", "fail", up.stderr[-300:], **data)
-        health = run(
-            ["docker", "exec", name, "wget", "-q", "-O", "-", "-T", "10"]
-            + [f"{container_url}/v1/healthz"],
+            return _check(check_id, "fail", up.stderr[-300:])
+        fetch = run(
+            ["docker", "exec", name, "wget", "-q", "-O", "-", "-T", "15"]
+            + [f"{MUNA_BASE_URL}/models"],
             capture_output=True, text=True, check=False,
         )  # fmt: skip
-        reachable = health.returncode == 0 and '"ok":true' in health.stdout.replace(" ", "")
-        env_args, client_env = cell_runner.docker_exec_env(
-            {"OMP_AUTH_BROKER_URL": container_url, "OMP_AUTH_BROKER_TOKEN": "stage0-probe"}
-        )
+        reachable = fetch.returncode == 0 and '"data"' in fetch.stdout
+        env_args, client_env = cell_runner.docker_exec_env(dict.fromkeys(CREDENTIAL_ENV_NAMES, key))
         client_env["SWE_AB_STAGE0_HOST_SENTINEL"] = "1"
         names = run(
             ["docker", "exec", *env_args, name, "sh", "-c", "env | cut -d= -f1 | sort"],
             capture_output=True, text=True, check=False, env=client_env,
         )  # fmt: skip
         seen = set(names.stdout.split())
-        allowlisted = set(BROKER_ENV_NAMES) <= seen and "SWE_AB_STAGE0_HOST_SENTINEL" not in seen
+        allowlisted = (
+            set(CREDENTIAL_ENV_NAMES) <= seen and "SWE_AB_STAGE0_HOST_SENTINEL" not in seen
+        )
     finally:
         run(["docker", "rm", "-f", name], capture_output=True, check=False)
-    data.update(
+    ok = reachable and allowlisted
+    return _check(
+        check_id,
+        "pass" if ok else "fail",
+        f"a container fetches {MUNA_BASE_URL}/models and receives the allow-listed variable "
+        "but nothing else from the host environment"
+        if ok
+        else f"reachable={reachable}, allow_list_only={allowlisted}: {fetch.stderr[-200:]}",
         reachable=reachable,
         allow_list_only=allowlisted,
         seconds=round(time.monotonic() - started, 1),
-    )
-    ok = reachable and allowlisted
-    return _check(
-        "broker_reachable_from_container",
-        "pass" if ok else "fail",
-        "a container reaches the host broker's /v1/healthz and receives the two broker variables "
-        "but nothing else from the host environment"
-        if ok
-        else f"reachable={reachable}, allow_list_only={allowlisted}: {health.stderr[-200:]}",
-        **data,
     )
 
 
@@ -580,17 +666,7 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
         emulated=emulated, host_machine=platform.machine(), per_instance=timings,
         non_amd64_instances=wrong_arch,
     ))  # fmt: skip
-    container_url = cell_suite.container_broker_url(
-        args.broker_url or "", args.container_broker_url
-    )
-    if args.broker_url:
-        checks.append(broker_container_check(container_url, args.broker_bind))
-    else:
-        checks.append(
-            _requires_host(
-                "broker_reachable_from_container", "start the auth broker and pass --broker-url"
-            )
-        )
+    checks.append(muna_container_check(args.env_file))
     checks.append(bun_emulation_check())
     return checks
 
@@ -615,8 +691,8 @@ def container_checks_pending(why: str) -> list[dict[str, Any]]:
                 "container start, gold/empty scoring, omp start, and index times per instance",
             ),
             (
-                "broker_reachable_from_container",
-                "a container reaches the host broker and gets only the allow-listed variables",
+                "muna_reachable_from_container",
+                "a container reaches Muna's /v1/models and gets only the allow-listed variable",
             ),
             (
                 "bun_runs_under_emulation",
@@ -633,10 +709,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--omp-command", default=shutil.which("omp") or "omp")
     parser.add_argument(
-        "--agent-db",
+        "--env-file",
         type=Path,
-        default=default_agent_db(),
-        help="omp's agent.db; read for login metadata only, never for secrets",
+        default=_ROOT / ".env",
+        help="read only its MUNA_ACCESS_KEY= line, and only when the variable is not exported",
     )
     parser.add_argument("--host", action="store_true", help="also run the Docker checks")
     parser.add_argument("--tasks-root", type=Path)
@@ -646,25 +722,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--archex-wheel", type=Path)
     parser.add_argument("--uv-binary", type=Path)
     parser.add_argument("--network", default="bridge")
-    parser.add_argument("--broker-url", help="the running auth broker, e.g. http://127.0.0.1:8765")
-    parser.add_argument(
-        "--broker-bind",
-        help="address the broker was started with (recorded in the report), e.g. 127.0.0.1:8765",
-    )
-    parser.add_argument(
-        "--container-broker-url", help="default: http://host.docker.internal:<broker port>"
-    )
-    parser.add_argument("--broker-token-file", type=Path)
     args = parser.parse_args(argv)
     omp_command = shlex.split(args.omp_command)
     started = time.monotonic()
     checks = [
         omp_version_check(omp_command),
-        model_ids_check(omp_command, args.agent_db),
+        muna_route_check(omp_command),
+        muna_key_check(args.env_file),
         *identity_checks(),
-        *broker_checks(args),
     ]
     with tempfile.TemporaryDirectory(prefix="swe-ab-stage0-") as work:
+        checks.append(effort_request_shape_check(omp_command, Path(work) / "effort"))
         checks += stub_arm_checks(omp_command, Path(work))
     if args.host and docker_running():
         checks += host_checks(args)
@@ -676,9 +744,9 @@ def main(argv: list[str] | None = None) -> int:
             else "run with --host on a machine with a running Docker daemon"
         )
     checks.append(_requires_host(
-        "one_real_cell_per_model",
-        "hosted model call on the operator's subscriptions: route, auth through the broker, usage "
-        "reporting, quota behaviour, and the annotation ledger per model; run "
+        "one_real_cell_per_configuration",
+        "hosted model call on Muna: route, auth, usage reporting, the effort the request carried, "
+        "and the annotation ledger per configuration (arm H, three cells); run "
         "scripts/run_swe_ab_suite.py with a one-task Stage 0 plan (RUNBOOK §4)",
     ))  # fmt: skip
     statuses = [check["status"] for check in checks]
