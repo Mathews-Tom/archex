@@ -111,6 +111,15 @@ PROFILE = "swebench"
 ANNOTATION_MARKER = "[archex receipt] index_revision="
 """First line of every appended annotation block."""
 
+HOOK_TIMEOUT_SECONDS = 5.0
+"""The annotation hook's wall-clock budget in campaign containers (``ARCHEX_HOOK_TIMEOUT_SECONDS``).
+
+The shipped default is 0.5 s. Under Rosetta emulation the annotate path measured a 1.06-2.15 s
+median (Stage 0, 290 calls, every one over 0.5 s; about 0.4 s natively), so at the default the
+hook arms would add almost no annotation. 5 s covers the slowest call measured (3.1 s). Set in
+every arm's agent environment; it only acts where the hook is loaded.
+"""
+
 COMPRESSOR_MARKERS: tuple[str, ...] = ("[laconic ", "[shaken ~")
 """Tool-output rewriters that must not load in any arm."""
 
@@ -883,6 +892,8 @@ class SweAbCell(BaseModel):
     setup_seconds: float = Field(ge=0.0)
     index_seconds: float | None = Field(default=None, ge=0.0)
     annotate_prewarm_seconds: float | None = Field(default=None, ge=0.0)
+    hook_timeout_seconds: float = Field(gt=0.0)
+    """``ARCHEX_HOOK_TIMEOUT_SECONDS`` in the agent's environment (one value per stage)."""
     quota: QuotaEvidence
 
     @model_validator(mode="after")
@@ -1147,6 +1158,7 @@ def validate_swe_ab_directory(
             "not comparable across them, so re-run the stage on one kind of host"
         )
     _require_single("network", {cell.network for cell in cells.values()})
+    _require_single("hook_timeout_seconds", {cell.hook_timeout_seconds for cell in cells.values()})
     _require_single("tool_fingerprint", {cell.tool_fingerprint for cell in ok})
     for arm in SweAbArm:
         in_arm = [cell for cell in cells.values() if cell.arm is arm]

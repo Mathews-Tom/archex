@@ -120,6 +120,7 @@ def _cell(key: CellKey, repo: str, **spec: Any) -> dict[str, Any]:
         "score_source": "pro_verifier",
         "wall_seconds": 1.0,
         "setup_seconds": 1.0,
+        "hook_timeout_seconds": 5.0,
         "quota": {
             "prior_blocked_attempts": spec.get("prior_blocked", 0),
             "block_phase": spec.get("block_phase"),

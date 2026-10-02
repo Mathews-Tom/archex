@@ -192,7 +192,7 @@ Without `--host` (or when `docker info` fails) the script runs only the local ch
 | `gold_empty_validity` | per instance, the gold patch resolves and the empty patch fails (invalid instances leave the pool) | no |
 | `omp_runs_in_container` | the pinned omp build starts inside each Pro image | no |
 | `archex_indexes_in_container` | archex installs into `/opt/archex`, indexes the checkout to `fresh`, and the annotate entry is pre-warmed on a real search hit | no |
-| `annotate_latency_in_container` | 10 annotate calls on 20 real hits of `git grep -w return` in the image's Python, Go, JS, and TS sources, after setup, timed end to end as the hook spawns them; fails when the median exceeds the hook's 0.5 s budget (the hook would drop most annotations) | no |
+| `annotate_latency_in_container` | 10 annotate calls on 20 real hits of `git grep -w return` in the image's Python, Go, JS, and TS sources, after setup, timed end to end as the hook spawns them; fails when the median exceeds the campaign's hook budget, `ARCHEX_HOOK_TIMEOUT_SECONDS=5` (`HOOK_TIMEOUT_SECONDS`; the shipped default 0.5 s is far below emulated latency, about 1–2 s) (the hook would drop most annotations) | no |
 | `emulated_wall_times` | container start, gold/empty scoring, omp start, and install+index seconds per instance; `emulated` and the container architecture | no |
 | `muna_reachable_from_container` | a throwaway `alpine` container fetches `https://inference.muna.ai/v1/models` (unauthenticated) and sees `MUNA_ACCESS_KEY` and no other host variable | no |
 | `bun_runs_under_emulation` | Bun's default x86-64 build starts under emulation, or the baseline build does (§2.1) | no |

@@ -53,6 +53,7 @@ from archex.benchmark.swe_ab import (
     COMPRESSOR_MARKERS,
     CONFIGURATIONS,
     CREDENTIAL_ENV_NAMES,
+    HOOK_TIMEOUT_SECONDS,
     MODELS,
     MUNA_BASE_URL,
     OMP_CONFIG_PATH,
@@ -72,7 +73,6 @@ from archex.benchmark.swe_ab import (
     validate_swe_ab_directory,
 )
 from archex.client_setup import render_annotation_hook_module
-from archex.integrations.diagnostics import DEFAULT_HOOK_TIMEOUT_SECONDS
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_swe_ab_cell as cell_runner  # noqa: E402 - sibling script, importable only via sys.path
@@ -124,7 +124,7 @@ def annotate_latency(rt: Any, python: str = _CAMPAIGN_PYTHON) -> dict[str, Any]:
     report = cast("dict[str, Any]", json.loads(done.stdout))
     rows = cast("list[dict[str, Any]]", report["rows"])
     latencies = sorted(int(row["ms"]) for row in rows)
-    budget_ms = round(DEFAULT_HOOK_TIMEOUT_SECONDS * 1000)
+    budget_ms = round(HOOK_TIMEOUT_SECONDS * 1000)
     return {
         "hits": report["hits"],
         "samples": len(rows),

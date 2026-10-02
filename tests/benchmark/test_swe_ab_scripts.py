@@ -559,6 +559,7 @@ def test_an_agent_container_gets_the_allow_list_and_none_of_the_host_credentials
         "PATH",
         "ARCHEX_ANNOTATION_LEDGER",
         "ARCHEX_HOOK_DIAGNOSTICS_LOG",
+        "ARCHEX_HOOK_TIMEOUT_SECONDS",
         *CREDENTIAL_ENV_NAMES,
     }
     assert env[KEY_NAME] == SECRET

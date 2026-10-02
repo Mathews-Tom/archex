@@ -57,6 +57,7 @@ from archex.benchmark.swe_ab import (
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
     CREDENTIAL_ENV_NAMES,
+    HOOK_TIMEOUT_SECONDS,
     MAX_TIME,
     OMP_CONFIG_PATH,
     OMP_VERSION,
@@ -559,6 +560,7 @@ def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
         "PATH": os.pathsep.join([*setup.extra_path, *path]),
         "ARCHEX_ANNOTATION_LEDGER": f"{rt.out}/annotation-ledger.jsonl",
         "ARCHEX_HOOK_DIAGNOSTICS_LOG": f"{rt.out}/hook-diagnostics.log",
+        "ARCHEX_HOOK_TIMEOUT_SECONDS": str(HOOK_TIMEOUT_SECONDS),
     }
 
 
@@ -761,6 +763,7 @@ def failed_cell(
         score_source="failed_before_patch",
         wall_seconds=0.0,
         setup_seconds=0.0,
+        hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         quota=quota or QuotaEvidence(prior_blocked_attempts=spec.prior_blocked_attempts),
     )
 
@@ -955,6 +958,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         setup_seconds=setup.setup_seconds,
         index_seconds=setup.index_seconds,
         annotate_prewarm_seconds=setup.prewarm_seconds,
+        hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         quota=_quota(spec, runs, phase),
     )
 
