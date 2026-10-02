@@ -200,7 +200,7 @@ def test_container_checks_run_the_bundle_and_survive_an_instance_that_cannot_sta
         def run(self, argv: list[str], **kwargs: Any) -> Any:
             ran.append(argv)
             out = "x86_64" if argv[0] == "uname" else ""
-            if argv[-1] == "--version" and argv[0] == "/opt/omp/bin/bun":
+            if argv[-1] == "--version" and argv[0] == stage0.CONTAINER_OMP_COMMAND:
                 out = "omp/18.4.4"
             return type("Done", (), {"stdout": out, "returncode": 0})()
 

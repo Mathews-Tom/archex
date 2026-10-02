@@ -71,8 +71,15 @@ TASKS=../SWE-bench_Pro-os/v2/tasks
 mkdir -p "$WORK/omp-linux-x64"
 docker run --rm --platform linux/amd64 -v "$WORK/omp-linux-x64:/opt/omp" -e BUN_INSTALL=/opt/omp \
   oven/bun:1-debian sh -c 'bun install -g @oh-my-pi/pi-coding-agent@18.4.4 && mkdir -p /opt/omp/bin && cp "$(command -v bun)" /opt/omp/bin/bun'
+# glibc's loader and the libraries Bun and omp's native addon link, for task images without glibc
+# (the protonmail/webclients and some gravitational/teleport images are Alpine/musl), and the entry
+# point that uses them only there:
+docker run --rm --platform linux/amd64 -v "$WORK/omp-linux-x64:/opt/omp" oven/bun:1-debian sh -c \
+  'mkdir -p /opt/omp/glibc && for f in /opt/omp/bin/bun /opt/omp/install/global/node_modules/@oh-my-pi/pi-natives-linux-x64/*.node; do ldd "$f"; done |
+   awk "/=>/ {print \$3} /ld-linux/ {print \$1}" | sort -u | xargs -I{} cp -L {} /opt/omp/glibc/'
+install -m 755 benchmarks/swe_ab/omp-entry.sh "$WORK/omp-linux-x64/bin/omp-entry"
 # The entry point inside containers is then:
-OMP_COMMAND="/opt/omp/bin/bun /opt/omp/install/global/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js"
+OMP_COMMAND=/opt/omp/bin/omp-entry
 
 # The host's own omp, for Stage 0 and the no-spend rehearsals, must be the same build.
 # `omp --version` must print 18.4.4 (a newer omp is refused by the cell schema); install it beside the default one:
@@ -185,7 +192,7 @@ Without `--host` (or when `docker info` fails) the script runs only the local ch
 | `gold_empty_validity` | per instance, the gold patch resolves and the empty patch fails (invalid instances leave the pool) | no |
 | `omp_runs_in_container` | the pinned omp build starts inside each Pro image | no |
 | `archex_indexes_in_container` | archex installs into `/opt/archex`, indexes the checkout to `fresh`, and the annotate entry is pre-warmed on a real search hit | no |
-| `annotate_latency_in_container` | 10 annotate calls on a real 20-hit search after setup, timed end to end as the hook spawns them; fails when the median exceeds the hook's 0.5 s budget (the hook would drop most annotations) | no |
+| `annotate_latency_in_container` | 10 annotate calls on 20 real hits of `git grep -w return` in the image's Python, Go, JS, and TS sources, after setup, timed end to end as the hook spawns them; fails when the median exceeds the hook's 0.5 s budget (the hook would drop most annotations) | no |
 | `emulated_wall_times` | container start, gold/empty scoring, omp start, and install+index seconds per instance; `emulated` and the container architecture | no |
 | `muna_reachable_from_container` | a throwaway `alpine` container fetches `https://inference.muna.ai/v1/models` (unauthenticated) and sees `MUNA_ACCESS_KEY` and no other host variable | no |
 | `bun_runs_under_emulation` | Bun's default x86-64 build starts under emulation, or the baseline build does (§2.1) | no |

@@ -84,15 +84,14 @@ _STUB_PROVIDER = _ROOT / "scripts" / "swe_ab_stub_provider.py"
 _DRY_RUN_PLAN = _ROOT / "benchmarks" / "swe_ab" / "dry-run-plan.json"
 _STUB_SCRIPT = _ROOT / "benchmarks" / "swe_ab" / "stub-script.json"
 _CAMPAIGN_PYTHON = "/opt/archex/venv/bin/python"
-CONTAINER_OMP_COMMAND = (
-    "/opt/omp/bin/bun /opt/omp/install/global/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js"
-)
-"""omp's entry point inside a task container: the bundle mounted at /opt/omp (RUNBOOK §2)."""
+CONTAINER_OMP_COMMAND = "/opt/omp/bin/omp-entry"
+"""omp's entry point inside a task container: `benchmarks/swe_ab/omp-entry.sh` in the bundle."""
 _LATENCY_SAMPLES = 10
 _LATENCY_DRIVER = """
 import json, os, subprocess, sys, time
 python, samples = sys.argv[1], int(sys.argv[2])
-command = ["git", "grep", "-n", "-I", "-w", "-e", "return"]
+command = ["git", "grep", "-n", "-I", "-w", "-e", "return", "--",
+           "*.py", "*.go", "*.js", "*.jsx", "*.ts", "*.tsx"]
 hits = subprocess.run(command, capture_output=True, text=True).stdout.splitlines()[:20]
 request = json.dumps({"host": "omp", "tool": "bash", "input": {"command": " ".join(command)},
                       "text": "\\n".join(hits), "cwd": os.getcwd()})
