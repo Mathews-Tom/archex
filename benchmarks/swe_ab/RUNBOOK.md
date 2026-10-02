@@ -163,10 +163,12 @@ uv run python scripts/swe_ab_sample.py --tasks-root "$TASKS" --stage 1 --cost-ce
 
 uv run python scripts/swe_ab_stage0.py --output benchmarks/swe_ab/stage0.json --host \
   --tasks-root "$TASKS" --instances stage0-instances.txt \
-  --omp-dir "$WORK/omp-linux-x64" --omp-command "$OMP_HOST" \
+  --omp-dir "$WORK/omp-linux-x64" --omp-command "$OMP_HOST" --container-omp-command "$OMP_COMMAND" \
   --profile-dir "$PROFILE_DIR" --archex-wheel "$ARCHEX_WHEEL" --uv-binary "$WORK/uv/uv"
 jq '.summary, .gate, [.checks[] | select(.status != "pass") | {id, status, detail}]' benchmarks/swe_ab/stage0.json
 ```
+
+`--omp-command` is the host's pinned omp, used by the local checks; `--container-omp-command` is the bundle's entry point inside a task container (`$OMP_COMMAND` of §2, also its default), used by `omp_runs_in_container`.
 
 The draw is a pure function of the tasks root, the exclusions and the stage. An instance that fails Stage 0 validity (gold patch does not resolve, or the empty patch does not fail) goes into an exclusions file, `{"exclusions": [{"instance_id": ..., "reason": "gold_not_resolved" | "empty_not_failing", "source": ...}]}` (the `gold_empty_validity` check lists them in that shape under `exclusions`), and the sampler is re-run with `--exclusions <file> --force`: each failure is replaced by the next valid instance in its repository's rank order, and a repository that runs out has its shortfall reassigned to the one with the most left. Run Stage 0 on the replacements and repeat until the whole draw is valid, then keep `stage1-plan.json` and `stage1-sample.json`. Stage 2 uses the same exclusions plus `--stage1-plan stage1-plan.json` and `--stage2-tasks N` (§8), and refuses a plan that differs from its own Stage 1 recompute.
 

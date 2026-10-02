@@ -184,3 +184,60 @@ def test_route_check_requires_every_configuration_selector_under_muna() -> None:
 
     elsewhere = stage0.muna_route_check(["omp"], run=_omp_listing(selectors, provider="other"))
     assert elsewhere["status"] == "fail"
+
+
+def test_the_in_container_omp_check_runs_the_bundle_not_the_host_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ran: list[list[str]] = []
+
+    class FakeRuntime:
+        def __init__(self, spec: Any, *, mounts: list[tuple[Path, str]]) -> None:
+            self.spec = spec
+
+        def run(self, argv: list[str], **kwargs: Any) -> Any:
+            ran.append(argv)
+            out = "x86_64" if argv[0] == "uname" else ""
+            if argv[-1] == "--version" and argv[0] == "/opt/omp/bin/bun":
+                out = "omp/18.4.4"
+            return type("Done", (), {"stdout": out, "returncode": 0})()
+
+        def close(self) -> None:
+            return
+
+    def score_patch(spec: Any, patch: Path) -> bool:
+        return patch.stat().st_size > 0  # the gold patch resolves, the empty one does not
+
+    def index_in_container(spec: Any, rt: Any) -> float:
+        return 1.0
+
+    def annotate_latency(rt: Any) -> dict[str, int]:
+        return {"p50_ms": 100, "budget_ms": 500}
+
+    def muna_container_check(env_file: Path) -> dict[str, str]:
+        return {"id": "muna_reachable_from_container", "status": "pass"}
+
+    def bun_emulation_check() -> dict[str, str]:
+        return {"id": "bun_runs_under_emulation", "status": "pass"}
+
+    monkeypatch.setattr(stage0.cell_runner, "DockerRuntime", FakeRuntime)
+    monkeypatch.setattr(stage0.cell_runner, "score_patch", score_patch)
+    monkeypatch.setattr(stage0.cell_runner, "index_in_container", index_in_container)
+    monkeypatch.setattr(stage0, "annotate_latency", annotate_latency)
+    monkeypatch.setattr(stage0, "muna_container_check", muna_container_check)
+    monkeypatch.setattr(stage0, "bun_emulation_check", bun_emulation_check)
+    task = tmp_path / "tasks" / "t1" / "solution"
+    task.mkdir(parents=True)
+    (task / "gold_patch.diff").write_text("diff --git a/x b/x\n")
+    (tmp_path / "instances.txt").write_text("t1\n")
+    args = stage0.argparse.Namespace(
+        instances=tmp_path / "instances.txt", tasks_root=tmp_path / "tasks",
+        omp_command="/host/omp-18.4.4", container_omp_command=stage0.CONTAINER_OMP_COMMAND,
+        profile_dir=tmp_path, archex_wheel=tmp_path / "w.whl", uv_binary=tmp_path / "uv",
+        omp_dir=tmp_path, network="bridge", env_file=tmp_path / ".env",
+    )  # fmt: skip
+
+    checks = {c["id"]: c for c in stage0.host_checks(args)}
+
+    assert checks["omp_runs_in_container"]["status"] == "pass"
+    assert not any("/host/omp-18.4.4" in part for argv in ran for part in argv)

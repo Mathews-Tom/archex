@@ -84,6 +84,10 @@ _STUB_PROVIDER = _ROOT / "scripts" / "swe_ab_stub_provider.py"
 _DRY_RUN_PLAN = _ROOT / "benchmarks" / "swe_ab" / "dry-run-plan.json"
 _STUB_SCRIPT = _ROOT / "benchmarks" / "swe_ab" / "stub-script.json"
 _CAMPAIGN_PYTHON = "/opt/archex/venv/bin/python"
+CONTAINER_OMP_COMMAND = (
+    "/opt/omp/bin/bun /opt/omp/install/global/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js"
+)
+"""omp's entry point inside a task container: the bundle mounted at /opt/omp (RUNBOOK §2)."""
 _LATENCY_SAMPLES = 10
 _LATENCY_DRIVER = """
 import json, os, subprocess, sys, time
@@ -559,7 +563,8 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
     instances = [line.strip() for line in args.instances.read_text().splitlines() if line.strip()]
     base = {
         "runtime": "docker", "model": MODELS[0], "arm": "HC", "repetition": 1, "repo": "stage0",
-        "omp_command": shlex.split(args.omp_command), "profile_dir": str(args.profile_dir or "."),
+        "omp_command": shlex.split(args.container_omp_command),
+        "profile_dir": str(args.profile_dir or "."),
         "archex_wheel": str(args.archex_wheel), "uv_binary": str(args.uv_binary),
         "omp_dir": str(args.omp_dir), "network": args.network,
     }  # fmt: skip
@@ -707,7 +712,16 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--omp-command", default=shutil.which("omp") or "omp")
+    parser.add_argument(
+        "--omp-command",
+        default=shutil.which("omp") or "omp",
+        help="the host's omp (pinned build) for the local checks",
+    )
+    parser.add_argument(
+        "--container-omp-command",
+        default=CONTAINER_OMP_COMMAND,
+        help="omp's entry point inside a task container, from the bundle mounted at /opt/omp",
+    )
     parser.add_argument(
         "--env-file",
         type=Path,
