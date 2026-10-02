@@ -1,6 +1,6 @@
 # SWE A/B campaign runbook (Stage 0 onward)
 
-Operator steps for the SWE-task A/B of archex surfaces under omp. The protocol is `benchmarks/preregistrations/R3x-swe-archex-ab.md`; this file only says how to run it. Nothing here spends credits until §5, and §5 needs the maintainer's explicit go-ahead. Terms of service are closed in the pre-registration; the Muna prices in `benchmarks/swe_ab/muna-models.yml` must be entered first (§3.2).
+Operator steps for the SWE-task A/B of archex surfaces under omp. The protocol is `benchmarks/preregistrations/R3x-swe-archex-ab.md`; this file only says how to run it. Nothing here spends credits until §5, and §5 needs the maintainer's explicit go-ahead. Terms of service and the Muna prices (`benchmarks/swe_ab/muna-models.yml`, §3.2) are closed in the pre-registration.
 
 The campaign runs on **Muna-hosted open models** through omp's `openai-completions` provider (`https://inference.muna.ai/v1`), authenticated with one API key, `MUNA_ACCESS_KEY`. A *configuration* is a model at a thinking effort; there are three, from two model families (low and high effort of one model are not independent models):
 
@@ -140,7 +140,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://inference.muna.ai/v1/chat/compl
 
 `benchmarks/swe_ab/muna-models.yml` is an omp `models.yml`: provider `muna`, `baseUrl: https://inference.muna.ai/v1`, `api: openai-completions`, `apiKey: MUNA_ACCESS_KEY` (the name of the environment variable omp reads), and the two models with `reasoning: true`, an effort `thinking` block, `contextWindow: 262144`, `maxTokens: 65536`. The Qwen model carries `compat: {thinkingFormat: openai}`: without it omp sends `enable_thinking: true` and no effort for a model id containing `qwen`, so `--thinking low` and `--thinking high` would be byte-identical requests. Stage 0 `effort_request_shape` fails if a configuration's first request lacks the right `reasoning_effort`.
 
-The file is frozen by its SHA-256 (cells record `provider_config_sha256`; one value per stage). It also holds the **prices**: `cost` is USD per million tokens (`input`, `output`, `cacheRead`, `cacheWrite`). They are `0` until the operator enters Muna's price list, and **a docker run refuses to start while `input`, `output`, or `cacheRead` is 0 for any model** (`cacheWrite` is exempt: an `openai-completions` response reports no cache-write tokens). Set them before anything in §5; changing them afterwards changes the file's hash.
+The file is frozen by its SHA-256 (cells record `provider_config_sha256`; one value per stage). It also holds the **prices**: `cost` is USD per million tokens (`input`, `output`, `cacheRead`, `cacheWrite`), set from Muna's price list as given by the operator on 2026-10-02 (Qwen 3.8 27B $0.25 input / $0.02 cached / $1.75 output; Gemma 4 26B $0.065 / $0.02 / $0.30). **A docker run refuses to start while `input`, `output`, or `cacheRead` is 0 for any model** (`cacheWrite` is exempt: an `openai-completions` response reports no cache-write tokens). Changing a price changes the file's hash.
 
 ### 3.3 What the container receives, and what that exposes
 

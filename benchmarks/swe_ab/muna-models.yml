@@ -2,11 +2,12 @@
 # Installed as `models.yml` in every container's profile copy; its SHA-256 is recorded per cell
 # as `provider_config_sha256`. Pre-registration: benchmarks/preregistrations/R3x-swe-archex-ab.md.
 #
-# PRICES — THE ONE PLACE TO FILL THEM. `cost` is USD per million tokens, from Muna's price list.
-# They are 0 until the operator sets them; `run_swe_ab_suite.py run --runtime docker` refuses to
-# start while `input`, `output`, or `cacheRead` is 0 for any model, so the cost ceiling can never
-# be silently inert. `cacheWrite` stays 0: an openai-completions response reports no cache-write
-# tokens. Set them before the pull request opens; changing them later changes the file's hash.
+# PRICES. `cost` is USD per million tokens, from Muna's price list as given by the operator on
+# 2026-10-02 (input / cached input / output): Qwen 3.8 27B $0.25 / $0.02 / $1.75, Gemma 4 26B
+# $0.065 / $0.02 / $0.30. `run_swe_ab_suite.py run --runtime docker` refuses to start while
+# `input`, `output`, or `cacheRead` is 0 for any model, so the cost ceiling can never be silently
+# inert. `cacheWrite` stays 0: an openai-completions response reports no cache-write tokens.
+# Changing a price changes the file's hash, which is frozen per stage.
 providers:
   muna:
     baseUrl: https://inference.muna.ai/v1
@@ -24,9 +25,9 @@ providers:
         compat:
           thinkingFormat: openai
         cost:
-          input: 0
-          output: 0
-          cacheRead: 0
+          input: 0.25
+          output: 1.75
+          cacheRead: 0.02
           cacheWrite: 0
         contextWindow: 262144
         maxTokens: 65536
@@ -37,9 +38,9 @@ providers:
           mode: effort
           efforts: [low, medium, high, xhigh]
         cost:
-          input: 0
-          output: 0
-          cacheRead: 0
+          input: 0.065
+          output: 0.30
+          cacheRead: 0.02
           cacheWrite: 0
         contextWindow: 262144
         maxTokens: 65536
