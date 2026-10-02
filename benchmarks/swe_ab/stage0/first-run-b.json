@@ -1,0 +1,594 @@
+{
+  "stage": "0",
+  "omp_version_pinned": "18.4.4",
+  "checks": [
+    {
+      "id": "omp_version",
+      "status": "pass",
+      "detail": "omp reports '18.4.4'; pinned 18.4.4"
+    },
+    {
+      "id": "muna_route",
+      "status": "pass",
+      "detail": "omp lists every configuration's selector under provider 'muna' (catalog only; no model call)",
+      "expected": [
+        "muna/@google/gemma-4-26b-a4b-it",
+        "muna/@qwen/qwen-3.8-27b"
+      ],
+      "listed": [
+        "muna/@google/gemma-4-26b-a4b-it",
+        "muna/@qwen/qwen-3.8-27b"
+      ]
+    },
+    {
+      "id": "muna_key_accepted",
+      "status": "pass",
+      "detail": "Muna accepted the key (404 model_not_found for a nonexistent model; no tokens spent)",
+      "http_status": 404
+    },
+    {
+      "id": "frozen_identities",
+      "status": "pass",
+      "detail": "SHA-256 of the artifacts the pre-registration pins",
+      "cli_guide_sha256": "2741251d17a923fbd703eb5adea494fbfa0245f5d842ab38083d6e5a60ee0597",
+      "hook_module_sha256": "3ab3ae16cfc52c113c83ce135947f74ac3fec3b9e468f2680e1c79adb0982f46",
+      "hook_module_python": "/opt/archex/venv/bin/python",
+      "provider_config_sha256": "d3867517320046f139057d86b8b524ded92d426a2b80e0dc4fc76828670298ec",
+      "omp_config_sha256": "340956d51e5f9377903a5a6a2dd7a5fe4a3e1da5e3ebc49bed5712a575ce226f"
+    },
+    {
+      "id": "effort_request_shape",
+      "status": "pass",
+      "detail": "every configuration's first request carries its thinking effort as `reasoning_effort`",
+      "reasoning_effort": {
+        "qwen-3.8-27b@low": "low",
+        "qwen-3.8-27b@high": "high",
+        "gemma-4-26b-a4b-it@high": "high"
+      }
+    },
+    {
+      "id": "stub_rehearsal",
+      "status": "pass",
+      "detail": "one no-spend cell per arm through the full cell flow",
+      "cell_status": {
+        "A0": "ok",
+        "H": "ok",
+        "HC": "ok",
+        "C": "ok"
+      }
+    },
+    {
+      "id": "tool_list_fingerprint",
+      "status": "pass",
+      "detail": "first request advertises exactly the base tools in every arm",
+      "advertised": {
+        "A0": [
+          "bash",
+          "edit",
+          "glob",
+          "grep",
+          "read",
+          "todo",
+          "write"
+        ],
+        "H": [
+          "bash",
+          "edit",
+          "glob",
+          "grep",
+          "read",
+          "todo",
+          "write"
+        ],
+        "HC": [
+          "bash",
+          "edit",
+          "glob",
+          "grep",
+          "read",
+          "todo",
+          "write"
+        ],
+        "C": [
+          "bash",
+          "edit",
+          "glob",
+          "grep",
+          "read",
+          "todo",
+          "write"
+        ]
+      },
+      "expected": [
+        "bash",
+        "edit",
+        "glob",
+        "grep",
+        "read",
+        "todo",
+        "write"
+      ]
+    },
+    {
+      "id": "system_prompt_isolation",
+      "status": "pass",
+      "detail": "no AGENTS.md, CLAUDE.md, memories, or compressor marker in the rendered system prompt",
+      "violations": {
+        "A0": [],
+        "H": [],
+        "HC": [],
+        "C": []
+      }
+    },
+    {
+      "id": "search_routing_rules",
+      "status": "pass",
+      "detail": "disclosure: system-prompt lines that route work to a search tool, per arm",
+      "rules": {
+        "A0": [
+          "- `ssh://host/<path>`: remote UTF-8 file/dir (max 1 MiB) for read/write/grep; bare lists hosts. Encode `:` `?` `#` as %3A %3F %23. Needs verified POSIX shell; else bash remote SSH or sshfs.",
+          "- Grep: `grep`",
+          "- Glob: `glob`",
+          "- Regex/target search: `grep`, NEVER shell `grep`/`rg`/`awk`.",
+          "- File structure/names: `glob`, NEVER `ls **/*.ext`/`fd`."
+        ],
+        "H": [
+          "- `ssh://host/<path>`: remote UTF-8 file/dir (max 1 MiB) for read/write/grep; bare lists hosts. Encode `:` `?` `#` as %3A %3F %23. Needs verified POSIX shell; else bash remote SSH or sshfs.",
+          "- Grep: `grep`",
+          "- Glob: `glob`",
+          "- Regex/target search: `grep`, NEVER shell `grep`/`rg`/`awk`.",
+          "- File structure/names: `glob`, NEVER `ls **/*.ext`/`fd`."
+        ],
+        "HC": [
+          "- `ssh://host/<path>`: remote UTF-8 file/dir (max 1 MiB) for read/write/grep; bare lists hosts. Encode `:` `?` `#` as %3A %3F %23. Needs verified POSIX shell; else bash remote SSH or sshfs.",
+          "- Grep: `grep`",
+          "- Glob: `glob`",
+          "- Regex/target search: `grep`, NEVER shell `grep`/`rg`/`awk`.",
+          "- File structure/names: `glob`, NEVER `ls **/*.ext`/`fd`.",
+          "`archex` is a local code-context CLI for this repository. Its index is built; do not run `archex init` or `archex index`.",
+          "- Exact identifier, literal string, regex, or every occurrence: use `grep`. It is exact and complete.",
+          "- Where something is implemented, how a flow works, or an unfamiliar subsystem: run `archex scout . \"<question>\" --budget 1000 --format json` first, then fetch the handles it returns with `archex symbol . '<handle>'`.",
+          "- Body of a known symbol: `archex symbol . 'symbol:<path>::<Name>#<kind>'` instead of reading the whole file.",
+          "- Symbols by name: `archex symbols . <name>`. Outline of one file: `archex outline . <path>`.",
+          "- Before changing an exported symbol or a widely imported file: `archex impact . --changed-file <path>`.",
+          "- A larger ranked bundle: `archex query . \"<question>\" --format markdown`.",
+          "Every scout and query result ends with a receipt. If `context_complete_reason` is `low_query_match` or `no_candidates`, rephrase with the code's own identifiers (`query_terms_unmatched` lists the words that matched nothing) or use `grep`.",
+          "`archex status .` reports whether the index still matches the working tree; after your edits it will not. archex output is context selection, not proof: confirm with `read` or `grep` before editing."
+        ],
+        "C": [
+          "- `ssh://host/<path>`: remote UTF-8 file/dir (max 1 MiB) for read/write/grep; bare lists hosts. Encode `:` `?` `#` as %3A %3F %23. Needs verified POSIX shell; else bash remote SSH or sshfs.",
+          "- Grep: `grep`",
+          "- Glob: `glob`",
+          "- Regex/target search: `grep`, NEVER shell `grep`/`rg`/`awk`.",
+          "- File structure/names: `glob`, NEVER `ls **/*.ext`/`fd`.",
+          "`archex` is a local code-context CLI for this repository. Its index is built; do not run `archex init` or `archex index`.",
+          "- Exact identifier, literal string, regex, or every occurrence: use `grep`. It is exact and complete.",
+          "- Where something is implemented, how a flow works, or an unfamiliar subsystem: run `archex scout . \"<question>\" --budget 1000 --format json` first, then fetch the handles it returns with `archex symbol . '<handle>'`.",
+          "- Body of a known symbol: `archex symbol . 'symbol:<path>::<Name>#<kind>'` instead of reading the whole file.",
+          "- Symbols by name: `archex symbols . <name>`. Outline of one file: `archex outline . <path>`.",
+          "- Before changing an exported symbol or a widely imported file: `archex impact . --changed-file <path>`.",
+          "- A larger ranked bundle: `archex query . \"<question>\" --format markdown`.",
+          "Every scout and query result ends with a receipt. If `context_complete_reason` is `low_query_match` or `no_candidates`, rephrase with the code's own identifiers (`query_terms_unmatched` lists the words that matched nothing) or use `grep`.",
+          "`archex status .` reports whether the index still matches the working tree; after your edits it will not. archex output is context selection, not proof: confirm with `read` or `grep` before editing."
+        ]
+      }
+    },
+    {
+      "id": "annotation_only_in_hook_arms",
+      "status": "fail",
+      "detail": "`[archex receipt] index_revision=` appears in H and HC tool results and nowhere else",
+      "annotation_seen": {
+        "A0": false,
+        "H": false,
+        "HC": true,
+        "C": false
+      }
+    },
+    {
+      "id": "no_compressor_output",
+      "status": "pass",
+      "detail": "no tool-output compressor marker in any tool result",
+      "marker_seen": {
+        "A0": false,
+        "H": false,
+        "HC": false,
+        "C": false
+      }
+    },
+    {
+      "id": "validator_refuses_stub_cells",
+      "status": "pass",
+      "detail": "<tmp>/cells/qwen-3.8-27b_high/A0/python_simple-sha512__rep1.json resolved provider endpoint 'http://127.0.0.1:56024/v1', not https://inference.muna.ai/v1 (a local stub or another endpoint); such cells exercise the harness and are refused for publication"
+    },
+    {
+      "id": "gold_empty_validity",
+      "status": "fail",
+      "detail": "gold patch resolves and empty patch fails, per instance (invalid ones leave the pool; an instance that could not be scored is an error, not an exclusion)",
+      "per_instance": {
+        "instance_gravitational__teleport-78b0d8c72637df1129fb6ff84fc49ef4b5ab1288": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_internetarchive__openlibrary-43f9e7e0d56a4f1d487533543c17040a029ac501-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_internetarchive__openlibrary-f3b26c2c0721f8713353fe4b341230332e30008d-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_navidrome__navidrome-1e96b858a91c640fe64e84c5e5ad8cc0954ea38d": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_navidrome__navidrome-d8e794317f788198227e10fb667e10496b3eb99a": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_protonmail__webclients-fc9d535e9beb3ae30a52a7146398cadfd6e30606": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_protonmail__webclients-e7f3f20c8ad86089967498632ace73c1157a9d51": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_qutebrowser__qutebrowser-cc360cd4a34a126274c7b51f3b63afbaf3e05a02-v5fc38aaf22415ab0b70567368332beee7955b367": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_tutao__tutanota-f373ac3808deefce8183dad8d16729839cc330c1-v2939aa9f4356f0dc9f523ee5ce19d09e08ab979b": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029": {
+          "gold_resolves": false,
+          "empty_fails": true
+        }
+      },
+      "excluded": [
+        "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029"
+      ],
+      "exclusions": [
+        {
+          "instance_id": "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+          "reason": "gold_not_resolved",
+          "source": "stage0 gold_empty_validity, emulated=True"
+        }
+      ],
+      "scoring_errors": {
+        "instance_internetarchive__openlibrary-9cd47f4dc21e273320d9e30d889c864f8cb20ccf-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": "ed-9efe0fd2fe1a&sks=b&skt=2026-10-02T15%3A40%3A54Z&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skv=2025-01-05&sp=r&spr=https&sr=b&sv=2025-01-05&hmac=e6e62a09864afbe7c4db90aadd86fd088dcd8f478de411c84e40480bc6c8877c\": net/http: TLS handshake timeout\\n\\nRun \\'docker run --help\\' for more information\\n')"
+      }
+    },
+    {
+      "id": "omp_runs_in_container",
+      "status": "fail",
+      "detail": "the pinned omp build starts inside each Pro image",
+      "per_instance": {
+        "instance_gravitational__teleport-78b0d8c72637df1129fb6ff84fc49ef4b5ab1288": true,
+        "instance_internetarchive__openlibrary-43f9e7e0d56a4f1d487533543c17040a029ac501-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": true,
+        "instance_internetarchive__openlibrary-f3b26c2c0721f8713353fe4b341230332e30008d-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": true,
+        "instance_internetarchive__openlibrary-9cd47f4dc21e273320d9e30d889c864f8cb20ccf-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": true,
+        "instance_navidrome__navidrome-1e96b858a91c640fe64e84c5e5ad8cc0954ea38d": true,
+        "instance_navidrome__navidrome-d8e794317f788198227e10fb667e10496b3eb99a": true,
+        "instance_protonmail__webclients-fc9d535e9beb3ae30a52a7146398cadfd6e30606": false,
+        "instance_protonmail__webclients-e7f3f20c8ad86089967498632ace73c1157a9d51": false,
+        "instance_qutebrowser__qutebrowser-cc360cd4a34a126274c7b51f3b63afbaf3e05a02-v5fc38aaf22415ab0b70567368332beee7955b367": true,
+        "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c": true,
+        "instance_tutao__tutanota-f373ac3808deefce8183dad8d16729839cc330c1-v2939aa9f4356f0dc9f523ee5ce19d09e08ab979b": true,
+        "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029": true
+      }
+    },
+    {
+      "id": "archex_indexes_in_container",
+      "status": "pass",
+      "detail": "archex installs into /opt/archex, indexes the checkout to `fresh`, and the annotate entry pre-warms on a real search hit",
+      "index_seconds": {
+        "instance_gravitational__teleport-78b0d8c72637df1129fb6ff84fc49ef4b5ab1288": 57.833,
+        "instance_internetarchive__openlibrary-43f9e7e0d56a4f1d487533543c17040a029ac501-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": 14.855,
+        "instance_internetarchive__openlibrary-f3b26c2c0721f8713353fe4b341230332e30008d-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": 16.386,
+        "instance_internetarchive__openlibrary-9cd47f4dc21e273320d9e30d889c864f8cb20ccf-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": 15.726,
+        "instance_navidrome__navidrome-1e96b858a91c640fe64e84c5e5ad8cc0954ea38d": 14.392,
+        "instance_navidrome__navidrome-d8e794317f788198227e10fb667e10496b3eb99a": 12.262,
+        "instance_protonmail__webclients-fc9d535e9beb3ae30a52a7146398cadfd6e30606": 71.138,
+        "instance_protonmail__webclients-e7f3f20c8ad86089967498632ace73c1157a9d51": 59.893,
+        "instance_qutebrowser__qutebrowser-cc360cd4a34a126274c7b51f3b63afbaf3e05a02-v5fc38aaf22415ab0b70567368332beee7955b367": 10.909,
+        "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c": 14.809,
+        "instance_tutao__tutanota-f373ac3808deefce8183dad8d16729839cc330c1-v2939aa9f4356f0dc9f523ee5ce19d09e08ab979b": 39.45,
+        "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029": 30.576
+      }
+    },
+    {
+      "id": "annotate_latency_in_container",
+      "status": "fail",
+      "detail": "steady-state annotate calls on a real search, 10 per instance, end to end as the hook spawns them; the median must fit the hook's wall-clock budget, or the hook arms drop most annotations (kill criterion 5)",
+      "per_instance": {
+        "instance_gravitational__teleport-78b0d8c72637df1129fb6ff84fc49ef4b5ab1288": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1765.0,
+          "p90_ms": 1992,
+          "max_ms": 2779,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_internetarchive__openlibrary-43f9e7e0d56a4f1d487533543c17040a029ac501-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1370.5,
+          "p90_ms": 1657,
+          "max_ms": 1722,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_internetarchive__openlibrary-f3b26c2c0721f8713353fe4b341230332e30008d-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1484.0,
+          "p90_ms": 1587,
+          "max_ms": 1622,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_internetarchive__openlibrary-9cd47f4dc21e273320d9e30d889c864f8cb20ccf-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1394.0,
+          "p90_ms": 1531,
+          "max_ms": 1533,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_navidrome__navidrome-1e96b858a91c640fe64e84c5e5ad8cc0954ea38d": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1956.5,
+          "p90_ms": 2342,
+          "max_ms": 2384,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_navidrome__navidrome-d8e794317f788198227e10fb667e10496b3eb99a": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1655.5,
+          "p90_ms": 1778,
+          "max_ms": 2323,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_protonmail__webclients-fc9d535e9beb3ae30a52a7146398cadfd6e30606": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1736.5,
+          "p90_ms": 1888,
+          "max_ms": 1889,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_protonmail__webclients-e7f3f20c8ad86089967498632ace73c1157a9d51": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1286.5,
+          "p90_ms": 1361,
+          "max_ms": 1425,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_qutebrowser__qutebrowser-cc360cd4a34a126274c7b51f3b63afbaf3e05a02-v5fc38aaf22415ab0b70567368332beee7955b367": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1198.0,
+          "p90_ms": 1362,
+          "max_ms": 1422,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 0,
+          "reasons": [
+            "no_code_units"
+          ]
+        },
+        "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1625.0,
+          "p90_ms": 1886,
+          "max_ms": 1970,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 0,
+          "reasons": [
+            "no_code_units"
+          ]
+        },
+        "instance_tutao__tutanota-f373ac3808deefce8183dad8d16729839cc330c1-v2939aa9f4356f0dc9f523ee5ce19d09e08ab979b": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1302.5,
+          "p90_ms": 1473,
+          "max_ms": 1602,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1278.0,
+          "p90_ms": 1297,
+          "max_ms": 1386,
+          "budget_ms": 500,
+          "over_budget": 10,
+          "annotated": 10,
+          "reasons": []
+        }
+      },
+      "over_budget_instances": [
+        "instance_gravitational__teleport-78b0d8c72637df1129fb6ff84fc49ef4b5ab1288",
+        "instance_internetarchive__openlibrary-43f9e7e0d56a4f1d487533543c17040a029ac501-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+        "instance_internetarchive__openlibrary-f3b26c2c0721f8713353fe4b341230332e30008d-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+        "instance_internetarchive__openlibrary-9cd47f4dc21e273320d9e30d889c864f8cb20ccf-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+        "instance_navidrome__navidrome-1e96b858a91c640fe64e84c5e5ad8cc0954ea38d",
+        "instance_navidrome__navidrome-d8e794317f788198227e10fb667e10496b3eb99a",
+        "instance_protonmail__webclients-fc9d535e9beb3ae30a52a7146398cadfd6e30606",
+        "instance_protonmail__webclients-e7f3f20c8ad86089967498632ace73c1157a9d51",
+        "instance_qutebrowser__qutebrowser-cc360cd4a34a126274c7b51f3b63afbaf3e05a02-v5fc38aaf22415ab0b70567368332beee7955b367",
+        "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+        "instance_tutao__tutanota-f373ac3808deefce8183dad8d16729839cc330c1-v2939aa9f4356f0dc9f523ee5ce19d09e08ab979b",
+        "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029"
+      ]
+    },
+    {
+      "id": "emulated_wall_times",
+      "status": "pass",
+      "detail": "emulated=True on arm64: per-instance wall times (not comparable with native runs); every image is linux/amd64",
+      "emulated": true,
+      "host_machine": "arm64",
+      "per_instance": {
+        "instance_gravitational__teleport-78b0d8c72637df1129fb6ff84fc49ef4b5ab1288": {
+          "gold_score_seconds": 2212.3,
+          "empty_score_seconds": 56.9,
+          "container_start_seconds": 0.7,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.7,
+          "install_and_index_seconds": 165.9
+        },
+        "instance_internetarchive__openlibrary-43f9e7e0d56a4f1d487533543c17040a029ac501-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": {
+          "gold_score_seconds": 497.1,
+          "empty_score_seconds": 20.8,
+          "container_start_seconds": 0.4,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 1.8,
+          "install_and_index_seconds": 95.2
+        },
+        "instance_internetarchive__openlibrary-f3b26c2c0721f8713353fe4b341230332e30008d-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": {
+          "gold_score_seconds": 706.5,
+          "empty_score_seconds": 15.5,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.1,
+          "install_and_index_seconds": 83.6
+        },
+        "instance_internetarchive__openlibrary-9cd47f4dc21e273320d9e30d889c864f8cb20ccf-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4": {
+          "container_start_seconds": 153.1,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 3.4,
+          "install_and_index_seconds": 46.6
+        },
+        "instance_navidrome__navidrome-1e96b858a91c640fe64e84c5e5ad8cc0954ea38d": {
+          "gold_score_seconds": 251.6,
+          "empty_score_seconds": 33.8,
+          "container_start_seconds": 0.6,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 1.7,
+          "install_and_index_seconds": 88.1
+        },
+        "instance_navidrome__navidrome-d8e794317f788198227e10fb667e10496b3eb99a": {
+          "gold_score_seconds": 235.0,
+          "empty_score_seconds": 84.5,
+          "container_start_seconds": 1.0,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.8,
+          "install_and_index_seconds": 54.6
+        },
+        "instance_protonmail__webclients-fc9d535e9beb3ae30a52a7146398cadfd6e30606": {
+          "gold_score_seconds": 1188.2,
+          "empty_score_seconds": 379.3,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 0.1,
+          "install_and_index_seconds": 110.9
+        },
+        "instance_protonmail__webclients-e7f3f20c8ad86089967498632ace73c1157a9d51": {
+          "gold_score_seconds": 729.4,
+          "empty_score_seconds": 243.4,
+          "container_start_seconds": 0.6,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 0.1,
+          "install_and_index_seconds": 93.8
+        },
+        "instance_qutebrowser__qutebrowser-cc360cd4a34a126274c7b51f3b63afbaf3e05a02-v5fc38aaf22415ab0b70567368332beee7955b367": {
+          "gold_score_seconds": 174.7,
+          "empty_score_seconds": 37.0,
+          "container_start_seconds": 0.4,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 1.7,
+          "install_and_index_seconds": 42.5
+        },
+        "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c": {
+          "gold_score_seconds": 109.2,
+          "empty_score_seconds": 41.3,
+          "container_start_seconds": 1.4,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 1.9,
+          "install_and_index_seconds": 51.4
+        },
+        "instance_tutao__tutanota-f373ac3808deefce8183dad8d16729839cc330c1-v2939aa9f4356f0dc9f523ee5ce19d09e08ab979b": {
+          "gold_score_seconds": 388.2,
+          "empty_score_seconds": 172.1,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.5,
+          "install_and_index_seconds": 76.0
+        },
+        "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029": {
+          "gold_score_seconds": 346.0,
+          "empty_score_seconds": 185.5,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 1.9,
+          "install_and_index_seconds": 65.7
+        }
+      },
+      "non_amd64_instances": []
+    },
+    {
+      "id": "muna_reachable_from_container",
+      "status": "pass",
+      "detail": "a container fetches https://inference.muna.ai/v1/models and receives the allow-listed variable but nothing else from the host environment",
+      "reachable": true,
+      "allow_list_only": true,
+      "seconds": 8.6
+    },
+    {
+      "id": "bun_runs_under_emulation",
+      "status": "pass",
+      "detail": "Bun's default x86-64 build starts under emulation",
+      "variant": "default",
+      "bun_version": "1.4.2"
+    },
+    {
+      "id": "one_real_cell_per_configuration",
+      "status": "requires_host",
+      "detail": "hosted model call on Muna: route, auth, usage reporting, the effort the request carried, and the annotation ledger per configuration (arm H, three cells); run scripts/run_swe_ab_suite.py with a one-task Stage 0 plan (RUNBOOK \u00a74)"
+    }
+  ],
+  "summary": {
+    "pass": 15,
+    "fail": 4,
+    "requires_host": 1
+  },
+  "gate": "fail",
+  "seconds": 9638.8
+}

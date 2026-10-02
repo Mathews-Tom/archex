@@ -57,6 +57,7 @@ from archex.benchmark.swe_ab import (
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
     CREDENTIAL_ENV_NAMES,
+    HOOK_TIMEOUT_SECONDS,
     MAX_TIME,
     OMP_CONFIG_PATH,
     OMP_VERSION,
@@ -248,6 +249,32 @@ def docker_exec_env(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
     return args, client_env
 
 
+_PULL_ATTEMPTS = 4
+_PULL_BACKOFF_SECONDS = (30.0, 60.0, 120.0)
+
+
+def ensure_image(image: str, *, run: Any = None, sleep: Any = None) -> None:
+    """Make sure the task image is local, pulling it with retries if it is not.
+
+    An anonymous ghcr.io pull can fail transiently (a HEAD request answered 401, a reset
+    connection); the same pull succeeds minutes later. Left to ``docker run``'s implicit pull,
+    one such failure would record an infrastructure error as a failed task. Pulls are retried
+    with backoff; the last failure is raised.
+    """
+    run = run or subprocess.run
+    sleep = sleep or time.sleep
+    if run(["docker", "image", "inspect", image], capture_output=True, check=False).returncode == 0:
+        return
+    pull = ["docker", "pull", "-q", "--platform", "linux/amd64", image]
+    done = run(pull, capture_output=True, text=True, check=False)
+    for pause in _PULL_BACKOFF_SECONDS[: _PULL_ATTEMPTS - 1]:
+        if done.returncode == 0:
+            return
+        sleep(pause)
+        done = run(pull, capture_output=True, text=True, check=False)
+    _checked(done, f"docker pull {image} ({_PULL_ATTEMPTS} attempts)")
+
+
 class DockerRuntime:
     """One throwaway container of the task's official image (linux/amd64)."""
 
@@ -268,6 +295,7 @@ class DockerRuntime:
         ]
         for host, target in mounts:
             argv += ["-v", f"{host}:{target}:ro"]
+        ensure_image(spec.image)
         _checked(
             subprocess.run(
                 [*argv, spec.image, "infinity"], capture_output=True, text=True, check=False
@@ -532,6 +560,7 @@ def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
         "PATH": os.pathsep.join([*setup.extra_path, *path]),
         "ARCHEX_ANNOTATION_LEDGER": f"{rt.out}/annotation-ledger.jsonl",
         "ARCHEX_HOOK_DIAGNOSTICS_LOG": f"{rt.out}/hook-diagnostics.log",
+        "ARCHEX_HOOK_TIMEOUT_SECONDS": str(HOOK_TIMEOUT_SECONDS),
     }
 
 
@@ -734,6 +763,7 @@ def failed_cell(
         score_source="failed_before_patch",
         wall_seconds=0.0,
         setup_seconds=0.0,
+        hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         quota=quota or QuotaEvidence(prior_blocked_attempts=spec.prior_blocked_attempts),
     )
 
@@ -928,6 +958,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         setup_seconds=setup.setup_seconds,
         index_seconds=setup.index_seconds,
         annotate_prewarm_seconds=setup.prewarm_seconds,
+        hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         quota=_quota(spec, runs, phase),
     )
 

@@ -53,6 +53,7 @@ from archex.benchmark.swe_ab import (
     COMPRESSOR_MARKERS,
     CONFIGURATIONS,
     CREDENTIAL_ENV_NAMES,
+    HOOK_TIMEOUT_SECONDS,
     MODELS,
     MUNA_BASE_URL,
     OMP_CONFIG_PATH,
@@ -72,7 +73,6 @@ from archex.benchmark.swe_ab import (
     validate_swe_ab_directory,
 )
 from archex.client_setup import render_annotation_hook_module
-from archex.integrations.diagnostics import DEFAULT_HOOK_TIMEOUT_SECONDS
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_swe_ab_cell as cell_runner  # noqa: E402 - sibling script, importable only via sys.path
@@ -84,11 +84,14 @@ _STUB_PROVIDER = _ROOT / "scripts" / "swe_ab_stub_provider.py"
 _DRY_RUN_PLAN = _ROOT / "benchmarks" / "swe_ab" / "dry-run-plan.json"
 _STUB_SCRIPT = _ROOT / "benchmarks" / "swe_ab" / "stub-script.json"
 _CAMPAIGN_PYTHON = "/opt/archex/venv/bin/python"
+CONTAINER_OMP_COMMAND = "/opt/omp/bin/omp-entry"
+"""omp's entry point inside a task container: `benchmarks/swe_ab/omp-entry.sh` in the bundle."""
 _LATENCY_SAMPLES = 10
 _LATENCY_DRIVER = """
 import json, os, subprocess, sys, time
 python, samples = sys.argv[1], int(sys.argv[2])
-command = ["git", "grep", "-n", "-I", "-w", "-e", "return"]
+command = ["git", "grep", "-n", "-I", "-w", "-e", "return", "--",
+           "*.py", "*.go", "*.js", "*.jsx", "*.ts", "*.tsx"]
 hits = subprocess.run(command, capture_output=True, text=True).stdout.splitlines()[:20]
 request = json.dumps({"host": "omp", "tool": "bash", "input": {"command": " ".join(command)},
                       "text": "\\n".join(hits), "cwd": os.getcwd()})
@@ -121,7 +124,7 @@ def annotate_latency(rt: Any, python: str = _CAMPAIGN_PYTHON) -> dict[str, Any]:
     report = cast("dict[str, Any]", json.loads(done.stdout))
     rows = cast("list[dict[str, Any]]", report["rows"])
     latencies = sorted(int(row["ms"]) for row in rows)
-    budget_ms = round(DEFAULT_HOOK_TIMEOUT_SECONDS * 1000)
+    budget_ms = round(HOOK_TIMEOUT_SECONDS * 1000)
     return {
         "hits": report["hits"],
         "samples": len(rows),
@@ -559,7 +562,8 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
     instances = [line.strip() for line in args.instances.read_text().splitlines() if line.strip()]
     base = {
         "runtime": "docker", "model": MODELS[0], "arm": "HC", "repetition": 1, "repo": "stage0",
-        "omp_command": shlex.split(args.omp_command), "profile_dir": str(args.profile_dir or "."),
+        "omp_command": shlex.split(args.container_omp_command),
+        "profile_dir": str(args.profile_dir or "."),
         "archex_wheel": str(args.archex_wheel), "uv_binary": str(args.uv_binary),
         "omp_dir": str(args.omp_dir), "network": args.network,
     }  # fmt: skip
@@ -596,9 +600,10 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
             # resolve or whose empty patch does not fail, so this stops the gate instead.
             scoring_errors[instance] = repr(exc)[-300:]
         lap = time.monotonic()
-        rt = cell_runner.DockerRuntime(spec, mounts=[(args.omp_dir, "/opt/omp")])
-        timing["container_start_seconds"] = round(time.monotonic() - lap, 1)
+        rt: Any = None
         try:
+            rt = cell_runner.DockerRuntime(spec, mounts=[(args.omp_dir, "/opt/omp")])
+            timing["container_start_seconds"] = round(time.monotonic() - lap, 1)
             timing["container_arch"] = rt.run(["uname", "-m"], cwd="/").stdout.strip()
             lap = time.monotonic()
             version = rt.run([*spec.omp_command, "--version"], cwd="/").stdout.strip()
@@ -614,7 +619,8 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
             omp_ok.setdefault(instance, False)
             checks.append(_check(f"container_setup:{instance}", "fail", repr(exc)))
         finally:
-            rt.close()
+            if rt is not None:
+                rt.close()
     invalid = [i for i, v in validity.items() if not (v["gold_resolves"] and v["empty_fails"])]
     source = f"stage0 gold_empty_validity, emulated={is_emulated('docker', platform.machine())}"
     exclusions = [
@@ -707,7 +713,16 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--omp-command", default=shutil.which("omp") or "omp")
+    parser.add_argument(
+        "--omp-command",
+        default=shutil.which("omp") or "omp",
+        help="the host's omp (pinned build) for the local checks",
+    )
+    parser.add_argument(
+        "--container-omp-command",
+        default=CONTAINER_OMP_COMMAND,
+        help="omp's entry point inside a task container, from the bundle mounted at /opt/omp",
+    )
     parser.add_argument(
         "--env-file",
         type=Path,

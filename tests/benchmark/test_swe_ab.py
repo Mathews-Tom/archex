@@ -406,6 +406,7 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
         "score_source": "pro_verifier",
         "wall_seconds": 1.0,
         "setup_seconds": 1.0,
+        "hook_timeout_seconds": 5.0,
         "quota": {},
     }
     cell.update(overrides)
@@ -614,14 +615,18 @@ def test_validator_refuses_a_cell_that_ran_through_another_provider(
 
 
 @pytest.mark.parametrize(
-    ("field", "label"),
-    [("provider_config_sha256", "provider config"), ("omp_config_sha256", "omp config")],
+    ("field", "value", "label"),
+    [
+        ("provider_config_sha256", "other", "provider config"),
+        ("omp_config_sha256", "other", "omp config"),
+        ("hook_timeout_seconds", 0.5, "hook_timeout_seconds"),
+    ],
 )
-def test_validator_refuses_a_stage_that_mixes_config_hashes(
-    tmp_path: Path, field: str, label: str
+def test_validator_refuses_a_stage_that_mixes_frozen_settings(
+    tmp_path: Path, field: str, value: object, label: str
 ) -> None:
     _complete(tmp_path)
-    _write(tmp_path, _cell(SweAbArm.H, **{field: "other"}))
+    _write(tmp_path, _cell(SweAbArm.H, **{field: value}))
 
     with pytest.raises(SweAbError, match=f"{label} differs"):
         validate_swe_ab_directory(tmp_path, _plan())
