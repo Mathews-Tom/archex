@@ -1,0 +1,577 @@
+{
+  "stage": "0",
+  "omp_version_pinned": "18.4.4",
+  "checks": [
+    {
+      "id": "omp_version",
+      "status": "pass",
+      "detail": "omp reports '18.4.4'; pinned 18.4.4"
+    },
+    {
+      "id": "muna_route",
+      "status": "pass",
+      "detail": "omp lists every configuration's selector under provider 'muna' (catalog only; no model call)",
+      "expected": [
+        "muna/@google/gemma-4-26b-a4b-it",
+        "muna/@qwen/qwen-3.8-27b"
+      ],
+      "listed": [
+        "muna/@google/gemma-4-26b-a4b-it",
+        "muna/@qwen/qwen-3.8-27b"
+      ]
+    },
+    {
+      "id": "muna_key_accepted",
+      "status": "pass",
+      "detail": "Muna accepted the key (404 model_not_found for a nonexistent model; no tokens spent)",
+      "http_status": 404
+    },
+    {
+      "id": "frozen_identities",
+      "status": "pass",
+      "detail": "SHA-256 of the artifacts the pre-registration pins",
+      "cli_guide_sha256": "2741251d17a923fbd703eb5adea494fbfa0245f5d842ab38083d6e5a60ee0597",
+      "hook_module_sha256": "3ab3ae16cfc52c113c83ce135947f74ac3fec3b9e468f2680e1c79adb0982f46",
+      "hook_module_python": "/opt/archex/venv/bin/python",
+      "provider_config_sha256": "d3867517320046f139057d86b8b524ded92d426a2b80e0dc4fc76828670298ec",
+      "omp_config_sha256": "340956d51e5f9377903a5a6a2dd7a5fe4a3e1da5e3ebc49bed5712a575ce226f"
+    },
+    {
+      "id": "effort_request_shape",
+      "status": "pass",
+      "detail": "every configuration's first request carries its thinking effort as `reasoning_effort`",
+      "reasoning_effort": {
+        "qwen-3.8-27b@low": "low",
+        "qwen-3.8-27b@high": "high",
+        "gemma-4-26b-a4b-it@high": "high"
+      }
+    },
+    {
+      "id": "stub_rehearsal",
+      "status": "pass",
+      "detail": "one no-spend cell per arm through the full cell flow",
+      "cell_status": {
+        "A0": "ok",
+        "H": "ok",
+        "HC": "ok",
+        "C": "ok"
+      }
+    },
+    {
+      "id": "tool_list_fingerprint",
+      "status": "pass",
+      "detail": "first request advertises exactly the base tools in every arm",
+      "advertised": {
+        "A0": [
+          "bash",
+          "edit",
+          "glob",
+          "grep",
+          "read",
+          "todo",
+          "write"
+        ],
+        "H": [
+          "bash",
+          "edit",
+          "glob",
+          "grep",
+          "read",
+          "todo",
+          "write"
+        ],
+        "HC": [
+          "bash",
+          "edit",
+          "glob",
+          "grep",
+          "read",
+          "todo",
+          "write"
+        ],
+        "C": [
+          "bash",
+          "edit",
+          "glob",
+          "grep",
+          "read",
+          "todo",
+          "write"
+        ]
+      },
+      "expected": [
+        "bash",
+        "edit",
+        "glob",
+        "grep",
+        "read",
+        "todo",
+        "write"
+      ]
+    },
+    {
+      "id": "system_prompt_isolation",
+      "status": "pass",
+      "detail": "no AGENTS.md, CLAUDE.md, memories, or compressor marker in the rendered system prompt",
+      "violations": {
+        "A0": [],
+        "H": [],
+        "HC": [],
+        "C": []
+      }
+    },
+    {
+      "id": "search_routing_rules",
+      "status": "pass",
+      "detail": "disclosure: system-prompt lines that route work to a search tool, per arm",
+      "rules": {
+        "A0": [
+          "- `ssh://host/<path>`: remote UTF-8 file/dir (max 1 MiB) for read/write/grep; bare lists hosts. Encode `:` `?` `#` as %3A %3F %23. Needs verified POSIX shell; else bash remote SSH or sshfs.",
+          "- Grep: `grep`",
+          "- Glob: `glob`",
+          "- Regex/target search: `grep`, NEVER shell `grep`/`rg`/`awk`.",
+          "- File structure/names: `glob`, NEVER `ls **/*.ext`/`fd`."
+        ],
+        "H": [
+          "- `ssh://host/<path>`: remote UTF-8 file/dir (max 1 MiB) for read/write/grep; bare lists hosts. Encode `:` `?` `#` as %3A %3F %23. Needs verified POSIX shell; else bash remote SSH or sshfs.",
+          "- Grep: `grep`",
+          "- Glob: `glob`",
+          "- Regex/target search: `grep`, NEVER shell `grep`/`rg`/`awk`.",
+          "- File structure/names: `glob`, NEVER `ls **/*.ext`/`fd`."
+        ],
+        "HC": [
+          "- `ssh://host/<path>`: remote UTF-8 file/dir (max 1 MiB) for read/write/grep; bare lists hosts. Encode `:` `?` `#` as %3A %3F %23. Needs verified POSIX shell; else bash remote SSH or sshfs.",
+          "- Grep: `grep`",
+          "- Glob: `glob`",
+          "- Regex/target search: `grep`, NEVER shell `grep`/`rg`/`awk`.",
+          "- File structure/names: `glob`, NEVER `ls **/*.ext`/`fd`.",
+          "`archex` is a local code-context CLI for this repository. Its index is built; do not run `archex init` or `archex index`.",
+          "- Exact identifier, literal string, regex, or every occurrence: use `grep`. It is exact and complete.",
+          "- Where something is implemented, how a flow works, or an unfamiliar subsystem: run `archex scout . \"<question>\" --budget 1000 --format json` first, then fetch the handles it returns with `archex symbol . '<handle>'`.",
+          "- Body of a known symbol: `archex symbol . 'symbol:<path>::<Name>#<kind>'` instead of reading the whole file.",
+          "- Symbols by name: `archex symbols . <name>`. Outline of one file: `archex outline . <path>`.",
+          "- Before changing an exported symbol or a widely imported file: `archex impact . --changed-file <path>`.",
+          "- A larger ranked bundle: `archex query . \"<question>\" --format markdown`.",
+          "Every scout and query result ends with a receipt. If `context_complete_reason` is `low_query_match` or `no_candidates`, rephrase with the code's own identifiers (`query_terms_unmatched` lists the words that matched nothing) or use `grep`.",
+          "`archex status .` reports whether the index still matches the working tree; after your edits it will not. archex output is context selection, not proof: confirm with `read` or `grep` before editing."
+        ],
+        "C": [
+          "- `ssh://host/<path>`: remote UTF-8 file/dir (max 1 MiB) for read/write/grep; bare lists hosts. Encode `:` `?` `#` as %3A %3F %23. Needs verified POSIX shell; else bash remote SSH or sshfs.",
+          "- Grep: `grep`",
+          "- Glob: `glob`",
+          "- Regex/target search: `grep`, NEVER shell `grep`/`rg`/`awk`.",
+          "- File structure/names: `glob`, NEVER `ls **/*.ext`/`fd`.",
+          "`archex` is a local code-context CLI for this repository. Its index is built; do not run `archex init` or `archex index`.",
+          "- Exact identifier, literal string, regex, or every occurrence: use `grep`. It is exact and complete.",
+          "- Where something is implemented, how a flow works, or an unfamiliar subsystem: run `archex scout . \"<question>\" --budget 1000 --format json` first, then fetch the handles it returns with `archex symbol . '<handle>'`.",
+          "- Body of a known symbol: `archex symbol . 'symbol:<path>::<Name>#<kind>'` instead of reading the whole file.",
+          "- Symbols by name: `archex symbols . <name>`. Outline of one file: `archex outline . <path>`.",
+          "- Before changing an exported symbol or a widely imported file: `archex impact . --changed-file <path>`.",
+          "- A larger ranked bundle: `archex query . \"<question>\" --format markdown`.",
+          "Every scout and query result ends with a receipt. If `context_complete_reason` is `low_query_match` or `no_candidates`, rephrase with the code's own identifiers (`query_terms_unmatched` lists the words that matched nothing) or use `grep`.",
+          "`archex status .` reports whether the index still matches the working tree; after your edits it will not. archex output is context selection, not proof: confirm with `read` or `grep` before editing."
+        ]
+      }
+    },
+    {
+      "id": "annotation_only_in_hook_arms",
+      "status": "pass",
+      "detail": "`[archex receipt] index_revision=` appears in H and HC tool results and nowhere else",
+      "annotation_seen": {
+        "A0": false,
+        "H": true,
+        "HC": true,
+        "C": false
+      }
+    },
+    {
+      "id": "no_compressor_output",
+      "status": "pass",
+      "detail": "no tool-output compressor marker in any tool result",
+      "marker_seen": {
+        "A0": false,
+        "H": false,
+        "HC": false,
+        "C": false
+      }
+    },
+    {
+      "id": "validator_refuses_stub_cells",
+      "status": "pass",
+      "detail": "<tmp>/cells/qwen-3.8-27b_high/A0/python_simple-sha512__rep1.json resolved provider endpoint 'http://127.0.0.1:59298/v1', not https://inference.muna.ai/v1 (a local stub or another endpoint); such cells exercise the harness and are refused for publication"
+    },
+    {
+      "id": "gold_empty_validity",
+      "status": "pass",
+      "detail": "gold patch resolves and empty patch fails, per instance (invalid ones leave the pool; an instance that could not be scored is an error, not an exclusion)",
+      "per_instance": {
+        "instance_NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca-vnan": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_ansible__ansible-415e08c2970757472314e515cb63a51ad825c45e-v7eee2454f617569fd6889f2211f75bc02a35f9f8": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_element-hq__element-web-72a8f8f03b1a01bb70ef8a5bb61759416991b32c-vnan": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_flipt-io__flipt-c6a7b1fd933e763b1675281b30077e161fa115a1": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_flipt-io__flipt-5aef5a14890aa145c22d864a834694bae3a6f112": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_future-architect__vuls-999529a05b202b0fd29c6fca5039a4c47a3766bb": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_future-architect__vuls-61c39637f2f3809e1b5dad05f0c57c799dce1587": {
+          "gold_resolves": true,
+          "empty_fails": true
+        },
+        "instance_gravitational__teleport-02d1efb8560a1aa1c72cfb1c08edd8b84a9511b4-vce94f93ad1030e3136852817f2423c1b3ac37bc4": {
+          "gold_resolves": true,
+          "empty_fails": true
+        }
+      },
+      "excluded": [],
+      "exclusions": [],
+      "scoring_errors": {}
+    },
+    {
+      "id": "omp_runs_in_container",
+      "status": "pass",
+      "detail": "the pinned omp build starts inside each Pro image",
+      "per_instance": {
+        "instance_NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca-vnan": true,
+        "instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan": true,
+        "instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59": true,
+        "instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2": true,
+        "instance_ansible__ansible-415e08c2970757472314e515cb63a51ad825c45e-v7eee2454f617569fd6889f2211f75bc02a35f9f8": true,
+        "instance_element-hq__element-web-72a8f8f03b1a01bb70ef8a5bb61759416991b32c-vnan": true,
+        "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan": true,
+        "instance_flipt-io__flipt-c6a7b1fd933e763b1675281b30077e161fa115a1": true,
+        "instance_flipt-io__flipt-5aef5a14890aa145c22d864a834694bae3a6f112": true,
+        "instance_future-architect__vuls-999529a05b202b0fd29c6fca5039a4c47a3766bb": true,
+        "instance_future-architect__vuls-61c39637f2f3809e1b5dad05f0c57c799dce1587": true,
+        "instance_gravitational__teleport-02d1efb8560a1aa1c72cfb1c08edd8b84a9511b4-vce94f93ad1030e3136852817f2423c1b3ac37bc4": true
+      }
+    },
+    {
+      "id": "archex_indexes_in_container",
+      "status": "pass",
+      "detail": "archex installs into /opt/archex, indexes the checkout to `fresh`, and the annotate entry pre-warms on a real search hit",
+      "index_seconds": {
+        "instance_NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca-vnan": 18.569,
+        "instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan": 15.521,
+        "instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59": 17.0,
+        "instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2": 95.799,
+        "instance_ansible__ansible-415e08c2970757472314e515cb63a51ad825c45e-v7eee2454f617569fd6889f2211f75bc02a35f9f8": 39.52,
+        "instance_element-hq__element-web-72a8f8f03b1a01bb70ef8a5bb61759416991b32c-vnan": 36.326,
+        "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan": 24.889,
+        "instance_flipt-io__flipt-c6a7b1fd933e763b1675281b30077e161fa115a1": 7.878,
+        "instance_flipt-io__flipt-5aef5a14890aa145c22d864a834694bae3a6f112": 11.774,
+        "instance_future-architect__vuls-999529a05b202b0fd29c6fca5039a4c47a3766bb": 5.388,
+        "instance_future-architect__vuls-61c39637f2f3809e1b5dad05f0c57c799dce1587": 4.586,
+        "instance_gravitational__teleport-02d1efb8560a1aa1c72cfb1c08edd8b84a9511b4-vce94f93ad1030e3136852817f2423c1b3ac37bc4": 107.264
+      }
+    },
+    {
+      "id": "annotate_latency_in_container",
+      "status": "pass",
+      "detail": "steady-state annotate calls on a real search, 10 per instance, end to end as the hook spawns them; the median must fit the hook's wall-clock budget, or the hook arms drop most annotations (kill criterion 5)",
+      "per_instance": {
+        "instance_NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca-vnan": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1630.5,
+          "p90_ms": 2004,
+          "max_ms": 2321,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1260.5,
+          "p90_ms": 1457,
+          "max_ms": 1615,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1256.0,
+          "p90_ms": 1670,
+          "max_ms": 1699,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1478.0,
+          "p90_ms": 1660,
+          "max_ms": 1742,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_ansible__ansible-415e08c2970757472314e515cb63a51ad825c45e-v7eee2454f617569fd6889f2211f75bc02a35f9f8": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 2854.5,
+          "p90_ms": 3750,
+          "max_ms": 4845,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_element-hq__element-web-72a8f8f03b1a01bb70ef8a5bb61759416991b32c-vnan": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1301.0,
+          "p90_ms": 1449,
+          "max_ms": 1450,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1253.5,
+          "p90_ms": 1434,
+          "max_ms": 1505,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_flipt-io__flipt-c6a7b1fd933e763b1675281b30077e161fa115a1": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1165.5,
+          "p90_ms": 1491,
+          "max_ms": 1755,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 0,
+          "reasons": [
+            "no_code_units"
+          ]
+        },
+        "instance_flipt-io__flipt-5aef5a14890aa145c22d864a834694bae3a6f112": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1234.5,
+          "p90_ms": 1395,
+          "max_ms": 1946,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 0,
+          "reasons": [
+            "no_code_units"
+          ]
+        },
+        "instance_future-architect__vuls-999529a05b202b0fd29c6fca5039a4c47a3766bb": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1198.5,
+          "p90_ms": 1374,
+          "max_ms": 1948,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_future-architect__vuls-61c39637f2f3809e1b5dad05f0c57c799dce1587": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1111.0,
+          "p90_ms": 1412,
+          "max_ms": 1455,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        },
+        "instance_gravitational__teleport-02d1efb8560a1aa1c72cfb1c08edd8b84a9511b4-vce94f93ad1030e3136852817f2423c1b3ac37bc4": {
+          "hits": 20,
+          "samples": 10,
+          "p50_ms": 1486.5,
+          "p90_ms": 1866,
+          "max_ms": 1952,
+          "budget_ms": 5000,
+          "over_budget": 0,
+          "annotated": 10,
+          "reasons": []
+        }
+      },
+      "over_budget_instances": []
+    },
+    {
+      "id": "emulated_wall_times",
+      "status": "pass",
+      "detail": "emulated=True on arm64: per-instance wall times (not comparable with native runs); every image is linux/amd64",
+      "emulated": true,
+      "host_machine": "arm64",
+      "per_instance": {
+        "instance_NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca-vnan": {
+          "gold_score_seconds": 67.6,
+          "empty_score_seconds": 45.8,
+          "container_start_seconds": 0.6,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 1.9,
+          "install_and_index_seconds": 53.2
+        },
+        "instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan": {
+          "gold_score_seconds": 53.8,
+          "empty_score_seconds": 42.7,
+          "container_start_seconds": 0.4,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.0,
+          "install_and_index_seconds": 50.4
+        },
+        "instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59": {
+          "gold_score_seconds": 340.9,
+          "empty_score_seconds": 324.8,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 1.8,
+          "install_and_index_seconds": 51.7
+        },
+        "instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2": {
+          "gold_score_seconds": 770.4,
+          "empty_score_seconds": 878.1,
+          "container_start_seconds": 1.2,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 3.1,
+          "install_and_index_seconds": 132.9
+        },
+        "instance_ansible__ansible-415e08c2970757472314e515cb63a51ad825c45e-v7eee2454f617569fd6889f2211f75bc02a35f9f8": {
+          "gold_score_seconds": 262.2,
+          "empty_score_seconds": 294.3,
+          "container_start_seconds": 0.9,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.9,
+          "install_and_index_seconds": 85.7
+        },
+        "instance_element-hq__element-web-72a8f8f03b1a01bb70ef8a5bb61759416991b32c-vnan": {
+          "gold_score_seconds": 211.3,
+          "empty_score_seconds": 191.2,
+          "container_start_seconds": 0.8,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 4.0,
+          "install_and_index_seconds": 74.7
+        },
+        "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan": {
+          "gold_score_seconds": 36.7,
+          "empty_score_seconds": 34.4,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.1,
+          "install_and_index_seconds": 67.1
+        },
+        "instance_flipt-io__flipt-c6a7b1fd933e763b1675281b30077e161fa115a1": {
+          "gold_score_seconds": 69.2,
+          "empty_score_seconds": 70.5,
+          "container_start_seconds": 0.6,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.1,
+          "install_and_index_seconds": 41.2
+        },
+        "instance_flipt-io__flipt-5aef5a14890aa145c22d864a834694bae3a6f112": {
+          "gold_score_seconds": 107.2,
+          "empty_score_seconds": 97.9,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.0,
+          "install_and_index_seconds": 55.2
+        },
+        "instance_future-architect__vuls-999529a05b202b0fd29c6fca5039a4c47a3766bb": {
+          "gold_score_seconds": 74.2,
+          "empty_score_seconds": 70.5,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.1,
+          "install_and_index_seconds": 41.5
+        },
+        "instance_future-architect__vuls-61c39637f2f3809e1b5dad05f0c57c799dce1587": {
+          "gold_score_seconds": 354.9,
+          "empty_score_seconds": 385.8,
+          "container_start_seconds": 0.9,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.5,
+          "install_and_index_seconds": 38.8
+        },
+        "instance_gravitational__teleport-02d1efb8560a1aa1c72cfb1c08edd8b84a9511b4-vce94f93ad1030e3136852817f2423c1b3ac37bc4": {
+          "gold_score_seconds": 86.7,
+          "empty_score_seconds": 58.1,
+          "container_start_seconds": 0.5,
+          "container_arch": "x86_64",
+          "omp_start_seconds": 2.5,
+          "install_and_index_seconds": 159.7
+        }
+      },
+      "non_amd64_instances": []
+    },
+    {
+      "id": "muna_reachable_from_container",
+      "status": "pass",
+      "detail": "a container fetches https://inference.muna.ai/v1/models and receives the allow-listed variable but nothing else from the host environment",
+      "reachable": true,
+      "allow_list_only": true,
+      "seconds": 2.4
+    },
+    {
+      "id": "bun_runs_under_emulation",
+      "status": "pass",
+      "detail": "Bun's default x86-64 build starts under emulation",
+      "variant": "default",
+      "bun_version": "1.4.2"
+    },
+    {
+      "id": "one_real_cell_per_configuration",
+      "status": "requires_host",
+      "detail": "hosted model call on Muna: route, auth, usage reporting, the effort the request carried, and the annotation ledger per configuration (arm H, three cells); run scripts/run_swe_ab_suite.py with a one-task Stage 0 plan (RUNBOOK \u00a74)"
+    }
+  ],
+  "summary": {
+    "pass": 19,
+    "fail": 0,
+    "requires_host": 1
+  },
+  "gate": "pending_host",
+  "seconds": 6049.6
+}

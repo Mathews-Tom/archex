@@ -1,0 +1,214 @@
+{
+  "allocation_by_repo": {
+    "NodeBB/NodeBB": 2,
+    "ansible/ansible": 3,
+    "element-hq/element-web": 2,
+    "flipt-io/flipt": 2,
+    "future-architect/vuls": 2,
+    "gravitational/teleport": 2,
+    "internetarchive/openlibrary": 3,
+    "navidrome/navidrome": 2,
+    "protonmail/webclients": 2,
+    "qutebrowser/qutebrowser": 2,
+    "tutao/tutanota": 2
+  },
+  "exclusions": [
+    {
+      "instance_id": "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+      "reason": "gold_not_resolved",
+      "source": "stage0 gold_empty_validity, emulated=True"
+    }
+  ],
+  "pool_by_repo": {
+    "NodeBB/NodeBB": 38,
+    "ansible/ansible": 82,
+    "element-hq/element-web": 52,
+    "flipt-io/flipt": 78,
+    "future-architect/vuls": 58,
+    "gravitational/teleport": 68,
+    "internetarchive/openlibrary": 82,
+    "navidrome/navidrome": 52,
+    "protonmail/webclients": 55,
+    "qutebrowser/qutebrowser": 73,
+    "tutao/tutanota": 4
+  },
+  "pool_size": 642,
+  "seed": 20260909,
+  "selected": [
+    "instance_NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca-vnan",
+    "instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan",
+    "instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59",
+    "instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2",
+    "instance_ansible__ansible-415e08c2970757472314e515cb63a51ad825c45e-v7eee2454f617569fd6889f2211f75bc02a35f9f8",
+    "instance_element-hq__element-web-72a8f8f03b1a01bb70ef8a5bb61759416991b32c-vnan",
+    "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan",
+    "instance_flipt-io__flipt-c6a7b1fd933e763b1675281b30077e161fa115a1",
+    "instance_flipt-io__flipt-5aef5a14890aa145c22d864a834694bae3a6f112",
+    "instance_future-architect__vuls-999529a05b202b0fd29c6fca5039a4c47a3766bb",
+    "instance_future-architect__vuls-61c39637f2f3809e1b5dad05f0c57c799dce1587",
+    "instance_gravitational__teleport-02d1efb8560a1aa1c72cfb1c08edd8b84a9511b4-vce94f93ad1030e3136852817f2423c1b3ac37bc4",
+    "instance_gravitational__teleport-78b0d8c72637df1129fb6ff84fc49ef4b5ab1288",
+    "instance_internetarchive__openlibrary-43f9e7e0d56a4f1d487533543c17040a029ac501-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+    "instance_internetarchive__openlibrary-f3b26c2c0721f8713353fe4b341230332e30008d-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+    "instance_internetarchive__openlibrary-9cd47f4dc21e273320d9e30d889c864f8cb20ccf-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+    "instance_navidrome__navidrome-1e96b858a91c640fe64e84c5e5ad8cc0954ea38d",
+    "instance_navidrome__navidrome-d8e794317f788198227e10fb667e10496b3eb99a",
+    "instance_protonmail__webclients-fc9d535e9beb3ae30a52a7146398cadfd6e30606",
+    "instance_protonmail__webclients-e7f3f20c8ad86089967498632ace73c1157a9d51",
+    "instance_qutebrowser__qutebrowser-cc360cd4a34a126274c7b51f3b63afbaf3e05a02-v5fc38aaf22415ab0b70567368332beee7955b367",
+    "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+    "instance_tutao__tutanota-f373ac3808deefce8183dad8d16729839cc330c1-v2939aa9f4356f0dc9f523ee5ce19d09e08ab979b",
+    "instance_tutao__tutanota-de49d486feef842101506adf040a0f00ded59519-v10a26bfb45a064b93f4fc044a0254925037b88f1"
+  ],
+  "stage": 1,
+  "tasks_root_sha256sums": "9d84f8507c89241d42d8b3ef911600a1ec75dbbb32687ce9b45b93318502c0bd",
+  "walk_by_repo": {
+    "NodeBB/NodeBB": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_NodeBB__NodeBB-f083cd559d69c16481376868c8da65172729c0ca-vnan",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan",
+        "rank": 1
+      }
+    ],
+    "ansible/ansible": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2",
+        "rank": 1
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_ansible__ansible-415e08c2970757472314e515cb63a51ad825c45e-v7eee2454f617569fd6889f2211f75bc02a35f9f8",
+        "rank": 2
+      }
+    ],
+    "element-hq/element-web": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_element-hq__element-web-72a8f8f03b1a01bb70ef8a5bb61759416991b32c-vnan",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_element-hq__element-web-ec0f940ef0e8e3b61078f145f34dc40d1938e6c5-vnan",
+        "rank": 1
+      }
+    ],
+    "flipt-io/flipt": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_flipt-io__flipt-c6a7b1fd933e763b1675281b30077e161fa115a1",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_flipt-io__flipt-5aef5a14890aa145c22d864a834694bae3a6f112",
+        "rank": 1
+      }
+    ],
+    "future-architect/vuls": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_future-architect__vuls-999529a05b202b0fd29c6fca5039a4c47a3766bb",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_future-architect__vuls-61c39637f2f3809e1b5dad05f0c57c799dce1587",
+        "rank": 1
+      }
+    ],
+    "gravitational/teleport": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_gravitational__teleport-02d1efb8560a1aa1c72cfb1c08edd8b84a9511b4-vce94f93ad1030e3136852817f2423c1b3ac37bc4",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_gravitational__teleport-78b0d8c72637df1129fb6ff84fc49ef4b5ab1288",
+        "rank": 1
+      }
+    ],
+    "internetarchive/openlibrary": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_internetarchive__openlibrary-43f9e7e0d56a4f1d487533543c17040a029ac501-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_internetarchive__openlibrary-f3b26c2c0721f8713353fe4b341230332e30008d-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+        "rank": 1
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_internetarchive__openlibrary-9cd47f4dc21e273320d9e30d889c864f8cb20ccf-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+        "rank": 2
+      }
+    ],
+    "navidrome/navidrome": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_navidrome__navidrome-1e96b858a91c640fe64e84c5e5ad8cc0954ea38d",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_navidrome__navidrome-d8e794317f788198227e10fb667e10496b3eb99a",
+        "rank": 1
+      }
+    ],
+    "protonmail/webclients": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_protonmail__webclients-fc9d535e9beb3ae30a52a7146398cadfd6e30606",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_protonmail__webclients-e7f3f20c8ad86089967498632ace73c1157a9d51",
+        "rank": 1
+      }
+    ],
+    "qutebrowser/qutebrowser": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_qutebrowser__qutebrowser-cc360cd4a34a126274c7b51f3b63afbaf3e05a02-v5fc38aaf22415ab0b70567368332beee7955b367",
+        "rank": 0
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+        "rank": 1
+      }
+    ],
+    "tutao/tutanota": [
+      {
+        "disposition": "selected",
+        "instance_id": "instance_tutao__tutanota-f373ac3808deefce8183dad8d16729839cc330c1-v2939aa9f4356f0dc9f523ee5ce19d09e08ab979b",
+        "rank": 0
+      },
+      {
+        "disposition": "excluded:gold_not_resolved",
+        "instance_id": "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+        "rank": 1
+      },
+      {
+        "disposition": "selected",
+        "instance_id": "instance_tutao__tutanota-de49d486feef842101506adf040a0f00ded59519-v10a26bfb45a064b93f4fc044a0254925037b88f1",
+        "rank": 2
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "exclusions": [
+    {
+      "instance_id": "instance_tutao__tutanota-51818218c6ae33de00cbea3a4d30daac8c34142e-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+      "reason": "gold_not_resolved",
+      "source": "benchmarks/swe_ab/stage0/first-run-b.json (gold_empty_validity, emulated=True)"
+    }
+  ]
+}
