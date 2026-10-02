@@ -8,13 +8,14 @@ Two runtimes share one flow:
 
 * ``docker`` — the campaign runtime (spec §5). The official SWE-bench Pro V2
   image runs with the pinned omp linux-x64 build and a copy of the provisioned
-  `swebench` profile (which must hold no login store); archex is installed into
-  ``/opt/archex`` with its own uv-managed Python; the agent authenticates through
-  the host's auth broker, its only credentials being the two allow-listed
-  variables ``OMP_AUTH_BROKER_URL`` and ``OMP_AUTH_BROKER_TOKEN``; the patch is
-  scored in a fresh container by the task's own verifier (``tests/test.sh`` →
-  ``/logs/verifier/reward.txt``). The cell records ``emulated`` (an arm64 host
-  runs the amd64 image under emulation) and the credential variable names.
+  `swebench` profile (which must hold no login store) whose ``models.yml`` is the
+  frozen Muna provider config; archex is installed into ``/opt/archex`` with its
+  own uv-managed Python; the agent authenticates to Muna with ``MUNA_ACCESS_KEY``,
+  its only credential variable; the patch is scored in a fresh container by the
+  task's own verifier (``tests/test.sh`` → ``/logs/verifier/reward.txt``). The
+  cell records ``emulated`` (an arm64 host runs the amd64 image under emulation),
+  the credential variable names, the resolved provider base URL, and the SHA-256
+  of the provider config and the omp settings overlay.
 * ``local`` — the no-spend rehearsal runtime: a copy of a local git
   repository, the host's omp and archex, an isolated ``HOME``, and no scoring.
 
@@ -25,10 +26,12 @@ with the frozen command line → parse the session, omp's event stream, and the
 hook ledger → take ``git diff`` against the base commit (``.archex/`` is
 excluded) → score → record.
 
-A run that ends in a subscription rate-limit or quota block is recorded as
-``quota_block`` (phase ``before_first_tool_call`` or ``mid_run``), unscored; the
-suite re-runs it once the quota clears. A non-quota provider failure before the
-first tool call is retried once here.
+A run that ends in a rate-limit or capacity block (Muna HTTP 429, including
+``model_loading`` and ``model_capacity_exhausted``) is recorded as ``quota_block``
+(phase ``before_first_tool_call`` or ``mid_run``), unscored; the suite re-runs it
+after a cooldown. A run that ends in credit exhaustion is recorded as
+``credit_exhausted``, never retried and never scored. A provider failure that is
+neither, before the first tool call, is retried once here.
 """
 
 from __future__ import annotations
@@ -49,12 +52,15 @@ from typing import Any, Literal, Protocol, cast
 from archex.benchmark.swe_ab import (
     ANNOTATION_MARKER,
     BASE_TOOLS,
-    BROKER_ENV_NAMES,
+    CAMPAIGN_PROVIDER,
     CHANNELS,
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
+    CREDENTIAL_ENV_NAMES,
     MAX_TIME,
+    OMP_CONFIG_PATH,
     OMP_VERSION,
+    PROVIDER_CONFIG_PATH,
     CellStatus,
     FailureReason,
     HookLedgerSummary,
@@ -68,8 +74,10 @@ from archex.benchmark.swe_ab import (
     Usage,
     archex_subcommand,
     compound,
+    configuration,
     credential_files_in_profile,
     diff_files,
+    is_credit_error,
     is_emulated,
     is_quota_error,
     localize,
@@ -78,7 +86,7 @@ from archex.benchmark.swe_ab import (
     out_of_patch_read_tokens_compounded,
     parse_omp_events,
     parse_omp_session,
-    provider_endpoint_overridden,
+    provider_base_url,
     read_ledger,
     sha256_file,
     summarize_ledger,
@@ -122,7 +130,8 @@ class CellSpec:
         self.uv_binary = Path(str(raw["uv_binary"])) if raw.get("uv_binary") else None
         self.omp_dir = Path(str(raw["omp_dir"])) if raw.get("omp_dir") else None
         self.network = str(raw.get("network") or "bridge")
-        self.broker_url = str(raw["broker_url"]) if raw.get("broker_url") else None
+        self.provider_config = Path(str(raw.get("provider_config") or PROVIDER_CONFIG_PATH))
+        self.omp_config = Path(str(raw.get("omp_config") or OMP_CONFIG_PATH))
         self.prior_blocked_attempts = int(raw.get("prior_blocked_attempts") or 0)
 
     @property
@@ -224,14 +233,14 @@ class LocalRuntime:
 def docker_exec_env(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
     """``-e`` arguments for ``docker exec`` and the environment the docker client runs in.
 
-    The broker credentials are passed as a bare ``-e NAME`` and their values travel in the
-    client's own environment, so the token never appears in a process listing or in the argv the
-    harness could log. Everything else is an ordinary ``-e NAME=value``.
+    The campaign key is passed as a bare ``-e NAME`` and its value travels in the client's own
+    environment, so it never appears in a process listing or in the argv the harness could
+    log. Everything else is an ordinary ``-e NAME=value``.
     """
     args: list[str] = []
     client_env = dict(os.environ)
     for key, value in env.items():
-        if key in BROKER_ENV_NAMES:
+        if key in CREDENTIAL_ENV_NAMES:
             args += ["-e", key]
             client_env[key] = value
         else:
@@ -257,10 +266,6 @@ class DockerRuntime:
             "--entrypoint",
             "sleep",
         ]
-        if spec.broker_url:
-            # Linux hosts have no `host.docker.internal` unless it is mapped; Docker Desktop
-            # already resolves it, so the mapping is harmless there.
-            argv += ["--add-host", "host.docker.internal:host-gateway"]
         for host, target in mounts:
             argv += ["-v", f"{host}:{target}:ro"]
         _checked(
@@ -334,6 +339,7 @@ class _Setup:
     guide_sha: str | None = None
     hook_path: str | None = None
     guide_path: str | None = None
+    omp_config_path: str = ""
     extra_path: list[str] = field(default_factory=list[str])
     setup_seconds: float = 0.0
     index_seconds: float | None = None
@@ -473,9 +479,16 @@ def _setup(spec: CellSpec, rt: Runtime) -> _Setup:
         )
         rt.put(spec.cli_guide, setup.guide_path)
     if spec.runtime == "docker" and (leaked := credential_files_in_profile(spec.profile_dir)):
-        # Logins reach a container only through the auth broker, never as a copied vault.
+        # The campaign key is the only credential; a profile never carries a login vault.
         raise ValueError(f"the profile carries credential stores {leaked}; remove them")
-    rt.put(spec.profile_dir, f"{rt.home}/.omp/profiles/swebench/agent")
+    agent_dir = f"{rt.home}/.omp/profiles/swebench/agent"
+    rt.put(spec.profile_dir, agent_dir)
+    # The frozen provider config is the profile's `models.yml`: it overrides any the profile has.
+    rt.put(spec.provider_config, f"{agent_dir}/models.yml")
+    setup.omp_config_path = (
+        f"{rt.out}/omp-campaign.yml" if spec.runtime == "local" else "/task/omp-campaign.yml"
+    )
+    rt.put(spec.omp_config, setup.omp_config_path)
     prompt = spec.prompt_file or (spec.task_dir / "instruction.md" if spec.task_dir else None)
     if prompt is None:
         raise ValueError("the cell needs `prompt_file` or a task dir with instruction.md")
@@ -484,16 +497,16 @@ def _setup(spec: CellSpec, rt: Runtime) -> _Setup:
     return setup
 
 
-def broker_env(spec: CellSpec) -> dict[str, str]:
+def credential_env(spec: CellSpec) -> dict[str, str]:
     """The only credential variables an agent container receives (an explicit allow-list).
 
-    Docker cells carry the auth broker's URL and bearer token from this process's environment,
-    which the suite sets; nothing else from the host environment reaches the container, and the
-    local rehearsal runtime carries none.
+    Docker cells carry ``MUNA_ACCESS_KEY`` from this process's environment, which the suite
+    sets; nothing else from the host environment reaches the container, and the local
+    rehearsal runtime carries none.
     """
     if spec.runtime != "docker":
         return {}
-    return {name: os.environ[name] for name in BROKER_ENV_NAMES if os.environ.get(name)}
+    return {name: os.environ[name] for name in CREDENTIAL_ENV_NAMES if os.environ.get(name)}
 
 
 def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
@@ -505,14 +518,16 @@ def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
             if entry and not (Path(entry) / "archex").exists()
         ]
         base = {
-            key: value for key, value in os.environ.items() if not key.startswith(("OMP_", "PI_"))
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("OMP_", "PI_")) and key not in CREDENTIAL_ENV_NAMES
         }
     else:
         path = cast("DockerRuntime", rt).image_path.split(":")
         base = {}
     return {
         **base,
-        **broker_env(spec),
+        **credential_env(spec),
         "HOME": rt.home,
         "PATH": os.pathsep.join([*setup.extra_path, *path]),
         "ARCHEX_ANNOTATION_LEDGER": f"{rt.out}/annotation-ledger.jsonl",
@@ -533,6 +548,7 @@ def _run_agent(
         session_dir=session_dir,
         hook_module_path=setup.hook_path,
         cli_guide_path=setup.guide_path,
+        omp_config_path=setup.omp_config_path,
     )
     stdout = ""
     try:
@@ -631,6 +647,20 @@ def _isolation(spec: CellSpec, session: OmpSession) -> Isolation:
     )
 
 
+def _block_reason(message: str | None) -> FailureReason | None:
+    """Credit exhaustion or a rate-limit/capacity block named by a provider error, if either."""
+    if is_credit_error(message):
+        return FailureReason.CREDIT_EXHAUSTED
+    if is_quota_error(message):
+        return FailureReason.QUOTA_BLOCK
+    return None
+
+
+def _sha_or_missing(path: Path) -> str:
+    """SHA-256 of a frozen file; a failed cell still records a value if the file is absent."""
+    return sha256_file(path) if path.is_file() else "missing"
+
+
 def _quota(
     spec: CellSpec,
     runs: list[OmpRunEvents],
@@ -671,12 +701,15 @@ def failed_cell(
         hook_module_sha256=identity.get("hook_sha") or ("unknown" if spec.arm.hook else None),
         cli_guide_sha256=identity.get("guide_sha") or ("unknown" if spec.arm.cli else None),
         image=spec.image,
+        thinking=configuration(spec.model).thinking,
         tool_fingerprint=tool_fingerprint(BASE_TOOLS),
         provider=None,
-        provider_endpoint_overridden=provider_endpoint_overridden(spec.profile_dir, spec.model),
+        provider_base_url=provider_base_url(spec.provider_config, CAMPAIGN_PROVIDER),
+        provider_config_sha256=_sha_or_missing(spec.provider_config),
+        omp_config_sha256=_sha_or_missing(spec.omp_config),
         emulated=spec.emulated,
         network=spec.network,
-        credential_env_names=sorted(broker_env(spec)),
+        credential_env_names=sorted(credential_env(spec)),
         usage=Usage(input=0, output=0, cache_read=0, cache_write=0, cost_usd=0.0),
         requests=0,
         tool_calls=0,
@@ -742,10 +775,11 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         session is not None
         and session.error_message
         and not session.exchanges
-        and not is_quota_error(session.error_message)
+        and _block_reason(session.error_message) is None
     ):
-        # A provider failure that is not a quota block, before the first tool call: retry once,
-        # logged. A quota block is never retried here; the suite re-runs it once the quota clears.
+        # A provider failure that is neither a block nor credit exhaustion, before the first tool
+        # call: retry once, logged. A block is never retried here; the suite re-runs it after
+        # its cooldown, and credit exhaustion stops the suite.
         retried = True
         rt.run(["git", "checkout", "--", "."])
         code, session_dir, stdout = _run_agent(spec, rt, setup, attempt=2)
@@ -753,11 +787,11 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         session = _load_session(session_dir)
     if session is None:
         gave_up = runs[-1].gave_up
-        if is_quota_error(gave_up):
+        if (blocked := _block_reason(gave_up)) is not None:
             phase = "mid_run" if runs[-1].tool_calls_started else "before_first_tool_call"
             return failed_cell(
                 spec,
-                FailureReason.QUOTA_BLOCK,
+                blocked,
                 str(gave_up),
                 quota=_quota(spec, runs, phase),
                 **identity,
@@ -806,12 +840,8 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
             f"omp exceeded {MAX_TIME}",
         )
     elif session.error_message:
-        if is_quota_error(session.error_message):
-            status, reason, detail = (
-                CellStatus.FAILED,
-                FailureReason.QUOTA_BLOCK,
-                session.error_message,
-            )
+        if (blocked := _block_reason(session.error_message)) is not None:
+            status, reason, detail = (CellStatus.FAILED, blocked, session.error_message)
             phase = "before_first_tool_call" if not session.exchanges else "mid_run"
         else:
             status, reason, detail = (
@@ -834,8 +864,8 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
 
     resolved: bool | None = None
     score_source: Literal["pro_verifier", "not_scored", "failed_before_patch"] = "not_scored"
-    if reason is FailureReason.QUOTA_BLOCK:
-        # A quota block is not a task outcome: nothing is scored, and the suite re-runs the cell.
+    if reason in (FailureReason.QUOTA_BLOCK, FailureReason.CREDIT_EXHAUSTED):
+        # A block is not a task outcome: nothing is scored, and the suite re-runs or stops.
         resolved, score_source = False, "failed_before_patch"
     elif spec.runtime == "docker":
         resolved = score_patch(spec, patch_path)
@@ -860,12 +890,15 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         hook_module_sha256=setup.hook_sha,
         cli_guide_sha256=setup.guide_sha,
         image=spec.image,
+        thinking=configuration(spec.model).thinking,
         tool_fingerprint=tool_fingerprint(isolation.tools_advertised),
         provider=requests[0].provider if requests else None,
-        provider_endpoint_overridden=provider_endpoint_overridden(spec.profile_dir, spec.model),
+        provider_base_url=provider_base_url(spec.provider_config, CAMPAIGN_PROVIDER),
+        provider_config_sha256=_sha_or_missing(spec.provider_config),
+        omp_config_sha256=_sha_or_missing(spec.omp_config),
         emulated=spec.emulated,
         network=spec.network,
-        credential_env_names=sorted(broker_env(spec)),
+        credential_env_names=sorted(credential_env(spec)),
         usage=Usage(
             input=sum(r.input for r in requests),
             output=sum(r.output for r in requests),

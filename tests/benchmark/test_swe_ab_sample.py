@@ -4,12 +4,11 @@ import importlib
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from archex.benchmark.swe_ab import MODELS, SweAbArm, load_plan
+import pytest
 
-if TYPE_CHECKING:
-    import pytest
+from archex.benchmark.swe_ab import MODELS, SweAbArm, SweAbError, load_plan
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
@@ -168,28 +167,33 @@ def test_exhausted_repo_shortfall_goes_to_repo_with_most_remaining(tmp_path: Pat
 def test_stage2_disjoint_and_hamilton(tmp_path: Path) -> None:
     root = _make_root(tmp_path)
     _, p1, _, _ = _run(tmp_path, root, 1, tag="s1")
-    code, p2, m2, _ = _run(tmp_path, root, 2, "--stage1-plan", str(p1), tag="s2")
+    code, p2, m2, _ = _run(
+        tmp_path, root, 2, "--stage1-plan", str(p1), "--stage2-tasks", "124", tag="s2"
+    )
     assert code == 0
     s1 = {t.task_id for t in load_plan(p1).tasks}
     plan2 = load_plan(p2)
     s2 = [t.task_id for t in plan2.tasks]
-    assert len(s2) == 100 and not s1 & set(s2)
+    assert len(s2) == 124 and not s1 & set(s2)
     assert plan2.name == "r3x-stage2"
     assert plan2.repetitions == {SweAbArm.A0: 1, SweAbArm.H: 1, SweAbArm.HC: 1}
     manifest = _manifest(m2)
     assert manifest["stage1_plan_task_ids"] == [t.task_id for t in load_plan(p1).tasks]
+    assert manifest["stage2_tasks"] == 124
     total = sum(SIZES.values())
     for repo, k in manifest["allocation_by_repo"].items():
-        exact = 100 * SIZES[repo] / total
+        exact = 124 * SIZES[repo] / total
         assert int(exact) <= k <= int(exact) + 1
-    assert sum(manifest["allocation_by_repo"].values()) == 100
+    assert sum(manifest["allocation_by_repo"].values()) == 124
 
 
 def test_stage2_shortfall_reassigned(tmp_path: Path) -> None:
     sizes = {"a/one": 30, "b/two": 30, "c/three": 30, "d/four": 30, "e/tiny": 4}
     root = _make_root(tmp_path, sizes)
     _, p1, _, _ = _run(tmp_path, root, 1, tag="s1")
-    code, _, m2, _ = _run(tmp_path, root, 2, "--stage1-plan", str(p1), tag="s2")
+    code, _, m2, _ = _run(
+        tmp_path, root, 2, "--stage1-plan", str(p1), "--stage2-tasks", "100", tag="s2"
+    )
     assert code == 0
     alloc = _manifest(m2)["allocation_by_repo"]
     assert alloc["e/tiny"] == 2  # 4 in pool, 2 taken by stage 1
@@ -199,7 +203,13 @@ def test_stage2_shortfall_reassigned(tmp_path: Path) -> None:
 def test_stage2_without_hc(tmp_path: Path) -> None:
     root = _make_root(tmp_path)
     _, p1, _, _ = _run(tmp_path, root, 1, tag="s1")
-    code, p2, _, _ = _run(tmp_path, root, 2, "--stage1-plan", str(p1), "--without-hc", tag="s2")
+    code, p2, _, _ = _run(
+        tmp_path,
+        root,
+        2,
+        "--stage1-plan", str(p1), "--stage2-tasks", "100", "--without-hc",
+        tag="s2",
+    )  # fmt: skip
     assert code == 0
     assert load_plan(p2).repetitions == {SweAbArm.A0: 1, SweAbArm.H: 1}
 
@@ -210,8 +220,12 @@ def test_stage2_refuses_mismatched_stage1_plan(tmp_path: Path) -> None:
     victim = _manifest(m1)["selected"][0]
     excl = _excl(tmp_path, [victim])
     code, p2, _, _ = _run(
-        tmp_path, root, 2, "--stage1-plan", str(p1), "--exclusions", str(excl), tag="s2"
-    )
+        tmp_path,
+        root,
+        2,
+        "--stage1-plan", str(p1), "--stage2-tasks", "100", "--exclusions", str(excl),
+        tag="s2",
+    )  # fmt: skip
     assert code == 1
     assert not p2.exists()
 
@@ -241,3 +255,26 @@ def test_stage_argument_combinations_refused(tmp_path: Path) -> None:
     root = _make_root(tmp_path)
     assert _run(tmp_path, root, 2, tag="a")[0] == 1
     assert _run(tmp_path, root, 1, "--without-hc", tag="b")[0] == 1
+    assert _run(tmp_path, root, 1, "--stage2-tasks", "100", tag="c")[0] == 1
+    assert _run(tmp_path, root, 2, "--stage1-plan", str(tmp_path / "x"), tag="d")[0] == 1
+
+
+def test_stage2_tasks_below_the_floor_are_refused(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    _, p1, _, _ = _run(tmp_path, root, 1, tag="s1")
+    code, p2, _, _ = _run(
+        tmp_path, root, 2, "--stage1-plan", str(p1), "--stage2-tasks", "99", tag="s2"
+    )
+    assert code == 1
+    assert not p2.exists()
+
+
+@pytest.mark.parametrize(("passing", "tasks"), [(1, 370), (2, 185), (3, 124)])
+def test_stage2_task_count_follows_the_size_rule(passing: int, tasks: int) -> None:
+    assert sample.stage2_task_count(passing) == tasks
+
+
+@pytest.mark.parametrize("passing", [0, len(MODELS) + 1])
+def test_stage2_task_count_refuses_counts_outside_the_configurations(passing: int) -> None:
+    with pytest.raises(SweAbError):
+        sample.stage2_task_count(passing)

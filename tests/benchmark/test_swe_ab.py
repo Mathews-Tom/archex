@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -11,21 +10,23 @@ import pytest
 
 from archex.benchmark.swe_ab import (
     BASE_TOOLS,
-    BROKER_ENV_NAMES,
     CHANNELS,
+    CONFIGURATIONS,
+    CREDENTIAL_ENV_NAMES,
     ISOLATION_FLAGS,
-    MODELS,
+    MUNA_BASE_URL,
     OMP_VERSION,
     QUOTA_BLOCKED_DIR,
-    SUBSCRIPTION_PROVIDERS,
     CellKey,
-    QuotaStatus,
+    Configuration,
     SweAbArm,
     SweAbCell,
     SweAbError,
     SweAbPlan,
     compound,
+    configuration,
     credential_files_in_profile,
+    is_credit_error,
     is_emulated,
     is_quota_error,
     localize,
@@ -35,13 +36,12 @@ from archex.benchmark.swe_ab import (
     out_of_patch_read_tokens_compounded,
     parse_omp_events,
     parse_omp_session,
-    provider_endpoint_overridden,
-    provider_logins,
+    provider_base_url,
     quota_blocked_relative_path,
-    quota_reading,
     summarize_ledger,
     swe_agent_channel_of,
     tool_fingerprint,
+    unpriced_models,
     validate_swe_ab_directory,
 )
 
@@ -250,11 +250,12 @@ def test_omp_argv_differs_across_arms_only_by_hook_and_guide(arm: SweAbArm) -> N
     argv = omp_argv(
         ["omp"],
         arm=arm,
-        model="m",
+        model=CONFIGURATIONS[0].label,
         prompt_path="/task/prompt.md",
         session_dir="/out/s",
         hook_module_path="/opt/archex/omp-annotate.ts" if arm.hook else None,
         cli_guide_path="/task/cli-guide.md" if arm.cli else None,
+        omp_config_path="/task/omp-campaign.yml",
     )
 
     assert argv[argv.index("--tools") + 1] == ",".join(BASE_TOOLS)
@@ -269,33 +270,91 @@ def test_omp_argv_refuses_a_hook_outside_the_hook_arms() -> None:
         omp_argv(
             ["omp"],
             arm=SweAbArm.A0,
-            model="m",
+            model=CONFIGURATIONS[0].label,
             prompt_path="p",
             session_dir="s",
             hook_module_path="/opt/archex/omp-annotate.ts",
             cli_guide_path=None,
+            omp_config_path="c",
         )
 
 
-# --- endpoint override detection --------------------------------------------------------
-
-
-def test_a_profile_provider_with_its_own_base_url_is_an_override(tmp_path: Path) -> None:
-    (tmp_path / "models.yml").write_text(
-        "providers:\n  stub:\n    baseUrl: http://127.0.0.1:4000/v1\n    api: openai-completions\n"
-        "    auth: none\n    models:\n      - id: stub-model\n",
-        encoding="utf-8",
+def _argv_for(label: str) -> list[str]:
+    return omp_argv(
+        ["omp"],
+        arm=SweAbArm.A0,
+        model=label,
+        prompt_path="p",
+        session_dir="s",
+        hook_module_path=None,
+        cli_guide_path=None,
+        omp_config_path="/task/omp-campaign.yml",
     )
 
-    assert provider_endpoint_overridden(tmp_path, "stub/stub-model") is True
-    assert provider_endpoint_overridden(tmp_path, "global.openai.gpt-6-sol") is False
-    assert provider_endpoint_overridden(tmp_path / "absent", "stub/stub-model") is False
+
+@pytest.mark.parametrize("entry", CONFIGURATIONS, ids=lambda entry: entry.label)
+def test_omp_argv_carries_the_configurations_selector_effort_and_config(
+    entry: Configuration,
+) -> None:
+    argv = _argv_for(entry.label)
+
+    assert argv[argv.index("--model") + 1] == entry.selector
+    assert argv[argv.index("--thinking") + 1] == entry.thinking
+    assert argv[argv.index("--config") + 1] == "/task/omp-campaign.yml"
+
+
+def test_the_qwen_configurations_differ_only_in_thinking() -> None:
+    low, high = _argv_for("qwen-3.8-27b@low"), _argv_for("qwen-3.8-27b@high")
+
+    differing = [(a, b) for a, b in zip(low, high, strict=True) if a != b]
+    assert differing == [("low", "high")]
+    assert low[low.index("--thinking") + 1] == "low"
+
+
+def test_an_unknown_configuration_label_is_a_protocol_error() -> None:
+    with pytest.raises(SweAbError):
+        _argv_for("qwen-3.8-27b")
+    with pytest.raises(SweAbError):
+        configuration("muna/@qwen/qwen-3.8-27b")
+
+
+# --- provider config ------------------------------------------------------------------------
+
+
+def _models_yml(tmp_path: Path, cost: str) -> Path:
+    path = tmp_path / "models.yml"
+    path.write_text(
+        "providers:\n  muna:\n    baseUrl: https://inference.muna.ai/v1\n    models:\n"
+        f"      - id: m1\n        cost: {cost}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_provider_base_url_is_read_from_the_models_file(tmp_path: Path) -> None:
+    path = _models_yml(tmp_path, "{input: 1}")
+
+    assert provider_base_url(path, "muna") == "https://inference.muna.ai/v1"
+    assert provider_base_url(path, "other") is None
+    assert provider_base_url(tmp_path / "absent.yml", "muna") is None
+
+
+def test_unpriced_models_flags_zero_and_absent_prices(tmp_path: Path) -> None:
+    path = _models_yml(tmp_path, "{input: 0.5, output: 0, cacheWrite: 0}")
+
+    assert unpriced_models(path) == ["m1: output", "m1: cacheRead"]
+
+
+def test_unpriced_models_accepts_a_fully_priced_config_without_cache_write(tmp_path: Path) -> None:
+    path = _models_yml(tmp_path, "{input: 0.5, output: 1.5, cacheRead: 0.1, cacheWrite: 0}")
+
+    assert unpriced_models(path) == []
 
 
 # --- cells and the directory validator --------------------------------------------------
 
 
-MODEL = "anthropic/claude-sonnet-5-5"
+MODEL = CONFIGURATIONS[0].label
 
 
 def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
@@ -314,11 +373,13 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
         "cli_guide_sha256": "g" if arm.cli else None,
         "image": "img",
         "tool_fingerprint": tool_fingerprint(BASE_TOOLS),
-        "provider": "anthropic",
-        "provider_endpoint_overridden": False,
+        "provider": "muna",
+        "provider_base_url": MUNA_BASE_URL,
+        "provider_config_sha256": "pc",
+        "omp_config_sha256": "oc",
         "emulated": False,
         "network": "bridge",
-        "credential_env_names": sorted(BROKER_ENV_NAMES),
+        "credential_env_names": list(CREDENTIAL_ENV_NAMES),
         "usage": {"input": 10, "output": 1, "cache_read": 0, "cache_write": 0, "cost_usd": 1.0},
         "requests": 1,
         "tool_calls": 0,
@@ -348,6 +409,9 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
         "quota": {},
     }
     cell.update(overrides)
+    cell.setdefault(
+        "thinking", dict((c.label, c.thinking) for c in CONFIGURATIONS).get(cell["model"])
+    )
     return cell
 
 
@@ -361,6 +425,12 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
         (SweAbArm.A0, {"status": "failed"}),
         (SweAbArm.A0, {"status": "failed", "failure_reason": "timeout", "resolved": True}),
         (SweAbArm.A0, {"omp_version": "18.5.0"}),
+        (SweAbArm.A0, {"thinking": "high"}),
+        (SweAbArm.A0, {"model": "anthropic/claude-sonnet-5-5", "thinking": "high"}),
+        (
+            SweAbArm.A0,
+            {"failure_reason": "credit_exhausted", "status": "failed", "resolved": False},
+        ),
     ],
 )
 def test_cell_schema_rejects_protocol_violations(arm: SweAbArm, overrides: dict[str, Any]) -> None:
@@ -401,6 +471,31 @@ def test_plan_declares_every_repetition_of_every_arm() -> None:
     ]
 
 
+def test_a_plan_refuses_models_that_are_not_distinct_configuration_labels() -> None:
+    with pytest.raises(ValueError, match="distinct campaign configurations"):
+        _plan(models=["anthropic/claude-sonnet-5-5"])
+    with pytest.raises(ValueError, match="distinct campaign configurations"):
+        _plan(models=[MODEL, MODEL])
+
+
+def test_scheduled_cells_run_one_model_family_at_a_time_in_task_order() -> None:
+    plan = _plan(
+        tasks=[{"task_id": "t2", "repo": "org/repo"}, {"task_id": "t1", "repo": "org/repo"}],
+        models=["gemma-4-26b-a4b-it@high", "qwen-3.8-27b@high", "qwen-3.8-27b@low"],
+        repetitions={"A0": 1},
+    )
+
+    assert [(key.task_id, key.model) for key in plan.scheduled_cells()] == [
+        ("t2", "gemma-4-26b-a4b-it@high"),
+        ("t1", "gemma-4-26b-a4b-it@high"),
+        ("t2", "qwen-3.8-27b@high"),
+        ("t2", "qwen-3.8-27b@low"),
+        ("t1", "qwen-3.8-27b@high"),
+        ("t1", "qwen-3.8-27b@low"),
+    ]
+    assert sorted(plan.scheduled_cells()) == sorted(plan.cells())
+
+
 def test_complete_directory_validates_and_keeps_failures(tmp_path: Path) -> None:
     _complete(tmp_path)
     failed = _cell(SweAbArm.A0, repetition=2, status="failed", failure_reason="timeout")
@@ -413,9 +508,9 @@ def test_complete_directory_validates_and_keeps_failures(tmp_path: Path) -> None
 
 def test_validator_refuses_stub_endpoint_cells_for_publication(tmp_path: Path) -> None:
     _complete(tmp_path)
-    _write(tmp_path, _cell(SweAbArm.H, provider_endpoint_overridden=True))
+    _write(tmp_path, _cell(SweAbArm.H, provider_base_url="http://127.0.0.1:4000/v1"))
 
-    with pytest.raises(SweAbError, match="overridden provider endpoint"):
+    with pytest.raises(SweAbError, match="127.0.0.1:4000"):
         validate_swe_ab_directory(tmp_path, _plan())
 
 
@@ -474,10 +569,6 @@ def _blocked(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
     )
 
 
-def test_every_campaign_model_is_a_subscription_selector() -> None:
-    assert all(model.split("/", 1)[0] in SUBSCRIPTION_PROVIDERS for model in MODELS)
-
-
 def test_validator_refuses_a_stage_that_mixes_emulated_and_native_cells(tmp_path: Path) -> None:
     _complete(tmp_path)
     _write(tmp_path, _cell(SweAbArm.A0, repetition=2, emulated=True))
@@ -492,33 +583,56 @@ def test_validator_accepts_a_stage_that_is_uniformly_emulated(tmp_path: Path) ->
     assert validate_swe_ab_directory(tmp_path, _plan()).ok == 3
 
 
-def test_validator_refuses_cells_that_did_not_authenticate_through_the_broker(
-    tmp_path: Path,
+def test_validator_refuses_a_cell_that_resolved_another_endpoint(tmp_path: Path) -> None:
+    _complete(tmp_path)
+    _write(tmp_path, _cell(SweAbArm.H, provider_base_url="http://127.0.0.1:4000/v1"))
+
+    with pytest.raises(SweAbError, match="a local stub or another endpoint"):
+        validate_swe_ab_directory(tmp_path, _plan())
+
+
+@pytest.mark.parametrize("names", [[], ["MUNA_ACCESS_KEY", "OPENAI_API_KEY"], ["OPENAI_API_KEY"]])
+def test_validator_refuses_cells_that_did_not_authenticate_with_only_the_muna_key(
+    tmp_path: Path, names: list[str]
 ) -> None:
     _complete(tmp_path)
-    _write(tmp_path, _cell(SweAbArm.H, credential_env_names=[]))
+    _write(tmp_path, _cell(SweAbArm.H, credential_env_names=names))
 
-    with pytest.raises(SweAbError, match="auth broker"):
+    with pytest.raises(SweAbError, match="MUNA_ACCESS_KEY"):
         validate_swe_ab_directory(tmp_path, _plan())
 
 
 @pytest.mark.parametrize("provider", ["amazon-bedrock", "openai-codex", "openrouter"])
-def test_validator_refuses_a_cell_that_left_its_subscription_route(
+def test_validator_refuses_a_cell_that_ran_through_another_provider(
     tmp_path: Path, provider: str
 ) -> None:
     _complete(tmp_path)
     _write(tmp_path, _cell(SweAbArm.H, provider=provider))
 
-    with pytest.raises(SweAbError, match="subscription route"):
+    with pytest.raises(SweAbError, match="provider"):
+        validate_swe_ab_directory(tmp_path, _plan())
+
+
+@pytest.mark.parametrize(
+    ("field", "label"),
+    [("provider_config_sha256", "provider config"), ("omp_config_sha256", "omp config")],
+)
+def test_validator_refuses_a_stage_that_mixes_config_hashes(
+    tmp_path: Path, field: str, label: str
+) -> None:
+    _complete(tmp_path)
+    _write(tmp_path, _cell(SweAbArm.H, **{field: "other"}))
+
+    with pytest.raises(SweAbError, match=f"{label} differs"):
         validate_swe_ab_directory(tmp_path, _plan())
 
 
 def test_a_quota_block_phase_is_recorded_iff_the_reason_is_quota_block() -> None:
-    with pytest.raises(ValueError, match="quota block phase"):
+    with pytest.raises(ValueError, match="block phase"):
         SweAbCell.model_validate(
             _cell(status="failed", failure_reason="quota_block", resolved=False)
         )
-    with pytest.raises(ValueError, match="quota block phase"):
+    with pytest.raises(ValueError, match="block phase"):
         SweAbCell.model_validate(
             _cell(
                 status="failed",
@@ -533,7 +647,26 @@ def test_validator_refuses_a_quota_blocked_cell_left_as_the_record(tmp_path: Pat
     _complete(tmp_path)
     _write(tmp_path, _blocked(SweAbArm.A0, repetition=2))
 
-    with pytest.raises(SweAbError, match="quota block"):
+    with pytest.raises(SweAbError, match="quota_block"):
+        validate_swe_ab_directory(tmp_path, _plan())
+
+
+def _credit_exhausted(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
+    return _cell(
+        arm,
+        status="failed",
+        failure_reason="credit_exhausted",
+        resolved=False,
+        quota={"block_phase": "mid_run"},
+        **overrides,
+    )
+
+
+def test_validator_refuses_a_credit_exhausted_cell_left_as_the_record(tmp_path: Path) -> None:
+    _complete(tmp_path)
+    _write(tmp_path, _credit_exhausted(SweAbArm.A0, repetition=2))
+
+    with pytest.raises(SweAbError, match="credit_exhausted"):
         validate_swe_ab_directory(tmp_path, _plan())
 
 
@@ -542,6 +675,21 @@ def test_filed_quota_blocked_attempts_are_counted_in_cost_and_never_scored(
 ) -> None:
     _complete(tmp_path)
     attempt = SweAbCell.model_validate(_blocked(SweAbArm.A0, repetition=2))
+    filed = tmp_path / quota_blocked_relative_path(attempt.key, 1)
+    filed.parent.mkdir(parents=True)
+    filed.write_text(attempt.model_dump_json(), encoding="utf-8")
+
+    coverage = validate_swe_ab_directory(tmp_path, _plan())
+
+    assert (coverage.present, coverage.ok, coverage.quota_blocked) == (3, 3, 1)
+    assert coverage.total_cost_usd == 4.0
+
+
+def test_filed_credit_exhausted_attempts_are_counted_in_cost_and_never_scored(
+    tmp_path: Path,
+) -> None:
+    _complete(tmp_path)
+    attempt = SweAbCell.model_validate(_credit_exhausted(SweAbArm.A0, repetition=2))
     filed = tmp_path / quota_blocked_relative_path(attempt.key, 1)
     filed.parent.mkdir(parents=True)
     filed.write_text(attempt.model_dump_json(), encoding="utf-8")
@@ -563,126 +711,35 @@ def test_a_cell_that_was_not_quota_blocked_cannot_be_filed_as_one(tmp_path: Path
         validate_swe_ab_directory(tmp_path, _plan())
 
 
-# --- quota headroom from the broker's usage report --------------------------------------------
-
-
-def _limit(
-    *,
-    used: float | None = None,
-    percent: float | None = None,
-    status: str | None = None,
-    reset: int | None = None,
-    model: str | None = None,
-) -> dict[str, Any]:
-    amount: dict[str, Any] = {"unit": "percent" if percent is not None else "requests"}
-    if used is not None:
-        amount["usedFraction"] = used
-    if percent is not None:
-        amount["used"] = percent
-    limit: dict[str, Any] = {"id": "x", "amount": amount, "scope": {"provider": "anthropic"}}
-    if model:
-        limit["scope"]["modelId"] = model
-    if reset is not None:
-        limit["window"] = {"id": "5h", "resetsAt": reset}
-    if status:
-        limit["status"] = status
-    return limit
-
-
-def _usage(*reports: dict[str, Any]) -> dict[str, Any]:
-    return {"generatedAt": 0, "reports": list(reports)}
-
-
-def _report(*limits: dict[str, Any], provider: str = "anthropic") -> dict[str, Any]:
-    return {"provider": provider, "fetchedAt": 0, "limits": list(limits)}
-
-
-def _reading(usage: dict[str, Any], model_id: str = "claude-sonnet-5-5") -> Any:
-    return quota_reading(usage, "anthropic", model_id=model_id, min_headroom=0.10)
-
-
-def test_a_provider_with_headroom_on_every_window_is_clear() -> None:
-    reading = _reading(_usage(_report(_limit(used=0.5), _limit(used=0.2))))
-
-    assert reading.status is QuotaStatus.CLEAR
-    assert reading.headroom == pytest.approx(0.5)  # pyright: ignore[reportUnknownMemberType]
-
-
-def test_the_tightest_window_blocks_and_its_reset_is_reported() -> None:
-    usage = _usage(_report(_limit(used=0.95, reset=1_000), _limit(used=0.2, reset=9_000)))
-
-    reading = _reading(usage)
-
-    assert (reading.status, reading.resets_at_ms) == (QuotaStatus.BLOCKED, 1_000)
-
-
-def test_a_login_frees_only_when_its_last_blocking_window_resets() -> None:
-    usage = _usage(_report(_limit(used=0.99, reset=1_000), _limit(used=0.97, reset=9_000)))
-
-    assert _reading(usage).resets_at_ms == 9_000
-
-
-def test_percent_units_and_exhausted_status_block_without_a_used_fraction() -> None:
-    assert _reading(_usage(_report(_limit(percent=96.0)))).status is QuotaStatus.BLOCKED
-    assert _reading(_usage(_report(_limit(status="exhausted")))).status is QuotaStatus.BLOCKED
-
-
-def test_a_limit_scoped_to_another_model_does_not_gate_this_model() -> None:
-    usage = _usage(_report(_limit(used=0.2), _limit(used=1.0, model="claude-opus-5-5")))
-
-    assert _reading(usage, "claude-sonnet-5-5").status is QuotaStatus.CLEAR
-    assert _reading(usage, "claude-opus-5-5").status is QuotaStatus.BLOCKED
-
-
-def test_one_login_with_headroom_keeps_the_provider_clear() -> None:
-    usage = _usage(_report(_limit(used=1.0, reset=1_000)), _report(_limit(used=0.4)))
-
-    reading = _reading(usage)
-
-    assert reading.status is QuotaStatus.CLEAR
-    assert reading.headroom == pytest.approx(0.6)  # pyright: ignore[reportUnknownMemberType]
-
-
-def test_with_every_login_exhausted_the_earliest_reset_wins() -> None:
-    usage = _usage(_report(_limit(used=1.0, reset=5_000)), _report(_limit(used=1.0, reset=2_000)))
-
-    reading = _reading(usage)
-
-    assert (reading.status, reading.resets_at_ms) == (QuotaStatus.BLOCKED, 2_000)
-
-
-def test_a_blocking_window_without_a_reset_time_leaves_the_reset_unknown() -> None:
-    reading = _reading(_usage(_report(_limit(used=1.0))))
-
-    assert (reading.status, reading.resets_at_ms) == (QuotaStatus.BLOCKED, None)
-
-
-def test_a_provider_the_broker_says_nothing_usable_about_is_unknown() -> None:
-    assert _reading(_usage()).status is QuotaStatus.UNKNOWN
-    assert _reading(_usage(_report(provider="openai-codex"))).status is QuotaStatus.UNKNOWN
-    assert _reading(_usage(_report(_limit()))).status is QuotaStatus.UNKNOWN
+# --- provider error classification ----------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("message", "expected"),
+    ("message", "quota", "credit"),
     [
-        ("429 rate limit exceeded", True),
-        ("You have hit your usage limit. Try again in 3 hours.", True),
-        ("Claude usage limit reached; your limit will reset at 5pm", True),
-        ("Quota exceeded for this plan", True),
-        ("Your subscription plan cap has been reached", True),
-        ("Too Many Requests", True),
-        ("overloaded_error: the service is temporarily overloaded", False),
-        ("connection reset by peer", False),
-        ("400 invalid request: messages.0.content", False),
-        ("", False),
-        (None, False),
+        ("429 rate limit exceeded", True, False),
+        ("429 Too Many Requests", True, False),
+        ('{"error": {"type": "rate_limit_error"}}', True, False),
+        ('429 {"error": {"code": "model_loading"}}', True, False),
+        ('429 {"error": {"code": "model_capacity_exhausted"}}', True, False),
+        ("Quota exceeded for this plan", True, False),
+        ("402 Payment Required", False, True),
+        ("insufficient credits to run this request", False, True),
+        ("Insufficient balance", False, True),
+        ('{"error": {"code": "credits_required"}}', False, True),
+        ("you are out of credits", False, True),
+        ("overloaded_error: the service is temporarily overloaded", False, False),
+        ("connection reset by peer", False, False),
+        ("400 invalid request: messages.0.content", False, False),
+        ("", False, False),
+        (None, False, False),
     ],
 )
-def test_quota_errors_are_told_from_other_provider_errors(
-    message: str | None, expected: bool
+def test_quota_and_credit_errors_are_told_from_each_other_and_from_other_errors(
+    message: str | None, quota: bool, credit: bool
 ) -> None:
-    assert is_quota_error(message) is expected
+    assert is_quota_error(message) is quota
+    assert is_credit_error(message) is credit
 
 
 def test_omp_events_count_quota_retries_and_the_retry_it_gave_up_on() -> None:
@@ -756,48 +813,6 @@ def test_credential_stores_in_a_profile_are_found_and_nothing_else(tmp_path: Pat
         "cache/auth-broker-snapshot.enc",
     ]
     assert credential_files_in_profile(tmp_path / "absent") == []
-
-
-def _login_db(path: Path) -> None:
-    with sqlite3.connect(path) as db:
-        db.execute(
-            "CREATE TABLE auth_credentials (id INTEGER PRIMARY KEY, provider TEXT, "
-            "credential_type TEXT, data TEXT, disabled_cause TEXT DEFAULT NULL)"
-        )
-        db.executemany(
-            "INSERT INTO auth_credentials (provider, credential_type, data, disabled_cause) "
-            "VALUES (?, ?, 'opaque', ?)",
-            [
-                ("anthropic", "oauth", None),
-                ("anthropic", "oauth", "revoked"),
-                ("openai-codex", "api_key", None),
-            ],
-        )
-
-
-def test_login_metadata_counts_enabled_and_disabled_rows_without_touching_the_vault(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "agent.db"
-    _login_db(db_path)
-    before = db_path.read_bytes()
-
-    logins = provider_logins(db_path)
-
-    assert (logins["anthropic"].enabled, logins["anthropic"].disabled) == (1, 1)
-    assert logins["anthropic"].types == ("oauth",)
-    assert (logins["openai-codex"].enabled, logins["openai-codex"].types) == (1, ("api_key",))
-    assert db_path.read_bytes() == before
-
-
-def test_login_metadata_of_a_missing_or_foreign_database_is_an_error(tmp_path: Path) -> None:
-    with pytest.raises(SweAbError, match="does not exist"):
-        provider_logins(tmp_path / "absent.db")
-    foreign = tmp_path / "other.db"
-    with sqlite3.connect(foreign) as db:
-        db.execute("CREATE TABLE unrelated (x)")
-    with pytest.raises(SweAbError, match="cannot read login metadata"):
-        provider_logins(foreign)
 
 
 @pytest.mark.parametrize(

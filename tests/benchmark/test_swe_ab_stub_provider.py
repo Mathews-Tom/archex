@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import threading
+import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from http.server import ThreadingHTTPServer
@@ -186,3 +187,37 @@ def test_responses_request_without_tools_gets_text_and_does_not_advance_the_scri
         _post(stub_url, "/v1/responses", {"tools": [{"name": "x"}], "input": []})
     )
     assert real["type"] == "function_call"
+
+
+def test_http_error_body_is_returned_verbatim_without_a_retry_after_header(tmp_path: Path) -> None:
+    body = {
+        "error": {
+            "code": "model_capacity_exhausted",
+            "message": "No capacity for this model without displacing an active one.",
+            "type": "rate_limit_error",
+        }
+    }
+    spec = importlib.util.spec_from_file_location("swe_ab_stub_provider", _SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    handler = module._Handler  # pyright: ignore[reportPrivateUsage]
+    handler.script = [{"http_error": 429, "body": body}]
+    handler.capture_dir = tmp_path
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions",
+            data=json.dumps({"tools": [{"type": "function"}], "messages": []}).encode(),
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(request, timeout=10)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert caught.value.code == 429
+    assert json.loads(caught.value.read()) == body
+    assert caught.value.headers.get("retry-after") is None

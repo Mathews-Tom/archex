@@ -1,21 +1,17 @@
-"""Tests for the SWE A/B scripts on subscriptions: broker credentials, quota guard, Stage 0.
+"""Tests for the SWE A/B cell runner and suite on Muna: campaign key, blocks, credits, scheduling.
 
-Everything here runs against fakes: no omp, no Docker, no broker, no model.
+Everything here runs against fakes (no Docker, no model, no network), except the rehearsal
+smoke test, which drives the pinned omp against the local stub and skips without it.
 """
 
 from __future__ import annotations
 
-import argparse
 import importlib
 import json
-import sqlite3
 import subprocess
 import sys
 import threading
-import urllib.error
-import urllib.request
-from email.message import Message
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -26,188 +22,37 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 cell_runner: Any = importlib.import_module("run_swe_ab_cell")
 suite: Any = importlib.import_module("run_swe_ab_suite")
-stage0: Any = importlib.import_module("swe_ab_stage0")
 
 from archex.benchmark.swe_ab import (  # noqa: E402
-    BROKER_ENV_NAMES,
-    MODELS,
+    CREDENTIAL_ENV_NAMES,
+    OMP_CONFIG_PATH,
     CellKey,
     FailureReason,
+    OmpRunEvents,
     QuotaEvidence,
     SweAbArm,
+    SweAbError,
     Usage,
     load_cell,
+    load_plan,
     quota_blocked_relative_path,
+    validate_swe_ab_directory,
 )
 
-MODEL = "anthropic/claude-sonnet-5-5"
-TOKEN = "s3cret-broker-token"  # noqa: S105 - a fake, used to prove it never leaks
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MODEL = "qwen-3.8-27b@high"
+LABELS = ("qwen-3.8-27b@low", "qwen-3.8-27b@high", "gemma-4-26b-a4b-it@high")
+KEY_NAME = "MUNA_ACCESS_KEY"
+SECRET = "muna-secret-key-123"  # noqa: S105 - a fake, used to prove it never leaks
+PINNED_OMP = Path("/tmp/omp-18.4.4/bin/omp")
+PROVIDER_CONFIG = REPO_ROOT / "benchmarks/swe_ab/muna-models.yml"
 
 
-# --- the quota guard --------------------------------------------------------------------------
+# --- one cell with block cooldown -------------------------------------------------------------
 
 
-class _Clock:
-    def __init__(self) -> None:
-        self.now = 1_000.0
-        self.slept: list[float] = []
-
-    def time(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.slept.append(seconds)
-        self.now += seconds
-
-
-def _blocked_usage(reset_in_seconds: float, clock: _Clock) -> dict[str, Any]:
-    limit = {
-        "id": "5h",
-        "amount": {"unit": "percent", "usedFraction": 1.0},
-        "scope": {"provider": "anthropic"},
-        "window": {"id": "5h", "resetsAt": int((clock.now + reset_in_seconds) * 1000)},
-    }
-    return {"reports": [{"provider": "anthropic", "limits": [limit]}]}
-
-
-def _clear_usage() -> dict[str, Any]:
-    limit = {"id": "5h", "amount": {"unit": "percent", "usedFraction": 0.2}, "scope": {}}
-    return {"reports": [{"provider": "anthropic", "limits": [limit]}]}
-
-
-class _Script:
-    """A fetch that answers from a list (an Exception in the list is raised)."""
-
-    def __init__(self, *answers: dict[str, Any] | Exception) -> None:
-        self.answers = list(answers)
-        self.calls = 0
-
-    def __call__(self, url: str, token: str) -> dict[str, Any]:
-        self.calls += 1
-        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
-        if isinstance(answer, Exception):
-            raise answer
-        return answer
-
-
-def _start() -> tuple[_Clock, list[dict[str, Any]]]:
-    return _Clock(), []
-
-
-def _no_invalidate(url: str, token: str) -> None:
-    return None
-
-
-def _guard(
-    clock: _Clock,
-    fetch: _Script,
-    logs: list[dict[str, Any]],
-    **overrides: Any,
-) -> Any:
-    settings: dict[str, Any] = {
-        "broker_url": "http://broker",
-        "token": TOKEN,
-        "poll_seconds": 600.0,
-        "max_wait_seconds": 3600.0,
-        "fetch": fetch,
-        "invalidate_cache": _no_invalidate,
-        "sleep": clock.sleep,
-        "clock": clock.time,
-        "log": logs.append,
-    }
-    settings.update(overrides)
-    return suite.QuotaGuard(**settings)
-
-
-def test_the_guard_pauses_until_the_reported_reset_then_clears() -> None:
-    clock, logs = _start()
-    fetch = _Script(_blocked_usage(120, clock), _clear_usage())
-
-    assert _guard(clock, fetch, logs).wait(MODEL) is True
-
-    # The reset is 120 s away; the guard wakes 5 s after it rather than after a full poll.
-    assert clock.slept == [pytest.approx(125.0)]  # pyright: ignore[reportUnknownMemberType]
-    assert [entry["quota"] for entry in logs] == ["paused", "cleared"]
-
-
-def test_the_guard_gives_up_when_the_quota_outlasts_its_wait_budget() -> None:
-    clock, logs = _start()
-    fetch = _Script(_blocked_usage(10_000, clock))
-
-    guard = _guard(clock, fetch, logs, poll_seconds=100.0, max_wait_seconds=300.0)
-
-    assert guard.wait(MODEL) is False
-    assert sum(clock.slept) == pytest.approx(300.0)  # pyright: ignore[reportUnknownMemberType]
-    assert logs[-1]["quota"] == "wait_budget_exhausted"
-
-
-def test_an_unreachable_broker_is_waited_out_and_never_read_as_headroom() -> None:
-    clock, logs = _start()
-    failure = suite.BrokerError("broker GET /v1/usage failed: URLError")
-    fetch = _Script(failure, failure, _clear_usage())
-
-    assert _guard(clock, fetch, logs, poll_seconds=30.0).wait(MODEL) is True
-
-    assert [entry["quota"] for entry in logs] == ["broker_unreachable"] * 2 + ["cleared"]
-    assert TOKEN not in json.dumps(logs)
-
-
-def test_a_broker_that_never_answers_ends_in_a_pause_not_a_free_pass() -> None:
-    clock, logs = _start()
-    fetch = _Script(suite.BrokerError("broker GET /v1/usage failed: URLError"))
-
-    assert (
-        _guard(clock, fetch, logs, poll_seconds=100.0, max_wait_seconds=250.0).wait(MODEL) is False
-    )
-
-
-def test_unknown_headroom_proceeds_and_is_reported_once_per_provider() -> None:
-    clock, logs = _start()
-    fetch = _Script({"reports": []})
-    guard = _guard(clock, fetch, logs)
-
-    assert guard.wait(MODEL) and guard.wait("anthropic/claude-opus-5-5")
-
-    assert [(entry["quota"], entry["provider"]) for entry in logs] == [("unknown", "anthropic")]
-
-
-def test_a_cooling_down_pause_comes_before_the_first_read() -> None:
-    clock, logs = _start()
-    fetch = _Script(_clear_usage())
-
-    assert _guard(clock, fetch, logs).wait(MODEL, pause_first=300.0) is True
-
-    assert clock.slept == [300.0]
-    assert logs[0]["quota"] == "cooling_down"
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [
-        urllib.error.HTTPError("http://b/v1/usage", 401, "no", Message(), None),
-        urllib.error.URLError("x"),
-    ],
-)
-def test_broker_errors_name_the_endpoint_and_never_the_token(
-    monkeypatch: pytest.MonkeyPatch, failure: Exception
-) -> None:
-    def refuse(request: urllib.request.Request, timeout: float) -> Any:
-        raise failure
-
-    monkeypatch.setattr(urllib.request, "urlopen", refuse)
-
-    with pytest.raises(suite.BrokerError) as caught:
-        suite.fetch_usage("http://b", TOKEN)
-
-    assert "/v1/usage" in str(caught.value)
-    assert TOKEN not in str(caught.value)
-
-
-# --- one cell with quota retries --------------------------------------------------------------
-
-
-def _key() -> CellKey:
-    return CellKey("t1", MODEL, SweAbArm.A0, 1)
+def _key(task_id: str = "t1", model: str = MODEL) -> CellKey:
+    return CellKey(task_id, model, SweAbArm.A0, 1)
 
 
 def _cell_spec(tmp_path: Path, key: CellKey) -> dict[str, Any]:
@@ -222,8 +67,17 @@ def _cell_spec(tmp_path: Path, key: CellKey) -> dict[str, Any]:
         "work_dir": str(tmp_path / "work"),
         "omp_command": ["omp"],
         "profile_dir": str(tmp_path / "profile"),
+        "provider_config": str(PROVIDER_CONFIG),
+        "omp_config": str(tmp_path / "omp-campaign.yml"),
         "prior_blocked_attempts": 0,
     }
+
+
+_REASONS = {
+    "blocked_first": (FailureReason.QUOTA_BLOCK, "before_first_tool_call"),
+    "blocked_mid": (FailureReason.QUOTA_BLOCK, "mid_run"),
+    "credit": (FailureReason.CREDIT_EXHAUSTED, "mid_run"),
+}
 
 
 class _Cells:
@@ -236,11 +90,11 @@ class _Cells:
     def __call__(self, spec: dict[str, Any], env: Any) -> None:
         self.specs.append(dict(spec))
         outcome = self.outcomes.pop(0)
-        phase = {"blocked_first": "before_first_tool_call", "blocked_mid": "mid_run"}.get(outcome)
+        reason, phase = _REASONS.get(outcome, (FailureReason.PROVIDER_ERROR, None))
         cell = cell_runner.failed_cell(
             cell_runner.CellSpec(spec),
-            FailureReason.QUOTA_BLOCK if phase else FailureReason.PROVIDER_ERROR,
-            "usage limit" if phase else "500",
+            reason,
+            outcome,
             quota=QuotaEvidence(
                 block_phase=phase,  # pyright: ignore[reportArgumentType]
                 prior_blocked_attempts=spec["prior_blocked_attempts"],
@@ -256,32 +110,31 @@ class _Cells:
 def _run_one(
     tmp_path: Path,
     cells: _Cells,
-    guard: Any,
     logs: list[dict[str, Any]],
+    sleeps: list[float],
     *,
     retries: int = 2,
+    cooldown: float = 300.0,
 ) -> float:
     key = _key()
     return suite._run_one(  # pyright: ignore[reportPrivateUsage]
         _cell_spec(tmp_path, key),
         key,
         tmp_path / "out",
-        guard=guard,
         env=None,
         quota_retries=retries,
+        cooldown_seconds=cooldown,
         invoke=cells,
+        sleep=sleeps.append,
         log=logs.append,
     )
 
 
-def test_a_quota_blocked_cell_is_filed_and_rerun_after_a_cooling_down_pause(
-    tmp_path: Path,
-) -> None:
-    clock, logs = _start()
+def test_a_quota_blocked_cell_is_filed_and_rerun_after_the_cooldown(tmp_path: Path) -> None:
     cells = _Cells("blocked_first", "provider_error")
-    guard = _guard(clock, _Script(_clear_usage()), logs)
+    sleeps: list[float] = []
 
-    total = _run_one(tmp_path, cells, guard, logs)
+    total = _run_one(tmp_path, cells, [], sleeps, cooldown=42.0)
 
     filed = tmp_path / "out" / quota_blocked_relative_path(_key(), 1)
     assert load_cell(filed).quota.block_phase == "before_first_tool_call"
@@ -289,15 +142,34 @@ def test_a_quota_blocked_cell_is_filed_and_rerun_after_a_cooling_down_pause(
     assert final.failure_reason is FailureReason.PROVIDER_ERROR
     assert final.quota.prior_blocked_attempts == 1
     assert [spec["prior_blocked_attempts"] for spec in cells.specs] == [0, 1]
-    assert clock.slept == [guard.min_pause_seconds]
+    assert sleeps == [42.0]
     assert total == 4.0  # the blocked attempt's tokens still count toward the ceiling
+
+
+def test_each_rerun_waits_the_cooldown_up_to_the_retry_budget_and_the_block_then_stays(
+    tmp_path: Path,
+) -> None:
+    cells = _Cells("blocked_mid", "blocked_mid", "blocked_mid")
+    logs: list[dict[str, Any]] = []
+    sleeps: list[float] = []
+
+    total = _run_one(tmp_path, cells, logs, sleeps, retries=2, cooldown=7.0)
+
+    assert sleeps == [7.0, 7.0]
+    assert len(cells.specs) == 3
+    assert load_cell(tmp_path / "out" / _key().relative_path).failure_reason is (
+        FailureReason.QUOTA_BLOCK
+    )
+    for attempt in (1, 2):
+        assert (tmp_path / "out" / quota_blocked_relative_path(_key(), attempt)).exists()
+    assert total == 6.0
+    assert any(line.get("quota") == "retry_budget_exhausted" for line in logs)
 
 
 def test_a_mid_run_block_is_logged_distinctly_from_a_task_failure(tmp_path: Path) -> None:
     logs: list[dict[str, Any]] = []
-    cells = _Cells("blocked_mid", "provider_error")
 
-    _run_one(tmp_path, cells, _guard(_Clock(), _Script(_clear_usage()), logs), logs)
+    _run_one(tmp_path, _Cells("blocked_mid", "provider_error"), logs, [])
 
     cell_lines = [line for line in logs if "reason" in line]
     assert [(line["reason"], line.get("quota_phase")) for line in cell_lines] == [
@@ -306,52 +178,32 @@ def test_a_mid_run_block_is_logged_distinctly_from_a_task_failure(tmp_path: Path
     ]
 
 
-def test_past_the_retry_budget_the_blocked_cell_stays_as_the_record(tmp_path: Path) -> None:
-    logs: list[dict[str, Any]] = []
-    cells = _Cells("blocked_mid", "blocked_mid")
+def test_credit_exhaustion_is_filed_never_rerun_and_stops_the_run(tmp_path: Path) -> None:
+    cells = _Cells("credit", "provider_error")
+    sleeps: list[float] = []
 
-    total = _run_one(
-        tmp_path, cells, _guard(_Clock(), _Script(_clear_usage()), logs), logs, retries=1
-    )
+    with pytest.raises(suite.CreditExhaustedError) as stop:
+        _run_one(tmp_path, cells, [], sleeps)
 
-    assert load_cell(tmp_path / "out" / _key().relative_path).failure_reason is (
-        FailureReason.QUOTA_BLOCK
-    )
-    assert (tmp_path / "out" / quota_blocked_relative_path(_key(), 1)).exists()
-    assert total == 4.0
-    assert any(line.get("quota") == "retry_budget_exhausted" for line in logs)
-
-
-def test_without_a_guard_a_blocked_cell_is_recorded_and_not_rerun(tmp_path: Path) -> None:
-    cells = _Cells("blocked_first")
-
-    _run_one(tmp_path, cells, None, [])
-
+    filed = tmp_path / "out" / quota_blocked_relative_path(_key(), 1)
+    assert load_cell(filed).failure_reason is FailureReason.CREDIT_EXHAUSTED
+    assert not (tmp_path / "out" / _key().relative_path).exists()
     assert len(cells.specs) == 1
-
-
-def test_a_quota_that_does_not_clear_stops_the_cell_before_it_starts(tmp_path: Path) -> None:
-    clock, logs = _start()
-    cells = _Cells("provider_error")
-    guard = _guard(
-        clock,
-        _Script(_blocked_usage(99_999, clock)),
-        logs,
-        poll_seconds=100.0,
-        max_wait_seconds=200.0,
-    )
-
-    with pytest.raises(suite.QuotaPauseError):
-        _run_one(tmp_path, cells, guard, logs)
-
-    assert cells.specs == []
+    assert sleeps == []
+    assert stop.value.cost == 2.0
 
 
 # --- the suite: exit status, preflight, resume ------------------------------------------------
 
 
 def _suite_args(
-    tmp_path: Path, *extra: str, profile: Path | None = None, repetitions: int = 1
+    tmp_path: Path,
+    *extra: str,
+    profile: Path | None = None,
+    repetitions: int = 1,
+    models: tuple[str, ...] = (MODEL,),
+    runtime: str = "docker",
+    env_file: Path | None = None,
 ) -> list[str]:
     plan = tmp_path / "plan.json"
     plan.write_text(
@@ -359,58 +211,75 @@ def _suite_args(
             {
                 "name": "p",
                 "tasks": [{"task_id": "t1", "repo": "o/r"}, {"task_id": "t2", "repo": "o/r"}],
-                "models": [MODEL],
+                "models": list(models),
                 "repetitions": {"A0": repetitions},
                 "cost_ceiling_usd": 100.0,
             }
         ),
         encoding="utf-8",
     )
-    token = tmp_path / "auth-broker.token"
-    token.write_text(TOKEN + "\n", encoding="utf-8")
     profile = profile or tmp_path / "profile"
     profile.mkdir(exist_ok=True)
     return [
-        "run", "--plan", str(plan), "--runtime", "docker", "--output", str(tmp_path / "out"),
+        "run", "--plan", str(plan), "--runtime", runtime, "--output", str(tmp_path / "out"),
         "--work-root", str(tmp_path / "work"), "--profile-dir", str(profile),
         "--omp-dir", "/omp", "--archex-wheel", "/w.whl", "--uv-binary", "/uv",
-        "--broker-url", "http://127.0.0.1:8765", "--broker-token-file", str(token), *extra,
+        "--env-file", str(env_file or tmp_path / "absent.env"), *extra,
     ]  # fmt: skip
 
 
-def _no_broker_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in BROKER_ENV_NAMES:
-        monkeypatch.delenv(name, raising=False)
+def _all_priced(_path: Path) -> list[str]:
+    return []
 
 
-def test_a_paused_run_exits_4_and_names_the_reason(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def _recording(ran: list[CellKey]) -> Any:
+    def fake(_spec: dict[str, Any], key: CellKey, *_args: Any, **_kwargs: Any) -> float:
+        ran.append(key)
+        return 0.0
+
+    return fake
+
+
+@pytest.fixture
+def campaign(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fake campaign key in the environment and every model priced."""
+    monkeypatch.setenv(KEY_NAME, SECRET)
+    monkeypatch.setattr(suite, "unpriced_models", _all_priced)
+
+
+def test_a_credit_stop_exits_5_after_the_running_cell_finishes_and_starts_nothing_more(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
 ) -> None:
-    _no_broker_env(monkeypatch)
-    seen: list[str] = []
+    del campaign
+    order: list[str] = []
+    credit_raised = threading.Event()
 
     def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> float:
-        seen.append(key.task_id)
-        if key.task_id == "t2":
-            raise suite.QuotaPauseError(
-                "anthropic/claude-sonnet-5-5: subscription quota did not clear"
-            )
-        return 1.5
+        order.append(f"start {key.repetition}")
+        if key.repetition == 1:
+            credit_raised.set()
+            raise suite.CreditExhaustedError("credits exhausted", 1.5)
+        credit_raised.wait(5)
+        time.sleep(0.1)
+        order.append(f"finish {key.repetition}")
+        return 0.5
 
     monkeypatch.setattr(suite, "_run_one", fake)
 
-    assert suite.main(_suite_args(tmp_path)) == suite.QUOTA_EXIT
+    assert suite.main(_suite_args(tmp_path, "--jobs", "2", repetitions=4)) == suite.CREDIT_EXIT
 
-    assert seen == ["t1", "t2"]
-    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert events[-1]["aborted"] == "quota"
-    assert TOKEN not in json.dumps(events)
+    assert order[:2] == ["start 1", "start 2"] or order[:2] == ["start 2", "start 1"]
+    assert "finish 2" in order
+    assert not any(event in order for event in ("start 3", "start 4"))
 
 
-def test_cells_get_the_container_broker_url_and_token_and_a_recorded_name_list(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_cells_carry_the_key_in_their_environment_and_never_in_the_spec_or_banner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    campaign: None,
 ) -> None:
-    _no_broker_env(monkeypatch)
+    del campaign
     envs: list[dict[str, str]] = []
     specs: list[dict[str, Any]] = []
 
@@ -425,101 +294,128 @@ def test_cells_get_the_container_broker_url_and_token_and_a_recorded_name_list(
 
     assert suite.main(_suite_args(tmp_path)) == 0
 
-    assert envs[0]["OMP_AUTH_BROKER_URL"] == "http://host.docker.internal:8765"
-    assert envs[0]["OMP_AUTH_BROKER_TOKEN"] == TOKEN
-    assert specs[0]["broker_url"] == "http://host.docker.internal:8765"
-    assert TOKEN not in json.dumps(specs)
-    banner = json.loads(capsys.readouterr().out.splitlines()[0])
-    assert banner["agent_env_names"] == list(BROKER_ENV_NAMES)
-    assert TOKEN not in json.dumps(banner)
+    assert envs[0][KEY_NAME] == SECRET
+    assert SECRET not in json.dumps(specs)
+    out = capsys.readouterr().out
+    assert json.loads(out.splitlines()[0])["agent_env_names"] == [KEY_NAME]
+    assert SECRET not in out
 
 
-def _record_prunes(monkeypatch: pytest.MonkeyPatch, pause_at: tuple[str, int] | None) -> list[str]:
-    events: list[str] = []
+def test_a_key_from_the_env_file_reaches_the_cells(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(KEY_NAME, raising=False)
+    monkeypatch.setattr(suite, "unpriced_models", _all_priced)
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"OTHER=1\nexport {KEY_NAME}='from-file'\n", encoding="utf-8")
+    envs: list[dict[str, str]] = []
 
-    def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> float:
-        events.append(f"{key.task_id}#{key.repetition}")
-        if (key.task_id, key.repetition) == pause_at:
-            raise suite.QuotaPauseError("quota did not clear")
+    def fake(
+        spec: dict[str, Any], key: CellKey, *args: Any, env: dict[str, str], **kwargs: Any
+    ) -> float:
+        envs.append(env)
         return 0.0
 
-    def prune(image: str) -> None:
-        events.append(f"prune {image}")
-
     monkeypatch.setattr(suite, "_run_one", fake)
-    monkeypatch.setattr(suite, "_prune_image", prune)
-    return events
+
+    assert suite.main(_suite_args(tmp_path, env_file=env_file)) == 0
+
+    assert envs[0][KEY_NAME] == "from-file"
 
 
-def test_pruning_removes_a_task_image_only_after_the_last_cell_of_that_task(
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (f"{KEY_NAME}=abc\n", "abc"),
+        (f'{KEY_NAME}="quoted key"\n', "quoted key"),
+        (f"{KEY_NAME}='single'\n", "single"),
+        (f"export {KEY_NAME}=exported\n", "exported"),
+        (f"{KEY_NAME}=plain # trailing comment\n", "plain"),
+        (f"OTHER_KEY=nope\nXMUNA_ACCESS_KEY=nope\n{KEY_NAME}=right\n", "right"),
+        ("OTHER_KEY=nope\nOPENAI_API_KEY=nope\n", None),
+        (f"{KEY_NAME}=\n", None),
+        (f"# {KEY_NAME}=commented\n", None),
+    ],
+)
+def test_the_env_file_reader_takes_only_the_campaign_key_line(
+    tmp_path: Path, text: str, expected: str | None
+) -> None:
+    path = tmp_path / ".env"
+    path.write_text(text, encoding="utf-8")
+
+    assert suite.read_env_file_key(path) == expected
+
+
+def test_a_missing_env_file_has_no_key(tmp_path: Path) -> None:
+    assert suite.read_env_file_key(tmp_path / "absent.env") is None
+
+
+@pytest.mark.parametrize("env_file_text", [None, "OTHER=1\n"])
+def test_a_docker_run_without_a_key_anywhere_is_refused_before_any_cell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_file_text: str | None
+) -> None:
+    monkeypatch.delenv(KEY_NAME, raising=False)
+    env_file = tmp_path / ".env"
+    if env_file_text is not None:
+        env_file.write_text(env_file_text, encoding="utf-8")
+    ran: list[CellKey] = []
+    monkeypatch.setattr(suite, "_run_one", _recording(ran))
+
+    with pytest.raises(SystemExit, match=KEY_NAME):
+        suite.main(_suite_args(tmp_path, env_file=env_file))
+
+    assert ran == []
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_docker_run_is_refused_while_prices_are_zero_and_never_prints_the_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _no_broker_env(monkeypatch)
-    events = _record_prunes(monkeypatch, None)
+    # The suite reads the frozen provider config from REPO_ROOT; point it at a zero-price copy.
+    root = tmp_path / "repo"
+    (root / "benchmarks/swe_ab").mkdir(parents=True)
+    (root / "benchmarks/swe_ab/muna-models.yml").write_text(
+        "providers:\n  muna:\n    models:\n"
+        '      - id: "@qwen/qwen-3.8-27b"\n'
+        "        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(suite, "REPO_ROOT", root)
+    monkeypatch.setenv(KEY_NAME, SECRET)
+    ran: list[CellKey] = []
+    monkeypatch.setattr(suite, "_run_one", _recording(ran))
 
-    assert suite.main(_suite_args(tmp_path, "--prune-images", repetitions=2)) == 0
+    with pytest.raises(SystemExit) as refused:
+        suite.main(_suite_args(tmp_path))
 
-    image = "ghcr.io/scaleapi/swe-bench_pro-v2:"
-    assert events == [
-        "t1#1",
-        "t1#2",
-        f"prune {image}t1",
-        "t2#1",
-        "t2#2",
-        f"prune {image}t2",
-    ]
-
-
-def test_pruning_keeps_the_image_of_a_task_whose_cell_did_not_finish(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _no_broker_env(monkeypatch)
-    events = _record_prunes(monkeypatch, ("t1", 2))
-
-    assert suite.main(_suite_args(tmp_path, "--prune-images", repetitions=2)) == suite.QUOTA_EXIT
-
-    assert not any(event.startswith("prune") for event in events)
-
-
-def test_images_are_kept_unless_pruning_is_asked_for(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _no_broker_env(monkeypatch)
-    events = _record_prunes(monkeypatch, None)
-
-    assert suite.main(_suite_args(tmp_path)) == 0
-
-    assert not any(event.startswith("prune") for event in events)
-
-
-def test_the_docker_runtime_needs_a_broker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _no_broker_env(monkeypatch)
-    argv = _suite_args(tmp_path)
-    at = argv.index("--broker-url")
-
-    with pytest.raises(SystemExit, match="--broker-url is required"):
-        suite.main([*argv[:at], *argv[at + 2 :]])
+    assert "@qwen/qwen-3.8-27b: input" in str(refused.value)
+    assert SECRET not in str(refused.value)
+    assert ran == []
 
 
 def test_a_profile_carrying_a_login_vault_is_refused_before_any_cell(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
 ) -> None:
-    _no_broker_env(monkeypatch)
+    del campaign
     profile = tmp_path / "profile"
     profile.mkdir()
     (profile / "agent.db").write_text("")
+    ran: list[CellKey] = []
+    monkeypatch.setattr(suite, "_run_one", _recording(ran))
 
     with pytest.raises(SystemExit, match="credential stores"):
         suite.main(_suite_args(tmp_path, profile=profile))
 
+    assert ran == []
 
-def test_resuming_files_an_unfinished_quota_block_and_reruns_that_cell(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+
+def test_resuming_files_an_unfinished_block_and_reruns_that_cell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
 ) -> None:
-    _no_broker_env(monkeypatch)
-    key = CellKey("t2", MODEL, SweAbArm.A0, 1)
-    done = _Cells("provider_error", "blocked_mid")
-    done(_cell_spec(tmp_path, CellKey("t1", MODEL, SweAbArm.A0, 1)), None)
+    del campaign
+    key = _key("t2")
+    done = _Cells("provider_error", "credit")
+    done(_cell_spec(tmp_path, _key("t1")), None)
     done(_cell_spec(tmp_path, key), None)
     ran: list[tuple[str, int]] = []
 
@@ -536,21 +432,101 @@ def test_resuming_files_an_unfinished_quota_block_and_reruns_that_cell(
     assert not (tmp_path / "out" / key.relative_path).exists()
 
 
-# --- credentials reach the container only as the two broker variables -------------------------
+# --- scheduling and image pruning -------------------------------------------------------------
 
 
-def test_the_broker_token_travels_in_the_docker_client_environment_not_its_argv() -> None:
-    args, client_env = cell_runner.docker_exec_env(
-        {
-            "OMP_AUTH_BROKER_URL": "http://host.docker.internal:8765",
-            "OMP_AUTH_BROKER_TOKEN": TOKEN,
-            "HOME": "/root",
-        }
-    )
+def _record_runs(
+    monkeypatch: pytest.MonkeyPatch, credit_at: tuple[str, str] | None = None
+) -> list[str]:
+    events: list[str] = []
 
-    assert args == ["-e", "OMP_AUTH_BROKER_URL", "-e", "OMP_AUTH_BROKER_TOKEN", "-e", "HOME=/root"]
-    assert TOKEN not in " ".join(args)
-    assert client_env["OMP_AUTH_BROKER_TOKEN"] == TOKEN
+    def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> float:
+        events.append(f"{key.model} {key.task_id}")
+        if (key.model, key.task_id) == credit_at:
+            raise suite.CreditExhaustedError("credits exhausted", 0.0)
+        return 0.0
+
+    def prune(image: str, *args: Any) -> None:
+        events.append(f"prune {image.rsplit(':', 1)[1]}")
+
+    monkeypatch.setattr(suite, "_run_one", fake)
+    monkeypatch.setattr(suite, "_prune_image", prune)
+    return events
+
+
+def test_cells_start_grouped_by_model_family_then_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
+) -> None:
+    del campaign
+    events = _record_runs(monkeypatch)
+
+    assert suite.main(_suite_args(tmp_path, models=LABELS)) == 0
+
+    assert events == [
+        "gemma-4-26b-a4b-it@high t1",
+        "gemma-4-26b-a4b-it@high t2",
+        "qwen-3.8-27b@high t1",
+        "qwen-3.8-27b@low t1",
+        "qwen-3.8-27b@high t2",
+        "qwen-3.8-27b@low t2",
+    ]
+
+
+def test_pruning_removes_a_task_image_once_its_cells_of_the_current_family_are_done(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
+) -> None:
+    del campaign
+    events = _record_runs(monkeypatch)
+
+    assert suite.main(_suite_args(tmp_path, "--prune-images", models=LABELS)) == 0
+
+    assert events == [
+        "gemma-4-26b-a4b-it@high t1",
+        "prune t1",
+        "gemma-4-26b-a4b-it@high t2",
+        "prune t2",
+        "qwen-3.8-27b@high t1",
+        "qwen-3.8-27b@low t1",
+        "prune t1",
+        "qwen-3.8-27b@high t2",
+        "qwen-3.8-27b@low t2",
+        "prune t2",
+    ]
+
+
+def test_pruning_keeps_the_image_of_a_task_whose_cell_did_not_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
+) -> None:
+    del campaign
+    events = _record_runs(monkeypatch, credit_at=("qwen-3.8-27b@low", "t1"))
+
+    code = suite.main(_suite_args(tmp_path, "--prune-images", models=LABELS))
+
+    assert code == suite.CREDIT_EXIT
+    assert events.count("prune t1") == 1  # the gemma family's; qwen's never completed
+    assert "qwen-3.8-27b@high t2" not in events
+
+
+def test_images_are_kept_unless_pruning_is_asked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
+) -> None:
+    del campaign
+    events = _record_runs(monkeypatch)
+
+    assert suite.main(_suite_args(tmp_path, models=LABELS)) == 0
+
+    assert not any(event.startswith("prune") for event in events)
+
+
+# --- credentials reach the container only as the campaign key ---------------------------------
+
+
+def test_the_campaign_key_travels_in_the_docker_client_environment_not_its_argv() -> None:
+    args, client_env = cell_runner.docker_exec_env({KEY_NAME: SECRET, "HOME": "/root"})
+
+    assert args == ["-e", KEY_NAME, "-e", "HOME=/root"]
+    assert SECRET not in " ".join(args)
+    assert client_env[KEY_NAME] == SECRET
 
 
 def _docker_spec(tmp_path: Path, **overrides: Any) -> Any:
@@ -563,8 +539,7 @@ def test_an_agent_container_gets_the_allow_list_and_none_of_the_host_credentials
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for name, value in {
-        "OMP_AUTH_BROKER_URL": "http://host.docker.internal:8765",
-        "OMP_AUTH_BROKER_TOKEN": TOKEN,
+        KEY_NAME: SECRET,
         "ANTHROPIC_API_KEY": "decoy",
         "OPENAI_API_KEY": "decoy",
         "AWS_SECRET_ACCESS_KEY": "decoy",
@@ -584,23 +559,33 @@ def test_an_agent_container_gets_the_allow_list_and_none_of_the_host_credentials
         "PATH",
         "ARCHEX_ANNOTATION_LEDGER",
         "ARCHEX_HOOK_DIAGNOSTICS_LOG",
-        *BROKER_ENV_NAMES,
+        *CREDENTIAL_ENV_NAMES,
     }
+    assert env[KEY_NAME] == SECRET
 
 
-def test_the_local_rehearsal_runtime_carries_no_broker_credentials(
+def test_the_local_rehearsal_runtime_carries_no_credentials_and_strips_a_stray_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OMP_AUTH_BROKER_TOKEN", TOKEN)
+    monkeypatch.setenv(KEY_NAME, SECRET)
+    spec = _docker_spec(tmp_path, runtime="local")
+    runtime = SimpleNamespace(home="/h", out="/o", repo="/r")
 
-    assert cell_runner.broker_env(_docker_spec(tmp_path, runtime="local")) == {}
+    env = cell_runner._agent_env(  # pyright: ignore[reportPrivateUsage]
+        spec,
+        runtime,
+        cell_runner._Setup(),  # pyright: ignore[reportArgumentType, reportPrivateUsage]
+    )
+
+    assert cell_runner.credential_env(spec) == {}
+    assert KEY_NAME not in env
+    assert SECRET not in json.dumps(env)
 
 
 def test_a_cell_records_variable_names_and_emulation_never_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OMP_AUTH_BROKER_URL", "http://host.docker.internal:8765")
-    monkeypatch.setenv("OMP_AUTH_BROKER_TOKEN", TOKEN)
+    monkeypatch.setenv(KEY_NAME, SECRET)
     monkeypatch.setattr(cell_runner.platform, "machine", lambda: "arm64")
 
     docker = cell_runner.failed_cell(_docker_spec(tmp_path), FailureReason.HARNESS_ERROR, "x")
@@ -608,9 +593,9 @@ def test_a_cell_records_variable_names_and_emulation_never_values(
         _docker_spec(tmp_path, runtime="local"), FailureReason.HARNESS_ERROR, "x"
     )
 
-    assert docker.credential_env_names == sorted(BROKER_ENV_NAMES)
+    assert docker.credential_env_names == [KEY_NAME]
     assert docker.emulated is True
-    assert TOKEN not in docker.model_dump_json()
+    assert SECRET not in docker.model_dump_json()
     assert (local.credential_env_names, local.emulated) == ([], False)
 
 
@@ -647,6 +632,78 @@ def test_a_profile_with_a_login_vault_never_reaches_a_container(tmp_path: Path) 
     assert ["put", "/root/.omp/profiles/swebench/agent"] not in runtime.calls
 
 
+# --- block classification at the cell level ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("HTTP 402 insufficient credits", FailureReason.CREDIT_EXHAUSTED),
+        ('{"error":{"code":"credits_required"}}', FailureReason.CREDIT_EXHAUSTED),
+        (
+            '429 {"error":{"code":"model_capacity_exhausted"}}',
+            FailureReason.QUOTA_BLOCK,
+        ),
+        ("429 rate limit exceeded", FailureReason.QUOTA_BLOCK),
+        ("500 internal error", None),
+        (None, None),
+    ],
+)
+def test_a_provider_error_is_classified_as_credit_exhaustion_a_quota_block_or_neither(
+    message: str | None, expected: FailureReason | None
+) -> None:
+    assert cell_runner._block_reason(message) is expected  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize(
+    ("gave_up", "tool_calls", "reason", "phase"),
+    [
+        (
+            "HTTP 402 insufficient credits",
+            0,
+            FailureReason.CREDIT_EXHAUSTED,
+            "before_first_tool_call",
+        ),
+        ("HTTP 402 insufficient credits", 3, FailureReason.CREDIT_EXHAUSTED, "mid_run"),
+        ("429 model_capacity_exhausted", 0, FailureReason.QUOTA_BLOCK, "before_first_tool_call"),
+        ("429 model_capacity_exhausted", 2, FailureReason.QUOTA_BLOCK, "mid_run"),
+    ],
+)
+def test_a_run_omp_gave_up_on_is_a_blocked_unscored_cell_with_its_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    gave_up: str,
+    tool_calls: int,
+    reason: FailureReason,
+    phase: str,
+) -> None:
+    spec = _docker_spec(tmp_path)
+
+    def setup(_spec: Any, _rt: Any) -> Any:
+        return cell_runner._Setup()  # pyright: ignore[reportPrivateUsage]
+
+    def run_agent(*_args: Any, **_kwargs: Any) -> tuple[int, Path, str]:
+        return 1, tmp_path, ""
+
+    def events(_stdout: str) -> OmpRunEvents:
+        return OmpRunEvents(gave_up=gave_up, tool_calls_started=tool_calls)
+
+    def no_session(_dir: Any) -> None:
+        return None
+
+    monkeypatch.setattr(cell_runner, "_setup", setup)
+    monkeypatch.setattr(cell_runner, "_run_agent", run_agent)
+    monkeypatch.setattr(cell_runner, "_load_session", no_session)
+    monkeypatch.setattr(cell_runner, "parse_omp_events", events)
+
+    cell = cell_runner._run_cell(spec, _FakeRuntime(), 0.0)  # pyright: ignore[reportPrivateUsage, reportArgumentType]
+
+    assert cell.failure_reason is reason
+    assert cell.quota.block_phase == phase
+    assert cell.resolved is False
+    assert cell.score_source == "failed_before_patch"
+
+
 # --- the annotate pre-warm --------------------------------------------------------------------
 
 
@@ -672,284 +729,49 @@ def test_a_prewarm_that_misses_the_search_path_fails_setup() -> None:
         cell_runner._prewarm_annotate(runtime, "python")  # pyright: ignore[reportArgumentType, reportPrivateUsage]
 
 
-# --- Stage 0 -----------------------------------------------------------------------------------
+# --- the no-spend rehearsal -------------------------------------------------------------------
 
 
-def _catalog(*extra: dict[str, str]) -> list[dict[str, str]]:
-    entries = [
-        {"provider": model.split("/")[0], "id": model.split("/")[1], "selector": model}
-        for model in MODELS
-    ]
-    return [*entries, *extra]
-
-
-def _logins(tmp_path: Path, *providers: str) -> Path:
-    path = tmp_path / "agent.db"
-    with sqlite3.connect(path) as db:
-        db.execute(
-            "CREATE TABLE auth_credentials (id INTEGER PRIMARY KEY, provider TEXT, "
-            "credential_type TEXT, data TEXT, disabled_cause TEXT DEFAULT NULL)"
-        )
-        db.executemany(
-            "INSERT INTO auth_credentials (provider, credential_type, data) "
-            "VALUES (?, 'oauth', 'x')",
-            [(provider,) for provider in providers],
-        )
-    return path
-
-
-def _stub_omp_models(monkeypatch: pytest.MonkeyPatch, catalog: list[dict[str, str]]) -> None:
-    def fake(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(
-            argv, 0, stdout=json.dumps({"models": catalog}), stderr=""
-        )
-
-    monkeypatch.setattr(stage0.subprocess, "run", fake)
-
-
-def test_stage0_passes_when_every_model_routes_through_a_logged_in_subscription(
+@pytest.mark.skipif(
+    not PINNED_OMP.is_file() or not (REPO_ROOT / OMP_CONFIG_PATH).is_file(),
+    reason="needs the pinned omp 18.4.4 and the frozen omp-campaign.yml",
+)
+def test_a_stub_rehearsal_ends_ok_and_the_validator_refuses_its_cells(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _stub_omp_models(
-        monkeypatch,
-        _catalog(
-            {
-                "provider": "openrouter",
-                "id": "openai/gpt-6-sol",
-                "selector": "openrouter/openai/gpt-6-sol",
-            }
-        ),
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.delenv(KEY_NAME, raising=False)
+    plan_path = tmp_path / "plan.json"
+    plan = json.loads((REPO_ROOT / "benchmarks/swe_ab/dry-run-plan.json").read_text())
+    plan["repetitions"] = {"A0": 1}
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    out = tmp_path / "out"
+
+    code = suite.main(
+        [
+            "run",
+            "--plan",
+            str(plan_path),
+            "--runtime",
+            "local",
+            "--output",
+            str(out),
+            "--work-root",
+            str(tmp_path / "work"),
+            "--omp-command",
+            str(PINNED_OMP),
+            "--stub-script",
+            str(REPO_ROOT / "benchmarks/swe_ab/stub-script.json"),
+        ]  # fmt: skip
     )
 
-    check = stage0.model_ids_check(["omp"], _logins(tmp_path, "anthropic", "openai-codex"))
-
-    assert check["status"] == "pass"
-    assert check["routes"] == {model: model.split("/")[0] for model in MODELS}
-    assert check["logins"]["openai-codex"]["enabled"] == 1
-
-
-def test_stage0_fails_a_provider_without_an_enabled_login(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _stub_omp_models(monkeypatch, _catalog())
-
-    check = stage0.model_ids_check(["omp"], _logins(tmp_path, "anthropic"))
-
-    assert check["status"] == "fail"
-    assert "no enabled login for provider 'openai-codex'" in check["detail"]
-
-
-def test_stage0_fails_a_model_that_is_absent_or_routed_off_its_subscription(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    bedrock_only = [
-        {
-            "provider": "amazon-bedrock",
-            "id": "global.anthropic.claude-sonnet-5-5",
-            "selector": "amazon-bedrock/global.anthropic.claude-sonnet-5-5",
-        },
-        {"provider": "amazon-bedrock", "id": "gpt-6-sol", "selector": "openai-codex/gpt-6-sol"},
-    ]
-    _stub_omp_models(monkeypatch, bedrock_only)
-
-    check = stage0.model_ids_check(["omp"], _logins(tmp_path, "anthropic", "openai-codex"))
-
-    assert check["status"] == "fail"
-    assert "anthropic/claude-sonnet-5-5 is not in this omp's model catalog" in check["detail"]
-    assert "openai-codex/gpt-6-sol routes through 'amazon-bedrock'" in check["detail"]
-
-
-def test_stage0_reports_an_unreadable_login_vault_as_a_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _stub_omp_models(monkeypatch, _catalog())
-
-    check = stage0.model_ids_check(["omp"], tmp_path / "absent.db")
-
-    assert check["status"] == "fail"
-
-
-class _Broker(BaseHTTPRequestHandler):
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
-        return
-
-    def do_GET(self) -> None:
-        if self.path == "/v1/healthz":
-            body = b'{"ok":true,"version":"18.4.4"}'
-        elif self.headers.get("authorization") == f"Bearer {TOKEN}":
-            body = json.dumps(_clear_usage()).encode()
-        else:
-            self.send_response(401)
-            self.end_headers()
-            return
-        self.send_response(200)
-        self.send_header("content-length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-
-@pytest.fixture
-def broker_url() -> Any:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Broker)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{server.server_address[1]}"
-    server.shutdown()
-
-
-def _broker_args(url: str | None, token_file: Path | None = None) -> argparse.Namespace:
-    return argparse.Namespace(
-        broker_url=url, broker_bind="127.0.0.1:0", broker_token_file=token_file
-    )
-
-
-def test_stage0_reads_the_brokers_health_and_the_usage_the_quota_guard_uses(
-    tmp_path: Path, broker_url: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _no_broker_env(monkeypatch)
-    token_file = tmp_path / "t"
-    token_file.write_text(TOKEN)
-
-    checks = {c["id"]: c for c in stage0.broker_checks(_broker_args(broker_url, token_file))}
-
-    assert (checks["broker_healthy"]["status"], checks["broker_usage_readable"]["status"]) == (
-        "pass",
-        "pass",
-    )
-    assert checks["broker_usage_readable"]["quota"][MODELS[0]]["status"] == "clear"
-    assert checks["broker_usage_readable"]["quota"][MODELS[2]]["status"] == "unknown"
-
-
-def test_stage0_fails_the_usage_check_on_a_wrong_token_without_echoing_it(
-    tmp_path: Path, broker_url: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _no_broker_env(monkeypatch)
-    token_file = tmp_path / "t"
-    token_file.write_text("wrong-token")
-
-    checks = {c["id"]: c for c in stage0.broker_checks(_broker_args(broker_url, token_file))}
-
-    assert checks["broker_usage_readable"]["status"] == "fail"
-    assert "HTTP 401" in checks["broker_usage_readable"]["detail"]
-    assert "wrong-token" not in json.dumps(checks)
-
-
-def test_stage0_leaves_the_broker_checks_pending_until_one_is_running() -> None:
-    checks = stage0.broker_checks(_broker_args(None))
-
-    assert {c["status"] for c in checks} == {"requires_host"}
-
-
-class _Docker:
-    """A fake ``subprocess.run`` for the container probes."""
-
-    def __init__(self, *, reachable: bool = True, env_names: str | None = None) -> None:
-        self.calls: list[list[str]] = []
-        self.reachable = reachable
-        self.env_names = env_names or "HOME\nOMP_AUTH_BROKER_TOKEN\nOMP_AUTH_BROKER_URL\nPATH\n"
-
-    def __call__(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        self.calls.append(argv)
-        out, code = "", 0
-        if "wget" in argv:
-            out, code = ('{"ok":true,"version":"18.4.4"}', 0) if self.reachable else ("", 1)
-        elif argv[-1].startswith("env |"):
-            out = self.env_names
-        return subprocess.CompletedProcess(argv, code, stdout=out, stderr="")
-
-
-def test_a_container_probe_reaches_the_broker_and_sees_only_the_allow_list() -> None:
-    docker = _Docker()
-
-    check = stage0.broker_container_check(
-        "http://host.docker.internal:8765", "127.0.0.1:8765", run=docker
-    )
-
-    assert check["status"] == "pass"
-    assert check["bind"] == "127.0.0.1:8765"
-    run_call = docker.calls[0]
-    assert run_call[run_call.index("--add-host") + 1] == "host.docker.internal:host-gateway"
-    assert docker.calls[-1][:3] == ["docker", "rm", "-f"]
-    assert "stage0-probe" not in " ".join(" ".join(call) for call in docker.calls)
-
-
-def test_a_container_probe_fails_when_the_broker_is_unreachable() -> None:
-    check = stage0.broker_container_check(
-        "http://host.docker.internal:1", None, run=_Docker(reachable=False)
-    )
-
-    assert (check["status"], check["reachable"]) == ("fail", False)
-
-
-def test_a_container_probe_fails_when_a_host_variable_leaks_in() -> None:
-    leaky = _Docker(
-        env_names="HOME\nOMP_AUTH_BROKER_TOKEN\nOMP_AUTH_BROKER_URL\nSWE_AB_STAGE0_HOST_SENTINEL\n"
-    )
-
-    check = stage0.broker_container_check("http://host.docker.internal:8765", None, run=leaky)
-
-    assert (check["status"], check["allow_list_only"]) == ("fail", False)
-
-
-def _bun(default: int, baseline: int = 0) -> Any:
-    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        code = default if "oven/bun:1-debian" in argv else baseline
-        error = "Illegal instruction" if code else ""
-        return subprocess.CompletedProcess(
-            argv, code, stdout="1.3.0" if not code else "", stderr=error
-        )
-
-    return run
-
-
-def test_bun_check_reports_which_build_runs_under_emulation() -> None:
-    assert stage0.bun_emulation_check(run=_bun(0))["variant"] == "default"
-    fallback = stage0.bun_emulation_check(run=_bun(132, 0))
-    assert (fallback["status"], fallback["variant"]) == ("pass", "baseline")
-    assert "Illegal instruction" in fallback["default_error"]
-    assert stage0.bun_emulation_check(run=_bun(132, 132))["status"] == "fail"
-
-
-def test_a_stopped_docker_daemon_leaves_every_container_check_pending(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def ok(check_id: str) -> dict[str, str]:
-        return {"id": check_id, "status": "pass", "detail": ""}
-
-    def omp_version(command: list[str]) -> dict[str, str]:
-        return ok("omp_version")
-
-    def model_routes(command: list[str], agent_db: Path) -> dict[str, str]:
-        return ok("model_routes_and_logins")
-
-    def no_stub_checks(command: list[str], work: Path) -> list[dict[str, str]]:
-        return []
-
-    monkeypatch.setattr(stage0, "docker_running", lambda: False)
-    monkeypatch.setattr(stage0, "omp_version_check", omp_version)
-    monkeypatch.setattr(stage0, "model_ids_check", model_routes)
-    monkeypatch.setattr(stage0, "stub_arm_checks", no_stub_checks)
-    output = tmp_path / "stage0.json"
-
-    code = stage0.main(["--output", str(output), "--host", "--agent-db", str(tmp_path / "x.db")])
-
-    report = json.loads(output.read_text())
-    pending = {c["id"]: c for c in report["checks"] if c["status"] == "requires_host"}
     assert code == 0
-    assert report["gate"] == "pending_host"
-    assert {
-        "gold_empty_validity",
-        "broker_reachable_from_container",
-        "bun_runs_under_emulation",
-        "emulated_wall_times",
-        "one_real_cell_per_model",
-    } <= set(pending)
-    assert "not running" in pending["gold_empty_validity"]["detail"]
-
-
-def test_docker_running_is_false_without_a_docker_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    def missing(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError
-
-    monkeypatch.setattr(stage0.subprocess, "run", missing)
-
-    assert stage0.docker_running() is False
+    cells = [load_cell(path) for path in out.rglob("*.json")]
+    assert len(cells) == 1
+    cell = cells[0]
+    assert cell.status.value == "ok"
+    assert cell.provider_base_url is not None
+    assert cell.provider_base_url.startswith("http://127.0.0.1:")
+    assert cell.credential_env_names == []
+    with pytest.raises(SweAbError, match="local stub"):
+        validate_swe_ab_directory(out, load_plan(plan_path), require_complete=False)

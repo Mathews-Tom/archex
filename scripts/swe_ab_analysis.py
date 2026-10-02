@@ -12,13 +12,14 @@ uv run python scripts/swe_ab_analysis.py --plan stage2-plan.json \
 ```
 
 The directory must pass `validate_swe_ab_directory` first (complete, one host kind, no cell left
-as a quota block, broker-authenticated, identities single per arm); anything it refuses, and any
+as a quota or credit block, Muna-authenticated, identities single per arm); anything it
+refuses, and any
 unscored cell, ends the analysis with ``REFUSED`` and exit status 1. Nothing is dropped: a failed
 cell enters every metric at the tokens it consumed and scores unresolved.
 
 What is computed, and nothing else:
 
-* **Efficiency, per model** (H1, H2). Per task, ``ln(treatment billed tokens / A0 billed
+* **Efficiency, per configuration** (H1, H2). Per task, ``ln(treatment billed tokens / A0 billed
   tokens)``, billed = input + output + cache read + cache write, summed over the cell's requests;
   the control is A0 repetition 1 (a second A0 repetition, Stage 1 only, feeds the noise estimate
   and nothing else). Geometric mean ratio = ``exp(mean)``. Repository-clustered percentile
@@ -35,10 +36,13 @@ What is computed, and nothing else:
   model strata (chi-square statistic and exact two-sided binomial p).
 * **Sensitivity.** Both analyses again without the (model, task) pairs in which either cell had a
   quota-blocked attempt.
-* **Stage 1 gates** (when A0 has two repetitions): the A0 lever share per model against 2 × SESOI
-  (kill criterion 3), HC adoption against 25% (criterion 4), H hook activity against 50%
-  (criterion 5), and the A0-vs-A0 noise that sets efficiency power, the minimum detectable ratio,
-  and whether the equivalence margin is reachable at Stage 2's 100 tasks.
+* **Stage 1 gates** (when A0 has two repetitions): the A0 lever share per configuration against
+  2 × SESOI (kill criterion 3), HC adoption against 25% (criterion 4), H hook activity against
+  50% (criterion 5), the A0 solve-rate floor (15% over all A0 cells, failures unresolved), the
+  Stage 2 task count ``max(100, ceil(370 / k))`` for the k configurations passing the floor, and
+  the A0-vs-A0 noise that sets efficiency power, the minimum detectable ratio, and whether the
+  equivalence margin is reachable at that Stage 2 size. With ``--pilot-analysis`` the Stage 2
+  guardrail pools only the configurations that passed the floor (none: ``not_estimable``).
 """
 
 from __future__ import annotations
@@ -70,9 +74,12 @@ from archex.benchmark.swe_ab import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Collection, Iterable, Mapping, Sequence
 
     from numpy.typing import NDArray
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import swe_ab_sample as sampler  # noqa: E402 - sibling script, importable only via sys.path
 
 SEED = 20260909
 RESAMPLES = 10_000
@@ -86,7 +93,8 @@ NIM = -0.05
 LEVER_GATE = round(2 * (1 - SESOI_RATIO), 6)
 ADOPTION_GATE = 0.25
 HOOK_ACTIVITY_GATE = 0.50
-STAGE2_TASKS = 100
+SOLVE_FLOOR = 0.15
+"""Stage 1 gate: a configuration's A0 solve rate (all A0 cells) must reach this."""
 POWER = 0.80
 TREATMENTS: tuple[SweAbArm, ...] = (SweAbArm.H, SweAbArm.HC)
 _NORMAL = statistics.NormalDist()
@@ -415,12 +423,43 @@ def guardrail(
     }
 
 
-def guardrail_family(stage: Stage, *, exclude_blocked: bool = False) -> dict[str, Any]:
-    return {
-        arm.value: guardrail(pairs(stage, arm), stage.plan.models, exclude_blocked=exclude_blocked)
-        for arm in TREATMENTS
-        if arm in stage.plan.repetitions
-    }
+UNINFORMATIVE = "uninformative: below the 15% solve-rate floor"
+
+
+def guardrail_family(
+    stage: Stage, *, exclude_blocked: bool = False, uninformative: Collection[str] = frozenset()
+) -> dict[str, Any]:
+    """H3 per treatment over the configurations above the pilot's floor.
+
+    Configurations in ``uninformative`` stay out of the pooled estimate and are reported alone;
+    with none left the verdict is ``not_estimable``.
+    """
+    informative = [m for m in stage.plan.models if m not in uninformative]
+    out: dict[str, Any] = {}
+    for arm in TREATMENTS:
+        if arm not in stage.plan.repetitions:
+            continue
+        stage_pairs = pairs(stage, arm)
+        result = guardrail(
+            [p for p in stage_pairs if p.model in informative],
+            informative,
+            exclude_blocked=exclude_blocked,
+        )
+        if not informative:
+            result["reason"] = "no configuration passed the Stage 1 solve-rate floor"
+        if uninformative:
+            result["uninformative"] = {
+                model: {
+                    "label": UNINFORMATIVE,
+                    **guardrail([p for p in stage_pairs if p.model == model], [model])[
+                        "solve_rate_by_model"
+                    ].get(model, {}),
+                }
+                for model in stage.plan.models
+                if model in uninformative
+            }
+        out[arm.value] = result
+    return out
 
 
 # --- disclosure: outcomes and blocked attempts -------------------------------------------
@@ -578,8 +617,32 @@ def hook_activity(stage: Stage, arm: SweAbArm) -> dict[str, Any]:
     }
 
 
-def a0_noise(stage: Stage) -> dict[str, Any]:
-    """A0 rep 2 vs rep 1 per model: token CV, flip rate, and what they imply for Stage 2.
+def solve_floor(stage: Stage) -> dict[str, Any]:
+    """Per configuration, the A0 solve rate over every A0 cell (all repetitions) against the floor.
+
+    A failed cell is unresolved and counts in the denominator.
+    """
+    out: dict[str, Any] = {}
+    for model in stage.plan.models:
+        cells = [c for k, c in stage.cells.items() if k.model == model and k.arm is SweAbArm.A0]
+        rate = sum(1 for c in cells if c.resolved) / len(cells)
+        out[model] = {"rate": rate, "n": len(cells), "passed": rate >= SOLVE_FLOOR}
+    return out
+
+
+def stage2_size(passing: int) -> dict[str, Any]:
+    """The Stage 2 task count the size rule gives for ``passing`` floor-passing configurations."""
+    if passing == 0:
+        return {"passing_configurations": 0, "tasks": None, "estimable": False}
+    return {
+        "passing_configurations": passing,
+        "tasks": sampler.stage2_task_count(passing),
+        "estimable": True,
+    }
+
+
+def a0_noise(stage: Stage, stage2_tasks: int | None) -> dict[str, Any]:
+    """A0 rep 2 vs rep 1 per configuration: token CV, flip rate, and what they imply for Stage 2.
 
     ``sd`` is the standard deviation of per-task ``ln(rep2 / rep1)``, the paired log-ratio spread
     a treatment with no effect would show. Power treats tasks as independent (Stage 1 has about
@@ -619,28 +682,35 @@ def a0_noise(stage: Stage) -> dict[str, Any]:
         def tasks_needed(spread: float) -> int:
             return math.ceil(((z_alpha + z_beta) * spread / delta) ** 2)
 
-        half_width = _NORMAL.inv_cdf(1 - ALPHA) * sd / math.sqrt(STAGE2_TASKS)
-        out[model] = {
-            **result,
-            "sd": sd,
-            "within_task_cv": math.sqrt(math.exp(within**2) - 1),
-            "tasks_for_power_at_sesoi": tasks_needed(sd),
-            "power_at_stage2_tasks": _NORMAL.cdf(delta * math.sqrt(STAGE2_TASKS) / sd - z_alpha),
-            "min_detectable_ratio_at_stage2": math.exp(
-                -(z_alpha + z_beta) * sd / math.sqrt(STAGE2_TASKS)
-            ),
-            "eqm_ci90_half_width_at_stage2": half_width,
-            "eqm_log_margin": eqm_delta,
-            "eqm_reachable_at_stage2": half_width < eqm_delta,
-            "sd_upper_limits": {
-                f"one_sided_{round(p * 100)}": {
-                    "sd": upper,
-                    "tasks_for_power_at_sesoi": tasks_needed(upper),
+        out[model] = {**result, "sd": sd, "within_task_cv": math.sqrt(math.exp(within**2) - 1)}
+        out[model]["tasks_for_power_at_sesoi"] = tasks_needed(sd)
+        if stage2_tasks is not None:
+            half_width = _NORMAL.inv_cdf(1 - ALPHA) * sd / math.sqrt(stage2_tasks)
+            out[model].update(
+                {
+                    "power_at_stage2_tasks": _NORMAL.cdf(
+                        delta * math.sqrt(stage2_tasks) / sd - z_alpha
+                    ),
+                    "min_detectable_ratio_at_stage2": math.exp(
+                        -(z_alpha + z_beta) * sd / math.sqrt(stage2_tasks)
+                    ),
+                    "eqm_ci90_half_width_at_stage2": half_width,
+                    "eqm_reachable_at_stage2": half_width < eqm_delta,
                 }
-                for p in (0.80, 0.90, 0.95)
-                for upper in [sd * math.sqrt(df / chi2_ppf(1 - p, df))]
-            },
-        }
+            )
+        out[model].update(
+            {
+                "eqm_log_margin": eqm_delta,
+                "sd_upper_limits": {
+                    f"one_sided_{round(p * 100)}": {
+                        "sd": upper,
+                        "tasks_for_power_at_sesoi": tasks_needed(upper),
+                    }
+                    for p in (0.80, 0.90, 0.95)
+                    for upper in [sd * math.sqrt(df / chi2_ppf(1 - p, df))]
+                },
+            }
+        )
     return out
 
 
@@ -649,13 +719,18 @@ def stage1_gates(stage: Stage) -> dict[str, Any] | None:
     if stage.plan.repetitions.get(SweAbArm.A0, 0) < 2:
         return None
     arms = stage.plan.repetitions
+    floor = solve_floor(stage)
+    passing = sum(1 for gate in floor.values() if gate["passed"])
+    size = stage2_size(passing)
     return {
         "headroom": lever_shares(stage),
+        "solve_floor": floor,
+        "stage2_size": size,
         "hc_adoption": adoption(stage, SweAbArm.HC) if SweAbArm.HC in arms else None,
         "c_adoption": adoption(stage, SweAbArm.C) if SweAbArm.C in arms else None,
         "hook_activity": hook_activity(stage, SweAbArm.H) if SweAbArm.H in arms else None,
         "hook_activity_hc": hook_activity(stage, SweAbArm.HC) if SweAbArm.HC in arms else None,
-        "a0_noise": a0_noise(stage),
+        "a0_noise": a0_noise(stage, size["tasks"]),
     }
 
 
@@ -669,6 +744,13 @@ def _no_headroom(pilot: Mapping[str, Any]) -> dict[str, set[str]]:
         model: {arm for arm in ("H", "HC") if not cast("dict[str, Any]", gates[arm])["passed"]}
         for model, gates in headroom.items()
     }
+
+
+def _below_floor(pilot: Mapping[str, Any]) -> frozenset[str]:
+    """Configurations whose Stage 1 solve-rate floor gate failed."""
+    pilot_gates = cast("dict[str, Any]", pilot.get("gates") or {})
+    floor = cast("dict[str, dict[str, Any]]", pilot_gates.get("solve_floor") or {})
+    return frozenset(label for label, gate in floor.items() if not gate["passed"])
 
 
 def _identities(stage: Stage) -> dict[str, Any]:
@@ -705,6 +787,7 @@ def _rounded(value: object) -> object:
 
 def analyse(stage: Stage, pilot: Mapping[str, Any] | None = None) -> dict[str, Any]:
     no_headroom = _no_headroom(pilot) if pilot is not None else None
+    uninformative = _below_floor(pilot) if pilot is not None else frozenset[str]()
     report = {
         "analysis": "r3x-swe-ab",
         "preregistration": PREREGISTRATION_PATH,
@@ -719,16 +802,17 @@ def analyse(stage: Stage, pilot: Mapping[str, Any] | None = None) -> dict[str, A
             "lever_gate": LEVER_GATE,
             "adoption_gate": ADOPTION_GATE,
             "hook_activity_gate": HOOK_ACTIVITY_GATE,
-            "stage2_tasks": STAGE2_TASKS,
+            "solve_floor": SOLVE_FLOOR,
+            "guardrail_pairs": sampler.GUARDRAIL_PAIRS,
         },
         "provenance": {**_identities(stage), "coverage": stage.coverage},
         "outcomes": outcomes(stage),
         "blocked_attempts": blocked_attempts(stage),
         "efficiency": efficiency_family(stage, no_headroom=no_headroom),
-        "guardrail": guardrail_family(stage),
+        "guardrail": guardrail_family(stage, uninformative=uninformative),
         "sensitivity_excluding_blocked": {
             "efficiency": efficiency_family(stage, exclude_blocked=True, no_headroom=no_headroom),
-            "guardrail": guardrail_family(stage, exclude_blocked=True),
+            "guardrail": guardrail_family(stage, exclude_blocked=True, uninformative=uninformative),
         },
         "gates": stage1_gates(stage),
     }
@@ -750,7 +834,8 @@ def main(argv: list[str] | None = None) -> int:
         "--pilot-analysis",
         type=Path,
         help="Stage 1 analysis JSON; labels Stage 2 hypotheses its headroom gate declared "
-        "mis-specified",
+        "mis-specified and drops configurations that failed its solve-rate floor from the "
+        "pooled guardrail",
     )
     args = parser.parse_args(argv)
     try:
