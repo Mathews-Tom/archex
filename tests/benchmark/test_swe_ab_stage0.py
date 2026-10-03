@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 stage0: Any = importlib.import_module("swe_ab_stage0")
 
-from archex.benchmark.swe_ab import load_campaign  # noqa: E402
+from archex.benchmark.swe_ab import BASE_TOOLS, MCP_TOOLS, SweAbArm, load_campaign  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parents[2]
 _CAMPAIGNS = (
@@ -316,3 +316,72 @@ def test_container_checks_run_the_bundle_and_survive_an_instance_that_cannot_sta
     assert checks["container_setup:t0"]["status"] == "fail"
     assert checks["omp_runs_in_container"]["per_instance"] == {"t0": False, "t1": True}
     assert not any("/host/omp-18.4.4" in part for argv in ran for part in argv)
+
+
+# --- the MCP arm's checks ------------------------------------------------------------------------
+
+
+def _advertised(
+    *, m: list[str] | None = None, leak_into: str | None = None
+) -> dict[str, list[str]]:
+    base = sorted(BASE_TOOLS)
+    tools = {arm.value: list(base) for arm in SweAbArm}
+    tools["M"] = m if m is not None else sorted([*base, *MCP_TOOLS])
+    if leak_into is not None:
+        tools[leak_into] = sorted([*base, MCP_TOOLS[0]])
+    return tools
+
+
+def test_the_mcp_tools_check_passes_when_only_m_advertises_them() -> None:
+    check = stage0.mcp_tools_check(_advertised())
+
+    assert check["id"] == "mcp_tools_in_m_arm"
+    assert check["status"] == "pass"
+
+
+def test_the_mcp_tools_check_fails_when_m_lacks_a_tool() -> None:
+    base = sorted(BASE_TOOLS)
+
+    check = stage0.mcp_tools_check(_advertised(m=sorted([*base, MCP_TOOLS[0]])))
+
+    assert check["status"] == "fail"
+    assert MCP_TOOLS[1] in check["detail"]
+
+
+def test_the_mcp_tools_check_fails_when_another_arm_advertises_one() -> None:
+    check = stage0.mcp_tools_check(_advertised(leak_into="HC"))
+
+    assert check["status"] == "fail"
+    assert "HC" in check["detail"]
+
+
+def _request(tool_text: str | None) -> dict[str, Any]:
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "q"}]
+    if tool_text is not None:
+        messages.append({"role": "tool", "content": tool_text})
+    return {"messages": messages}
+
+
+def test_the_mcp_call_check_passes_on_archex_context_and_records_only_its_size() -> None:
+    text = '<context repo="x">secret source text</context>'
+
+    check = stage0.mcp_call_check([_request(None), _request(text)], calls=1)
+
+    assert check["status"] == "pass"
+    assert check["tool_result_chars"] == len(text)
+    assert "secret source text" not in json.dumps(check)
+
+
+@pytest.mark.parametrize(
+    ("requests", "calls"),
+    [
+        ([_request(None), _request("Error: repo not found")], 1),
+        ([_request(None), _request("<context>x</context>")], 0),
+        ([_request(None)], 0),
+        ([], 0),
+    ],
+)
+def test_the_mcp_call_check_fails_without_context_or_without_a_recorded_call(
+    requests: list[dict[str, Any]], calls: int
+) -> None:
+    assert stage0.mcp_call_check(requests, calls=calls)["status"] == "fail"

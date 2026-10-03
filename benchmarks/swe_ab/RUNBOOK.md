@@ -8,8 +8,23 @@ A **campaign** file under `benchmarks/swe_ab/campaigns/` selects the provider an
 
 | Campaign | Provider config | Key variable | Configurations (plan/cell `model` → omp selector, `--thinking`) |
 | --- | --- | --- | --- |
+| `campaigns/openrouter.yml` (**draft**) | `openrouter-open-models.yml` (`https://openrouter.ai/api/v1`, priced; each model pinned to one upstream host) | `OPENROUTER_API_KEY` | `qwen-3.8-27b@low` → `openrouter/qwen/qwen3.8-27b`, `low` (DeepInfra bf16); `qwen-3.8-27b@high` → same, `high`; `gemma-4-26b-a4b-it@high` → `openrouter/google/gemma-4-26b-a4b-it`, `high` (NextBit bf16) |
 | `campaigns/muna.yml` | `muna-models.yml` (`https://inference.muna.ai/v1`, priced) | `MUNA_ACCESS_KEY` | `qwen-3.8-27b@low` → `muna/@qwen/qwen-3.8-27b`, `low`; `qwen-3.8-27b@high` → same, `high`; `gemma-4-26b-a4b-it@high` → `muna/@google/gemma-4-26b-a4b-it`, `high` |
 | `campaigns/openrouter-space-bunny.yml` | `openrouter-models.yml` (`https://openrouter.ai/api/v1`, free) | `OPENROUTER_API_KEY` | `space-bunny-alpha@high` → `openrouter/stealth/space-bunny-alpha`, `high` |
+
+**Pinning an OpenRouter host.** OpenRouter spreads one model id over several hosts (quantization, caching, and serving stack differ). `compat.openRouterRouting.only: [<provider slug>]` in the provider config makes every request carry `provider: {"only": [...]}`, so a stage runs on one serving stack; pick hosts from `GET https://openrouter.ai/api/v1/models/<id>/endpoints` (no key) and slugs from `GET https://openrouter.ai/api/v1/providers`.
+
+### Arms
+
+| Arm | archex surface | Stage |
+| --- | --- | --- |
+| A0 | none | pilot + confirmatory |
+| H | annotation hook (omp `-e <hook module>`), archex not on `PATH` | pilot + confirmatory |
+| HC | hook + CLI on `PATH` + CLI guide in the system prompt | pilot + confirmatory |
+| M | archex MCP server in the profile's `mcp.json` (`archex mcp`, as `archex install-client omp` installs it), archex not on `PATH`, no hook; `--tools` adds `mcp__archex_context,mcp__archex_query_repo` | pilot + confirmatory |
+| C | CLI on `PATH` + CLI guide, no hook | pilot only |
+
+M needs the overlay's `mcp.startupTimeoutMs: 0`: omp registers MCP tools only after the server connects and checks `--tools` against what is registered, and the archex server starts slower than omp's default 250 ms window.
 
 Muna honours effort for Qwen 3.8-27B (82 vs 271 reasoning tokens at low vs high) but not for Gemma 4-26B-A4B (3+3 requests, mean 1,033 vs 1,100, ratio 1.06, overlapping), so Gemma runs at `high` only. In G1 (2026-10-02/03) Muna answered every request for both models with `429 model_capacity_exhausted` (pre-registration, Stage 0 item).
 
@@ -196,7 +211,9 @@ Without `--host` (or when `docker info` fails) the script runs only the local ch
 | `provider_key_accepted` | the zero-token request of §3.1 is rejected for its model (400/404/422; 401/403 fail; a missing key fails without any request; the key is never printed) | no (nothing is generated) |
 | `frozen_identities` | SHA-256 of the CLI guide, the rendered hook module, the campaign file and its provider config, and `omp-campaign.yml` | no |
 | `effort_request_shape` | per configuration, one stub-backed omp run (the stub serving that configuration's model id) whose first request body has `reasoning_effort` equal to the configuration's effort; fails when absent or different (the Qwen trap of §3.2) | no |
-| `stub_rehearsal` … `validator_refuses_stub_cells` | one no-spend cell per arm against the local stub (the committed dry-run plan, Muna campaign): tool list, system-prompt isolation, search-routing disclosure, annotation only in H/HC, no compressor output, validator refusal of stub-endpoint cells (the resolved base URL is not the campaign's) | no |
+| `stub_rehearsal` … `validator_refuses_stub_cells` | one no-spend cell per arm (A0, H, HC, M, C) against the local stub (the committed dry-run plan, Muna campaign): tool list, system-prompt isolation, search-routing disclosure, annotation only in H/HC, no compressor output, validator refusal of stub-endpoint cells (the resolved base URL is not the campaign's) | no |
+| `mcp_tools_in_m_arm` | the M cell advertises exactly the base tools plus `mcp__archex_context` and `mcp__archex_query_repo`, and no other arm advertises them | no |
+| `mcp_call_executes_in_m_arm` | a stub-scripted M run calls `mcp__archex_query_repo` on the checkout and gets archex context back (the result size is recorded, never its text) | no |
 | `gold_empty_validity` | per instance, the gold patch resolves and the empty patch fails (invalid instances leave the pool) | no |
 | `omp_runs_in_container` | the pinned omp build starts inside each Pro image | no |
 | `archex_indexes_in_container` | archex installs into `/opt/archex`, indexes the checkout to `fresh`, and the annotate entry is pre-warmed on a real search hit | no |
@@ -217,7 +234,7 @@ This is the last Stage 0 check. **Do not run it until the prices are set (§3.2)
 ```json
 {
   "name": "stage0-one-cell",
-  "campaign": "benchmarks/swe_ab/campaigns/muna.yml",
+  "campaign": "benchmarks/swe_ab/campaigns/openrouter.yml",
   "tasks": [{"task_id": "<one short instance_id>", "repo": "<org/repo>"}],
   "models": ["qwen-3.8-27b@low", "qwen-3.8-27b@high", "gemma-4-26b-a4b-it@high"],
   "repetitions": {"H": 1},
@@ -311,11 +328,11 @@ The pre-registered analysis (`scripts/swe_ab_analysis.py`) refuses anything `val
 ```bash
 uv run python scripts/swe_ab_analysis.py --plan stage1-plan.json \
   --input benchmarks/swe_ab/results/stage1 --output benchmarks/evidence/r3x-swe-ab-pilot.json
-# Stage 1 gates: .gates.solve_floor, .gates.headroom, .gates.hc_adoption, .gates.hook_activity,
-# .gates.a0_noise, .gates.stage2_size
+# Stage 1 gates: .gates.solve_floor, .gates.headroom, .gates.hc_adoption, .gates.mcp_adoption,
+# .gates.hook_activity, .gates.a0_noise, .gates.stage2_size
 ```
 
-**Stage 2 size.** The guardrail needs about 370 pairs. Stage 2 tasks = max(100, ceil(370 / k)), where k is the number of configurations whose Stage 1 A0 solve rate is at least 15% (`gates.solve_floor`); k = 3 gives 124 (the report's `gates.stage2_size` states it). Draw it with `--stage2-tasks`, which the sampler requires for Stage 2 (at least 100) and records in the manifest; Stage 2 keeps the Stage 1 plan's campaign:
+**Stage 2 size.** The non-inferiority guardrail needs about 370 pairs per arm; the two-sided completion test (H5) at 80% power for a 5-point difference, Holm over the m primary arms kept after the adoption gates, needs n(3) = 626, n(2) = 568, n(1) = 469 pairs. Stage 2 tasks = max(100, ceil(max(370, n(m)) / k)), where k is the number of configurations whose Stage 1 A0 solve rate is at least 15% (`gates.solve_floor`); k = 3 and m = 3 give 209 (the report's `gates.stage2_size` states it). Draw it with `--stage2-tasks`, which the sampler requires for Stage 2 (at least 100) and records in the manifest, adding `--without-hc` / `--without-m` for an arm an adoption gate dropped; Stage 2 keeps the Stage 1 plan's campaign:
 
 ```bash
 uv run python scripts/swe_ab_sample.py --tasks-root "$TASKS" --stage 2 --stage2-tasks <N> --campaign "$CAMPAIGN" \

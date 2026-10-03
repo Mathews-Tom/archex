@@ -265,6 +265,7 @@ class SweAbArm(StrEnum):
     A0 = "A0"
     H = "H"
     HC = "HC"
+    M = "M"
     C = "C"
 
     @property
@@ -276,8 +277,34 @@ class SweAbArm(StrEnum):
         return self in (SweAbArm.HC, SweAbArm.C)
 
     @property
+    def mcp(self) -> bool:
+        """The archex MCP server is registered in the profile (``archex install-client omp``)."""
+        return self is SweAbArm.M
+
+    @property
     def archex_installed(self) -> bool:
         return self is not SweAbArm.A0
+
+
+PRIMARY_ARMS: tuple[SweAbArm, ...] = (SweAbArm.H, SweAbArm.HC, SweAbArm.M)
+"""Treatment arms compared with A0 in the confirmatory analysis (C is pilot only)."""
+
+MCP_SERVER = "archex"
+"""Server name in the M arm's ``mcp.json`` (as ``archex install-client omp`` writes it)."""
+
+MCP_TOOLS: tuple[str, ...] = ("mcp__archex_context", "mcp__archex_query_repo")
+"""The archex MCP tools the M arm advertises, as omp names them (``mcp__<server>_<tool>``).
+
+They are the server's shipped default first surface (disclosure on: ``context`` and
+``query_repo``). omp validates ``--tools`` against the tools registered at startup, so tools the
+server would disclose later cannot be named in the allow-list; the M arm therefore runs this
+two-tool surface (pre-registration, *Deviations*).
+"""
+
+
+def arm_tools(arm: SweAbArm) -> tuple[str, ...]:
+    """The tool allow-list (``--tools``) and the advertised tool set of ``arm``."""
+    return (*BASE_TOOLS, *MCP_TOOLS) if arm.mcp else BASE_TOOLS
 
 
 # --- channel rule table ---------------------------------------------------------
@@ -317,6 +344,7 @@ _DIFF_FILE = re.compile(r"^diff --git a/(\S+)", re.MULTILINE)
 CHANNELS: tuple[str, ...] = (
     "archex-annotation",
     "archex-CLI",
+    "archex-MCP",
     "search",
     "test",
     "read",
@@ -391,6 +419,8 @@ def omp_channel(tool: str, arguments: Mapping[str, object]) -> str:
         return "search"
     if tool in ("read", "edit", "write"):
         return tool
+    if tool.startswith(f"mcp__{MCP_SERVER}_"):
+        return "archex-MCP"
     if tool != "bash":
         return "other"
     raw = arguments.get("command")
@@ -951,7 +981,7 @@ class SweAbCell(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    artifact_version: Literal[2] = 2
+    artifact_version: Literal[3] = 3
     preregistration: str = PREREGISTRATION_PATH
     task_id: str
     repo: str
@@ -968,6 +998,8 @@ class SweAbCell(BaseModel):
     archex_wheel_sha256: str | None
     hook_module_sha256: str | None
     cli_guide_sha256: str | None
+    mcp_config_sha256: str | None = None
+    """SHA-256 of the ``mcp.json`` the M arm installs in the agent's profile; `None` elsewhere."""
     image: str
     thinking: str
     tool_fingerprint: str
@@ -997,6 +1029,9 @@ class SweAbCell(BaseModel):
     hook_ledger: HookLedgerSummary | None
     archex_cli_calls: int = Field(ge=0)
     archex_cli_subcommands: dict[str, int] = Field(default_factory=dict)
+    archex_mcp_calls: int = Field(default=0, ge=0)
+    """Calls of the archex MCP tools (M arm); adoption is judged on this count."""
+    archex_mcp_tools: dict[str, int] = Field(default_factory=dict)
     isolation: Isolation
     localization: Localization
 
@@ -1042,6 +1077,10 @@ class SweAbCell(BaseModel):
             raise ValueError(f"arm {arm} must carry a hook module and ledger iff it has the hook")
         if arm.cli != (self.cli_guide_sha256 is not None):
             raise ValueError(f"arm {arm} must carry the CLI guide iff it has the CLI")
+        if arm.mcp != (self.mcp_config_sha256 is not None):
+            raise ValueError(f"arm {arm} must carry the MCP config iff it has the MCP server")
+        if not arm.mcp and (self.archex_mcp_calls or self.channel_tokens_once["archex-MCP"]):
+            raise ValueError(f"archex MCP evidence in arm {arm}, which has no MCP server")
         if not arm.hook and (
             self.channel_tokens_once["archex-annotation"] or self.isolation.annotation_seen
         ):
@@ -1055,8 +1094,8 @@ class SweAbCell(BaseModel):
         if self.failure_reason is not None:
             raise ValueError("an ok cell carries no failure reason")
         isolation = self.isolation
-        if sorted(isolation.tools_advertised) != sorted(BASE_TOOLS):
-            raise ValueError("an ok cell must advertise exactly the base tool set")
+        if sorted(isolation.tools_advertised) != sorted(arm_tools(arm)):
+            raise ValueError(f"an ok cell must advertise exactly arm {arm}'s tool set")
         if self.tool_fingerprint != tool_fingerprint(isolation.tools_advertised):
             raise ValueError("tool fingerprint does not match the advertised tools")
         if (
@@ -1298,12 +1337,13 @@ def validate_swe_ab_directory(
         )
     _require_single("network", {cell.network for cell in cells.values()})
     _require_single("hook_timeout_seconds", {cell.hook_timeout_seconds for cell in cells.values()})
-    _require_single("tool_fingerprint", {cell.tool_fingerprint for cell in ok})
     for arm in SweAbArm:
         in_arm = [cell for cell in cells.values() if cell.arm is arm]
         _require_single(f"{arm} archex wheel", {c.archex_wheel_sha256 for c in in_arm})
         _require_single(f"{arm} hook module", {c.hook_module_sha256 for c in in_arm})
         _require_single(f"{arm} CLI guide", {c.cli_guide_sha256 for c in in_arm})
+        _require_single(f"{arm} MCP config", {c.mcp_config_sha256 for c in in_arm})
+        _require_single(f"{arm} tool_fingerprint", {c.tool_fingerprint for c in ok if c.arm is arm})
     for model in plan.models:
         for arm in SweAbArm:
             prefixes = {
@@ -1363,9 +1403,10 @@ def omp_argv(
     """The one omp command line every cell runs (spec §5.3).
 
     ``config`` is the cell's campaign configuration (omp selector and thinking effort).
-    Identical across arms except the explicit annotation extension (H, HC) and the appended
-    CLI guide (HC, C). ``--no-title`` keeps omp from spending a model call on a session title;
-    ``--config`` loads the frozen retry overlay.
+    Identical across arms except the explicit annotation extension (H, HC), the appended CLI
+    guide (HC, C), and the archex MCP tools in the ``--tools`` allow-list (M; the server itself is
+    registered by the profile's ``mcp.json``, not by a flag). ``--no-title`` keeps omp from
+    spending a model call on a session title; ``--config`` loads the frozen overlay.
     """
     if arm.hook != (hook_module_path is not None):
         raise SweAbError(f"arm {arm} {'needs' if arm.hook else 'must not load'} the hook module")
@@ -1383,7 +1424,7 @@ def omp_argv(
         "--thinking",
         config.thinking,
         "--tools",
-        ",".join(BASE_TOOLS),
+        ",".join(arm_tools(arm)),
         *ISOLATION_FLAGS,
     ]
     if hook_module_path is not None:

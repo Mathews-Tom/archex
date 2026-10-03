@@ -1,0 +1,16 @@
+# R3x campaign: the pre-registered configurations (Qwen 3.8 27B at low and high effort, Gemma 4
+# 26B A4B at high) served through OpenRouter, each model pinned to one upstream host in the
+# provider config. Priced, so the dollar ceiling bites. Pre-registration:
+# benchmarks/preregistrations/R3x-swe-archex-ab.md.
+name: openrouter
+provider_config: benchmarks/swe_ab/openrouter-open-models.yml
+configurations:
+  - label: qwen-3.8-27b@low
+    model: qwen/qwen3.8-27b
+    thinking: low
+  - label: qwen-3.8-27b@high
+    model: qwen/qwen3.8-27b
+    thinking: high
+  - label: gemma-4-26b-a4b-it@high
+    model: google/gemma-4-26b-a4b-it
+    thinking: high

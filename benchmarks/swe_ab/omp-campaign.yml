@@ -20,3 +20,12 @@
 retry:
   maxRetries: 20
   waitForUsageReset: false
+
+# MCP STARTUP. omp waits `mcp.startupTimeoutMs` (default 250 ms) for MCP servers before it
+# registers their tools, and validates `--tools` against the tools registered by then. The archex
+# MCP server (Python) starts slower than that, so the M arm's `--tools` allow-list was rejected
+# ("Unknown tools in --tools: mcp__archex_context, mcp__archex_query_repo"; measured against the
+# stub with omp 18.4.4, 2026-10-03). 0 waits until connections settle. Arms without an MCP server
+# have nothing to wait for, so the setting is inert there and the overlay stays one file.
+mcp:
+  startupTimeoutMs: 0

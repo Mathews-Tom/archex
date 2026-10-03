@@ -14,8 +14,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
+import statistics
 import sys
 import tempfile
 from collections.abc import Sequence
@@ -24,6 +26,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from archex.benchmark.swe_ab import (
+    PRIMARY_ARMS,
     Campaign,
     SweAbArm,
     SweAbError,
@@ -38,17 +41,45 @@ SEED = 20260909
 STAGE1_TASKS = 24
 STAGE2_MIN_TASKS = 100
 GUARDRAIL_PAIRS = 370
-"""Task-pair count that powers the pooled non-inferiority guardrail."""
+"""Floor on the Stage 2 target pair count (the pooled non-inferiority guardrail's)."""
+PAIRS_PSI = 0.15
+"""Assumed discordant-pair rate of the paired solve-rate comparison."""
+PAIRS_DELTA = 0.05
+"""Smallest solve-rate difference the completion test must detect."""
+PAIRS_ALPHA = 0.05
+PAIRS_POWER = 0.80
+_NORMAL = statistics.NormalDist()
 
 
-def stage2_task_count(passing_configurations: int, configurations: int) -> int:
-    """Stage 2 tasks: ``max(100, ceil(370 / k))`` for ``k`` of ``configurations`` passing."""
+def stage2_pairs_needed(arms_kept: int) -> float:
+    """Paired tasks for the two-sided completion test of ``arms_kept`` primary arms.
+
+    ``((z_{1-alpha/(2m)} sqrt(psi) + z_power sqrt(psi - delta^2)) / delta)^2`` with Holm's first
+    step ``alpha / m``, ``m = arms_kept``.
+    """
+    if not 1 <= arms_kept <= len(PRIMARY_ARMS):
+        raise SweAbError(
+            f"stage 2 size rule needs 1..{len(PRIMARY_ARMS)} primary arms, got {arms_kept}"
+        )
+    z_alpha = _NORMAL.inv_cdf(1 - PAIRS_ALPHA / (2 * arms_kept))
+    z_beta = _NORMAL.inv_cdf(PAIRS_POWER)
+    spread = z_alpha * math.sqrt(PAIRS_PSI) + z_beta * math.sqrt(PAIRS_PSI - PAIRS_DELTA**2)
+    return (spread / PAIRS_DELTA) ** 2
+
+
+def stage2_target_pairs(arms_kept: int) -> float:
+    """``max(370, n(m))``: the paired (model, task) count Stage 2 must reach."""
+    return max(float(GUARDRAIL_PAIRS), stage2_pairs_needed(arms_kept))
+
+
+def stage2_task_count(arms_kept: int, passing_configurations: int, configurations: int) -> int:
+    """Stage 2 tasks: ``max(100, ceil(target pairs / k))`` for ``k`` of ``configurations``."""
     if not 1 <= passing_configurations <= configurations:
         raise SweAbError(
             f"stage 2 size rule needs 1..{configurations} floor-passing configurations, "
             f"got {passing_configurations}"
         )
-    return max(STAGE2_MIN_TASKS, -(-GUARDRAIL_PAIRS // passing_configurations))
+    return max(STAGE2_MIN_TASKS, math.ceil(stage2_target_pairs(arms_kept) / passing_configurations))
 
 
 STAGE1_PER_REPO = 2
@@ -190,15 +221,18 @@ def build_plan(
     result: Draw,
     cost_ceiling: float,
     without_hc: bool,
+    without_m: bool,
     campaign: Campaign,
     token_ceiling: int | None,
 ) -> SweAbPlan:
     if result.stage == 1:
-        reps = {SweAbArm.A0: 2, SweAbArm.H: 1, SweAbArm.HC: 1, SweAbArm.C: 1}
+        reps = {SweAbArm.A0: 2, SweAbArm.H: 1, SweAbArm.HC: 1, SweAbArm.M: 1, SweAbArm.C: 1}
     else:
         reps = {SweAbArm.A0: 1, SweAbArm.H: 1}
         if not without_hc:
             reps[SweAbArm.HC] = 1
+        if not without_m:
+            reps[SweAbArm.M] = 1
     payload: dict[str, Any] = {
         "name": f"r3x-stage{result.stage}",
         "tasks": [{"task_id": i, "repo": r} for r, i in result.selected],
@@ -226,6 +260,8 @@ def build_manifest(
     stage1_ids: list[str] | None,
     campaign: Campaign,
     stage2_tasks: int | None = None,
+    without_hc: bool | None = None,
+    without_m: bool | None = None,
 ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         "seed": SEED,
@@ -244,6 +280,10 @@ def build_manifest(
         manifest["stage1_plan_task_ids"] = stage1_ids
     if stage2_tasks is not None:
         manifest["stage2_tasks"] = stage2_tasks
+    if without_hc is not None:
+        manifest["without_hc"] = without_hc
+    if without_m is not None:
+        manifest["without_m"] = without_m
     return manifest
 
 
@@ -263,8 +303,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     stage: int = args.stage
     if args.cost_ceiling <= 0:
         raise SweAbError("--cost-ceiling must be > 0")
-    if stage == 1 and (args.stage1_plan is not None or args.without_hc):
-        raise SweAbError("--stage1-plan and --without-hc apply to stage 2 only")
+    if stage == 1 and (args.stage1_plan is not None or args.without_hc or args.without_m):
+        raise SweAbError("--stage1-plan, --without-hc and --without-m apply to stage 2 only")
     if stage == 1 and args.stage2_tasks is not None:
         raise SweAbError("--stage2-tasks applies to stage 2 only")
     stage2_tasks: int | None = args.stage2_tasks
@@ -313,10 +353,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if set(stage1_ids) & {i for _, i in result.selected}:
             raise SweAbError("stage 2 overlaps stage 1")
 
-    plan = build_plan(result, args.cost_ceiling, args.without_hc, campaign, token_ceiling)
+    plan = build_plan(
+        result, args.cost_ceiling, args.without_hc, args.without_m, campaign, token_ceiling
+    )
     sums = args.tasks_root.parent / "SHA256SUMS"
     sums_sha = hashlib.sha256(sums.read_bytes()).hexdigest() if sums.is_file() else None
-    manifest = build_manifest(result, exclusions, sums_sha, stage1_ids, campaign, stage2_tasks)
+    manifest = build_manifest(
+        result,
+        exclusions,
+        sums_sha,
+        stage1_ids,
+        campaign,
+        stage2_tasks,
+        without_hc=args.without_hc if stage == 2 else None,
+        without_m=args.without_m if stage == 2 else None,
+    )
     instances = "".join(f"{i}\n" for _, i in result.selected)
     _atomic_write(args.plan_out, _dump(plan.model_dump(mode="json", exclude_none=True)))
     _atomic_write(args.manifest_out, _dump(manifest))
@@ -343,7 +394,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cost-ceiling", type=float, required=True)
     p.add_argument("--exclusions", type=Path)
     p.add_argument("--stage1-plan", type=Path)
-    p.add_argument("--without-hc", action="store_true")
+    p.add_argument("--without-hc", action="store_true", help="stage 2: drop the HC arm")
+    p.add_argument("--without-m", action="store_true", help="stage 2: drop the M (MCP) arm")
     p.add_argument("--plan-out", type=Path, required=True)
     p.add_argument("--manifest-out", type=Path, required=True)
     p.add_argument("--instances-out", type=Path, required=True)

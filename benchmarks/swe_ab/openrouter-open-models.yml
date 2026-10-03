@@ -1,0 +1,61 @@
+# Frozen omp models.yml for the R3x configurations served through OpenRouter, each model pinned to
+# one upstream host. Installed as `models.yml` in every container's profile copy; its SHA-256 is
+# recorded per cell as `provider_config_sha256`. Selected by benchmarks/swe_ab/campaigns/openrouter.yml.
+# Pre-registration: benchmarks/preregistrations/R3x-swe-archex-ab.md.
+#
+# The provider is named `openrouter` because omp 18.4.4 keys its OpenRouter adaptations (and the
+# `openRouterRouting` request field) on the provider name as well as the URL, and the Stage 0 stub
+# swaps only the URL. `thinkingFormat: openai` sends the effort as `reasoning_effort` on both.
+#
+# UPSTREAM PINNING. OpenRouter otherwise spreads one model id over several hosts with different
+# quantization, caching, and serving stacks. `openRouterRouting.only` names one host per model, so
+# a stage runs on one serving stack; a host outage is answered as an error, never a silent switch.
+# Hosts chosen from GET https://openrouter.ai/api/v1/models/<id>/endpoints (read 2026-10-03):
+# bf16 weights, cached-read pricing, `tools` supported, max completion >= 65,536.
+#   qwen/qwen3.8-27b          -> DeepInfra (deepinfra/bf16), uptime 98.6% (30 min)
+#   google/gemma-4-26b-a4b-it -> NextBit (nextbit/bf16), uptime 99.98% (30 min); OpenRouter lists
+#                                no `reasoning_effort` for any Gemma host (Muna's Gemma also ignored it)
+#
+# PRICES. `cost` is USD per million tokens at the pinned host (input / output / cacheRead):
+# Qwen at DeepInfra 0.15 / 1.875 / 0.0375; Gemma at NextBit 0.0675 / 0.225 / 0.0375.
+# `cacheWrite` stays 0: openai-completions reports none.
+providers:
+  openrouter:
+    baseUrl: https://openrouter.ai/api/v1
+    api: openai-completions
+    apiKey: OPENROUTER_API_KEY
+    models:
+      - id: qwen/qwen3.8-27b
+        name: Qwen 3.8 27B (DeepInfra bf16)
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [low, medium, high, xhigh]
+        compat:
+          thinkingFormat: openai
+          openRouterRouting:
+            only: [deepinfra]
+        cost:
+          input: 0.15
+          output: 1.875
+          cacheRead: 0.0375
+          cacheWrite: 0
+        contextWindow: 262144
+        maxTokens: 65536
+      - id: google/gemma-4-26b-a4b-it
+        name: Gemma 4 26B A4B IT (NextBit bf16)
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [low, medium, high, xhigh]
+        compat:
+          thinkingFormat: openai
+          openRouterRouting:
+            only: [nextbit]
+        cost:
+          input: 0.0675
+          output: 0.225
+          cacheRead: 0.0375
+          cacheWrite: 0
+        contextWindow: 262144
+        maxTokens: 65536
