@@ -1,0 +1,11 @@
+# R3x campaign: OpenRouter's anonymous preview `stealth/space-bunny-alpha` (pre-registration
+# benchmarks/preregistrations/R3x-swe-archex-ab.md). Free ($0 / $0), so every plan naming this
+# campaign must set `token_ceiling`. OpenRouter lists `expiration_date: 2026-10-05`; a stealth
+# model's identity is undisclosed and may change behind the same id, so its cells are not a
+# pinned model. Prompts and completions may be retained by the provider.
+name: openrouter-space-bunny
+provider_config: benchmarks/swe_ab/openrouter-models.yml
+configurations:
+  - label: space-bunny-alpha@high
+    model: stealth/space-bunny-alpha
+    thinking: high

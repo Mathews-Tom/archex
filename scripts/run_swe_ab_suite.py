@@ -1,8 +1,10 @@
 """Run or validate a declared set of SWE A/B cells (spec §5, §8).
 
 ```bash
-# Campaign cells on Muna-hosted models (see benchmarks/swe_ab/RUNBOOK.md). The key comes from
-# $MUNA_ACCESS_KEY, else from the `MUNA_ACCESS_KEY=` line of --env-file (default: ./.env):
+# Campaign cells (see benchmarks/swe_ab/RUNBOOK.md). The plan's `campaign` file names the
+# provider and the configurations. The key comes from the campaign's key variable (for
+# benchmarks/swe_ab/campaigns/muna.yml, $MUNA_ACCESS_KEY), else from that variable's `NAME=`
+# line of --env-file (default: ./.env):
 uv run python scripts/run_swe_ab_suite.py run --plan stage1.json --runtime docker \
     --output benchmarks/swe_ab/results/stage1 --work-root /scratch/swe-ab \
     --tasks-root SWE-bench_Pro-os/v2/tasks --omp-dir /opt/omp-linux-x64 \
@@ -18,23 +20,28 @@ uv run python scripts/run_swe_ab_suite.py validate --plan stage1.json \
     --input benchmarks/swe_ab/results/stage1
 ```
 
-Resumable: a cell whose artifact exists is skipped and its recorded cost counts toward
-the ceiling. The hard cumulative cost ceiling (the plan's, or a lower ``--cost-ceiling``)
-is checked before every cell and aborts the run when reached; cost is omp's model of the
-tokens at the prices in ``benchmarks/swe_ab/muna-models.yml``, so a docker run refuses to
-start while any of those prices is still 0. A cell whose runner produces no artifact is
-recorded as a harness failure; nothing is dropped.
+Resumable: a cell whose artifact exists is skipped and its recorded cost and billed tokens
+count toward the ceilings. The hard cumulative cost ceiling (the plan's, or a lower
+``--cost-ceiling``) is checked before every cell and aborts the run when reached; cost is
+omp's model of the tokens at the prices in the campaign's provider config. A campaign model
+priced at 0 (a free preview) makes that ceiling inert, so a docker run of such a campaign
+refuses to start unless the plan sets ``token_ceiling``: a cap on cumulative billed tokens
+(input + output + cache), the plan's or a lower ``--token-ceiling``, checked before every
+cell exactly like the cost ceiling. Either ceiling aborts the run with exit status 3. A cell
+whose runner produces no artifact is recorded as a harness failure; nothing is dropped.
 
 Order: cells run by (omp selector, task in plan order, configuration label, arm,
-repetition), so one model family stays loaded in Muna's shared GPU capacity at a time;
-``--prune-images`` removes a task's image once its cells for the current family are done.
+repetition), so one model family stays loaded in a provider's shared capacity at a time
+(Muna's GPU pool, say); ``--prune-images`` removes a task's image once its cells for the
+current family are done.
 
-Rate limits and capacity (Muna HTTP 429, including ``model_loading`` and
+Rate limits and capacity (HTTP 429, e.g. Muna's ``model_loading`` and
 ``model_capacity_exhausted``): a cell that ends in one (before its first tool call, or
 mid-run) after omp's own in-run retries is not a task outcome. Its artifact is filed under
 ``<output>/quota-blocked/`` with its cost still counted, and the cell is re-run after
 ``--block-cooldown-seconds``, up to ``--quota-retries`` times per invocation; past that it
-stays as the cell's record for a later resume.
+stays as the cell's record for a later resume. A re-run starts in an empty work directory:
+the earlier attempt's files move to ``<work>/cells/<cell>/prior-attempts/<n>/``.
 
 Credit exhaustion (HTTP 402 and kin) is never retried and never scored: the attempt is
 filed under ``quota-blocked/``, running cells finish, and the run exits with status 5; once
@@ -55,31 +62,29 @@ import sys
 import time
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import yaml
 
 from archex.benchmark.swe_ab import (
-    CAMPAIGN_PROVIDER,
     CLI_GUIDE_PATH,
-    CREDENTIAL_ENV_NAMES,
-    MUNA_BASE_URL,
     OMP_CONFIG_PATH,
-    PROVIDER_CONFIG_PATH,
     QUOTA_BLOCKED_DIR,
+    Campaign,
     CellKey,
     FailureReason,
     PlanTask,
+    SweAbCell,
     SweAbError,
     SweAbPlan,
-    configuration,
     credential_files_in_profile,
     is_emulated,
     load_cell,
     load_plan,
+    plan_campaign,
     quota_blocked_relative_path,
-    unpriced_models,
     validate_swe_ab_directory,
 )
 
@@ -94,7 +99,7 @@ _CELL_SCRIPT = Path(__file__).resolve().parent / "run_swe_ab_cell.py"
 _STUB_SCRIPT = Path(__file__).resolve().parent / "swe_ab_stub_provider.py"
 _CELL_TIMEOUT_SECONDS = 4 * 3600
 COST_EXIT = 3
-"""Exit status when the cost ceiling was reached."""
+"""Exit status when the cost or token ceiling was reached."""
 CREDIT_EXIT = 5
 """Exit status when credits ran out; the run is resumable once the account is topped up."""
 BLOCK_COOLDOWN_SECONDS = 300.0
@@ -103,12 +108,32 @@ QUOTA_RETRIES = 2
 """Default re-runs of a blocked cell per invocation."""
 
 
+@dataclass(frozen=True)
+class Spend:
+    """What cells consumed: omp's dollar cost and the billed tokens (input + output + cache)."""
+
+    cost_usd: float = 0.0
+    tokens: int = 0
+
+    def __add__(self, other: Spend) -> Spend:
+        return Spend(self.cost_usd + other.cost_usd, self.tokens + other.tokens)
+
+
+def _spend_of(cell: SweAbCell) -> Spend:
+    return Spend(cell.usage.cost_usd, cell.usage.total_billed)
+
+
+def _peak(a: Spend, b: Spend) -> Spend:
+    """The larger cost and the larger token count seen so far (a per-cell reservation)."""
+    return Spend(max(a.cost_usd, b.cost_usd), max(a.tokens, b.tokens))
+
+
 class CreditExhaustedError(RuntimeError):
     """A cell ended in credit exhaustion; its attempt is filed and the run stops."""
 
-    def __init__(self, message: str, cost: float) -> None:
+    def __init__(self, message: str, spend: Spend) -> None:
         super().__init__(message)
-        self.cost = cost
+        self.spend = spend
 
 
 def _free_port() -> int:
@@ -121,8 +146,8 @@ def _emit(event: Mapping[str, Any]) -> None:
     print(json.dumps(event), flush=True)
 
 
-def stub_provider_config(port: int) -> str:
-    """The frozen Muna provider config with its endpoint pointed at the local stub.
+def stub_provider_config(campaign: Campaign, port: int) -> str:
+    """The campaign's frozen provider config with its endpoint pointed at the local stub.
 
     Provider name, model ids, and thinking settings stay exactly as campaign cells see them,
     so omp builds the same requests; only the base URL (and the key, which the stub does not
@@ -130,16 +155,18 @@ def stub_provider_config(port: int) -> str:
     """
     document = cast(
         "dict[str, Any]",
-        yaml.safe_load((REPO_ROOT / PROVIDER_CONFIG_PATH).read_text(encoding="utf-8")),
+        yaml.safe_load((REPO_ROOT / campaign.provider_config).read_text(encoding="utf-8")),
     )
-    provider = cast("dict[str, Any]", document["providers"][CAMPAIGN_PROVIDER])
+    provider = cast("dict[str, Any]", document["providers"][campaign.provider])
     provider["baseUrl"] = f"http://127.0.0.1:{port}/v1"
     provider.pop("apiKey", None)
     provider["auth"] = "none"
     return yaml.safe_dump(document, sort_keys=False)
 
 
-def _start_stub(work_root: Path, script: Path) -> tuple[subprocess.Popen[str], Path, Path, Path]:
+def _start_stub(
+    work_root: Path, script: Path, campaign: Campaign
+) -> tuple[subprocess.Popen[str], Path, Path, Path]:
     """Start the stub; return it, an empty profile, its provider config, and its capture dir."""
     port = _free_port()
     capture = work_root / "capture"
@@ -162,22 +189,22 @@ def _start_stub(work_root: Path, script: Path) -> tuple[subprocess.Popen[str], P
     profile = work_root / "stub-profile"
     profile.mkdir(parents=True, exist_ok=True)
     provider_config = work_root / "stub-models.yml"
-    provider_config.write_text(stub_provider_config(port), encoding="utf-8")
+    provider_config.write_text(stub_provider_config(campaign, port), encoding="utf-8")
     return process, profile, provider_config, capture
 
 
 # --- the campaign key --------------------------------------------------------------------
 
 
-def read_env_file_key(path: Path) -> str | None:
-    """The value of ``MUNA_ACCESS_KEY`` in a dotenv file; no other line is read into a result."""
+def read_env_file_key(path: Path, variable: str) -> str | None:
+    """The value of ``variable`` in a dotenv file; no other line is read into a result."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return None
     for line in text.splitlines():
         name, separator, value = line.strip().removeprefix("export ").lstrip().partition("=")
-        if separator and name.strip() == CREDENTIAL_ENV_NAMES[0]:
+        if separator and name.strip() == variable:
             value = value.strip()
             if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
                 return value[1:-1] or None
@@ -185,10 +212,12 @@ def read_env_file_key(path: Path) -> str | None:
     return None
 
 
-def campaign_key(env_file: Path | None) -> str:
+def campaign_key(campaign: Campaign, env_file: Path | None) -> str:
     """The campaign key from the environment, else from the dotenv file; never printed."""
-    name = CREDENTIAL_ENV_NAMES[0]
-    key = os.environ.get(name, "").strip() or (read_env_file_key(env_file) if env_file else None)
+    name = campaign.credential_env
+    key = os.environ.get(name, "").strip() or (
+        read_env_file_key(env_file, name) if env_file else None
+    )
     if not key:
         raise SystemExit(
             f"{name} is neither in the environment nor in {env_file}; set it before any cell runs"
@@ -196,10 +225,10 @@ def campaign_key(env_file: Path | None) -> str:
     return key
 
 
-def cell_environment(key: str) -> dict[str, str]:
+def cell_environment(campaign: Campaign, key: str) -> dict[str, str]:
     """The cell runner's environment: this one's, minus a stray campaign key, plus the key."""
-    env = {k: v for k, v in os.environ.items() if k not in CREDENTIAL_ENV_NAMES}
-    env[CREDENTIAL_ENV_NAMES[0]] = key
+    env = {k: v for k, v in os.environ.items() if k != campaign.credential_env}
+    env[campaign.credential_env] = key
     return env
 
 
@@ -211,8 +240,9 @@ def _spec(
     plan: SweAbPlan,
     key: CellKey,
     *,
+    campaign: Campaign,
     profile: Path,
-    provider_config: Path,
+    provider_config: Path | None,
     capture: Path | None,
     prior_blocked_attempts: int = 0,
 ) -> dict[str, Any]:
@@ -229,7 +259,8 @@ def _spec(
         "work_dir": str(args.work_root / "cells" / cell_dir),
         "omp_command": shlex.split(args.omp_command),
         "profile_dir": str(profile),
-        "provider_config": str(provider_config),
+        "campaign": campaign.path,
+        "provider_config": str(provider_config) if provider_config else None,
         "omp_config": str(REPO_ROOT / OMP_CONFIG_PATH),
         "cli_guide": str(args.cli_guide),
         "capture_dir": str(capture) if capture else None,
@@ -317,8 +348,8 @@ def _run_one(
     invoke: Callable[[dict[str, Any], Mapping[str, str] | None], None] = _invoke_cell,
     sleep: Callable[[float], None] = time.sleep,
     log: Callable[[Mapping[str, Any]], None] = _emit,
-) -> float:
-    """Run one cell to a real outcome; return the recorded cost of every attempt.
+) -> Spend:
+    """Run one cell to a real outcome; return the recorded spend of every attempt.
 
     An attempt that ends in a rate-limit or capacity block is filed under ``quota-blocked/``
     and re-run after the cooldown (up to ``quota_retries`` times); past that budget the blocked
@@ -327,12 +358,12 @@ def _run_one(
     never scored.
     """
     output = Path(spec["output"])
-    total = 0.0
+    total = Spend()
     blocks = 0
     while True:
         invoke(spec, env)
         cell = load_cell(output)
-        total += cell.usage.cost_usd
+        total += _spend_of(cell)
         blocked = cell.failure_reason in _BLOCKS
         log(
             {
@@ -340,6 +371,7 @@ def _run_one(
                 "status": cell.status,
                 "reason": cell.failure_reason,
                 "cost_usd": cell.usage.cost_usd,
+                "tokens": cell.usage.total_billed,
                 **({"quota_phase": cell.quota.block_phase} if blocked else {}),
             }
         )
@@ -366,21 +398,21 @@ def _run_one(
         sleep(cooldown_seconds)
 
 
-def _spent_on_blocked(output_root: Path) -> float:
+def _spent_on_blocked(output_root: Path) -> Spend:
     root = output_root / QUOTA_BLOCKED_DIR
-    return (
-        sum(load_cell(path).usage.cost_usd for path in root.rglob("*.json"))
-        if root.is_dir()
-        else 0.0
-    )
+    spent = Spend()
+    if root.is_dir():
+        for path in root.rglob("*.json"):
+            spent += _spend_of(load_cell(path))
+    return spent
 
 
-def _settle(future: Future[float], stops: list[CreditExhaustedError]) -> float:
+def _settle(future: Future[Spend], stops: list[CreditExhaustedError]) -> Spend:
     try:
         return future.result()
     except CreditExhaustedError as exc:
         stops.append(exc)
-        return exc.cost
+        return exc.spend
 
 
 def _task_image(task: PlanTask) -> str:
@@ -395,26 +427,57 @@ def _prune_image(image: str, log: Callable[[Mapping[str, Any]], None] = _emit) -
     log({"pruned_image": image, "removed": done.returncode == 0})
 
 
+def _token_ceiling(plan: SweAbPlan, lowered: int | None) -> int | None:
+    """The plan's token ceiling, lowered (never raised, never invented) by ``--token-ceiling``."""
+    if lowered is None:
+        return plan.token_ceiling
+    if plan.token_ceiling is None:
+        raise SystemExit(
+            "--token-ceiling only lowers the plan's token_ceiling, and the plan sets none"
+        )
+    return min(plan.token_ceiling, lowered)
+
+
+def _ceiling_hit(
+    spent: Spend, largest: Spend, running: int, ceiling: float, token_ceiling: int | None
+) -> str | None:
+    """The ceiling the next cell must not start under, if any.
+
+    Every cell still in flight is reserved at the largest cell recorded so far, so ``spent``
+    plus those reservations stays under each ceiling.
+    """
+    if spent.cost_usd + largest.cost_usd * running >= ceiling:
+        return "cost ceiling"
+    if token_ceiling is not None and spent.tokens + largest.tokens * running >= token_ceiling:
+        return "token ceiling"
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     plan = load_plan(args.plan)
+    campaign = plan_campaign(plan, root=REPO_ROOT)
     ceiling = min(plan.cost_ceiling_usd, args.cost_ceiling or plan.cost_ceiling_usd)
+    token_ceiling = _token_ceiling(plan, args.token_ceiling)
     args.work_root.mkdir(parents=True, exist_ok=True)
     stub: subprocess.Popen[str] | None = None
     capture: Path | None = None
     profile = args.profile_dir
-    provider_config = REPO_ROOT / PROVIDER_CONFIG_PATH
+    provider_config: Path | None = None
     env: dict[str, str] | None = None
     if args.runtime == "docker":
-        env = cell_environment(campaign_key(args.env_file))
-        if unpriced := unpriced_models(provider_config):
+        if campaign.unpriced and plan.token_ceiling is None:
             raise SystemExit(
-                f"{PROVIDER_CONFIG_PATH} leaves prices at 0: {unpriced}; the cost ceiling would "
-                "be inert, so no docker run starts until every price is set (RUNBOOK §3)"
+                f"campaign {campaign.name!r} leaves prices at 0: {list(campaign.unpriced)}; the "
+                "cost ceiling would be inert, so no docker run starts until the plan sets "
+                "`token_ceiling` (RUNBOOK §3)"
             )
+        env = cell_environment(campaign, campaign_key(campaign, args.env_file))
     if args.stub_script is not None:
         if args.runtime != "local" or args.jobs != 1:
             raise SystemExit("the stub provider runs only with --runtime local --jobs 1")
-        stub, profile, provider_config, capture = _start_stub(args.work_root, args.stub_script)
+        stub, profile, provider_config, capture = _start_stub(
+            args.work_root, args.stub_script, campaign
+        )
     if profile is None:
         raise SystemExit("--profile-dir is required unless --stub-script is given")
     if args.runtime == "docker":
@@ -425,65 +488,89 @@ def run(args: argparse.Namespace) -> int:
             )
         _emit(
             {
-                "provider": CAMPAIGN_PROVIDER,
-                "base_url": MUNA_BASE_URL,
-                "agent_env_names": list(CREDENTIAL_ENV_NAMES),
+                "campaign": campaign.name,
+                "provider": campaign.provider,
+                "base_url": campaign.base_url,
+                "agent_env_names": [campaign.credential_env],
                 "emulated": is_emulated("docker", platform.machine()),
             }
         )
-    scheduled = plan.scheduled_cells()
+    scheduled = plan.scheduled_cells(campaign)
+    for key in scheduled:
+        if (path := args.output / key.relative_path).exists() and load_cell(
+            path
+        ).failure_reason in _BLOCKS:
+            # A previous invocation stopped on this block: file it, re-run the cell. Filed
+            # first, so `spent` below counts it with every earlier attempt.
+            _file_blocked(args.output, key)
     spent = _spent_on_blocked(args.output)
-    largest = 0.0
+    largest = Spend()
     pending: list[CellKey] = []
     for key in scheduled:
         path = args.output / key.relative_path
-        if path.exists() and load_cell(path).failure_reason in _BLOCKS:
-            # A previous invocation stopped on this block: file it, re-run the cell.
-            _file_blocked(args.output, key)
         if path.exists():
-            cost = load_cell(path).usage.cost_usd
-            spent += cost
-            largest = max(largest, cost)
+            recorded = _spend_of(load_cell(path))
+            spent += recorded
+            largest = _peak(largest, recorded)
         else:
             pending.append(key)
-    _emit({"declared": len(scheduled), "pending": len(pending), "spent_usd": spent})
+    _emit(
+        {
+            "declared": len(scheduled),
+            "pending": len(pending),
+            "spent_usd": spent.cost_usd,
+            "spent_tokens": spent.tokens,
+        }
+    )
     stops: list[CreditExhaustedError] = []
-    remaining = Counter((configuration(key.model).selector, key.task_id) for key in pending)
-    future_keys: dict[Future[float], CellKey] = {}
 
-    def settle(future: Future[float]) -> float:
+    def family_of(key: CellKey) -> tuple[str, str]:
+        return (campaign.configuration(key.model).selector, key.task_id)
+
+    remaining = Counter(family_of(key) for key in pending)
+    future_keys: dict[Future[Spend], CellKey] = {}
+
+    def settle(future: Future[Spend]) -> Spend:
         key = future_keys.pop(future)
         completed = future.exception() is None
-        cost = _settle(future, stops)
+        done = _settle(future, stops)
         if completed:
-            family = (configuration(key.model).selector, key.task_id)
+            family = family_of(key)
             remaining[family] -= 1
             if args.prune_images and args.runtime == "docker" and remaining[family] == 0:
                 _prune_image(_task_image(next(t for t in plan.tasks if t.task_id == key.task_id)))
-        return cost
+        return done
 
     try:
         with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            running: set[Future[float]] = set()
+            running: set[Future[Spend]] = set()
             for key in pending:
                 while len(running) >= args.jobs:
                     finished, running = wait(running, return_when=FIRST_COMPLETED)
                     for future in finished:
-                        cost = settle(future)
-                        spent += cost
-                        largest = max(largest, cost)
+                        done = settle(future)
+                        spent += done
+                        largest = _peak(largest, done)
                 if stops:
                     break
-                # Reserve the largest recorded cell cost for every cell still in flight.
-                if spent + largest * len(running) >= ceiling:
+                if hit := _ceiling_hit(spent, largest, len(running), ceiling, token_ceiling):
                     for future in running:
                         spent += settle(future)
-                    _emit({"aborted": "cost ceiling", "spent_usd": spent, "ceiling_usd": ceiling})
+                    _emit(
+                        {
+                            "aborted": hit,
+                            "spent_usd": spent.cost_usd,
+                            "ceiling_usd": ceiling,
+                            "spent_tokens": spent.tokens,
+                            "ceiling_tokens": token_ceiling,
+                        }
+                    )
                     return COST_EXIT
                 spec = _spec(
                     args,
                     plan,
                     key,
+                    campaign=campaign,
                     profile=profile,
                     provider_config=provider_config,
                     capture=capture,
@@ -510,19 +597,23 @@ def run(args: argparse.Namespace) -> int:
             {
                 "aborted": "credits exhausted",
                 "detail": str(stops[0]),
-                "spent_usd": round(spent, 4),
+                "spent_usd": round(spent.cost_usd, 4),
+                "spent_tokens": spent.tokens,
                 "resume": "top up the account, then run the same command again",
             }
         )
         return CREDIT_EXIT
-    _emit({"completed": True, "spent_usd": round(spent, 4)})
+    _emit({"completed": True, "spent_usd": round(spent.cost_usd, 4), "spent_tokens": spent.tokens})
     return 0
 
 
 def validate(args: argparse.Namespace) -> int:
     plan = load_plan(args.plan)
     try:
-        coverage = validate_swe_ab_directory(args.input, plan, require_complete=not args.partial)
+        campaign = plan_campaign(plan, root=REPO_ROOT)
+        coverage = validate_swe_ab_directory(
+            args.input, plan, campaign, require_complete=not args.partial
+        )
     except SweAbError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 1
@@ -550,6 +641,12 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument(
         "--cost-ceiling", type=float, default=None, help="lower the plan's ceiling (USD)"
     )
+    r.add_argument(
+        "--token-ceiling",
+        type=int,
+        default=None,
+        help="lower the plan's token_ceiling (billed tokens); never raises it",
+    )
     r.add_argument("--jobs", type=int, default=1)
     r.add_argument("--network", default="bridge", help="docker network for agent containers")
     r.add_argument("--tasks-root", type=Path, help="SWE-bench_Pro-os/v2/tasks")
@@ -566,8 +663,8 @@ def main(argv: list[str] | None = None) -> int:
         "--env-file",
         type=Path,
         default=REPO_ROOT / ".env",
-        help="dotenv file read for its MUNA_ACCESS_KEY= line when the variable is unset "
-        "(docker runtime; default: <repo root>/.env)",
+        help="dotenv file read for the campaign's key variable (`NAME=` line) when that "
+        "variable is unset (docker runtime; default: <repo root>/.env)",
     )
     r.add_argument(
         "--block-cooldown-seconds",

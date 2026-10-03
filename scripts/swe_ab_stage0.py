@@ -1,16 +1,18 @@
 """Stage 0 feasibility checks for the SWE A/B campaign (spec §2.5, §8), as JSON.
 
 ```bash
-# Local checks (no spend, no containers): omp's route to the Muna models, the Muna key
-# (a zero-token request for a model that does not exist), the `reasoning_effort` each
-# configuration's request carries, and every arm once against the local stub provider,
-# inspecting what omp actually sent. MUNA_ACCESS_KEY comes from the environment, else from
-# the MUNA_ACCESS_KEY= line of --env-file (default: the repo-root .env).
-uv run python scripts/swe_ab_stage0.py --output /tmp/stage0.json
+# Local checks (no spend, no containers): omp's route to the campaign's models, the
+# provider key (a zero-token request for a model that does not exist), the
+# `reasoning_effort` each configuration's request carries, and every arm once against the
+# local stub provider, inspecting what omp actually sent. The campaign's key variable comes
+# from the environment, else from its `NAME=` line in --env-file (default: repo-root .env).
+uv run python scripts/swe_ab_stage0.py --campaign benchmarks/swe_ab/campaigns/muna.yml \
+    --output /tmp/stage0.json
 
 # On a host with a running Docker daemon (x86_64 Linux, or Docker Desktop on Apple silicon,
 # where cells are emulated and recorded as such), add the container checks:
-uv run python scripts/swe_ab_stage0.py --output stage0.json --host \
+uv run python scripts/swe_ab_stage0.py --campaign benchmarks/swe_ab/campaigns/muna.yml \
+    --output stage0.json --host \
     --tasks-root SWE-bench_Pro-os/v2/tasks --instances instances.txt \
     --omp-dir /opt/omp-linux-x64 --omp-command /opt/omp/bin/omp \
     --archex-wheel dist/archex-0.34.0-py3-none-any.whl --uv-binary /opt/uv/uv
@@ -19,7 +21,8 @@ uv run python scripts/swe_ab_stage0.py --output stage0.json --host \
 Each check reports ``pass``, ``fail``, or ``requires_host`` (needs a running Docker daemon,
 the omp bundle and task images, or a hosted model, and was not run). The gate passes only
 when no check fails and none is left ``requires_host``. No check here generates a token: the
-key check asks Muna for a model that does not exist (404 for a good key, 401 for a bad one),
+key check asks the provider for a model that does not exist (a 4xx rejection of the model for a
+good key, 401 for a bad one),
 and the container checks use only the task images, ``alpine``, and Bun's own images.
 """
 
@@ -48,25 +51,22 @@ from typing import Any, cast
 from archex.benchmark.swe_ab import (
     ANNOTATION_MARKER,
     BASE_TOOLS,
-    CAMPAIGN_PROVIDER,
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
-    CONFIGURATIONS,
-    CREDENTIAL_ENV_NAMES,
     HOOK_TIMEOUT_SECONDS,
-    MODELS,
-    MUNA_BASE_URL,
     OMP_CONFIG_PATH,
     OMP_VERSION,
     PROFILE,
-    PROVIDER_CONFIG_PATH,
+    Campaign,
     Configuration,
     SweAbArm,
     SweAbError,
     is_emulated,
+    load_campaign,
     load_cell,
     load_plan,
     omp_argv,
+    plan_campaign,
     search_routing_rules,
     sha256_file,
     system_prompt_violations,
@@ -153,9 +153,14 @@ def omp_version_check(omp_command: list[str]) -> dict[str, Any]:
     return _check("omp_version", status, f"omp reports {found!r}; pinned {OMP_VERSION}")
 
 
-_KEY_ENV = CREDENTIAL_ENV_NAMES[0]
-_NO_KEY = f"{_KEY_ENV} is neither exported nor in the env file; no request was made"
-_KEY_PROBE_MODEL = "@nobody/does-not-exist"
+_KEY_ACCEPTED_STATUSES = (400, 404, 422)
+_KEY_PROBE_MODEL = "nobody/does-not-exist"
+
+
+def _no_key(campaign: Campaign) -> str:
+    return f"{campaign.credential_env} is neither exported nor in the env file; no request was made"
+
+
 _STUB_REPLY = [{"text": "ok"}]
 
 
@@ -168,17 +173,19 @@ def _omp_env(home: Path, agent_dir: Path | None = None) -> dict[str, str]:
     return env
 
 
-def muna_route_check(omp_command: list[str], *, run: Any = subprocess.run) -> dict[str, Any]:
-    """omp lists every configuration's selector under provider ``muna``; makes no model call.
+def provider_route_check(
+    omp_command: list[str], campaign: Campaign, *, run: Any = subprocess.run
+) -> dict[str, Any]:
+    """omp lists every configuration's selector under the campaign's provider; no model call.
 
-    ``omp models --json`` runs in a throwaway profile holding only the frozen ``muna-models.yml``.
+    ``omp models --json`` runs in a throwaway profile holding only the campaign's provider config.
     """
-    expected = sorted({config.selector for config in CONFIGURATIONS})
+    expected = sorted({config.selector for config in campaign.configurations})
     with tempfile.TemporaryDirectory(prefix="swe-ab-route-") as tmp:
         agent_dir, home = Path(tmp) / "agent", Path(tmp) / "home"
         agent_dir.mkdir()
         home.mkdir()
-        shutil.copy2(_ROOT / PROVIDER_CONFIG_PATH, agent_dir / "models.yml")
+        shutil.copy2(_ROOT / campaign.provider_config, agent_dir / "models.yml")
         done = run(
             [*omp_command, "models", "--json"],
             capture_output=True, text=True, check=False, env=_omp_env(home, agent_dir),
@@ -187,29 +194,29 @@ def muna_route_check(omp_command: list[str], *, run: Any = subprocess.run) -> di
     try:
         catalog = cast("list[dict[str, Any]]", json.loads(done.stdout)["models"])
     except (json.JSONDecodeError, KeyError, TypeError):
-        return _check("muna_route", "fail", "`omp models --json` did not return a model list")
+        return _check("provider_route", "fail", "`omp models --json` did not return a model list")
     found = sorted(
         str(entry.get("selector"))
         for entry in catalog
-        if entry.get("provider") == CAMPAIGN_PROVIDER
+        if entry.get("provider") == campaign.provider
     )
     missing = [selector for selector in expected if selector not in found]
     return _check(
-        "muna_route",
+        "provider_route",
         "fail" if missing else "pass",
-        f"omp lists every configuration's selector under provider {CAMPAIGN_PROVIDER!r} "
+        f"omp lists every configuration's selector under provider {campaign.provider!r} "
         "(catalog only; no model call)"
         if not missing
-        else f"not listed under provider {CAMPAIGN_PROVIDER!r}: {', '.join(missing)}",
+        else f"not listed under provider {campaign.provider!r}: {', '.join(missing)}",
         expected=expected,
         listed=found,
     )
 
 
-def muna_access_key(env_file: Path) -> str | None:
-    """The key from the environment, else from the env file's ``MUNA_ACCESS_KEY=`` line only."""
+def campaign_api_key(campaign: Campaign, env_file: Path) -> str | None:
+    """The key from the environment, else from the env file's ``<credential_env>=`` line only."""
     try:
-        return cell_suite.campaign_key(env_file)
+        return cell_suite.campaign_key(campaign, env_file)
     except SystemExit:
         return None
 
@@ -223,44 +230,43 @@ def _post_json(url: str, headers: dict[str, str], body: bytes) -> tuple[int, str
         return exc.code, exc.read().decode("utf-8", "replace")
 
 
-def muna_key_check(env_file: Path, *, post: Any = _post_json) -> dict[str, Any]:
+def provider_key_check(
+    campaign: Campaign, env_file: Path, *, post: Any = _post_json
+) -> dict[str, Any]:
     """Zero-token key check: a chat request for a model that does not exist generates nothing.
 
-    Muna answers 401 ``invalid_api_key`` for a bad key and 404 ``model_not_found`` for a good
-    one. The key and the Authorization header appear in no detail, log, or report.
+    A good key is authenticated and the request is rejected for its model (Muna: 404
+    ``model_not_found``; OpenRouter: 400 "not a valid model ID"); a bad or absent key is 401.
+    Pass on 400, 404, or 422. The key and the Authorization header appear in no detail, log,
+    or report.
     """
-    key = muna_access_key(env_file)
+    check_id = "provider_key_accepted"
+    key = campaign_api_key(campaign, env_file)
     if key is None:
-        return _check("muna_key_accepted", "fail", _NO_KEY)
+        return _check(check_id, "fail", _no_key(campaign))
     body = json.dumps({
         "model": _KEY_PROBE_MODEL,
         "max_tokens": 1,
         "messages": [{"role": "user", "content": "."}],
     }).encode()  # fmt: skip
     try:
-        status, text = post(
-            f"{MUNA_BASE_URL}/chat/completions",
+        status, _text = post(
+            f"{campaign.base_url}/chat/completions",
             {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             body,
         )
     except (OSError, ValueError) as exc:
-        return _check("muna_key_accepted", "fail", f"Muna unreachable: {type(exc).__name__}")
-    try:
-        code = cast("dict[str, Any]", json.loads(text)).get("error", {}).get("code")
-    except (ValueError, AttributeError):
-        code = None
-    if status == 404 and code == "model_not_found":
+        return _check(check_id, "fail", f"{campaign.provider} unreachable: {type(exc).__name__}")
+    if status in _KEY_ACCEPTED_STATUSES:
         return _check(
-            "muna_key_accepted", "pass",
-            "Muna accepted the key (404 model_not_found for a nonexistent model; no tokens spent)",
+            check_id, "pass",
+            f"{campaign.provider} authenticated the key (HTTP {status} for a nonexistent model; "
+            "no tokens spent)",
             http_status=status,
         )  # fmt: skip
-    if status == 401:
-        return _check("muna_key_accepted", "fail", "key rejected (HTTP 401)", http_status=status)
-    return _check(
-        "muna_key_accepted", "fail", f"unexpected answer: HTTP {status}, code {code!r}",
-        http_status=status,
-    )  # fmt: skip
+    if status in (401, 403):
+        return _check(check_id, "fail", f"key rejected (HTTP {status})", http_status=status)
+    return _check(check_id, "fail", f"unexpected answer: HTTP {status}", http_status=status)
 
 
 def _free_port() -> int:
@@ -270,12 +276,12 @@ def _free_port() -> int:
 
 
 def capture_first_request(
-    omp_command: list[str], config: Configuration, work: Path
+    omp_command: list[str], campaign: Campaign, config: Configuration, work: Path
 ) -> dict[str, Any] | None:
     """One stub-backed omp run of ``config``; the first request body omp sent, if any.
 
-    The command line is the one cells run (`omp_argv`, arm A0); the profile is the frozen
-    ``muna-models.yml`` with only its base URL pointed at the stub.
+    The command line is the one cells run (`omp_argv`, arm A0); the profile is the campaign's
+    provider config with only its base URL pointed at the stub.
     """
     work.mkdir(parents=True, exist_ok=True)
     reply = work / "reply.json"
@@ -285,7 +291,9 @@ def capture_first_request(
     home = work / "home"
     profile = home / ".omp" / "profiles" / PROFILE / "agent"
     profile.mkdir(parents=True)
-    (profile / "models.yml").write_text(cell_suite.stub_provider_config(port), encoding="utf-8")
+    (profile / "models.yml").write_text(
+        cell_suite.stub_provider_config(campaign, port), encoding="utf-8"
+    )
     prompt = work / "prompt.md"
     prompt.write_text("Say ok.\n", encoding="utf-8")
     repo = work / "repo"
@@ -293,7 +301,7 @@ def capture_first_request(
     argv = omp_argv(
         omp_command,
         arm=SweAbArm.A0,
-        model=config.label,
+        config=config,
         prompt_path=str(prompt),
         session_dir=str(work / "session"),
         hook_module_path=None,
@@ -320,7 +328,7 @@ def capture_first_request(
 
 
 def effort_request_shape_check(
-    omp_command: list[str], work: Path, *, capture: Any = capture_first_request
+    omp_command: list[str], campaign: Campaign, work: Path, *, capture: Any = capture_first_request
 ) -> dict[str, Any]:
     """Each configuration's first request carries ``reasoning_effort`` equal to its effort.
 
@@ -329,9 +337,9 @@ def effort_request_shape_check(
     """
     sent: dict[str, Any] = {}
     problems: list[str] = []
-    for config in CONFIGURATIONS:
+    for config in campaign.configurations:
         try:
-            body = capture(omp_command, config, work / config.label)
+            body = capture(omp_command, campaign, config, work / config.label)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             sent[config.label] = None
             problems.append(f"{config.label}: omp run failed ({type(exc).__name__})")
@@ -428,7 +436,8 @@ def stub_arm_checks(omp_command: list[str], work: Path) -> list[dict[str, Any]]:
         "no tool-output compressor marker in any tool result", marker_seen=compressor,
     ))  # fmt: skip
     try:
-        validate_swe_ab_directory(cells_dir, load_plan(_DRY_RUN_PLAN))
+        plan = load_plan(_DRY_RUN_PLAN)
+        validate_swe_ab_directory(cells_dir, plan, plan_campaign(plan, root=_ROOT))
         refused = "fail"
         detail = "the validator accepted stub-endpoint cells for publication"
     except SweAbError as exc:
@@ -438,7 +447,7 @@ def stub_arm_checks(omp_command: list[str], work: Path) -> list[dict[str, Any]]:
     return checks
 
 
-def identity_checks() -> list[dict[str, Any]]:
+def identity_checks(campaign: Campaign) -> list[dict[str, Any]]:
     module = render_annotation_hook_module(_CAMPAIGN_PYTHON)
     return [
         _check(
@@ -446,7 +455,8 @@ def identity_checks() -> list[dict[str, Any]]:
             cli_guide_sha256=sha256_file(_ROOT / CLI_GUIDE_PATH),
             hook_module_sha256=hashlib.sha256(module.encode()).hexdigest(),
             hook_module_python=_CAMPAIGN_PYTHON,
-            provider_config_sha256=sha256_file(_ROOT / PROVIDER_CONFIG_PATH),
+            campaign_sha256=campaign.sha256,
+            provider_config_sha256=campaign.provider_config_sha256,
             omp_config_sha256=sha256_file(_ROOT / OMP_CONFIG_PATH),
         )
     ]  # fmt: skip
@@ -463,18 +473,20 @@ def docker_running() -> bool:
     return done.returncode == 0
 
 
-def muna_container_check(env_file: Path, *, run: Any = subprocess.run) -> dict[str, Any]:
-    """From a throwaway container: reach Muna, and see only the allow-listed environment.
+def provider_container_check(
+    campaign: Campaign, env_file: Path, *, run: Any = subprocess.run
+) -> dict[str, Any]:
+    """From a throwaway container: reach the provider, and see only the allow-listed environment.
 
     The probe container is started like a cell's; the allow-listed variable is then passed the
     way the cell runner passes it (a bare ``-e NAME``, the value in the docker client's
     environment), and the names visible inside are compared with what the host exports. The
-    fetch is the unauthenticated ``GET /v1/models``; the key never goes on a command line.
+    fetch is the unauthenticated ``GET <base_url>/models``; the key never goes on a command line.
     """
-    check_id = "muna_reachable_from_container"
-    key = muna_access_key(env_file)
+    check_id = "provider_reachable_from_container"
+    key = campaign_api_key(campaign, env_file)
     if key is None:
-        return _check(check_id, "fail", _NO_KEY)
+        return _check(check_id, "fail", _no_key(campaign))
     name = f"swe-ab-probe-{uuid.uuid4().hex[:8]}"
     started = time.monotonic()
     try:
@@ -486,27 +498,27 @@ def muna_container_check(env_file: Path, *, run: Any = subprocess.run) -> dict[s
             return _check(check_id, "fail", up.stderr[-300:])
         fetch = run(
             ["docker", "exec", name, "wget", "-q", "-O", "-", "-T", "15"]
-            + [f"{MUNA_BASE_URL}/models"],
+            + [f"{campaign.base_url}/models"],
             capture_output=True, text=True, check=False,
         )  # fmt: skip
         reachable = fetch.returncode == 0 and '"data"' in fetch.stdout
-        env_args, client_env = cell_runner.docker_exec_env(dict.fromkeys(CREDENTIAL_ENV_NAMES, key))
+        env_args, client_env = cell_runner.docker_exec_env(
+            {campaign.credential_env: key}, secret_names=[campaign.credential_env]
+        )
         client_env["SWE_AB_STAGE0_HOST_SENTINEL"] = "1"
         names = run(
             ["docker", "exec", *env_args, name, "sh", "-c", "env | cut -d= -f1 | sort"],
             capture_output=True, text=True, check=False, env=client_env,
         )  # fmt: skip
         seen = set(names.stdout.split())
-        allowlisted = (
-            set(CREDENTIAL_ENV_NAMES) <= seen and "SWE_AB_STAGE0_HOST_SENTINEL" not in seen
-        )
+        allowlisted = campaign.credential_env in seen and "SWE_AB_STAGE0_HOST_SENTINEL" not in seen
     finally:
         run(["docker", "rm", "-f", name], capture_output=True, check=False)
     ok = reachable and allowlisted
     return _check(
         check_id,
         "pass" if ok else "fail",
-        f"a container fetches {MUNA_BASE_URL}/models and receives the allow-listed variable "
+        f"a container fetches {campaign.base_url}/models and receives the allow-listed variable "
         "but nothing else from the host environment"
         if ok
         else f"reachable={reachable}, allow_list_only={allowlisted}: {fetch.stderr[-200:]}",
@@ -557,11 +569,12 @@ def bun_emulation_check(*, run: Any = subprocess.run) -> dict[str, Any]:
     )
 
 
-def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
+def host_checks(args: argparse.Namespace, campaign: Campaign) -> list[dict[str, Any]]:
     """Container checks; run only with --host against a running Docker daemon."""
     instances = [line.strip() for line in args.instances.read_text().splitlines() if line.strip()]
     base = {
-        "runtime": "docker", "model": MODELS[0], "arm": "HC", "repetition": 1, "repo": "stage0",
+        "runtime": "docker", "model": campaign.labels[0], "campaign": campaign.path, "arm": "HC",
+        "repetition": 1, "repo": "stage0",
         "omp_command": shlex.split(args.container_omp_command),
         "profile_dir": str(args.profile_dir or "."),
         "archex_wheel": str(args.archex_wheel), "uv_binary": str(args.uv_binary),
@@ -672,12 +685,12 @@ def host_checks(args: argparse.Namespace) -> list[dict[str, Any]]:
         emulated=emulated, host_machine=platform.machine(), per_instance=timings,
         non_amd64_instances=wrong_arch,
     ))  # fmt: skip
-    checks.append(muna_container_check(args.env_file))
+    checks.append(provider_container_check(campaign, args.env_file))
     checks.append(bun_emulation_check())
     return checks
 
 
-def container_checks_pending(why: str) -> list[dict[str, Any]]:
+def container_checks_pending(campaign: Campaign, why: str) -> list[dict[str, Any]]:
     """The checks that need a running Docker daemon, left ``requires_host`` with the reason."""
     return [
         _requires_host(check_id, f"{detail}; {why}")
@@ -697,8 +710,9 @@ def container_checks_pending(why: str) -> list[dict[str, Any]]:
                 "container start, gold/empty scoring, omp start, and index times per instance",
             ),
             (
-                "muna_reachable_from_container",
-                "a container reaches Muna's /v1/models and gets only the allow-listed variable",
+                "provider_reachable_from_container",
+                f"a container reaches {campaign.base_url}/models and gets only the allow-listed "
+                "variable",
             ),
             (
                 "bun_runs_under_emulation",
@@ -724,10 +738,16 @@ def main(argv: list[str] | None = None) -> int:
         help="omp's entry point inside a task container, from the bundle mounted at /opt/omp",
     )
     parser.add_argument(
+        "--campaign",
+        type=Path,
+        required=True,
+        help="campaign file (repo-relative or absolute): the provider and configurations to check",
+    )
+    parser.add_argument(
         "--env-file",
         type=Path,
         default=_ROOT / ".env",
-        help="read only its MUNA_ACCESS_KEY= line, and only when the variable is not exported",
+        help="read only the campaign's credential variable line, and only when it is not exported",
     )
     parser.add_argument("--host", action="store_true", help="also run the Docker checks")
     parser.add_argument("--tasks-root", type=Path)
@@ -738,31 +758,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--uv-binary", type=Path)
     parser.add_argument("--network", default="bridge")
     args = parser.parse_args(argv)
+    campaign = load_campaign(args.campaign, root=_ROOT)
     omp_command = shlex.split(args.omp_command)
     started = time.monotonic()
     checks = [
         omp_version_check(omp_command),
-        muna_route_check(omp_command),
-        muna_key_check(args.env_file),
-        *identity_checks(),
+        provider_route_check(omp_command, campaign),
+        provider_key_check(campaign, args.env_file),
+        *identity_checks(campaign),
     ]
     with tempfile.TemporaryDirectory(prefix="swe-ab-stage0-") as work:
-        checks.append(effort_request_shape_check(omp_command, Path(work) / "effort"))
+        checks.append(effort_request_shape_check(omp_command, campaign, Path(work) / "effort"))
         checks += stub_arm_checks(omp_command, Path(work))
     if args.host and docker_running():
-        checks += host_checks(args)
+        checks += host_checks(args, campaign)
     else:
         checks += container_checks_pending(
+            campaign,
             "the Docker daemon is not running (`docker info` failed); start Docker Desktop and "
             "rerun with --host"
             if args.host
-            else "run with --host on a machine with a running Docker daemon"
+            else "run with --host on a machine with a running Docker daemon",
         )
     checks.append(_requires_host(
         "one_real_cell_per_configuration",
-        "hosted model call on Muna: route, auth, usage reporting, the effort the request carried, "
-        "and the annotation ledger per configuration (arm H, three cells); run "
-        "scripts/run_swe_ab_suite.py with a one-task Stage 0 plan (RUNBOOK §4)",
+        f"hosted model call on {campaign.provider}: route, auth, usage reporting, the effort the "
+        f"request carried, and the annotation ledger per configuration (arm H, "
+        f"{len(campaign.configurations)} cells); run scripts/run_swe_ab_suite.py with a one-task "
+        "Stage 0 plan (RUNBOOK §4)",
     ))  # fmt: skip
     statuses = [check["status"] for check in checks]
     report = {

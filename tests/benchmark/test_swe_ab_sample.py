@@ -8,7 +8,11 @@ from typing import Any
 
 import pytest
 
-from archex.benchmark.swe_ab import MODELS, SweAbArm, SweAbError, load_plan
+from archex.benchmark.swe_ab import SweAbArm, SweAbError, load_campaign, load_plan
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MUNA = load_campaign("benchmarks/swe_ab/campaigns/muna.yml", root=REPO_ROOT)
+FREE = load_campaign("benchmarks/swe_ab/campaigns/openrouter-space-bunny.yml", root=REPO_ROOT)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
@@ -50,6 +54,7 @@ def _run(
     stage: int,
     *extra: str,
     tag: str = "o",
+    campaign: str = MUNA.path,
 ) -> tuple[int, Path, Path, Path]:
     out = tmp_path / tag
     out.mkdir(exist_ok=True)
@@ -58,6 +63,7 @@ def _run(
         [
             "--tasks-root", str(root),
             "--stage", str(stage),
+            "--campaign", campaign,
             "--cost-ceiling", "5",
             "--plan-out", str(plan),
             "--manifest-out", str(manifest),
@@ -94,7 +100,7 @@ def test_stage1_allocation_extra_to_two_largest(tmp_path: Path) -> None:
     plan = load_plan(plan_path)
     assert len(plan.tasks) == 24
     assert plan.name == "r3x-stage1"
-    assert plan.models == list(MODELS)
+    assert plan.models == list(MUNA.labels)
     assert plan.repetitions == {SweAbArm.A0: 2, SweAbArm.H: 1, SweAbArm.HC: 1, SweAbArm.C: 1}
     assert all(t.image is None and t.task_dir is None for t in plan.tasks)
     assert inst.read_text().split() == [t.task_id for t in plan.tasks]
@@ -271,10 +277,74 @@ def test_stage2_tasks_below_the_floor_are_refused(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(("passing", "tasks"), [(1, 370), (2, 185), (3, 124)])
 def test_stage2_task_count_follows_the_size_rule(passing: int, tasks: int) -> None:
-    assert sample.stage2_task_count(passing) == tasks
+    assert sample.stage2_task_count(passing, 3) == tasks
 
 
-@pytest.mark.parametrize("passing", [0, len(MODELS) + 1])
-def test_stage2_task_count_refuses_counts_outside_the_configurations(passing: int) -> None:
+@pytest.mark.parametrize(("passing", "configurations"), [(0, 3), (4, 3), (2, 1)])
+def test_stage2_task_count_refuses_counts_outside_the_configurations(
+    passing: int, configurations: int
+) -> None:
     with pytest.raises(SweAbError):
-        sample.stage2_task_count(passing)
+        sample.stage2_task_count(passing, configurations)
+
+
+def test_plan_names_the_campaign_and_the_manifest_records_its_hash(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    code, plan_path, manifest, _ = _run(tmp_path, root, 1)
+    assert code == 0
+    plan = load_plan(plan_path)
+    assert plan.campaign == MUNA.path
+    assert plan.token_ceiling is None
+    assert _manifest(manifest)["campaign"] == MUNA.path
+    assert _manifest(manifest)["campaign_sha256"] == MUNA.sha256
+
+
+def test_a_campaign_is_required(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    with pytest.raises(SystemExit):
+        sample.main(
+            [
+                "--tasks-root", str(root), "--stage", "1", "--cost-ceiling", "5",
+                "--plan-out", str(tmp_path / "p.json"),
+                "--manifest-out", str(tmp_path / "m.json"),
+                "--instances-out", str(tmp_path / "i.txt"),
+            ]
+        )  # fmt: skip
+
+
+def test_an_unpriced_campaign_needs_a_token_ceiling_and_writes_nothing_without_one(
+    tmp_path: Path,
+) -> None:
+    root = _make_root(tmp_path)
+    code, plan, manifest, inst = _run(tmp_path, root, 1, campaign=FREE.path, tag="no")
+    assert code == 1
+    assert not (plan.exists() or manifest.exists() or inst.exists())
+
+    code, plan, _, _ = _run(
+        tmp_path, root, 1, "--token-ceiling", "5000000", campaign=FREE.path, tag="yes"
+    )
+    assert code == 0
+    written = load_plan(plan)
+    assert (written.campaign, written.token_ceiling) == (FREE.path, 5_000_000)
+    assert written.models == list(FREE.labels)
+
+
+def test_a_non_positive_token_ceiling_is_refused(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    assert _run(tmp_path, root, 1, "--token-ceiling", "0", tag="z")[0] == 1
+
+
+def test_stage2_keeps_the_stage1_campaign_and_refuses_another(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    _, p1, _, _ = _run(
+        tmp_path, root, 1, "--token-ceiling", "5000000", campaign=FREE.path, tag="s1"
+    )
+    stage2 = ("--stage1-plan", str(p1), "--stage2-tasks", "100", "--token-ceiling", "5000000")
+
+    code, other, _, _ = _run(tmp_path, root, 2, *stage2, campaign=MUNA.path, tag="bad")
+    assert code == 1
+    assert not other.exists()
+
+    code, p2, _, _ = _run(tmp_path, root, 2, *stage2, campaign=FREE.path, tag="ok")
+    assert code == 0
+    assert load_plan(p2).campaign == FREE.path

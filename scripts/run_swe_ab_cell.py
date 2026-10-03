@@ -9,8 +9,9 @@ Two runtimes share one flow:
 * ``docker`` — the campaign runtime (spec §5). The official SWE-bench Pro V2
   image runs with the pinned omp linux-x64 build and a copy of the provisioned
   `swebench` profile (which must hold no login store) whose ``models.yml`` is the
-  frozen Muna provider config; archex is installed into ``/opt/archex`` with its
-  own uv-managed Python; the agent authenticates to Muna with ``MUNA_ACCESS_KEY``,
+  campaign's frozen provider config (``Campaign.provider_config``); archex is installed
+  into ``/opt/archex`` with its own uv-managed Python; the agent authenticates with the
+  campaign's key variable (``Campaign.credential_env``, e.g. Muna's ``MUNA_ACCESS_KEY``),
   its only credential variable; the patch is scored in a fresh container by the
   task's own verifier (``tests/test.sh`` → ``/logs/verifier/reward.txt``). The
   cell records ``emulated`` (an arm64 host runs the amd64 image under emulation),
@@ -26,12 +27,20 @@ with the frozen command line → parse the session, omp's event stream, and the
 hook ledger → take ``git diff`` against the base commit (``.archex/`` is
 excluded) → score → record.
 
-A run that ends in a rate-limit or capacity block (Muna HTTP 429, including
+A run that ends in a rate-limit or capacity block (HTTP 429, e.g. Muna's
 ``model_loading`` and ``model_capacity_exhausted``) is recorded as ``quota_block``
 (phase ``before_first_tool_call`` or ``mid_run``), unscored; the suite re-runs it
 after a cooldown. A run that ends in credit exhaustion is recorded as
 ``credit_exhausted``, never retried and never scored. A provider failure that is
 neither, before the first tool call, is retried once here.
+
+The spec's ``campaign`` (a repo-relative campaign file) names the provider and the
+configurations; a ``provider_config`` in the spec overrides the campaign's (stub rehearsals).
+
+Every invocation starts in an empty ``work_dir``: whatever an earlier invocation of the same
+cell left there (session directories, event streams, patch, ledger, request capture, the
+local runtime's repository copy) moves to ``work_dir/prior-attempts/<n>/``, so an attempt
+reads only its own files and the earlier raw evidence is kept.
 """
 
 from __future__ import annotations
@@ -47,21 +56,19 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from archex.benchmark.swe_ab import (
     ANNOTATION_MARKER,
     BASE_TOOLS,
-    CAMPAIGN_PROVIDER,
     CHANNELS,
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
-    CREDENTIAL_ENV_NAMES,
     HOOK_TIMEOUT_SECONDS,
     MAX_TIME,
     OMP_CONFIG_PATH,
     OMP_VERSION,
-    PROVIDER_CONFIG_PATH,
+    Campaign,
     CellStatus,
     FailureReason,
     HookLedgerSummary,
@@ -75,12 +82,12 @@ from archex.benchmark.swe_ab import (
     Usage,
     archex_subcommand,
     compound,
-    configuration,
     credential_files_in_profile,
     diff_files,
     is_credit_error,
     is_emulated,
     is_quota_error,
+    load_campaign,
     localize,
     observations,
     omp_argv,
@@ -96,6 +103,13 @@ from archex.benchmark.swe_ab import (
 )
 from archex.client_setup import render_annotation_hook_module
 from archex.reporting import count_tokens
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PRIOR_ATTEMPTS_DIR = "prior-attempts"
+"""Where a cell's earlier attempts' files move when the cell runs again."""
 
 _MAX_TIME_SECONDS = int(MAX_TIME.removesuffix("m")) * 60
 _OMP_GRACE_SECONDS = 600
@@ -131,7 +145,10 @@ class CellSpec:
         self.uv_binary = Path(str(raw["uv_binary"])) if raw.get("uv_binary") else None
         self.omp_dir = Path(str(raw["omp_dir"])) if raw.get("omp_dir") else None
         self.network = str(raw.get("network") or "bridge")
-        self.provider_config = Path(str(raw.get("provider_config") or PROVIDER_CONFIG_PATH))
+        self.campaign: Campaign = load_campaign(str(raw["campaign"]), root=REPO_ROOT)
+        self.provider_config = Path(
+            str(raw.get("provider_config") or REPO_ROOT / self.campaign.provider_config)
+        )
         self.omp_config = Path(str(raw.get("omp_config") or OMP_CONFIG_PATH))
         self.prior_blocked_attempts = int(raw.get("prior_blocked_attempts") or 0)
 
@@ -176,9 +193,7 @@ class LocalRuntime:
         if spec.local_repo is None:
             raise ValueError("the local runtime needs `local_repo`")
         root = spec.work_dir
-        if root.exists():
-            shutil.rmtree(root)
-        root.mkdir(parents=True)
+        root.mkdir(parents=True, exist_ok=True)
         self.repo = str(root / "repo")
         self.home = str(root / "home")
         self.out = str(root / "out")
@@ -231,7 +246,9 @@ class LocalRuntime:
         return
 
 
-def docker_exec_env(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
+def docker_exec_env(
+    env: dict[str, str], *, secret_names: Collection[str]
+) -> tuple[list[str], dict[str, str]]:
     """``-e`` arguments for ``docker exec`` and the environment the docker client runs in.
 
     The campaign key is passed as a bare ``-e NAME`` and its value travels in the client's own
@@ -241,7 +258,7 @@ def docker_exec_env(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
     args: list[str] = []
     client_env = dict(os.environ)
     for key, value in env.items():
-        if key in CREDENTIAL_ENV_NAMES:
+        if key in secret_names:
             args += ["-e", key]
             client_env[key] = value
         else:
@@ -280,6 +297,7 @@ class DockerRuntime:
 
     def __init__(self, spec: CellSpec, *, mounts: list[tuple[Path, str]]) -> None:
         self.name = f"swe-ab-{uuid.uuid4().hex[:12]}"
+        self.secret_names = (spec.campaign.credential_env,)
         argv = [
             "docker",
             "run",
@@ -320,7 +338,7 @@ class DockerRuntime:
         env: dict[str, str] | None = None,
         timeout: float = _SETUP_TIMEOUT_SECONDS,
     ) -> subprocess.CompletedProcess[str]:
-        env_args, client_env = docker_exec_env(env or {})
+        env_args, client_env = docker_exec_env(env or {}, secret_names=self.secret_names)
         command = ["docker", "exec", "-w", cwd or getattr(self, "repo", "/"), *env_args]
         return subprocess.run(
             [*command, self.name, *argv],
@@ -344,6 +362,10 @@ class DockerRuntime:
         )
 
     def get(self, source: str, target: Path) -> None:
+        # `docker cp SRC DEST` copies a directory INTO an existing DEST (DEST/<basename SRC>), which
+        # would hide the new files under a nested directory; the target is always a fresh path.
+        if target.exists():
+            raise FileExistsError(f"{target} exists; an attempt's artifacts are never overwritten")
         _checked(
             subprocess.run(
                 ["docker", "cp", f"{self.name}:{source}", str(target)],
@@ -526,15 +548,16 @@ def _setup(spec: CellSpec, rt: Runtime) -> _Setup:
 
 
 def credential_env(spec: CellSpec) -> dict[str, str]:
-    """The only credential variables an agent container receives (an explicit allow-list).
+    """The only credential variable an agent container receives (an explicit allow-list).
 
-    Docker cells carry ``MUNA_ACCESS_KEY`` from this process's environment, which the suite
-    sets; nothing else from the host environment reaches the container, and the local
-    rehearsal runtime carries none.
+    Docker cells carry the campaign's ``credential_env`` variable from this process's
+    environment, which the suite sets; nothing else from the host environment reaches the
+    container, and the local rehearsal runtime carries none.
     """
-    if spec.runtime != "docker":
+    name = spec.campaign.credential_env
+    if spec.runtime != "docker" or not os.environ.get(name):
         return {}
-    return {name: os.environ[name] for name in CREDENTIAL_ENV_NAMES if os.environ.get(name)}
+    return {name: os.environ[name]}
 
 
 def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
@@ -548,7 +571,7 @@ def _agent_env(spec: CellSpec, rt: Runtime, setup: _Setup) -> dict[str, str]:
         base = {
             key: value
             for key, value in os.environ.items()
-            if not key.startswith(("OMP_", "PI_")) and key not in CREDENTIAL_ENV_NAMES
+            if not key.startswith(("OMP_", "PI_")) and key != spec.campaign.credential_env
         }
     else:
         path = cast("DockerRuntime", rt).image_path.split(":")
@@ -572,7 +595,7 @@ def _run_agent(
     argv = omp_argv(
         spec.omp_command,
         arm=spec.arm,
-        model=spec.model,
+        config=spec.campaign.configuration(spec.model),
         prompt_path=prompt,
         session_dir=session_dir,
         hook_module_path=setup.hook_path,
@@ -730,10 +753,10 @@ def failed_cell(
         hook_module_sha256=identity.get("hook_sha") or ("unknown" if spec.arm.hook else None),
         cli_guide_sha256=identity.get("guide_sha") or ("unknown" if spec.arm.cli else None),
         image=spec.image,
-        thinking=configuration(spec.model).thinking,
+        thinking=spec.campaign.configuration(spec.model).thinking,
         tool_fingerprint=tool_fingerprint(BASE_TOOLS),
         provider=None,
-        provider_base_url=provider_base_url(spec.provider_config, CAMPAIGN_PROVIDER),
+        provider_base_url=provider_base_url(spec.provider_config, spec.campaign.provider),
         provider_config_sha256=_sha_or_missing(spec.provider_config),
         omp_config_sha256=_sha_or_missing(spec.omp_config),
         emulated=spec.emulated,
@@ -768,8 +791,31 @@ def failed_cell(
     )
 
 
+def _archive_prior_attempts(work_dir: Path) -> None:
+    """Move what an earlier attempt of this cell left in ``work_dir`` to ``prior-attempts/<n>/``.
+
+    The runner reads every per-attempt file by a fixed name under ``work_dir`` (session
+    directories, ``omp-stdout-*.jsonl``, ``model.patch``, the fetched ledger and diagnostics
+    log, ``first-request.json``, the local runtime's ``out/``), so a file left by an earlier
+    attempt would be read as this attempt's. Moving, not deleting, keeps the raw evidence.
+    """
+    if not work_dir.is_dir():
+        return
+    leftovers = [entry for entry in work_dir.iterdir() if entry.name != PRIOR_ATTEMPTS_DIR]
+    if not leftovers:
+        return
+    prior = work_dir / PRIOR_ATTEMPTS_DIR
+    prior.mkdir(exist_ok=True)
+    taken = [int(entry.name) for entry in prior.iterdir() if entry.name.isdecimal()]
+    target = prior / str(max(taken, default=0) + 1)
+    target.mkdir()
+    for entry in leftovers:
+        shutil.move(entry, target / entry.name)
+
+
 def run_cell(spec: CellSpec) -> SweAbCell:
     started = time.monotonic()
+    _archive_prior_attempts(spec.work_dir)
     if spec.capture_dir is not None:
         shutil.rmtree(spec.capture_dir, ignore_errors=True)
         spec.capture_dir.mkdir(parents=True)
@@ -920,10 +966,10 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         hook_module_sha256=setup.hook_sha,
         cli_guide_sha256=setup.guide_sha,
         image=spec.image,
-        thinking=configuration(spec.model).thinking,
+        thinking=spec.campaign.configuration(spec.model).thinking,
         tool_fingerprint=tool_fingerprint(isolation.tools_advertised),
         provider=requests[0].provider if requests else None,
-        provider_base_url=provider_base_url(spec.provider_config, CAMPAIGN_PROVIDER),
+        provider_base_url=provider_base_url(spec.provider_config, spec.campaign.provider),
         provider_config_sha256=_sha_or_missing(spec.provider_config),
         omp_config_sha256=_sha_or_missing(spec.omp_config),
         emulated=spec.emulated,

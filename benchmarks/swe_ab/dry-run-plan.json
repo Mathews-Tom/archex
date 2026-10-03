@@ -10,5 +10,6 @@
   ],
   "models": ["qwen-3.8-27b@high"],
   "repetitions": {"A0": 1, "H": 1, "HC": 1, "C": 1},
-  "cost_ceiling_usd": 0.01
+  "cost_ceiling_usd": 0.01,
+  "campaign": "benchmarks/swe_ab/campaigns/muna.yml"
 }

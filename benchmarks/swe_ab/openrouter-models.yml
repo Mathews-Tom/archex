@@ -1,0 +1,38 @@
+# Frozen omp models.yml for R3x campaigns routed through OpenRouter. Installed as `models.yml` in
+# every container's profile copy; its SHA-256 is recorded per cell as `provider_config_sha256`.
+# Selected through a campaign file (benchmarks/swe_ab/campaigns/). Pre-registration:
+# benchmarks/preregistrations/R3x-swe-archex-ab.md.
+#
+# The provider is named `openrouter` on purpose: omp 18.4.4 keys several OpenRouter request
+# adaptations on the provider name as well as the base URL, and the Stage 0 stub rehearsal swaps
+# only the base URL, so the name keeps the stub-backed request shape equal to the real one.
+# `thinkingFormat: openai` pins the effort to `reasoning_effort` (an OpenRouter-supported
+# parameter) rather than omp's URL-detected `reasoning: {effort}`, which the stub would not see.
+#
+# PRICES. `cost` is USD per million tokens from OpenRouter's catalog
+# (GET https://openrouter.ai/api/v1/models, read 2026-10-03). A model priced at 0 is a free
+# preview: the dollar ceiling is inert for it, so a plan that runs it must set `token_ceiling`
+# (the suite refuses otherwise). `cacheWrite` stays 0: openai-completions reports none.
+providers:
+  openrouter:
+    baseUrl: https://openrouter.ai/api/v1
+    api: openai-completions
+    apiKey: OPENROUTER_API_KEY
+    models:
+      # Anonymous "stealth" preview; OpenRouter lists `expiration_date: 2026-10-05`, context
+      # 1,000,000, max completion 524,288, $0 / $0. maxTokens matches the Muna configurations.
+      - id: stealth/space-bunny-alpha
+        name: Space Bunny Alpha
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [low, medium, high, xhigh]
+        compat:
+          thinkingFormat: openai
+        cost:
+          input: 0
+          output: 0
+          cacheRead: 0
+          cacheWrite: 0
+        contextWindow: 1000000
+        maxTokens: 65536

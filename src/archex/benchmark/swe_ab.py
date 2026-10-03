@@ -12,20 +12,24 @@ cap run in every arm, and only the archex surface differs:
 This module holds everything a cell needs to be recorded and judged the same
 way every time: the channel rule table (also used by the SWE-agent trajectory
 headroom script), the omp session parser, compounded-cost arithmetic, the
-configuration table, the cell schema, and the directory validator. It performs
-no model call and no network I/O; the only files it reads are the ones it is
-given.
+campaign loader, the cell schema, and the directory validator. It performs no
+model call and no network I/O; the only files it reads are the ones it is given.
 
-Campaign cells run on Muna-hosted open models (``https://inference.muna.ai/v1``,
-bearer key in ``MUNA_ACCESS_KEY``) through omp's ``openai-completions`` provider;
-``usage.cost_usd`` is omp's cost model of the tokens at the prices in
-``benchmarks/swe_ab/muna-models.yml``. The validator mirrors R20's discipline:
-every declared cell must be present, recorded failures are kept, identities and
-fingerprints must agree across cells, any cell whose provider endpoint is not
-Muna's (the local stub used for no-spend rehearsals) is refused for publication,
-and so is any cell that did not authenticate with exactly the campaign key,
-ran on another provider, or ended in a rate-limit, capacity, or credit block (a
-block is not a task outcome; the suite re-runs it or stops). Emulated and native
+A **campaign** (``benchmarks/swe_ab/campaigns/<name>.yml``) selects the provider:
+it names a frozen omp ``models.yml`` holding exactly one provider (its base URL,
+``api``, the environment variable carrying the key, the models, and their
+prices) and lists the configurations (label, model id, thinking effort). Every
+plan names its campaign, so switching to another provider or model is a new
+campaign file, not a code change. ``usage.cost_usd`` is omp's cost model of the
+tokens at the campaign's prices; a free model (a price of 0) leaves the dollar
+ceiling inert, so its plan must carry a billed-token ceiling as well. The
+validator mirrors R20's discipline: every declared cell must be present,
+recorded failures are kept, identities and fingerprints must agree across
+cells, any cell whose provider endpoint is not the campaign's (the local stub
+used for no-spend rehearsals) is refused for publication, and so is any cell
+that did not authenticate with exactly the campaign's key variable, ran on
+another provider, or ended in a rate-limit, capacity, or credit block (a block
+is not a task outcome; the suite re-runs it or stops). Emulated and native
 cells never mix within a stage.
 """
 
@@ -56,20 +60,8 @@ CLI_GUIDE_PATH = "benchmarks/swe_ab/cli-guide.md"
 OMP_VERSION = "18.4.4"
 """omp build pinned for the whole campaign."""
 
-CAMPAIGN_PROVIDER = "muna"
-"""The only provider a campaign cell may run on (an omp custom provider, ``openai-completions``)."""
-
-MUNA_BASE_URL = "https://inference.muna.ai/v1"
-"""The endpoint every campaign cell must have resolved; any other base URL is a rehearsal."""
-
-CREDENTIAL_ENV_NAMES: tuple[str, ...] = ("MUNA_ACCESS_KEY",)
-"""The only credential variable an agent container receives; cells record names, not values."""
-
-PROVIDER_CONFIG_PATH = "benchmarks/swe_ab/muna-models.yml"
-"""Frozen omp ``models.yml``: the Muna provider, its models, and their prices (USD per Mtok)."""
-
 OMP_CONFIG_PATH = "benchmarks/swe_ab/omp-campaign.yml"
-"""Frozen omp settings overlay (``--config``): the retry budget for Muna capacity waits."""
+"""Frozen omp settings overlay (``--config``): the retry budget for provider capacity waits."""
 
 MAX_TIME = "60m"
 """omp session cap, identical across arms."""
@@ -91,16 +83,6 @@ class Configuration(NamedTuple):
     thinking: str
     """The omp ``--thinking`` effort sent for this configuration."""
 
-
-CONFIGURATIONS: tuple[Configuration, ...] = (
-    Configuration("qwen-3.8-27b@low", "muna/@qwen/qwen-3.8-27b", "low"),
-    Configuration("qwen-3.8-27b@high", "muna/@qwen/qwen-3.8-27b", "high"),
-    Configuration("gemma-4-26b-a4b-it@high", "muna/@google/gemma-4-26b-a4b-it", "high"),
-)
-"""Campaign configurations. Muna honours effort for Qwen but not for Gemma (RUNBOOK §4)."""
-
-MODELS: tuple[str, ...] = tuple(configuration.label for configuration in CONFIGURATIONS)
-"""Configuration labels; plans and cells carry the label as their ``model``."""
 
 QUOTA_BLOCKED_DIR = "quota-blocked"
 """Directory of attempts filed for a rate-limit, capacity, or credit block."""
@@ -136,12 +118,147 @@ class SweAbError(ValueError):
     """A cell, plan, or result directory violates the protocol."""
 
 
-def configuration(label: str) -> Configuration:
-    """The campaign configuration named ``label``; an unknown label is a protocol error."""
-    for entry in CONFIGURATIONS:
-        if entry.label == label:
-            return entry
-    raise SweAbError(f"unknown configuration {label!r}; the campaign runs {list(MODELS)}")
+_ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+PRICED_FIELDS: tuple[str, ...] = ("input", "output", "cacheRead")
+"""Prices (USD per million tokens) that make omp's cost model, and so the dollar ceiling, bite.
+
+``cacheWrite`` is exempt: an ``openai-completions`` response reports no cache-write tokens.
+"""
+
+
+@dataclass(frozen=True)
+class Campaign:
+    """A provider and the configurations run through it, loaded from a campaign file.
+
+    Everything provider-specific is read from the campaign's frozen omp ``models.yml``
+    (single source): the provider name, ``baseUrl``, and ``apiKey`` (the name of the
+    environment variable omp reads the key from; the only credential an agent container gets).
+    """
+
+    name: str
+    path: str
+    """The campaign file, relative to the repository root (what plans name)."""
+    sha256: str
+    provider: str
+    base_url: str
+    credential_env: str
+    provider_config: str
+    """The frozen omp ``models.yml``, relative to the repository root."""
+    provider_config_sha256: str
+    configurations: tuple[Configuration, ...]
+    unpriced: tuple[str, ...]
+    """``"<model id>: <field>"`` for each `PRICED_FIELDS` price at 0 or absent among the
+    campaign's models: omp's cost model reads 0 for them, so the dollar ceiling is inert."""
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        return tuple(entry.label for entry in self.configurations)
+
+    def configuration(self, label: str) -> Configuration:
+        """The configuration named ``label``; an unknown label is a protocol error."""
+        for entry in self.configurations:
+            if entry.label == label:
+                return entry
+        raise SweAbError(
+            f"unknown configuration {label!r}; campaign {self.name!r} runs {list(self.labels)}"
+        )
+
+
+def _yaml_mapping(path: Path, what: str) -> dict[str, Any]:
+    try:
+        document: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise SweAbError(f"cannot read {what} {path}: {exc}") from exc
+    if not isinstance(document, dict):
+        raise SweAbError(f"{what} {path} is not a mapping")
+    return cast("dict[str, Any]", document)
+
+
+def _relative(path: Path, root: Path) -> str:
+    resolved = path if path.is_absolute() else root / path
+    try:
+        return resolved.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError as exc:
+        raise SweAbError(f"{path} lies outside the repository {root}") from exc
+
+
+def load_campaign(path: Path | str, *, root: Path) -> Campaign:
+    """Load and check a campaign file; ``path`` is absolute or relative to ``root`` (the repo).
+
+    The provider config must declare exactly one provider with an https ``baseUrl`` and an
+    ``apiKey`` that names an environment variable; every configuration's model must be one of
+    its models, labels must be distinct, and an effort must be one the model declares.
+    """
+    relative = _relative(Path(path), root)
+    campaign_file = root / relative
+    document = _yaml_mapping(campaign_file, "campaign")
+    name = document.get("name")
+    provider_ref = document.get("provider_config")
+    entries = _dict_items(document.get("configurations"))
+    if not isinstance(name, str) or not name:
+        raise SweAbError(f"campaign {relative} needs a `name`")
+    if not isinstance(provider_ref, str) or not provider_ref:
+        raise SweAbError(f"campaign {relative} needs a `provider_config`")
+    if not entries:
+        raise SweAbError(f"campaign {relative} declares no configurations")
+    provider_rel = _relative(Path(provider_ref), root)
+    provider_file = root / provider_rel
+    providers = _yaml_mapping(provider_file, "provider config").get("providers")
+    if not isinstance(providers, dict) or len(cast("dict[str, Any]", providers)) != 1:
+        raise SweAbError(f"{provider_rel} must declare exactly one provider")
+    ((provider, raw_entry),) = cast("dict[str, Any]", providers).items()
+    entry = cast("dict[str, Any]", raw_entry) if isinstance(raw_entry, dict) else {}
+    base_url, key_env = entry.get("baseUrl"), entry.get("apiKey")
+    if not isinstance(base_url, str) or not base_url.startswith("https://"):
+        raise SweAbError(f"{provider_rel}: provider {provider!r} needs an https `baseUrl`")
+    if not isinstance(key_env, str) or not _ENV_NAME.match(key_env):
+        raise SweAbError(
+            f"{provider_rel}: provider {provider!r} `apiKey` must name an environment variable"
+        )
+    models = {str(model.get("id")): model for model in _dict_items(entry.get("models"))}
+    configurations: list[Configuration] = []
+    for item in entries:
+        label, model_id, thinking = item.get("label"), item.get("model"), item.get("thinking")
+        if not (isinstance(label, str) and isinstance(model_id, str) and isinstance(thinking, str)):
+            raise SweAbError(
+                f"campaign {relative}: each configuration needs a label, model, and thinking"
+            )
+        model = models.get(model_id)
+        if model is None:
+            raise SweAbError(
+                f"campaign {relative}: {label!r} names model {model_id!r}, not in {provider_rel}"
+            )
+        block = model.get("thinking")
+        efforts = cast("dict[str, Any]", block).get("efforts") if isinstance(block, dict) else None
+        if isinstance(efforts, list) and thinking not in cast("list[object]", efforts):
+            raise SweAbError(
+                f"campaign {relative}: model {model_id!r} does not declare effort {thinking!r}"
+            )
+        configurations.append(Configuration(label, f"{provider}/{model_id}", thinking))
+    labels = [entry.label for entry in configurations]
+    if len(labels) != len(set(labels)):
+        raise SweAbError(f"campaign {relative}: configuration labels must be distinct")
+    unpriced: list[str] = []
+    for model_id in sorted({entry.selector.split("/", 1)[1] for entry in configurations}):
+        cost = models[model_id].get("cost")
+        prices = cast("dict[str, Any]", cost) if isinstance(cost, dict) else {}
+        for field_name in PRICED_FIELDS:
+            value = prices.get(field_name)
+            if not isinstance(value, int | float) or value <= 0:
+                unpriced.append(f"{model_id}: {field_name}")
+    return Campaign(
+        name=name,
+        path=relative,
+        sha256=sha256_file(campaign_file),
+        provider=str(provider),
+        base_url=base_url,
+        credential_env=key_env,
+        provider_config=provider_rel,
+        provider_config_sha256=sha256_file(provider_file),
+        configurations=tuple(configurations),
+        unpriced=tuple(unpriced),
+    )
 
 
 class SweAbArm(StrEnum):
@@ -448,14 +565,14 @@ def _dict_items(value: object) -> list[dict[str, Any]]:
 
 # --- rate limits, capacity, credits, and credential hygiene -----------------------------
 #
-# Muna answers a request it cannot serve with HTTP 429: ``model_loading`` while a model is
-# swapped into shared GPU capacity, ``model_capacity_exhausted`` when no capacity is free
-# without displacing an active model, and an ordinary rate limit. omp retries those inside
-# the run (``retry.maxRetries`` attempts, each waiting at most ``retry.maxDelayMs``); when
-# its budget is spent it ends the turn with the provider error. The harness classifies that
-# error here: a rate-limit or capacity block is re-run by the suite after a cooldown, and
-# credit exhaustion (never retried, never scored) stops the suite with an exit status that
-# can be resumed once the account is topped up.
+# A provider answers a request it cannot serve with HTTP 429: an ordinary rate limit, a usage
+# or free-tier cap, or a capacity signal (Muna's ``model_loading`` while a model is swapped
+# into shared GPU capacity and ``model_capacity_exhausted`` when none is free). omp retries
+# those inside the run (``retry.maxRetries`` attempts, each waiting at most
+# ``retry.maxDelayMs``); when its budget is spent it ends the turn with the provider error.
+# The harness classifies that error here: a rate-limit or capacity block is re-run by the
+# suite after a cooldown, and credit exhaustion (never retried, never scored) stops the suite
+# with an exit status that can be resumed once the account is topped up.
 
 _QUOTA_ERROR = re.compile(
     r"usage[\s_-]?limit|rate[\s_-]?limit|quota|too many requests|\b429\b"
@@ -473,15 +590,16 @@ _CREDIT_ERROR = re.compile(
 
 
 def is_quota_error(message: str | None) -> bool:
-    """Whether a provider error text is a rate-limit or capacity block (Muna HTTP 429)."""
+    """Whether a provider error text is a rate-limit or capacity block (HTTP 429 and kin)."""
     return bool(message) and _QUOTA_ERROR.search(message or "") is not None
 
 
 def is_credit_error(message: str | None) -> bool:
     """Whether a provider error text says the account is out of credits (HTTP 402 and kin).
 
-    The response shape Muna uses for exhausted credits is unverified; this pattern is the
-    protocol's reading of the usual ones. Check it before `is_quota_error`.
+    The response shape a provider uses for exhausted credits is not verified for every
+    provider; this pattern is the protocol's reading of the usual ones (OpenRouter answers
+    402). Check it before `is_quota_error`.
     """
     return bool(message) and _CREDIT_ERROR.search(message or "") is not None
 
@@ -534,7 +652,7 @@ def parse_omp_events(stdout: str) -> OmpRunEvents:
 def credential_files_in_profile(profile_dir: Path) -> list[str]:
     """Credential stores under an omp profile directory (relative paths, never contents).
 
-    The agent container's only credential is the ``MUNA_ACCESS_KEY`` variable, so a profile
+    The agent container's only credential is the campaign's key variable, so a profile
     that is copied into it must carry none: no ``agent.db`` (omp's SQLite login vault), token
     file, or encrypted snapshot.
     """
@@ -771,9 +889,9 @@ class FailureReason(StrEnum):
 class Usage(BaseModel):
     """Provider-reported tokens summed over every request, and omp's cost figure.
 
-    ``cost_usd`` is omp's cost model of the tokens at the prices in the frozen provider
-    config (``benchmarks/swe_ab/muna-models.yml``); it feeds the cost ceiling and money
-    translation.
+    ``cost_usd`` is omp's cost model of the tokens at the prices in the campaign's frozen
+    provider config; it feeds the cost ceiling and money translation. A free model reads 0,
+    which is why such a campaign needs the plan's token ceiling (`total_billed`).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -855,7 +973,7 @@ class SweAbCell(BaseModel):
     tool_fingerprint: str
     provider: str | None
     provider_base_url: str | None
-    """The ``baseUrl`` the cell's provider resolved to: Muna's, or a rehearsal stub's."""
+    """The ``baseUrl`` the cell's provider resolved to: the campaign's, or a rehearsal stub's."""
     provider_config_sha256: str
     """SHA-256 of the provider config installed as the profile's ``models.yml``."""
     omp_config_sha256: str
@@ -900,12 +1018,6 @@ class SweAbCell(BaseModel):
     def _validate(self) -> Self:
         if self.omp_version != OMP_VERSION:
             raise ValueError(f"omp {self.omp_version} is not the pinned {OMP_VERSION}")
-        if self.model not in MODELS:
-            raise ValueError(f"{self.model!r} is not a campaign configuration")
-        if self.thinking != configuration(self.model).thinking:
-            raise ValueError(
-                f"thinking {self.thinking!r} does not match configuration {self.model!r}"
-            )
         blocked_reason = self.failure_reason in (
             FailureReason.QUOTA_BLOCK,
             FailureReason.CREDIT_EXHAUSTED,
@@ -1016,6 +1128,10 @@ class SweAbPlan(BaseModel):
     models: list[str] = Field(min_length=1)
     repetitions: dict[SweAbArm, int] = Field(min_length=1)
     cost_ceiling_usd: float = Field(gt=0.0)
+    campaign: str
+    """The campaign file (repository-relative) that defines the provider and configurations."""
+    token_ceiling: int | None = Field(default=None, gt=0)
+    """Hard cumulative ceiling on billed tokens; required when a campaign model is unpriced."""
 
     @model_validator(mode="after")
     def _unique(self) -> Self:
@@ -1024,12 +1140,8 @@ class SweAbPlan(BaseModel):
             raise ValueError("plan task ids must be unique")
         if any(count < 1 for count in self.repetitions.values()):
             raise ValueError("every declared arm needs at least one repetition")
-        unknown = [model for model in self.models if model not in MODELS]
-        if unknown or len(self.models) != len(set(self.models)):
-            raise ValueError(
-                f"plan models must be distinct campaign configurations {list(MODELS)}; "
-                f"got {self.models}"
-            )
+        if len(self.models) != len(set(self.models)):
+            raise ValueError(f"plan models must be distinct; got {self.models}")
         return self
 
     def cells(self) -> list[CellKey]:
@@ -1042,18 +1154,19 @@ class SweAbPlan(BaseModel):
             for repetition in range(1, self.repetitions[arm] + 1)
         ]
 
-    def scheduled_cells(self) -> list[CellKey]:
+    def scheduled_cells(self, campaign: Campaign) -> list[CellKey]:
         """Cells in the order the suite runs them, one model family loaded at a time.
 
-        Muna swaps models in and out of shared GPU capacity, so cells are ordered by
-        (omp selector, task in plan order, configuration label, arm, repetition): every cell
-        of a family, task by task, before the next family begins.
+        Providers that swap models in and out of shared GPU capacity (Muna) make a family
+        switch expensive, so cells are ordered by (omp selector, task in plan order,
+        configuration label, arm, repetition): every cell of a family, task by task, before
+        the next family begins.
         """
         task_index = {task.task_id: index for index, task in enumerate(self.tasks)}
         return sorted(
             self.cells(),
             key=lambda key: (
-                configuration(key.model).selector,
+                campaign.configuration(key.model).selector,
                 task_index[key.task_id],
                 key.model,
                 key.arm.value,
@@ -1067,6 +1180,17 @@ def load_plan(path: Path) -> SweAbPlan:
         return SweAbPlan.model_validate_json(path.read_text(encoding="utf-8"))
     except ValidationError as exc:
         raise SweAbError(f"invalid plan {path}: {exc}") from exc
+
+
+def plan_campaign(plan: SweAbPlan, *, root: Path) -> Campaign:
+    """The campaign ``plan`` names, after checking that it runs every model the plan declares."""
+    campaign = load_campaign(plan.campaign, root=root)
+    if unknown := [model for model in plan.models if model not in campaign.labels]:
+        raise SweAbError(
+            f"plan {plan.name!r} declares {unknown}, not configurations of campaign "
+            f"{campaign.name!r} {list(campaign.labels)}"
+        )
+    return campaign
 
 
 def load_cell(path: Path) -> SweAbCell:
@@ -1086,6 +1210,8 @@ class SweAbCoverage(BaseModel):
     quota_blocked: int = 0
     """Attempts filed for a rate-limit, capacity, or credit block; never scored."""
     total_cost_usd: float
+    total_billed_tokens: int = 0
+    """Billed tokens over every cell and filed attempt (the free-model ceiling's quantity)."""
 
 
 def quota_blocked_relative_path(key: CellKey, attempt: int) -> Path:
@@ -1107,9 +1233,13 @@ def _quota_blocked_cells(directory: Path, declared: set[CellKey]) -> list[SweAbC
 
 
 def validate_swe_ab_directory(
-    directory: Path, plan: SweAbPlan, *, require_complete: bool = True
+    directory: Path, plan: SweAbPlan, campaign: Campaign, *, require_complete: bool = True
 ) -> SweAbCoverage:
-    """Validate a result directory for publication; raise `SweAbError` on any violation."""
+    """Validate a result directory for publication; raise `SweAbError` on any violation.
+
+    ``campaign`` is the plan's (`plan_campaign`): every cell must have run through its
+    provider, endpoint, key variable, frozen provider config, and configured efforts.
+    """
     if not directory.is_dir():
         raise SweAbError(f"result directory {directory} does not exist")
     declared = set(plan.cells())
@@ -1123,26 +1253,36 @@ def validate_swe_ab_directory(
             raise SweAbError(f"{path} does not sit at its key's path {key.relative_path}")
         if key not in declared:
             raise SweAbError(f"{path} is not a declared cell of plan {plan.name!r}")
-        if cell.provider_base_url != MUNA_BASE_URL:
+        if cell.provider_base_url != campaign.base_url:
             raise SweAbError(
                 f"{path} resolved provider endpoint {cell.provider_base_url!r}, not "
-                f"{MUNA_BASE_URL} (a local stub or another endpoint); such cells exercise the "
-                "harness and are refused for publication"
+                f"{campaign.base_url} (a local stub or another endpoint); such cells exercise "
+                "the harness and are refused for publication"
             )
         if cell.failure_reason in (FailureReason.QUOTA_BLOCK, FailureReason.CREDIT_EXHAUSTED):
             raise SweAbError(
                 f"{path} ended in a {cell.failure_reason} block, which is not a task outcome; "
                 "resume the run so the cell is re-run once the block clears"
             )
-        if sorted(cell.credential_env_names) != sorted(CREDENTIAL_ENV_NAMES):
+        if cell.credential_env_names != [campaign.credential_env]:
             raise SweAbError(
-                f"{path} did not authenticate with exactly {list(CREDENTIAL_ENV_NAMES)} "
+                f"{path} did not authenticate with exactly [{campaign.credential_env!r}] "
                 f"(credential variables: {sorted(cell.credential_env_names)})"
             )
-        if cell.provider is not None and cell.provider != CAMPAIGN_PROVIDER:
+        if cell.provider is not None and cell.provider != campaign.provider:
             raise SweAbError(
                 f"{path} ran {cell.model} through provider {cell.provider!r}, "
-                f"not {CAMPAIGN_PROVIDER!r}"
+                f"not {campaign.provider!r}"
+            )
+        if cell.provider_config_sha256 != campaign.provider_config_sha256:
+            raise SweAbError(
+                f"{path} ran with provider config {cell.provider_config_sha256}, not "
+                f"{campaign.provider_config} ({campaign.provider_config_sha256})"
+            )
+        if cell.thinking != campaign.configuration(cell.model).thinking:
+            raise SweAbError(
+                f"{path} ran thinking {cell.thinking!r}; configuration {cell.model!r} is "
+                f"{campaign.configuration(cell.model).thinking!r}"
             )
         cells[key] = cell
     if require_complete and (missing := sorted(declared - set(cells))):
@@ -1150,7 +1290,6 @@ def validate_swe_ab_directory(
     blocked = _quota_blocked_cells(directory, declared)
     ok = [cell for cell in cells.values() if cell.status is CellStatus.OK]
     _require_single("omp_version", {cell.omp_version for cell in cells.values()})
-    _require_single("provider config", {cell.provider_config_sha256 for cell in cells.values()})
     _require_single("omp config", {cell.omp_config_sha256 for cell in cells.values()})
     if len({cell.emulated for cell in cells.values()}) > 1:
         raise SweAbError(
@@ -1173,11 +1312,23 @@ def validate_swe_ab_directory(
                 if cell.model == model and cell.arm is arm and cell.isolation.non_message_tokens
             }
             _require_single(f"{model} {arm} static prompt size", prefixes)
-    total_cost = sum(cell.usage.cost_usd for cell in [*cells.values(), *blocked])
-    largest = max((cell.usage.cost_usd for cell in [*cells.values(), *blocked]), default=0.0)
+    recorded = [*cells.values(), *blocked]
+    total_cost = sum(cell.usage.cost_usd for cell in recorded)
+    largest = max((cell.usage.cost_usd for cell in recorded), default=0.0)
     if total_cost > plan.cost_ceiling_usd + largest:
         raise SweAbError(
             f"recorded cost ${total_cost:.2f} exceeds the ${plan.cost_ceiling_usd:.2f} ceiling"
+        )
+    total_tokens = sum(cell.usage.total_billed for cell in recorded)
+    largest_tokens = max((cell.usage.total_billed for cell in recorded), default=0)
+    if plan.token_ceiling is not None and total_tokens > plan.token_ceiling + largest_tokens:
+        raise SweAbError(
+            f"recorded {total_tokens} billed tokens exceed the {plan.token_ceiling} token ceiling"
+        )
+    if campaign.unpriced and plan.token_ceiling is None:
+        raise SweAbError(
+            f"campaign {campaign.name!r} has unpriced models {list(campaign.unpriced)} and the "
+            "plan sets no token_ceiling, so nothing bounded the stage"
         )
     return SweAbCoverage(
         declared=len(declared),
@@ -1186,6 +1337,7 @@ def validate_swe_ab_directory(
         failed=len(cells) - len(ok),
         quota_blocked=len(blocked),
         total_cost_usd=round(total_cost, 4),
+        total_billed_tokens=total_tokens,
     )
 
 
@@ -1201,7 +1353,7 @@ def omp_argv(
     omp_command: Sequence[str],
     *,
     arm: SweAbArm,
-    model: str,
+    config: Configuration,
     prompt_path: str,
     session_dir: str,
     hook_module_path: str | None,
@@ -1210,12 +1362,11 @@ def omp_argv(
 ) -> list[str]:
     """The one omp command line every cell runs (spec §5.3).
 
-    ``model`` is a configuration label; its omp selector and thinking effort are derived
-    from `CONFIGURATIONS`. Identical across arms except the explicit annotation extension
-    (H, HC) and the appended CLI guide (HC, C). ``--no-title`` keeps omp from spending a
-    model call on a session title; ``--config`` loads the frozen retry overlay.
+    ``config`` is the cell's campaign configuration (omp selector and thinking effort).
+    Identical across arms except the explicit annotation extension (H, HC) and the appended
+    CLI guide (HC, C). ``--no-title`` keeps omp from spending a model call on a session title;
+    ``--config`` loads the frozen retry overlay.
     """
-    config = configuration(model)
     if arm.hook != (hook_module_path is not None):
         raise SweAbError(f"arm {arm} {'needs' if arm.hook else 'must not load'} the hook module")
     if arm.cli != (cli_guide_path is not None):
@@ -1289,28 +1440,3 @@ def provider_base_url(models_yml: Path, provider: str) -> str | None:
     entry = _provider_entry(models_yml, provider) if models_yml.is_file() else None
     base_url = entry.get("baseUrl") if entry else None
     return str(base_url) if base_url else None
-
-
-PRICED_FIELDS: tuple[str, ...] = ("input", "output", "cacheRead")
-"""Price fields (USD per million tokens) every campaign model must carry above zero.
-
-``cacheWrite`` is exempt: an ``openai-completions`` response reports no cache-write tokens.
-"""
-
-
-def unpriced_models(provider_config: Path) -> list[str]:
-    """``"<model id>: <field>"`` for each price the provider config leaves at zero or absent.
-
-    The cost ceiling is checked against omp's per-request ``usage.cost.total``, which is zero
-    for an unpriced model; a docker run therefore refuses to start while this list is non-empty.
-    """
-    entry = _provider_entry(provider_config, CAMPAIGN_PROVIDER)
-    missing: list[str] = []
-    for model in _dict_items(entry.get("models") if entry else None):
-        cost = model.get("cost")
-        prices = cast("dict[str, Any]", cost) if isinstance(cost, dict) else {}
-        for name in PRICED_FIELDS:
-            value = prices.get(name)
-            if not isinstance(value, int | float) or value <= 0:
-                missing.append(f"{model.get('id')}: {name}")
-    return missing
