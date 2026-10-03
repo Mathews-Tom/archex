@@ -23,7 +23,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from archex.benchmark.swe_ab import MODELS, SweAbArm, SweAbError, SweAbPlan, load_plan
+from archex.benchmark.swe_ab import (
+    Campaign,
+    SweAbArm,
+    SweAbError,
+    SweAbPlan,
+    load_campaign,
+    load_plan,
+)
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SEED = 20260909
 STAGE1_TASKS = 24
@@ -32,11 +41,11 @@ GUARDRAIL_PAIRS = 370
 """Task-pair count that powers the pooled non-inferiority guardrail."""
 
 
-def stage2_task_count(passing_configurations: int) -> int:
-    """Stage 2 tasks: ``max(100, ceil(370 / k))`` for ``k`` Stage 1 solve-floor configurations."""
-    if not 1 <= passing_configurations <= len(MODELS):
+def stage2_task_count(passing_configurations: int, configurations: int) -> int:
+    """Stage 2 tasks: ``max(100, ceil(370 / k))`` for ``k`` of ``configurations`` passing."""
+    if not 1 <= passing_configurations <= configurations:
         raise SweAbError(
-            f"stage 2 size rule needs 1..{len(MODELS)} floor-passing configurations, "
+            f"stage 2 size rule needs 1..{configurations} floor-passing configurations, "
             f"got {passing_configurations}"
         )
     return max(STAGE2_MIN_TASKS, -(-GUARDRAIL_PAIRS // passing_configurations))
@@ -177,23 +186,31 @@ def draw(
     return Draw(stage, sizes, alloc, walked, selected)
 
 
-def build_plan(result: Draw, cost_ceiling: float, without_hc: bool) -> SweAbPlan:
+def build_plan(
+    result: Draw,
+    cost_ceiling: float,
+    without_hc: bool,
+    campaign: Campaign,
+    token_ceiling: int | None,
+) -> SweAbPlan:
     if result.stage == 1:
         reps = {SweAbArm.A0: 2, SweAbArm.H: 1, SweAbArm.HC: 1, SweAbArm.C: 1}
     else:
         reps = {SweAbArm.A0: 1, SweAbArm.H: 1}
         if not without_hc:
             reps[SweAbArm.HC] = 1
+    payload: dict[str, Any] = {
+        "name": f"r3x-stage{result.stage}",
+        "tasks": [{"task_id": i, "repo": r} for r, i in result.selected],
+        "models": list(campaign.labels),
+        "campaign": campaign.path,
+        "repetitions": reps,
+        "cost_ceiling_usd": cost_ceiling,
+    }
+    if token_ceiling is not None:
+        payload["token_ceiling"] = token_ceiling
     try:
-        return SweAbPlan.model_validate(
-            {
-                "name": f"r3x-stage{result.stage}",
-                "tasks": [{"task_id": i, "repo": r} for r, i in result.selected],
-                "models": list(MODELS),
-                "repetitions": reps,
-                "cost_ceiling_usd": cost_ceiling,
-            }
-        )
+        return SweAbPlan.model_validate(payload)
     except ValueError as exc:
         raise SweAbError(f"invalid plan: {exc}") from exc
 
@@ -207,11 +224,14 @@ def build_manifest(
     exclusions: dict[str, dict[str, str]],
     sums_sha: str | None,
     stage1_ids: list[str] | None,
+    campaign: Campaign,
     stage2_tasks: int | None = None,
 ) -> dict[str, Any]:
     manifest: dict[str, Any] = {
         "seed": SEED,
         "stage": result.stage,
+        "campaign": campaign.path,
+        "campaign_sha256": campaign.sha256,
         "tasks_root_sha256sums": sums_sha,
         "pool_size": sum(result.pool_by_repo.values()),
         "pool_by_repo": result.pool_by_repo,
@@ -255,6 +275,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise SweAbError(f"--stage2-tasks must be >= {STAGE2_MIN_TASKS}")
     if stage == 2 and args.stage1_plan is None:
         raise SweAbError("stage 2 requires --stage1-plan")
+    campaign = load_campaign(args.campaign, root=REPO_ROOT)
+    token_ceiling: int | None = args.token_ceiling
+    if token_ceiling is not None and token_ceiling <= 0:
+        raise SweAbError("--token-ceiling must be > 0")
+    if campaign.unpriced and token_ceiling is None:
+        raise SweAbError(
+            f"campaign {campaign.name!r} has unpriced models {list(campaign.unpriced)}: "
+            "the dollar ceiling cannot bind, so --token-ceiling is required"
+        )
     outs = [args.plan_out, args.manifest_out, args.instances_out]
     if not args.force:
         for out in outs:
@@ -268,6 +297,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         result = draw(1, pool, exclusions)
     else:
         given = load_plan(args.stage1_plan)
+        if given.campaign != campaign.path:
+            raise SweAbError(
+                f"stage 1 plan ran campaign {given.campaign!r}; stage 2 must keep it, "
+                f"not {campaign.path!r}"
+            )
         recomputed = draw(1, pool, exclusions)
         stage1_ids = [t.task_id for t in given.tasks]
         if stage1_ids != [i for _, i in recomputed.selected]:
@@ -279,10 +313,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if set(stage1_ids) & {i for _, i in result.selected}:
             raise SweAbError("stage 2 overlaps stage 1")
 
-    plan = build_plan(result, args.cost_ceiling, args.without_hc)
+    plan = build_plan(result, args.cost_ceiling, args.without_hc, campaign, token_ceiling)
     sums = args.tasks_root.parent / "SHA256SUMS"
     sums_sha = hashlib.sha256(sums.read_bytes()).hexdigest() if sums.is_file() else None
-    manifest = build_manifest(result, exclusions, sums_sha, stage1_ids, stage2_tasks)
+    manifest = build_manifest(result, exclusions, sums_sha, stage1_ids, campaign, stage2_tasks)
     instances = "".join(f"{i}\n" for _, i in result.selected)
     _atomic_write(args.plan_out, _dump(plan.model_dump(mode="json", exclude_none=True)))
     _atomic_write(args.manifest_out, _dump(manifest))
@@ -298,6 +332,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--tasks-root", type=Path, required=True)
     p.add_argument("--stage", type=int, choices=(1, 2), required=True)
+    p.add_argument(
+        "--campaign", required=True, help="campaign file, relative to the repository root"
+    )
+    p.add_argument(
+        "--token-ceiling",
+        type=int,
+        help="hard cumulative billed-token ceiling; required when the campaign has unpriced models",
+    )
     p.add_argument("--cost-ceiling", type=float, required=True)
     p.add_argument("--exclusions", type=Path)
     p.add_argument("--stage1-plan", type=Path)

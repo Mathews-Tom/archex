@@ -1,4 +1,4 @@
-"""Tests for the SWE A/B cell runner and suite on Muna: campaign key, blocks, credits, scheduling.
+"""Tests for the SWE A/B cell runner and suite: campaign key, blocks, credits, ceilings, attempts.
 
 Everything here runs against fakes (no Docker, no model, no network), except the rehearsal
 smoke test, which drives the pinned omp against the local stub and skips without it.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
 import subprocess
 import sys
 import threading
@@ -24,7 +25,6 @@ cell_runner: Any = importlib.import_module("run_swe_ab_cell")
 suite: Any = importlib.import_module("run_swe_ab_suite")
 
 from archex.benchmark.swe_ab import (  # noqa: E402
-    CREDENTIAL_ENV_NAMES,
     OMP_CONFIG_PATH,
     CellKey,
     FailureReason,
@@ -35,6 +35,7 @@ from archex.benchmark.swe_ab import (  # noqa: E402
     Usage,
     load_cell,
     load_plan,
+    plan_campaign,
     quota_blocked_relative_path,
     validate_swe_ab_directory,
 )
@@ -45,7 +46,7 @@ LABELS = ("qwen-3.8-27b@low", "qwen-3.8-27b@high", "gemma-4-26b-a4b-it@high")
 KEY_NAME = "MUNA_ACCESS_KEY"
 SECRET = "muna-secret-key-123"  # noqa: S105 - a fake, used to prove it never leaks
 PINNED_OMP = Path("/tmp/omp-18.4.4/bin/omp")
-PROVIDER_CONFIG = REPO_ROOT / "benchmarks/swe_ab/muna-models.yml"
+MUNA_CAMPAIGN = "benchmarks/swe_ab/campaigns/muna.yml"
 
 
 # --- one cell with block cooldown -------------------------------------------------------------
@@ -67,7 +68,7 @@ def _cell_spec(tmp_path: Path, key: CellKey) -> dict[str, Any]:
         "work_dir": str(tmp_path / "work"),
         "omp_command": ["omp"],
         "profile_dir": str(tmp_path / "profile"),
-        "provider_config": str(PROVIDER_CONFIG),
+        "campaign": MUNA_CAMPAIGN,
         "omp_config": str(tmp_path / "omp-campaign.yml"),
         "prior_blocked_attempts": 0,
     }
@@ -115,7 +116,7 @@ def _run_one(
     *,
     retries: int = 2,
     cooldown: float = 300.0,
-) -> float:
+) -> Any:
     key = _key()
     return suite._run_one(  # pyright: ignore[reportPrivateUsage]
         _cell_spec(tmp_path, key),
@@ -143,7 +144,7 @@ def test_a_quota_blocked_cell_is_filed_and_rerun_after_the_cooldown(tmp_path: Pa
     assert final.quota.prior_blocked_attempts == 1
     assert [spec["prior_blocked_attempts"] for spec in cells.specs] == [0, 1]
     assert sleeps == [42.0]
-    assert total == 4.0  # the blocked attempt's tokens still count toward the ceiling
+    assert (total.cost_usd, total.tokens) == (4.0, 4)  # the blocked attempt counts toward ceilings
 
 
 def test_each_rerun_waits_the_cooldown_up_to_the_retry_budget_and_the_block_then_stays(
@@ -162,7 +163,7 @@ def test_each_rerun_waits_the_cooldown_up_to_the_retry_budget_and_the_block_then
     )
     for attempt in (1, 2):
         assert (tmp_path / "out" / quota_blocked_relative_path(_key(), attempt)).exists()
-    assert total == 6.0
+    assert (total.cost_usd, total.tokens) == (6.0, 6)
     assert any(line.get("quota") == "retry_budget_exhausted" for line in logs)
 
 
@@ -190,7 +191,7 @@ def test_credit_exhaustion_is_filed_never_rerun_and_stops_the_run(tmp_path: Path
     assert not (tmp_path / "out" / _key().relative_path).exists()
     assert len(cells.specs) == 1
     assert sleeps == []
-    assert stop.value.cost == 2.0
+    assert (stop.value.spend.cost_usd, stop.value.spend.tokens) == (2.0, 2)
 
 
 # --- the suite: exit status, preflight, resume ------------------------------------------------
@@ -204,20 +205,21 @@ def _suite_args(
     models: tuple[str, ...] = (MODEL,),
     runtime: str = "docker",
     env_file: Path | None = None,
+    campaign: str = MUNA_CAMPAIGN,
+    token_ceiling: int | None = None,
 ) -> list[str]:
     plan = tmp_path / "plan.json"
-    plan.write_text(
-        json.dumps(
-            {
-                "name": "p",
-                "tasks": [{"task_id": "t1", "repo": "o/r"}, {"task_id": "t2", "repo": "o/r"}],
-                "models": list(models),
-                "repetitions": {"A0": repetitions},
-                "cost_ceiling_usd": 100.0,
-            }
-        ),
-        encoding="utf-8",
-    )
+    body: dict[str, Any] = {
+        "name": "p",
+        "campaign": campaign,
+        "tasks": [{"task_id": "t1", "repo": "o/r"}, {"task_id": "t2", "repo": "o/r"}],
+        "models": list(models),
+        "repetitions": {"A0": repetitions},
+        "cost_ceiling_usd": 100.0,
+    }
+    if token_ceiling is not None:
+        body["token_ceiling"] = token_ceiling
+    plan.write_text(json.dumps(body), encoding="utf-8")
     profile = profile or tmp_path / "profile"
     profile.mkdir(exist_ok=True)
     return [
@@ -228,23 +230,18 @@ def _suite_args(
     ]  # fmt: skip
 
 
-def _all_priced(_path: Path) -> list[str]:
-    return []
-
-
 def _recording(ran: list[CellKey]) -> Any:
-    def fake(_spec: dict[str, Any], key: CellKey, *_args: Any, **_kwargs: Any) -> float:
+    def fake(_spec: dict[str, Any], key: CellKey, *_args: Any, **_kwargs: Any) -> Any:
         ran.append(key)
-        return 0.0
+        return suite.Spend()
 
     return fake
 
 
 @pytest.fixture
 def campaign(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A fake campaign key in the environment and every model priced."""
+    """A fake key for the Muna campaign in the environment (its prices are all set)."""
     monkeypatch.setenv(KEY_NAME, SECRET)
-    monkeypatch.setattr(suite, "unpriced_models", _all_priced)
 
 
 def test_a_credit_stop_exits_5_after_the_running_cell_finishes_and_starts_nothing_more(
@@ -254,15 +251,15 @@ def test_a_credit_stop_exits_5_after_the_running_cell_finishes_and_starts_nothin
     order: list[str] = []
     credit_raised = threading.Event()
 
-    def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> float:
+    def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> Any:
         order.append(f"start {key.repetition}")
         if key.repetition == 1:
             credit_raised.set()
-            raise suite.CreditExhaustedError("credits exhausted", 1.5)
+            raise suite.CreditExhaustedError("credits exhausted", suite.Spend(1.5, 15))
         credit_raised.wait(5)
         time.sleep(0.1)
         order.append(f"finish {key.repetition}")
-        return 0.5
+        return suite.Spend(0.5, 5)
 
     monkeypatch.setattr(suite, "_run_one", fake)
 
@@ -285,10 +282,10 @@ def test_cells_carry_the_key_in_their_environment_and_never_in_the_spec_or_banne
 
     def fake(
         spec: dict[str, Any], key: CellKey, *args: Any, env: dict[str, str], **kwargs: Any
-    ) -> float:
+    ) -> Any:
         envs.append(env)
         specs.append(spec)
-        return 0.0
+        return suite.Spend()
 
     monkeypatch.setattr(suite, "_run_one", fake)
 
@@ -305,16 +302,15 @@ def test_a_key_from_the_env_file_reaches_the_cells(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(KEY_NAME, raising=False)
-    monkeypatch.setattr(suite, "unpriced_models", _all_priced)
     env_file = tmp_path / ".env"
     env_file.write_text(f"OTHER=1\nexport {KEY_NAME}='from-file'\n", encoding="utf-8")
     envs: list[dict[str, str]] = []
 
     def fake(
         spec: dict[str, Any], key: CellKey, *args: Any, env: dict[str, str], **kwargs: Any
-    ) -> float:
+    ) -> Any:
         envs.append(env)
-        return 0.0
+        return suite.Spend()
 
     monkeypatch.setattr(suite, "_run_one", fake)
 
@@ -343,11 +339,11 @@ def test_the_env_file_reader_takes_only_the_campaign_key_line(
     path = tmp_path / ".env"
     path.write_text(text, encoding="utf-8")
 
-    assert suite.read_env_file_key(path) == expected
+    assert suite.read_env_file_key(path, KEY_NAME) == expected
 
 
 def test_a_missing_env_file_has_no_key(tmp_path: Path) -> None:
-    assert suite.read_env_file_key(tmp_path / "absent.env") is None
+    assert suite.read_env_file_key(tmp_path / "absent.env", KEY_NAME) is None
 
 
 @pytest.mark.parametrize("env_file_text", [None, "OTHER=1\n"])
@@ -368,29 +364,180 @@ def test_a_docker_run_without_a_key_anywhere_is_refused_before_any_cell(
     assert not (tmp_path / "out").exists()
 
 
-def test_a_docker_run_is_refused_while_prices_are_zero_and_never_prints_the_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The suite reads the frozen provider config from REPO_ROOT; point it at a zero-price copy.
+FREE_KEY_NAME = "FREE_API_KEY"
+
+
+@pytest.fixture
+def free_campaign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A repository root (the suite's) holding a campaign whose only model is priced at 0."""
     root = tmp_path / "repo"
-    (root / "benchmarks/swe_ab").mkdir(parents=True)
-    (root / "benchmarks/swe_ab/muna-models.yml").write_text(
-        "providers:\n  muna:\n    models:\n"
-        '      - id: "@qwen/qwen-3.8-27b"\n'
+    (root / "benchmarks/swe_ab/campaigns").mkdir(parents=True)
+    (root / "benchmarks/swe_ab/free-models.yml").write_text(
+        "providers:\n"
+        "  freeprov:\n"
+        "    baseUrl: https://free.example/v1\n"
+        f"    apiKey: {FREE_KEY_NAME}\n"
+        "    models:\n"
+        "      - id: stealth/free\n"
+        "        thinking: {mode: effort, efforts: [low, high]}\n"
         "        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}\n",
         encoding="utf-8",
     )
+    path = "benchmarks/swe_ab/campaigns/free.yml"
+    (root / path).write_text(
+        "name: free\n"
+        "provider_config: benchmarks/swe_ab/free-models.yml\n"
+        "configurations:\n"
+        "  - {label: free@high, model: stealth/free, thinking: high}\n",
+        encoding="utf-8",
+    )
     monkeypatch.setattr(suite, "REPO_ROOT", root)
-    monkeypatch.setenv(KEY_NAME, SECRET)
+    return path
+
+
+@pytest.mark.parametrize("key_present", [False, True])
+def test_a_docker_run_of_an_unpriced_campaign_is_refused_without_a_token_ceiling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, free_campaign: str, key_present: bool
+) -> None:
+    if key_present:
+        monkeypatch.setenv(FREE_KEY_NAME, SECRET)
+    else:
+        monkeypatch.delenv(FREE_KEY_NAME, raising=False)  # the refusal does not need the key
     ran: list[CellKey] = []
     monkeypatch.setattr(suite, "_run_one", _recording(ran))
 
     with pytest.raises(SystemExit) as refused:
-        suite.main(_suite_args(tmp_path))
+        suite.main(_suite_args(tmp_path, campaign=free_campaign, models=("free@high",)))
 
-    assert "@qwen/qwen-3.8-27b: input" in str(refused.value)
+    assert "stealth/free: input" in str(refused.value)
+    assert "token_ceiling" in str(refused.value)
     assert SECRET not in str(refused.value)
     assert ran == []
+
+
+def test_an_unpriced_campaign_runs_with_a_token_ceiling_and_its_own_key_variable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    free_campaign: str,
+) -> None:
+    monkeypatch.setenv(FREE_KEY_NAME, SECRET)
+    envs: list[dict[str, str]] = []
+    specs: list[dict[str, Any]] = []
+
+    def fake(
+        spec: dict[str, Any], key: CellKey, *args: Any, env: dict[str, str], **kwargs: Any
+    ) -> Any:
+        envs.append(env)
+        specs.append(spec)
+        return suite.Spend()
+
+    monkeypatch.setattr(suite, "_run_one", fake)
+
+    code = suite.main(
+        _suite_args(
+            tmp_path, campaign=free_campaign, models=("free@high",), token_ceiling=1_000_000
+        )
+    )
+
+    assert code == 0
+    assert envs[0][FREE_KEY_NAME] == SECRET
+    assert {spec["campaign"] for spec in specs} == {free_campaign}
+    banner = json.loads(capsys.readouterr().out.splitlines()[0])
+    assert (banner["campaign"], banner["provider"], banner["base_url"]) == (
+        "free",
+        "freeprov",
+        "https://free.example/v1",
+    )
+    assert banner["agent_env_names"] == [FREE_KEY_NAME]
+    assert SECRET not in json.dumps(banner)
+
+
+def _spending(tokens: int, ran: list[CellKey]) -> Any:
+    def fake(_spec: dict[str, Any], key: CellKey, *_args: Any, **_kwargs: Any) -> Any:
+        ran.append(key)
+        return suite.Spend(0.0, tokens)
+
+    return fake
+
+
+def test_the_token_ceiling_stops_the_suite_with_exit_3_before_the_next_cell(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    campaign: None,
+) -> None:
+    del campaign
+    ran: list[CellKey] = []
+    monkeypatch.setattr(suite, "_run_one", _spending(400, ran))
+
+    code = suite.main(_suite_args(tmp_path, repetitions=4, token_ceiling=1000))
+
+    assert code == suite.COST_EXIT == 3
+    assert len(ran) == 3  # 400, 800, then 1200 >= 1000 stops the fourth
+    stop = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (stop["aborted"], stop["spent_tokens"], stop["ceiling_tokens"]) == (
+        "token ceiling",
+        1200,
+        1000,
+    )
+
+
+def test_without_a_token_ceiling_a_priced_campaign_is_bounded_by_cost_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
+) -> None:
+    del campaign
+    ran: list[CellKey] = []
+    monkeypatch.setattr(suite, "_run_one", _spending(400, ran))
+
+    assert suite.main(_suite_args(tmp_path, repetitions=4)) == 0
+    assert len(ran) == 8
+
+
+def test_tokens_of_cells_recorded_by_an_earlier_run_count_toward_the_token_ceiling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
+) -> None:
+    del campaign
+    _Cells("provider_error")(_cell_spec(tmp_path, _key("t1")), None)  # 2 billed tokens
+    ran: list[CellKey] = []
+    monkeypatch.setattr(suite, "_run_one", _spending(0, ran))
+
+    assert suite.main(_suite_args(tmp_path, token_ceiling=2)) == suite.COST_EXIT
+    assert ran == []
+
+
+def test_a_blocked_attempt_filed_on_resume_counts_toward_the_token_ceiling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, campaign: None
+) -> None:
+    del campaign
+    _Cells("credit")(_cell_spec(tmp_path, _key("t1")), None)  # an unfiled block: 2 billed tokens
+    ran: list[CellKey] = []
+    monkeypatch.setattr(suite, "_run_one", _spending(0, ran))
+
+    assert suite.main(_suite_args(tmp_path, token_ceiling=2)) == suite.COST_EXIT
+    assert ran == []
+    assert (tmp_path / "out" / quota_blocked_relative_path(_key("t1"), 1)).exists()
+
+
+def test_in_flight_cells_are_reserved_at_the_largest_recorded_cell() -> None:
+    hit = suite._ceiling_hit  # pyright: ignore[reportPrivateUsage]
+    spent, largest = suite.Spend(10.0, 500), suite.Spend(1.0, 200)
+
+    assert hit(spent, largest, 2, 100.0, 1000) is None  # 500 + 2 * 200 < 1000
+    assert hit(spent, largest, 3, 100.0, 1000) == "token ceiling"
+    assert hit(spent, largest, 3, 12.0, 1000) == "cost ceiling"  # 10 + 3 * 1 >= 12
+    assert hit(spent, largest, 3, 100.0, None) is None
+
+
+def test_the_token_ceiling_flag_only_lowers_the_plans_value() -> None:
+    lower = suite._token_ceiling  # pyright: ignore[reportPrivateUsage]
+    plan = SimpleNamespace(token_ceiling=1000)
+
+    assert lower(plan, None) == 1000
+    assert lower(plan, 400) == 400
+    assert lower(plan, 5000) == 1000
+    with pytest.raises(SystemExit, match="plan sets none"):
+        lower(SimpleNamespace(token_ceiling=None), 400)
 
 
 def test_a_profile_carrying_a_login_vault_is_refused_before_any_cell(
@@ -419,9 +566,9 @@ def test_resuming_files_an_unfinished_block_and_reruns_that_cell(
     done(_cell_spec(tmp_path, key), None)
     ran: list[tuple[str, int]] = []
 
-    def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> float:
+    def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> Any:
         ran.append((key.task_id, spec["prior_blocked_attempts"]))
-        return 0.0
+        return suite.Spend()
 
     monkeypatch.setattr(suite, "_run_one", fake)
 
@@ -440,11 +587,11 @@ def _record_runs(
 ) -> list[str]:
     events: list[str] = []
 
-    def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> float:
+    def fake(spec: dict[str, Any], key: CellKey, *args: Any, **kwargs: Any) -> Any:
         events.append(f"{key.model} {key.task_id}")
         if (key.model, key.task_id) == credit_at:
-            raise suite.CreditExhaustedError("credits exhausted", 0.0)
-        return 0.0
+            raise suite.CreditExhaustedError("credits exhausted", suite.Spend())
+        return suite.Spend()
 
     def prune(image: str, *args: Any) -> None:
         events.append(f"prune {image.rsplit(':', 1)[1]}")
@@ -522,7 +669,9 @@ def test_images_are_kept_unless_pruning_is_asked_for(
 
 
 def test_the_campaign_key_travels_in_the_docker_client_environment_not_its_argv() -> None:
-    args, client_env = cell_runner.docker_exec_env({KEY_NAME: SECRET, "HOME": "/root"})
+    args, client_env = cell_runner.docker_exec_env(
+        {KEY_NAME: SECRET, "HOME": "/root"}, secret_names=[KEY_NAME]
+    )
 
     assert args == ["-e", KEY_NAME, "-e", "HOME=/root"]
     assert SECRET not in " ".join(args)
@@ -560,7 +709,7 @@ def test_an_agent_container_gets_the_allow_list_and_none_of_the_host_credentials
         "ARCHEX_ANNOTATION_LEDGER",
         "ARCHEX_HOOK_DIAGNOSTICS_LOG",
         "ARCHEX_HOOK_TIMEOUT_SECONDS",
-        *CREDENTIAL_ENV_NAMES,
+        KEY_NAME,
     }
     assert env[KEY_NAME] == SECRET
 
@@ -598,6 +747,209 @@ def test_a_cell_records_variable_names_and_emulation_never_values(
     assert docker.emulated is True
     assert SECRET not in docker.model_dump_json()
     assert (local.credential_env_names, local.emulated) == ([], False)
+
+
+OPENROUTER_CAMPAIGN = "benchmarks/swe_ab/campaigns/openrouter-space-bunny.yml"
+OPENROUTER_MODEL = "space-bunny-alpha@high"
+OPENROUTER_KEY_NAME = "OPENROUTER_API_KEY"
+
+
+def test_another_campaign_authenticates_with_its_own_key_variable_and_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(OPENROUTER_KEY_NAME, SECRET)
+    monkeypatch.setenv(KEY_NAME, "muna-decoy")
+    spec = _docker_spec(tmp_path, campaign=OPENROUTER_CAMPAIGN, model=OPENROUTER_MODEL)
+    runtime = SimpleNamespace(home="/root", out="/out", repo="/app", image_path="/usr/bin:/bin")
+
+    env = cell_runner._agent_env(  # pyright: ignore[reportPrivateUsage]
+        spec,
+        runtime,
+        cell_runner._Setup(),  # pyright: ignore[reportArgumentType, reportPrivateUsage]
+    )
+    cell = cell_runner.failed_cell(spec, FailureReason.HARNESS_ERROR, "x")
+
+    assert cell_runner.credential_env(spec) == {OPENROUTER_KEY_NAME: SECRET}
+    assert env[OPENROUTER_KEY_NAME] == SECRET
+    assert KEY_NAME not in env
+    assert cell.credential_env_names == [OPENROUTER_KEY_NAME]
+    assert (cell.provider_base_url, cell.thinking) == ("https://openrouter.ai/api/v1", "high")
+
+
+# --- an attempt reads only its own files ------------------------------------------------------
+
+
+def _session_text(tokens: int, cost: float) -> str:
+    message = {
+        "role": "assistant",
+        "provider": "muna",
+        "model": "m",
+        "usage": {
+            "input": tokens,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "cost": {"total": cost},
+        },
+        "stopReason": "stop",
+        "content": [{"type": "text", "text": "done"}],
+    }
+    return json.dumps({"type": "message", "message": message}) + "\n"
+
+
+class _FakeContainer:
+    """A docker container whose filesystem is a host directory and whose `get` copies like
+    `docker cp`: a directory goes INTO an existing target as `target/<basename>`."""
+
+    repo = "/app"
+    home = "/root"
+    out = "/out"
+    image_path = "/usr/bin:/bin"
+
+    def __init__(self, root: Path, *, tokens: int, cost: float, patch: str, ledger: bool) -> None:
+        self.root = root
+        self.session = _session_text(tokens, cost)
+        self.patch = patch
+        self.ledger = ledger
+
+    def _host(self, path: str) -> Path:
+        return self.root / path.lstrip("/")
+
+    def run(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        stdout = ""
+        if argv[0] == "git":
+            verb = argv[3] if argv[1] == "-c" else argv[1]
+            stdout = {"rev-parse": "base\n", "diff": self.patch}.get(verb, "")
+        elif argv[0] == "test":
+            return subprocess.CompletedProcess(
+                argv, 0 if self._host(argv[2]).exists() else 1, stdout="", stderr=""
+            )
+        elif "--session-dir" in argv:
+            session = self._host(argv[argv.index("--session-dir") + 1])
+            session.mkdir(parents=True)
+            (session / "omp.jsonl").write_text(self.session, encoding="utf-8")
+            if self.ledger:
+                self._host(f"{self.out}/annotation-ledger.jsonl").write_text(
+                    "{}\n", encoding="utf-8"
+                )
+            stdout = f"omp ran in {self.root.name}\n"
+        return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+    def put(self, source: Path, target: str) -> None:
+        host = self._host(target)
+        host.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            shutil.copytree(source, host, dirs_exist_ok=True)
+        else:
+            shutil.copy2(source, host)
+
+    def get(self, source: str, target: Path) -> None:
+        origin = self._host(source)
+        if origin.is_dir():
+            nested = target / origin.name if target.exists() else target
+            shutil.copytree(origin, nested, dirs_exist_ok=True)
+        else:
+            shutil.copy2(origin, target)
+
+    def close(self) -> None:
+        return
+
+
+def test_a_rerun_of_a_cell_records_its_own_session_and_keeps_the_earlier_attempts_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "profile").mkdir()
+    (tmp_path / "omp-campaign.yml").write_text("retry: {}\n", encoding="utf-8")
+    (tmp_path / "prompt.md").write_text("fix it\n", encoding="utf-8")
+    spec = _docker_spec(tmp_path, prompt_file=str(tmp_path / "prompt.md"))
+    work = spec.work_dir
+    attempts = [
+        _FakeContainer(tmp_path / "c1", tokens=100, cost=1.0, patch="patch one\n", ledger=True),
+        _FakeContainer(tmp_path / "c2", tokens=700, cost=7.0, patch="patch two\n", ledger=False),
+        _FakeContainer(tmp_path / "c3", tokens=900, cost=9.0, patch="patch three\n", ledger=False),
+    ]
+    containers = iter(attempts)
+
+    def docker_runtime(_spec: object, *, mounts: object) -> _FakeContainer:
+        return next(containers)
+
+    def scored(_spec: object, _patch: object) -> bool:
+        return True
+
+    monkeypatch.setattr(cell_runner, "DockerRuntime", docker_runtime)
+    monkeypatch.setattr(cell_runner, "score_patch", scored)
+
+    first = cell_runner.run_cell(spec)
+    second = cell_runner.run_cell(spec)
+    third = cell_runner.run_cell(spec)
+
+    # Each cell records the usage of its own session, never an earlier attempt's.
+    assert [c.usage.input for c in (first, second, third)] == [100, 700, 900]
+    assert [c.usage.cost_usd for c in (first, second, third)] == [1.0, 7.0, 9.0]
+    # The third attempt's files are the live ones: one session, one patch, no stale ledger.
+    assert [p.name for p in (work / "session-1").iterdir()] == ["omp.jsonl"]
+    assert '"input": 900' in (work / "session-1/omp.jsonl").read_text(encoding="utf-8")
+    assert (work / "model.patch").read_text(encoding="utf-8") == "patch three\n"
+    assert not (work / "annotation-ledger.jsonl").exists()
+    assert (work / "omp-stdout-1.jsonl").read_text(encoding="utf-8") == "omp ran in c3\n"
+    # The earlier attempts' raw evidence moved aside, not deleted.
+    prior = work / "prior-attempts"
+    assert sorted(p.name for p in prior.iterdir()) == ["1", "2"]
+    assert (prior / "1/model.patch").read_text(encoding="utf-8") == "patch one\n"
+    assert (prior / "1/annotation-ledger.jsonl").exists()
+    assert '"input": 100' in (prior / "1/session-1/omp.jsonl").read_text(encoding="utf-8")
+    assert (prior / "1/omp-stdout-1.jsonl").read_text(encoding="utf-8") == "omp ran in c1\n"
+    assert (prior / "2/model.patch").read_text(encoding="utf-8") == "patch two\n"
+    assert not (prior / "2/annotation-ledger.jsonl").exists()
+    assert '"input": 700' in (prior / "2/session-1/omp.jsonl").read_text(encoding="utf-8")
+
+
+def test_a_local_rerun_starts_in_an_empty_work_dir_and_keeps_the_earlier_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+    spec = _docker_spec(tmp_path, runtime="local", local_repo=str(repo))
+    old_session = spec.work_dir / "out/session-1/old.jsonl"
+    old_session.parent.mkdir(parents=True)
+    old_session.write_text("earlier attempt\n", encoding="utf-8")
+    seen: dict[str, list[str]] = {}
+
+    def run_cell_body(_spec: Any, rt: Any, _started: float) -> str:
+        seen["out"] = sorted(p.name for p in Path(rt.out).iterdir())
+        return "ran"
+
+    monkeypatch.setattr(cell_runner, "_run_cell", run_cell_body)
+
+    assert cell_runner.run_cell(spec) == "ran"
+
+    assert seen["out"] == []
+    kept = spec.work_dir / "prior-attempts/1/out/session-1/old.jsonl"
+    assert kept.read_text(encoding="utf-8") == "earlier attempt\n"
+
+
+def test_a_docker_get_never_copies_into_an_existing_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = object.__new__(cell_runner.DockerRuntime)
+    runtime.name = "c"
+    calls: list[list[str]] = []
+
+    def fake_run(argv: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(cell_runner.subprocess, "run", fake_run)
+    existing = tmp_path / "session-1"
+    existing.mkdir()
+
+    with pytest.raises(FileExistsError):
+        runtime.get("/out/session-1", existing)
+    assert calls == []
+
+    runtime.get("/out/session-1", tmp_path / "fresh")
+    assert calls == [["docker", "cp", "c:/out/session-1", str(tmp_path / "fresh")]]
 
 
 class _FakeRuntime:
@@ -775,7 +1127,12 @@ def test_a_stub_rehearsal_ends_ok_and_the_validator_refuses_its_cells(
     assert cell.provider_base_url.startswith("http://127.0.0.1:")
     assert cell.credential_env_names == []
     with pytest.raises(SweAbError, match="local stub"):
-        validate_swe_ab_directory(out, load_plan(plan_path), require_complete=False)
+        validate_swe_ab_directory(
+            out,
+            load_plan(plan_path),
+            plan_campaign(load_plan(plan_path), root=REPO_ROOT),
+            require_complete=False,
+        )
 
 
 def _pull_runner(pull_codes: list[int], calls: list[list[str]]) -> Any:

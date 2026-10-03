@@ -1,4 +1,4 @@
-"""Tests for the Stage 0 checks that gate the Muna campaign; fakes only, no network."""
+"""Tests for the Stage 0 checks that gate a campaign; fakes only, no network."""
 
 from __future__ import annotations
 
@@ -8,71 +8,106 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 if TYPE_CHECKING:
-    import pytest
+    from archex.benchmark.swe_ab import Campaign
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 stage0: Any = importlib.import_module("swe_ab_stage0")
 
-from archex.benchmark.swe_ab import CONFIGURATIONS  # noqa: E402
+from archex.benchmark.swe_ab import load_campaign  # noqa: E402
 
-_KEY = "muna-secret-key-value"
+_ROOT = Path(__file__).resolve().parents[2]
+_CAMPAIGNS = (
+    "benchmarks/swe_ab/campaigns/muna.yml",
+    "benchmarks/swe_ab/campaigns/openrouter-space-bunny.yml",
+)
+_KEY = "provider-secret-key-value"
+
+
+def _campaign(path: str) -> Campaign:
+    return load_campaign(path, root=_ROOT)
+
+
+@pytest.fixture(params=_CAMPAIGNS)
+def campaign(request: pytest.FixtureRequest) -> Campaign:
+    return _campaign(str(request.param))
 
 
 def _capture(efforts: dict[str, Any]) -> Any:
     """A runner that returns, per configuration label, a body carrying that effort (or none)."""
 
-    def capture(omp_command: list[str], config: Any, work: Path) -> dict[str, Any] | None:
+    def capture(
+        omp_command: list[str], campaign: Any, config: Any, work: Path
+    ) -> dict[str, Any] | None:
         effort = efforts[config.label]
         return None if effort == "__no_request__" else {"model": "m", "reasoning_effort": effort}
 
     return capture
 
 
-def _no_effort_capture(omp_command: list[str], config: Any, work: Path) -> dict[str, Any]:
+def _no_effort_capture(
+    omp_command: list[str], campaign: Any, config: Any, work: Path
+) -> dict[str, Any]:
     return {"model": "m", "enable_thinking": True}
 
 
-def test_effort_request_shape_passes_when_every_request_carries_its_effort(tmp_path: Path) -> None:
-    efforts = {config.label: config.thinking for config in CONFIGURATIONS}
+def test_effort_request_shape_passes_when_every_request_carries_its_effort(
+    campaign: Campaign, tmp_path: Path
+) -> None:
+    efforts = {config.label: config.thinking for config in campaign.configurations}
 
-    check = stage0.effort_request_shape_check(["omp"], tmp_path, capture=_capture(efforts))
+    check = stage0.effort_request_shape_check(
+        ["omp"], campaign, tmp_path, capture=_capture(efforts)
+    )
 
     assert check["status"] == "pass"
     assert check["reasoning_effort"] == efforts
 
 
-def test_effort_request_shape_fails_a_request_without_reasoning_effort(tmp_path: Path) -> None:
-    check = stage0.effort_request_shape_check(["omp"], tmp_path, capture=_no_effort_capture)
+def test_effort_request_shape_fails_a_request_without_reasoning_effort(
+    campaign: Campaign, tmp_path: Path
+) -> None:
+    check = stage0.effort_request_shape_check(
+        ["omp"], campaign, tmp_path, capture=_no_effort_capture
+    )
 
     assert check["status"] == "fail"
-    for config in CONFIGURATIONS:
+    for config in campaign.configurations:
         assert config.label in check["detail"]
 
 
 def test_effort_request_shape_names_the_configuration_with_the_wrong_effort(
     tmp_path: Path,
 ) -> None:
-    efforts = {config.label: config.thinking for config in CONFIGURATIONS}
-    wrong = CONFIGURATIONS[1]
+    campaign = _campaign("benchmarks/swe_ab/campaigns/muna.yml")
+    efforts = {config.label: config.thinking for config in campaign.configurations}
+    wrong = campaign.configurations[1]
     efforts[wrong.label] = "low" if wrong.thinking == "high" else "high"
 
-    check = stage0.effort_request_shape_check(["omp"], tmp_path, capture=_capture(efforts))
+    check = stage0.effort_request_shape_check(
+        ["omp"], campaign, tmp_path, capture=_capture(efforts)
+    )
 
     assert check["status"] == "fail"
     assert wrong.label in check["detail"]
-    assert all(c.label not in check["detail"] for c in CONFIGURATIONS if c is not wrong)
+    assert all(c.label not in check["detail"] for c in campaign.configurations if c is not wrong)
 
 
-def test_effort_request_shape_fails_when_omp_sent_no_request(tmp_path: Path) -> None:
-    efforts = {config.label: config.thinking for config in CONFIGURATIONS}
-    efforts[CONFIGURATIONS[0].label] = "__no_request__"
+def test_effort_request_shape_fails_when_omp_sent_no_request(
+    campaign: Campaign, tmp_path: Path
+) -> None:
+    efforts = {config.label: config.thinking for config in campaign.configurations}
+    efforts[campaign.configurations[0].label] = "__no_request__"
 
-    check = stage0.effort_request_shape_check(["omp"], tmp_path, capture=_capture(efforts))
+    check = stage0.effort_request_shape_check(
+        ["omp"], campaign, tmp_path, capture=_capture(efforts)
+    )
 
     assert check["status"] == "fail"
-    assert CONFIGURATIONS[0].label in check["detail"]
+    assert campaign.configurations[0].label in check["detail"]
 
 
 class _Http:
@@ -87,81 +122,101 @@ class _Http:
         return self.answer
 
 
-def _keyed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MUNA_ACCESS_KEY", _KEY)
+def _keyed(monkeypatch: pytest.MonkeyPatch, campaign: Campaign) -> None:
+    monkeypatch.setenv(campaign.credential_env, _KEY)
 
 
-def test_key_check_passes_on_model_not_found(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+# The answers measured on 2026-10-03 for a key the provider authenticated, a bad key, and a
+# nonexistent model.
+_MUNA_GOOD = (404, {"error": {"code": "model_not_found"}})
+_OPENROUTER_GOOD = (
+    400,
+    {"error": {"message": "nobody/does-not-exist is not a valid model ID", "code": 400}},
+)
+
+
+@pytest.mark.parametrize(
+    "answer", [_MUNA_GOOD, _OPENROUTER_GOOD], ids=["muna-404", "openrouter-400"]
+)
+def test_key_check_passes_when_the_provider_rejects_only_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    campaign: Campaign,
+    answer: tuple[int, dict[str, Any]],
 ) -> None:
-    _keyed(monkeypatch)
-    http = _Http(404, {"error": {"code": "model_not_found"}})
+    _keyed(monkeypatch, campaign)
+    http = _Http(*answer)
 
-    check = stage0.muna_key_check(tmp_path / ".env", post=http)
+    check = stage0.provider_key_check(campaign, tmp_path / ".env", post=http)
 
+    assert check["id"] == "provider_key_accepted"
     assert check["status"] == "pass"
     [(url, headers, body)] = http.calls
-    assert url == "https://inference.muna.ai/v1/chat/completions"
+    assert url == f"{campaign.base_url}/chat/completions"
     assert headers["Authorization"] == f"Bearer {_KEY}"
     assert body["max_tokens"] == 1
-    assert body["model"] == "@nobody/does-not-exist"
-
-
-def test_key_check_fails_a_rejected_key_without_leaking_it(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _keyed(monkeypatch)
-    http = _Http(401, {"error": {"code": "invalid_api_key"}})
-
-    check = stage0.muna_key_check(tmp_path / ".env", post=http)
-
-    assert check["status"] == "fail"
-    assert "rejected" in check["detail"]
+    assert body["model"] == "nobody/does-not-exist"
     assert _KEY not in json.dumps(check)
 
 
-def test_key_check_fails_any_other_answer_with_its_status(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("status", [401, 403])
+def test_key_check_fails_a_rejected_key_without_leaking_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, campaign: Campaign, status: int
 ) -> None:
-    _keyed(monkeypatch)
+    _keyed(monkeypatch, campaign)
+    http = _Http(status, {"error": {"message": "User not found.", "code": status}})
 
-    check = stage0.muna_key_check(
-        tmp_path / ".env", post=_Http(404, {"error": {"code": "something_else"}})
+    check = stage0.provider_key_check(campaign, tmp_path / ".env", post=http)
+
+    assert check["status"] == "fail"
+    assert f"key rejected (HTTP {status})" in check["detail"]
+    assert _KEY not in json.dumps(check)
+
+
+@pytest.mark.parametrize("status", [200, 429, 500])
+def test_key_check_fails_any_other_answer_with_its_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, campaign: Campaign, status: int
+) -> None:
+    _keyed(monkeypatch, campaign)
+
+    check = stage0.provider_key_check(
+        campaign, tmp_path / ".env", post=_Http(status, {"error": {"code": "other"}})
     )
 
     assert check["status"] == "fail"
-    assert "404" in check["detail"]
+    assert "unexpected answer" in check["detail"]
+    assert str(status) in check["detail"]
 
 
 def test_key_check_without_a_key_fails_and_sends_nothing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, campaign: Campaign
 ) -> None:
-    monkeypatch.delenv("MUNA_ACCESS_KEY", raising=False)
-    http = _Http(404, {"error": {"code": "model_not_found"}})
+    monkeypatch.delenv(campaign.credential_env, raising=False)
+    http = _Http(*_MUNA_GOOD)
 
-    check = stage0.muna_key_check(tmp_path / "absent.env", post=http)
+    check = stage0.provider_key_check(campaign, tmp_path / "absent.env", post=http)
 
     assert check["status"] == "fail"
-    assert "MUNA_ACCESS_KEY" in check["detail"]
+    assert campaign.credential_env in check["detail"]
     assert http.calls == []
 
 
-def test_key_check_reads_only_the_muna_line_of_the_env_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_key_check_reads_only_the_campaigns_line_of_the_env_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, campaign: Campaign
 ) -> None:
-    monkeypatch.delenv("MUNA_ACCESS_KEY", raising=False)
+    monkeypatch.delenv(campaign.credential_env, raising=False)
     env_file = tmp_path / ".env"
-    env_file.write_text(f"OTHER_SECRET=nope\nMUNA_ACCESS_KEY={_KEY}\n")
-    http = _Http(404, {"error": {"code": "model_not_found"}})
+    env_file.write_text(f"OTHER_SECRET=nope\n{campaign.credential_env}={_KEY}\n")
+    http = _Http(*_MUNA_GOOD)
 
-    check = stage0.muna_key_check(env_file, post=http)
+    check = stage0.provider_key_check(campaign, env_file, post=http)
 
     assert check["status"] == "pass"
     assert http.calls[0][1]["Authorization"] == f"Bearer {_KEY}"
     assert "nope" not in json.dumps(http.calls)
 
 
-def _omp_listing(selectors: list[str], provider: str = "muna") -> Any:
+def _omp_listing(selectors: list[str], provider: str) -> Any:
     models = [{"provider": provider, "selector": s, "id": s.split("/", 1)[1]} for s in selectors]
 
     def run(argv: list[str], **kwargs: Any) -> Any:
@@ -173,22 +228,36 @@ def _omp_listing(selectors: list[str], provider: str = "muna") -> Any:
     return run
 
 
-def test_route_check_requires_every_configuration_selector_under_muna() -> None:
-    selectors = sorted({config.selector for config in CONFIGURATIONS})
+def test_route_check_requires_every_configuration_selector_under_the_campaign_provider(
+    campaign: Campaign,
+) -> None:
+    selectors = sorted({config.selector for config in campaign.configurations})
+    listing = _omp_listing(selectors, campaign.provider)
 
-    assert stage0.muna_route_check(["omp"], run=_omp_listing(selectors))["status"] == "pass"
+    check = stage0.provider_route_check(["omp"], campaign, run=listing)
+    assert check["id"] == "provider_route"
+    assert check["status"] == "pass"
 
-    short = stage0.muna_route_check(["omp"], run=_omp_listing(selectors[:-1]))
+    elsewhere = stage0.provider_route_check(["omp"], campaign, run=_omp_listing(selectors, "other"))
+    assert elsewhere["status"] == "fail"
+
+
+def test_route_check_names_a_selector_omp_does_not_list() -> None:
+    campaign = _campaign("benchmarks/swe_ab/campaigns/muna.yml")
+    selectors = sorted({config.selector for config in campaign.configurations})
+
+    short = stage0.provider_route_check(
+        ["omp"], campaign, run=_omp_listing(selectors[:-1], campaign.provider)
+    )
+
     assert short["status"] == "fail"
     assert selectors[-1] in short["detail"]
-
-    elsewhere = stage0.muna_route_check(["omp"], run=_omp_listing(selectors, provider="other"))
-    assert elsewhere["status"] == "fail"
 
 
 def test_container_checks_run_the_bundle_and_survive_an_instance_that_cannot_start(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    campaign = _campaign("benchmarks/swe_ab/campaigns/muna.yml")
     ran: list[list[str]] = []
 
     class FakeRuntime:
@@ -216,8 +285,8 @@ def test_container_checks_run_the_bundle_and_survive_an_instance_that_cannot_sta
     def annotate_latency(rt: Any) -> dict[str, int]:
         return {"p50_ms": 100, "budget_ms": 500}
 
-    def muna_container_check(env_file: Path) -> dict[str, str]:
-        return {"id": "muna_reachable_from_container", "status": "pass"}
+    def provider_container_check(campaign: Any, env_file: Path) -> dict[str, str]:
+        return {"id": "provider_reachable_from_container", "status": "pass"}
 
     def bun_emulation_check() -> dict[str, str]:
         return {"id": "bun_runs_under_emulation", "status": "pass"}
@@ -226,7 +295,7 @@ def test_container_checks_run_the_bundle_and_survive_an_instance_that_cannot_sta
     monkeypatch.setattr(stage0.cell_runner, "score_patch", score_patch)
     monkeypatch.setattr(stage0.cell_runner, "index_in_container", index_in_container)
     monkeypatch.setattr(stage0, "annotate_latency", annotate_latency)
-    monkeypatch.setattr(stage0, "muna_container_check", muna_container_check)
+    monkeypatch.setattr(stage0, "provider_container_check", provider_container_check)
     monkeypatch.setattr(stage0, "bun_emulation_check", bun_emulation_check)
     task = tmp_path / "tasks" / "t1" / "solution"
     task.mkdir(parents=True)
@@ -241,7 +310,7 @@ def test_container_checks_run_the_bundle_and_survive_an_instance_that_cannot_sta
         omp_dir=tmp_path, network="bridge", env_file=tmp_path / ".env",
     )  # fmt: skip
 
-    checks = {c["id"]: c for c in stage0.host_checks(args)}
+    checks = {c["id"]: c for c in stage0.host_checks(args, campaign)}
 
     # t0's container never starts: a named failure, and t1 is still checked with the bundle.
     assert checks["container_setup:t0"]["status"] == "fail"

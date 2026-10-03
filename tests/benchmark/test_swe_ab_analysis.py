@@ -15,14 +15,12 @@ import pytest
 from archex.benchmark.swe_ab import (
     BASE_TOOLS,
     CHANNELS,
-    CREDENTIAL_ENV_NAMES,
-    MUNA_BASE_URL,
     OMP_VERSION,
     CellKey,
     SweAbArm,
     SweAbCell,
     SweAbPlan,
-    configuration,
+    load_campaign,
     quota_blocked_relative_path,
     tool_fingerprint,
 )
@@ -34,6 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 analysis: Any = importlib.import_module("swe_ab_analysis")
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CAMPAIGN = load_campaign("benchmarks/swe_ab/campaigns/muna.yml", root=REPO_ROOT)
 LOW = "qwen-3.8-27b@low"
 GEMMA = "gemma-4-26b-a4b-it@high"
 TASKS = [(f"t{r}{i}", repo) for r, repo in enumerate(["org/a", "org/b", "org/c"]) for i in range(2)]
@@ -46,6 +46,7 @@ def _plan(repetitions: dict[str, int]) -> SweAbPlan:
             "name": "synthetic",
             "tasks": [{"task_id": t, "repo": r} for t, r in TASKS],
             "models": [LOW, GEMMA],
+            "campaign": CAMPAIGN.path,
             "repetitions": repetitions,
             "cost_ceiling_usd": 100.0,
         }
@@ -75,14 +76,14 @@ def _cell(key: CellKey, repo: str, **spec: Any) -> dict[str, Any]:
         "cli_guide_sha256": "g" if arm.cli else None,
         "image": f"img:{key.task_id}",
         "tool_fingerprint": tool_fingerprint(BASE_TOOLS),
-        "thinking": configuration(key.model).thinking,
-        "provider": "muna",
-        "provider_base_url": spec.get("base_url", MUNA_BASE_URL),
-        "provider_config_sha256": "p" * 64,
+        "thinking": CAMPAIGN.configuration(key.model).thinking,
+        "provider": CAMPAIGN.provider,
+        "provider_base_url": spec.get("base_url", CAMPAIGN.base_url),
+        "provider_config_sha256": CAMPAIGN.provider_config_sha256,
         "omp_config_sha256": "o" * 64,
         "emulated": spec.get("emulated", True),
         "network": "bridge",
-        "credential_env_names": list(CREDENTIAL_ENV_NAMES),
+        "credential_env_names": [CAMPAIGN.credential_env],
         "usage": {
             "input": spec.get("billed", 1000),
             "output": 0,

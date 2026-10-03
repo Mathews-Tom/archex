@@ -12,9 +12,9 @@ uv run python scripts/swe_ab_analysis.py --plan stage2-plan.json \
 ```
 
 The directory must pass `validate_swe_ab_directory` first (complete, one host kind, no cell left
-as a quota or credit block, Muna-authenticated, identities single per arm); anything it
-refuses, and any
-unscored cell, ends the analysis with ``REFUSED`` and exit status 1. Nothing is dropped: a failed
+as a quota or credit block, authenticated with the campaign's key, identities single per arm);
+anything it refuses, and any unscored cell, ends the analysis with ``REFUSED`` and exit status 1.
+Nothing is dropped: a failed
 cell enters every metric at the tokens it consumed and scores unresolved.
 
 What is computed, and nothing else:
@@ -62,6 +62,7 @@ import numpy as np
 from archex.benchmark.swe_ab import (
     PREREGISTRATION_PATH,
     QUOTA_BLOCKED_DIR,
+    Campaign,
     CellKey,
     CellStatus,
     SweAbArm,
@@ -70,6 +71,7 @@ from archex.benchmark.swe_ab import (
     SweAbPlan,
     load_cell,
     load_plan,
+    plan_campaign,
     validate_swe_ab_directory,
 )
 
@@ -79,6 +81,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+REPO_ROOT = Path(__file__).resolve().parent.parent
 import swe_ab_sample as sampler  # noqa: E402 - sibling script, importable only via sys.path
 
 SEED = 20260909
@@ -168,9 +171,12 @@ class Stage:
     coverage: dict[str, Any]
 
 
-def load_stage(directory: Path, plan: SweAbPlan) -> Stage:
-    """The validated cells of one stage; raise `SweAbError` on anything the protocol refuses."""
-    coverage = validate_swe_ab_directory(directory, plan)
+def load_stage(directory: Path, plan: SweAbPlan, campaign: Campaign) -> Stage:
+    """The validated cells of one stage; raise `SweAbError` on anything the protocol refuses.
+
+    ``campaign`` is the plan's (`plan_campaign`).
+    """
+    coverage = validate_swe_ab_directory(directory, plan, campaign)
     cells = {key: load_cell(directory / key.relative_path) for key in plan.cells()}
     if unscored := sorted(str(key.relative_path) for key, c in cells.items() if c.resolved is None):
         raise SweAbError(f"{len(unscored)} cells were never scored, first: {unscored[0]}")
@@ -630,13 +636,13 @@ def solve_floor(stage: Stage) -> dict[str, Any]:
     return out
 
 
-def stage2_size(passing: int) -> dict[str, Any]:
-    """The Stage 2 task count the size rule gives for ``passing`` floor-passing configurations."""
+def stage2_size(passing: int, configurations: int) -> dict[str, Any]:
+    """The Stage 2 task count the size rule gives for ``passing`` of ``configurations``."""
     if passing == 0:
         return {"passing_configurations": 0, "tasks": None, "estimable": False}
     return {
         "passing_configurations": passing,
-        "tasks": sampler.stage2_task_count(passing),
+        "tasks": sampler.stage2_task_count(passing, configurations),
         "estimable": True,
     }
 
@@ -721,7 +727,7 @@ def stage1_gates(stage: Stage) -> dict[str, Any] | None:
     arms = stage.plan.repetitions
     floor = solve_floor(stage)
     passing = sum(1 for gate in floor.values() if gate["passed"])
-    size = stage2_size(passing)
+    size = stage2_size(passing, len(stage.plan.models))
     return {
         "headroom": lever_shares(stage),
         "solve_floor": floor,
@@ -839,7 +845,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        stage = load_stage(args.input, load_plan(args.plan))
+        plan = load_plan(args.plan)
+        stage = load_stage(args.input, plan, plan_campaign(plan, root=REPO_ROOT))
     except SweAbError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 1

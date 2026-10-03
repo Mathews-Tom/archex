@@ -1,0 +1,17 @@
+# R3x campaign: Muna-hosted open models (pre-registration benchmarks/preregistrations/R3x-swe-archex-ab.md).
+# A plan names this file in `campaign`; the provider, endpoint, key variable, and prices come from
+# `provider_config` (an omp models.yml with exactly one provider). `model` is the provider's model id.
+# Muna honours the effort for Qwen only with `compat.thinkingFormat: openai` (set in the provider
+# config); Gemma sends it by default (RUNBOOK §3.2).
+name: muna
+provider_config: benchmarks/swe_ab/muna-models.yml
+configurations:
+  - label: qwen-3.8-27b@low
+    model: "@qwen/qwen-3.8-27b"
+    thinking: low
+  - label: qwen-3.8-27b@high
+    model: "@qwen/qwen-3.8-27b"
+    thinking: high
+  - label: gemma-4-26b-a4b-it@high
+    model: "@google/gemma-4-26b-a4b-it"
+    thinking: high
