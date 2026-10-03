@@ -6,6 +6,7 @@ smoke test, which drives the pinned omp against the local stub and skips without
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import shutil
@@ -37,6 +38,7 @@ from archex.benchmark.swe_ab import (  # noqa: E402
     load_plan,
     plan_campaign,
     quota_blocked_relative_path,
+    summarize_ledger,
     validate_swe_ab_directory,
 )
 
@@ -45,7 +47,14 @@ MODEL = "qwen-3.8-27b@high"
 LABELS = ("qwen-3.8-27b@low", "qwen-3.8-27b@high", "gemma-4-26b-a4b-it@high")
 KEY_NAME = "MUNA_ACCESS_KEY"
 SECRET = "muna-secret-key-123"  # noqa: S105 - a fake, used to prove it never leaks
-PINNED_OMP = Path("/tmp/omp-18.4.4/bin/omp")
+PINNED_OMP = next(
+    (
+        path
+        for path in (Path("/tmp/omp-18.4.4/bin/omp"), Path.home() / "swe-ab/omp-host/bin/omp")
+        if path.is_file()
+    ),
+    Path("/tmp/omp-18.4.4/bin/omp"),
+)
 MUNA_CAMPAIGN = "benchmarks/swe_ab/campaigns/muna.yml"
 
 
@@ -1133,6 +1142,117 @@ def test_a_stub_rehearsal_ends_ok_and_the_validator_refuses_its_cells(
             plan_campaign(load_plan(plan_path), root=REPO_ROOT),
             require_complete=False,
         )
+
+
+_M_SCRIPT = [
+    {
+        "tool": "mcp__archex_query_repo",
+        "args": {"repo_url": ".", "question": "where is hash_password defined?"},
+    },
+    {"text": "Looked it up."},
+]
+
+
+@pytest.mark.skipif(
+    not PINNED_OMP.is_file() or not (REPO_ROOT / OMP_CONFIG_PATH).is_file(),
+    reason="needs the pinned omp 18.4.4 and the frozen omp-campaign.yml",
+)
+def test_an_m_cell_records_its_mcp_config_calls_and_channel_while_others_carry_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.delenv(KEY_NAME, raising=False)
+    plan_path = tmp_path / "plan.json"
+    plan = json.loads((REPO_ROOT / "benchmarks/swe_ab/dry-run-plan.json").read_text())
+    plan["repetitions"] = {"A0": 1, "M": 1}
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    script = tmp_path / "script.json"
+    script.write_text(json.dumps(_M_SCRIPT), encoding="utf-8")
+    out = tmp_path / "out"
+    # The A0 cell would fail on the unadvertised MCP call, so run the two arms separately.
+    for arm in ("A0", "M"):
+        plan["repetitions"] = {arm: 1}
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        argv = [
+            "run", "--plan", str(plan_path), "--runtime", "local", "--output", str(out),
+            "--work-root", str(tmp_path / f"work-{arm}"), "--omp-command", str(PINNED_OMP),
+            "--stub-script",
+            str(script if arm == "M" else REPO_ROOT / "benchmarks/swe_ab/stub-script.json"),
+        ]  # fmt: skip
+        assert suite.main(argv) == 0
+
+    cells = {c.arm.value: c for c in (load_cell(p) for p in out.rglob("*.json"))}
+    m, a0 = cells["M"], cells["A0"]
+    assert m.status.value == "ok"
+    config_path = next((tmp_path / "work-M").rglob("agent/mcp.json"))
+    config = json.loads(config_path.read_text())
+    assert config["mcpServers"]["archex"]["args"] == ["mcp"]
+    assert Path(config["mcpServers"]["archex"]["command"]).is_absolute()
+    assert list(config) == ["$schema", "mcpServers"]
+    assert m.mcp_config_sha256 == hashlib.sha256(config_path.read_bytes()).hexdigest()
+    assert m.archex_mcp_calls == 1
+    assert m.archex_mcp_tools == {"mcp__archex_query_repo": 1}
+    assert m.channel_tokens_once["archex-MCP"] > 0
+    assert m.channel_tokens_compounded["archex-MCP"] > 0
+    assert len(m.isolation.tools_advertised) == 9
+    assert m.hook_ledger is None
+    assert a0.status.value == "ok"
+    assert a0.mcp_config_sha256 is None
+    assert a0.archex_mcp_calls == 0
+    assert not list((tmp_path / "work-A0").rglob("mcp.json"))
+
+
+@pytest.mark.parametrize("arm", ["A0", "M"])
+def test_a_profile_carrying_an_mcp_config_is_refused_for_every_arm(
+    tmp_path: Path, arm: str
+) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "mcp.json").write_text('{"mcpServers": {"x": {"command": "x"}}}')
+    runtime = _FakeRuntime("abc123")
+
+    with pytest.raises(ValueError, match=r"mcp\.json"):
+        cell_runner._setup(  # pyright: ignore[reportPrivateUsage]
+            _docker_spec(
+                tmp_path, arm=arm, profile_dir=str(profile), prompt_file=str(profile / "p.md")
+            ),
+            runtime,  # pyright: ignore[reportArgumentType]
+        )
+
+    assert ["put", "/root/.omp/profiles/swebench/agent"] not in runtime.calls
+
+
+def _exchange(call_id: str, tool: str, request_index: int) -> Any:
+    return SimpleNamespace(call_id=call_id, tool=tool, request_index=request_index)
+
+
+def test_a_call_issued_after_the_first_edit_in_the_same_request_counts_as_after_it() -> None:
+    exchanges = [
+        _exchange("read", "read", 0),
+        _exchange("edit", "edit", 1),
+        _exchange("grep", "grep", 1),  # same request as the edit, issued after it
+        _exchange("late", "grep", 2),
+    ]
+    rows = [
+        {"toolCallId": "read", "eligible": True, "annotated": False, "reason": "index_not_fresh"},
+        {"toolCallId": "grep", "eligible": True, "annotated": False, "reason": "index_not_fresh"},
+    ]
+
+    after = cell_runner.calls_after_first_edit(exchanges)
+    summary = summarize_ledger(rows, after)
+
+    assert after == {"grep", "late"}
+    assert summary.not_fresh_after_first_edit == 1
+
+
+def test_no_edit_means_no_call_is_after_the_first_edit() -> None:
+    assert cell_runner.calls_after_first_edit([_exchange("a", "grep", 0)]) == set()
+
+
+def test_the_write_tool_is_a_first_edit_too() -> None:
+    exchanges = [_exchange("w", "write", 0), _exchange("g", "grep", 0)]
+
+    assert cell_runner.calls_after_first_edit(exchanges) == {"g"}
 
 
 def _pull_runner(pull_codes: list[int], calls: list[list[str]]) -> Any:

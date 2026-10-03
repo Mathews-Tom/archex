@@ -13,13 +13,14 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from archex.benchmark.swe_ab import (
-    BASE_TOOLS,
     CHANNELS,
     OMP_VERSION,
+    PRIMARY_ARMS,
     CellKey,
     SweAbArm,
     SweAbCell,
     SweAbPlan,
+    arm_tools,
     load_campaign,
     quota_blocked_relative_path,
     tool_fingerprint,
@@ -37,7 +38,9 @@ CAMPAIGN = load_campaign("benchmarks/swe_ab/campaigns/muna.yml", root=REPO_ROOT)
 LOW = "qwen-3.8-27b@low"
 GEMMA = "gemma-4-26b-a4b-it@high"
 TASKS = [(f"t{r}{i}", repo) for r, repo in enumerate(["org/a", "org/b", "org/c"]) for i in range(2)]
-STAGE1 = {"A0": 2, "H": 1, "HC": 1, "C": 1}
+STAGE1 = {"A0": 2, "H": 1, "HC": 1, "M": 1, "C": 1}
+STAGE2 = {"A0": 1, "H": 1, "HC": 1, "M": 1}
+NORMAL = statistics.NormalDist()
 
 
 def _plan(repetitions: dict[str, int]) -> SweAbPlan:
@@ -54,14 +57,16 @@ def _plan(repetitions: dict[str, int]) -> SweAbPlan:
 
 
 def _cell(key: CellKey, repo: str, **spec: Any) -> dict[str, Any]:
-    """A campaign-valid cell; ``spec`` sets tokens, outcome, ledger, and channel totals."""
+    """A campaign-valid cell; ``spec`` sets tokens, outcome, ledger, calls, and channel totals."""
     arm = key.arm
     compounded = dict.fromkeys(CHANNELS, 0)
     compounded["read"] = spec.get("oop", 0)
     compounded["search"] = spec.get("search", 0)
     failure = spec.get("failure")
     ledger = spec.get("ledger", (0, 0, 0))
+    mcp_calls = spec.get("mcp", 0)
     return {
+        "artifact_version": 3,
         "task_id": key.task_id,
         "repo": repo,
         "model": key.model,
@@ -74,8 +79,9 @@ def _cell(key: CellKey, repo: str, **spec: Any) -> dict[str, Any]:
         "archex_wheel_sha256": "w" if arm.archex_installed else None,
         "hook_module_sha256": "h" if arm.hook else None,
         "cli_guide_sha256": "g" if arm.cli else None,
+        "mcp_config_sha256": "m" if arm.mcp else None,
         "image": f"img:{key.task_id}",
-        "tool_fingerprint": tool_fingerprint(BASE_TOOLS),
+        "tool_fingerprint": tool_fingerprint(arm_tools(arm)),
         "thinking": CAMPAIGN.configuration(key.model).thinking,
         "provider": CAMPAIGN.provider,
         "provider_base_url": spec.get("base_url", CAMPAIGN.base_url),
@@ -103,13 +109,16 @@ def _cell(key: CellKey, repo: str, **spec: Any) -> dict[str, Any]:
             "units": ledger[1],
             "tokens": 10 * ledger[1],
             "not_fresh_after_first_edit": ledger[2],
+            "fail_open": {"no_hits": spec["no_hits"]} if spec.get("no_hits") else {},
         }
         if arm.hook
         else None,
         "archex_cli_calls": spec.get("cli", 0),
+        "archex_mcp_calls": mcp_calls,
+        "archex_mcp_tools": {"mcp__archex_query_repo": mcp_calls} if mcp_calls else {},
         "isolation": {
             "tools_source": "declared",
-            "tools_advertised": sorted(BASE_TOOLS),
+            "tools_advertised": sorted(arm_tools(arm)),
             "system_prompt_checked": False,
             "compressor_marker_seen": False,
             "annotation_seen": False,
@@ -172,6 +181,13 @@ def _close(actual: float, expected: float) -> bool:
     return math.isclose(actual, expected, rel_tol=0, abs_tol=1e-6)
 
 
+def _pairs_needed(arms: int) -> float:
+    """n(m) from the pre-registration, re-derived here."""
+    z_alpha = NORMAL.inv_cdf(1 - 0.05 / (2 * arms))
+    z_beta = NORMAL.inv_cdf(0.80)
+    return ((z_alpha * math.sqrt(0.15) + z_beta * math.sqrt(0.15 - 0.05**2)) / 0.05) ** 2
+
+
 def test_efficiency_is_the_geometric_mean_ratio_with_holm_verdicts(tmp_path: Path) -> None:
     jitter = [0.99, 1.0, 1.01, 0.98, 1.02, 1.0]
 
@@ -191,7 +207,72 @@ def test_efficiency_is_the_geometric_mean_ratio_with_holm_verdicts(tmp_path: Pat
     assert h["pairs"] == 6 and h["repositories"] == 3
     assert h["verdict"] == "superior"
     assert report["efficiency"][LOW]["HC"]["verdict"] == "equivalent"
+    assert report["efficiency"][LOW]["M"]["verdict"] == "equivalent"
     assert report["guardrail"]["H"]["verdict"] == "non_inferior"
+
+
+def test_the_pilot_arm_c_is_reported_but_never_tested(tmp_path: Path) -> None:
+    plan, cells = _stage(tmp_path, STAGE1, lambda key, i: {"billed": _a0(i)})
+    report = _run(plan, cells, tmp_path / "out.json")
+
+    assert report["outcomes"][LOW]["C"]["cells"] == 6
+    for family in (report["efficiency"][LOW], report["guardrail"], report["completion"]):
+        assert set(family) == {arm.value for arm in PRIMARY_ARMS}
+
+
+def test_efficiency_reads_superior_worse_equivalent_or_inconclusive(tmp_path: Path) -> None:
+    def spec(key: CellKey, i: int) -> dict[str, Any]:
+        if key.arm is SweAbArm.H:
+            return {"billed": round(_a0(i) * 0.7)}
+        if key.arm is SweAbArm.HC:
+            return {"billed": round(_a0(i) * 1.3)}
+        if key.arm is SweAbArm.M:
+            return {"billed": round(_a0(i) * (1.003 if i % 2 else 0.997))}
+        return {"billed": _a0(i)}
+
+    plan, cells = _stage(tmp_path, STAGE2, spec)
+    efficiency = _run(plan, cells, tmp_path / "out.json")["efficiency"]
+
+    for model in (LOW, GEMMA):
+        assert efficiency[model]["H"]["verdict"] == "superior"
+        assert efficiency[model]["HC"]["verdict"] == "worse"
+        assert efficiency[model]["M"]["verdict"] == "equivalent"
+    # Each direction is its own Holm family over the three primary arms.
+    p_worse = {arm: efficiency[LOW][arm]["p_vs_worse"] for arm in ("H", "HC", "M")}
+    p_superior = {arm: efficiency[LOW][arm]["p_vs_sesoi"] for arm in ("H", "HC", "M")}
+    for arm in ("H", "HC", "M"):
+        assert _close(efficiency[LOW][arm]["p_holm_worse"], analysis.holm(p_worse)[arm])
+        assert _close(efficiency[LOW][arm]["p_holm"], analysis.holm(p_superior)[arm])
+    assert _close(efficiency[LOW]["HC"]["p_vs_worse"], 1 / 10_001)
+
+
+@pytest.mark.parametrize(
+    ("factors", "reading"),
+    [
+        ([1.12] * 6, "worse"),
+        # Inside the margin, however clearly above 1.
+        ([1.08] * 6, "inconclusive"),
+        # A geometric mean of 1.0996 with repositories on both sides of 1.10: no evidence.
+        ([1.04, 1.04, 1.10, 1.10, 1.16, 1.16], "inconclusive"),
+    ],
+)
+def test_worse_needs_the_ratio_clearly_above_the_margin(
+    tmp_path: Path, factors: list[float], reading: str
+) -> None:
+    def spec(key: CellKey, i: int) -> dict[str, Any]:
+        if key.arm is SweAbArm.H:
+            return {"billed": round(_a0(i) * factors[i])}
+        return {"billed": _a0(i)}
+
+    plan, cells = _stage(tmp_path, STAGE2, spec)
+    h = _run(plan, cells, tmp_path / "out.json")["efficiency"][LOW]["H"]
+
+    assert h["verdict"] == reading
+    if reading == "worse":
+        assert h["p_holm_worse"] < 0.05
+    else:
+        assert h["p_holm_worse"] >= 0.05
+        assert h["p_vs_worse"] > 0.05
 
 
 def test_a_failed_cell_enters_at_its_tokens_and_scores_unresolved(tmp_path: Path) -> None:
@@ -228,6 +309,7 @@ def test_a_zero_token_pair_is_listed_not_logged_and_stays_in_the_guardrail(
     assert [z["task_id"] for z in sol["zero_token_pairs"]] == ["t11"]
     assert report["guardrail"]["H"]["pairs"] == 12
     assert report["guardrail"]["H"]["mcnemar"]["control_only_resolved"] == 1
+    assert report["completion"]["H"]["pairs"] == 12
 
 
 def test_quota_blocked_attempts_are_disclosed_and_excluded_in_the_sensitivity_check(
@@ -250,7 +332,9 @@ def test_quota_blocked_attempts_are_disclosed_and_excluded_in_the_sensitivity_ch
     assert sensitivity["efficiency"][LOW]["H"]["pairs"] == 5
     assert sensitivity["efficiency"][LOW]["H"]["excluded_blocked_pairs"] == 1
     assert sensitivity["guardrail"]["H"]["pairs"] == 11
+    assert sensitivity["completion"]["H"]["pairs"] == 11
     assert report["efficiency"][LOW]["H"]["pairs"] == 6
+    assert report["completion"]["H"]["pairs"] == 12
 
 
 @pytest.mark.parametrize(
@@ -278,7 +362,9 @@ def test_the_analysis_refuses_what_the_protocol_refuses(
     assert not (tmp_path / "o.json").exists()
 
 
-def test_stage1_gates_follow_the_kill_criteria(tmp_path: Path) -> None:
+def _gate_spec(*, hc_adopts: bool, m_adopts: bool) -> Callable[[CellKey, int], dict[str, Any]]:
+    """Stage 1 cells: A0 rep 2 jittered, lever shares 25% (LOW) / 10% (GEMMA), H hook ledger."""
+
     def spec(key: CellKey, i: int) -> dict[str, Any]:
         cell: dict[str, Any] = {"billed": 10**6}
         if key.arm is SweAbArm.A0:
@@ -288,41 +374,181 @@ def test_stage1_gates_follow_the_kill_criteria(tmp_path: Path) -> None:
             lever = 0.25 if key.model == LOW else 0.10
             cell.update(oop=round(cell["billed"] * lever), search=round(cell["billed"] * 0.1))
         if key.arm is SweAbArm.H:
-            cell["ledger"] = (3, 0, 0) if (key.model, i) == (GEMMA, 5) else (10, 4, 2)
+            lone = (key.model, i) == (GEMMA, 5)
+            cell["ledger"] = (3, 0, 0) if lone else (10, 4, 2)
+            cell["no_hits"] = 0 if lone else 1
         if key.arm is SweAbArm.HC:
-            cell["cli"] = 2 if (key.model, i) == (LOW, 0) else 0
+            if hc_adopts:
+                cell["cli"] = 1
+            else:
+                cell["cli"] = 2 if (key.model, i) == (LOW, 0) else 0
+        if key.arm is SweAbArm.M:
+            if m_adopts:
+                cell["mcp"] = 1
+            elif (key.model, i) in {(LOW, 0), (LOW, 1), (GEMMA, 0)}:
+                cell["mcp"] = 1
+                if key.model == GEMMA:
+                    cell.update(failure="timeout")  # a failed cell with a call still counts
         return cell
 
-    plan, cells = _stage(tmp_path, STAGE1, spec)
+    return spec
+
+
+def test_stage1_gates_follow_the_kill_criteria(tmp_path: Path) -> None:
+    plan, cells = _stage(tmp_path, STAGE1, _gate_spec(hc_adopts=False, m_adopts=False))
     gates = _run(plan, cells, tmp_path / "out.json")["gates"]
 
     assert _close(gates["headroom"][LOW]["H"]["share"], 0.25)
     assert gates["headroom"][LOW]["H"]["passed"] is True
     assert _close(gates["headroom"][LOW]["HC"]["share"], 0.35)
+    assert _close(gates["headroom"][LOW]["M"]["share"], 0.35)
+    assert gates["headroom"][LOW]["M"]["passed"] is True
     assert gates["headroom"][GEMMA]["H"]["passed"] is False
+    assert abs(gates["headroom"][GEMMA]["M"]["share"] - 0.2) < 1e-5
     assert _close(gates["hc_adoption"]["share"], 1 / 12)
     assert gates["hc_adoption"]["passed"] is False
-    # 11 cells annotate 4 of 10 eligible (2 declined as stale after an edit); one annotates none.
+    # Three of twelve M cells call an archex MCP tool, one of them a failed cell: exactly 25%.
+    mcp = gates["mcp_adoption"]
+    assert (mcp["cells"], mcp["calls"]) == (12, 3)
+    assert _close(mcp["share"], 0.25)
+    assert mcp["passed"] is True
+    assert _close(mcp["by_model"][LOW], 2 / 6) and _close(mcp["by_model"][GEMMA], 1 / 6)
+    assert mcp["subcommands"] == {"mcp__archex_query_repo": 3}
+    assert gates["c_adoption"]["calls"] == 0
+    # Kill criterion 7: 11 cells annotate 4 of 10 eligible, each with 1 no-hit search and 2
+    # declines as stale after an edit; one annotates none of its 3.
     hook = gates["hook_activity"]
-    assert _close(hook["share"], 44 / (113 - 22))
-    assert hook["passed"] is False
+    assert (hook["eligible"], hook["annotated"], hook["no_hits"]) == (113, 44, 11)
+    assert hook["stale_after_first_edit"] == 22
+    assert _close(hook["share"], 44 / (113 - 11 - 22))
+    assert hook["passed"] is True
     assert hook["zero_annotation_cells"] == [f"{GEMMA}:t21"]
+
+
+def test_stage1_sizes_stage2_from_the_primary_arms_that_clear_their_adoption_gate(
+    tmp_path: Path,
+) -> None:
+    plan, cells = _stage(tmp_path, STAGE1, _gate_spec(hc_adopts=False, m_adopts=False))
+    gates = _run(plan, cells, tmp_path / "out.json")["gates"]
+
+    # HC fails its gate, H has none, M passes: m = 2; both configurations clear the floor: k = 2.
+    size = gates["stage2_size"]
+    assert size["primary_arms_kept"] == ["H", "M"]
+    assert (size["passing_configurations"], size["estimable"]) == (2, True)
+    assert _close(size["pairs_needed"], _pairs_needed(2))
+    assert _close(size["target_pairs"], _pairs_needed(2))
+    assert size["tasks"] == math.ceil(_pairs_needed(2) / 2)
+
     noise = gates["a0_noise"][LOW]
     diffs = [math.log(round(10**6 * math.exp(0.1 if i % 2 else -0.1)) / 10**6) for i in range(6)]
     sd = statistics.stdev(diffs)
-    normal = statistics.NormalDist()
-    z = normal.inv_cdf(0.975) + normal.inv_cdf(0.8)
+    delta = -math.log(0.9)
+    z = NORMAL.inv_cdf(1 - 0.05 / 2) + NORMAL.inv_cdf(0.8)
     assert _close(noise["sd"], sd)
-    assert noise["tasks_for_power_at_sesoi"] == math.ceil((z * sd / -math.log(0.9)) ** 2)
+    assert noise["tasks_for_power_at_sesoi"] == math.ceil((z * sd / delta) ** 2)
+    assert _close(
+        noise["min_detectable_ratio_at_stage2"], math.exp(-z * sd / math.sqrt(size["tasks"]))
+    )
     assert _close(noise["flip_rate"], 1 / 6)
 
 
+def test_efficiency_power_uses_the_holm_first_step_for_the_arms_kept(tmp_path: Path) -> None:
+    plan, cells = _stage(tmp_path, STAGE1, _gate_spec(hc_adopts=True, m_adopts=True))
+    gates = _run(plan, cells, tmp_path / "out.json")["gates"]
+
+    size = gates["stage2_size"]
+    assert size["primary_arms_kept"] == ["H", "HC", "M"]
+    assert size["tasks"] == math.ceil(_pairs_needed(3) / 2)
+    noise = gates["a0_noise"][LOW]
+    diffs = [math.log(round(10**6 * math.exp(0.1 if i % 2 else -0.1)) / 10**6) for i in range(6)]
+    sd = statistics.stdev(diffs)
+    z = NORMAL.inv_cdf(1 - 0.05 / 3) + NORMAL.inv_cdf(0.8)
+    assert noise["tasks_for_power_at_sesoi"] == math.ceil((z * sd / -math.log(0.9)) ** 2)
+    assert _close(
+        noise["power_at_stage2_tasks"],
+        NORMAL.cdf(-math.log(0.9) * math.sqrt(size["tasks"]) / sd - NORMAL.inv_cdf(1 - 0.05 / 3)),
+    )
+
+
+def test_hook_activity_excludes_no_hit_searches_from_the_denominator(tmp_path: Path) -> None:
+    def spec(key: CellKey, i: int) -> dict[str, Any]:
+        if key.arm is SweAbArm.H:
+            # 10 eligible, 3 annotated, 4 searches with no hits, 1 stale decline after an edit.
+            return {"billed": _a0(i), "ledger": (10, 3, 1), "no_hits": 4}
+        return {"billed": _a0(i)}
+
+    plan, cells = _stage(tmp_path, STAGE1, spec)
+    hook = _run(plan, cells, tmp_path / "out.json")["gates"]["hook_activity"]
+
+    assert _close(hook["share"], 36 / (120 - 48 - 12))
+    assert hook["passed"] is True
+    assert hook["fail_open_by_reason"] == {"no_hits": 48}
+
+
+@pytest.mark.parametrize(
+    ("arms_kept", "passing", "configurations", "tasks"),
+    [
+        (PRIMARY_ARMS, 3, 3, 209),
+        (PRIMARY_ARMS[:2], 3, 3, 190),
+        (PRIMARY_ARMS[:1], 3, 3, 157),
+        (PRIMARY_ARMS, 1, 3, 626),
+        (PRIMARY_ARMS[:1], 7, 7, 100),  # 469 pairs / 7 = 67 tasks: the 100-task floor binds
+    ],
+)
+def test_stage2_size_follows_the_pair_rule(
+    arms_kept: tuple[SweAbArm, ...], passing: int, configurations: int, tasks: int
+) -> None:
+    size = analysis.stage2_size(passing, configurations, arms_kept)
+
+    assert size["tasks"] == tasks
+    assert size["estimable"] is True
+    assert size["primary_arms_kept"] == [arm.value for arm in arms_kept]
+    assert _close(size["pairs_needed"], _pairs_needed(len(arms_kept)))
+    assert size["passing_configurations"] == passing
+
+
+@pytest.mark.parametrize(("passing", "arms_kept"), [(0, PRIMARY_ARMS), (2, ())])
+def test_stage2_has_no_size_without_a_passing_configuration_or_a_primary_arm(
+    passing: int, arms_kept: tuple[SweAbArm, ...]
+) -> None:
+    size = analysis.stage2_size(passing, 3, arms_kept)
+
+    assert size["tasks"] is None and size["estimable"] is False
+
+
+def test_primary_arms_kept_drops_only_the_arms_that_failed_an_adoption_gate() -> None:
+    stage = analysis.Stage(plan=_plan(STAGE1), cells={}, blocked=[], repo_of={}, coverage={})
+    passed, failed = {"passed": True}, {"passed": False}
+
+    def kept(**gates: dict[str, bool] | None) -> list[str]:
+        return [arm.value for arm in analysis.primary_arms_kept(stage, gates)]
+
+    assert kept(HC=passed, M=passed, C=failed) == ["H", "HC", "M"]
+    assert kept(HC=failed, M=passed) == ["H", "M"]
+    assert kept(HC=passed, M=failed) == ["H", "HC"]
+    assert kept(HC=failed, M=failed) == ["H"]
+    without_m = analysis.Stage(
+        plan=_plan({"A0": 1, "H": 1, "HC": 1}), cells={}, blocked=[], repo_of={}, coverage={}
+    )
+    assert [a.value for a in analysis.primary_arms_kept(without_m, {"HC": passed})] == ["H", "HC"]
+
+
 def test_stage2_has_no_gates_and_carries_the_pilot_headroom_verdict(tmp_path: Path) -> None:
-    plan, cells = _stage(tmp_path, {"A0": 1, "H": 1, "HC": 1}, lambda key, i: {"billed": _a0(i)})
+    plan, cells = _stage(tmp_path, STAGE2, lambda key, i: {"billed": _a0(i)})
     pilot = tmp_path / "pilot.json"
     pilot.write_text(
         json.dumps(
-            {"gates": {"headroom": {LOW: {"H": {"passed": False}, "HC": {"passed": True}}}}}
+            {
+                "gates": {
+                    "headroom": {
+                        LOW: {
+                            "H": {"passed": False},
+                            "HC": {"passed": True},
+                            "M": {"passed": False},
+                        }
+                    }
+                }
+            }
         ),
         encoding="utf-8",
     )
@@ -331,6 +557,8 @@ def test_stage2_has_no_gates_and_carries_the_pilot_headroom_verdict(tmp_path: Pa
     assert report["gates"] is None
     assert report["efficiency"][LOW]["H"]["hypothesis"].startswith("mis-specified")
     assert report["efficiency"][LOW]["HC"]["hypothesis"] == "tested"
+    assert report["efficiency"][LOW]["M"]["hypothesis"].startswith("mis-specified")
+    assert report["efficiency"][GEMMA]["M"]["hypothesis"] == "tested"
 
 
 def test_solve_floor_counts_every_a0_cell_of_both_repetitions(tmp_path: Path) -> None:
@@ -354,7 +582,11 @@ def test_solve_floor_counts_every_a0_cell_of_both_repetitions(tmp_path: Path) ->
     assert gates["solve_floor"][GEMMA]["n"] == 12
     assert _close(gates["solve_floor"][GEMMA]["rate"], 1 / 12)
     assert gates["solve_floor"][GEMMA]["passed"] is False
-    assert gates["stage2_size"] == {"passing_configurations": 1, "tasks": 370, "estimable": True}
+    # No HC or M cell called an archex tool: only H is kept (m = 1); one configuration passes.
+    size = gates["stage2_size"]
+    assert size["primary_arms_kept"] == ["H"]
+    assert (size["passing_configurations"], size["estimable"]) == (1, True)
+    assert size["tasks"] == math.ceil(_pairs_needed(1))
 
 
 def test_stage1_with_no_configuration_above_the_floor_has_no_stage2_size(tmp_path: Path) -> None:
@@ -364,7 +596,9 @@ def test_stage1_with_no_configuration_above_the_floor_has_no_stage2_size(tmp_pat
     plan, cells = _stage(tmp_path, STAGE1, spec)
     gates = _run(plan, cells, tmp_path / "out.json")["gates"]
 
-    assert gates["stage2_size"] == {"passing_configurations": 0, "tasks": None, "estimable": False}
+    assert gates["stage2_size"]["tasks"] is None
+    assert gates["stage2_size"]["estimable"] is False
+    assert gates["stage2_size"]["passing_configurations"] == 0
     assert "power_at_stage2_tasks" not in gates["a0_noise"][LOW]
 
 
@@ -382,7 +616,7 @@ def test_stage2_guardrail_pools_only_configurations_above_the_pilot_floor(tmp_pa
         lost = key.arm is not SweAbArm.A0 and key.model == GEMMA
         return {"billed": _a0(i), "resolved": not lost}
 
-    plan, cells = _stage(tmp_path, {"A0": 1, "H": 1, "HC": 1}, spec)
+    plan, cells = _stage(tmp_path, STAGE2, spec)
     everything = _run(plan, cells, tmp_path / "all.json")
     pilot = _floor_pilot(tmp_path / "pilot.json", {LOW: True, GEMMA: False})
     report = _run(plan, cells, tmp_path / "out.json", "--pilot-analysis", str(pilot))
@@ -395,6 +629,11 @@ def test_stage2_guardrail_pools_only_configurations_above_the_pilot_floor(tmp_pa
     assert h["uninformative"][GEMMA]["label"] == "uninformative: below the 15% solve-rate floor"
     assert _close(h["uninformative"][GEMMA]["treatment"], 0.0)
     assert report["sensitivity_excluding_blocked"]["guardrail"]["H"]["pairs"] == 6
+    # The completion test pools the same configurations.
+    assert report["completion"]["H"]["pairs"] == 6
+    assert list(report["completion"]["H"]["per_stratum"]) == [LOW]
+    assert report["completion"]["H"]["reading"] == "no_difference_detected"
+    assert everything["completion"]["H"]["pairs"] == 12
     # Efficiency stays per configuration, floor or not.
     assert report["efficiency"][GEMMA]["H"]["pairs"] == 6
 
@@ -402,14 +641,111 @@ def test_stage2_guardrail_pools_only_configurations_above_the_pilot_floor(tmp_pa
 def test_stage2_guardrail_is_not_estimable_when_no_configuration_passed_the_floor(
     tmp_path: Path,
 ) -> None:
-    plan, cells = _stage(tmp_path, {"A0": 1, "H": 1, "HC": 1}, lambda key, i: {"billed": _a0(i)})
+    plan, cells = _stage(tmp_path, STAGE2, lambda key, i: {"billed": _a0(i)})
     pilot = _floor_pilot(tmp_path / "pilot.json", {LOW: False, GEMMA: False})
     report = _run(plan, cells, tmp_path / "out.json", "--pilot-analysis", str(pilot))
 
-    for arm in ("H", "HC"):
+    for arm in ("H", "HC", "M"):
         assert report["guardrail"][arm]["verdict"] == "not_estimable"
         assert set(report["guardrail"][arm]["uninformative"]) == {LOW, GEMMA}
+        assert report["completion"][arm]["reading"] == "not_estimable"
+        assert report["completion"][arm]["p_holm"] is None
     assert report["efficiency"][LOW]["H"]["pairs"] == 6
+
+
+# --- the completion test (H5) -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("a0_solves", "arm", "arm_solves", "reading"),
+    [(False, "H", True, "better"), (True, "M", False, "worse")],
+)
+def test_completion_reads_better_or_worse_on_a_clear_two_sided_difference(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    a0_solves: bool,
+    arm: str,
+    arm_solves: bool,
+    reading: str,
+) -> None:
+    def spec(key: CellKey, i: int) -> dict[str, Any]:
+        return {"billed": _a0(i), "resolved": arm_solves if key.arm.value == arm else a0_solves}
+
+    plan, cells = _stage(tmp_path, STAGE2, spec)
+    report = _run(plan, cells, tmp_path / "out.json")
+
+    result = report["completion"][arm]
+    assert result["reading"] == reading
+    # All 12 pairs are discordant in one direction: p = 2 / 2^12, Holm over three arms.
+    assert _close(result["p_two_sided"], 2 / 4096)
+    assert _close(result["p_holm"], 3 * 2 / 4096)
+    assert _close(result["difference"], 1.0 if arm_solves else -1.0)
+    assert result["treatment_only_resolved"] + result["control_only_resolved"] == 12
+    assert result["ci95"][0] <= result["difference"] <= result["ci95"][1]
+    others = [a for a in ("H", "HC", "M") if a != arm]
+    assert [report["completion"][a]["reading"] for a in others] == ["no_difference_detected"] * 2
+    assert all(report["completion"][a]["p_holm"] == 1.0 for a in others)
+    assert report["sensitivity_excluding_blocked"]["completion"][arm]["reading"] == reading
+    summary = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert summary["completion"][arm] == reading
+    # The non-inferiority guardrail rides alongside, unchanged in kind.
+    assert report["guardrail"][arm]["verdict"] == ("non_inferior" if arm_solves else "inferior")
+
+
+def test_completion_p_values_are_holm_adjusted_over_the_primary_arms_present(
+    tmp_path: Path,
+) -> None:
+    def spec(key: CellKey, i: int) -> dict[str, Any]:
+        # A0 solves tasks 0-2 in both configurations. H solves everything (6 treatment-only
+        # pairs); M solves exactly the complement (6 each way); HC mirrors A0.
+        solved = {SweAbArm.H: True, SweAbArm.M: i >= 3}.get(key.arm, i < 3)
+        return {"billed": _a0(i), "resolved": solved}
+
+    plan, cells = _stage(tmp_path, STAGE2, spec)
+    three = _run(plan, cells, tmp_path / "three.json")["completion"]
+    only_h_plan, only_h_cells = _stage(tmp_path / "h", {"A0": 1, "H": 1}, spec)
+    alone = _run(only_h_plan, only_h_cells, tmp_path / "alone.json")["completion"]
+
+    # Raw p = 2 / 2^6 = 0.03125 < 0.05, but with three arms Holm multiplies it by 3.
+    assert _close(three["H"]["p_two_sided"], 2 / 64)
+    assert _close(three["H"]["p_holm"], 3 * 2 / 64)
+    assert three["H"]["reading"] == "no_difference_detected"
+    assert alone["H"]["reading"] == "better"
+    assert _close(alone["H"]["p_holm"], 2 / 64)
+    assert set(alone) == {"H"}
+    # Discordant pairs split 6 / 6 across the strata: no evidence; none at all: p = 1.
+    assert (three["M"]["treatment_only_resolved"], three["M"]["control_only_resolved"]) == (6, 6)
+    assert three["M"]["p_holm"] == 1.0 and three["M"]["reading"] == "no_difference_detected"
+    assert three["HC"]["p_holm"] == 1.0 and three["HC"]["reading"] == "no_difference_detected"
+
+
+def test_completion_pools_discordant_pairs_across_configurations_as_strata() -> None:
+    guardrails = {
+        "H": {
+            "verdict": "non_inferior",
+            "pairs": 20,
+            "excluded_blocked_pairs": 0,
+            "difference": 0.3,
+            "ci95": [0.1, 0.5],
+            "mcnemar": analysis.mcnemar({LOW: (5, 0), GEMMA: (5, 0)}),
+        },
+        "M": {
+            "verdict": "inconclusive",
+            "pairs": 20,
+            "excluded_blocked_pairs": 0,
+            "difference": -0.2,
+            "ci95": [-0.4, 0.0],
+            "mcnemar": analysis.mcnemar({LOW: (2, 4), GEMMA: (1, 3)}),
+        },
+    }
+
+    result = analysis.completion_family(guardrails)
+
+    assert result["H"]["treatment_only_resolved"] == 10
+    assert _close(result["H"]["p_two_sided"], 2 / 1024)
+    assert result["H"]["reading"] == "better"
+    assert _close(result["M"]["p_two_sided"], 2 * (1 + 10 + 45 + 120) / 1024)
+    assert result["M"]["reading"] == "no_difference_detected"
 
 
 def test_the_report_is_byte_identical_across_runs(tmp_path: Path) -> None:
@@ -426,6 +762,7 @@ def test_the_report_is_byte_identical_across_runs(tmp_path: Path) -> None:
         ({"H": 0.01, "HC": 0.04}, {"H": 0.02, "HC": 0.04}),
         ({"H": 0.03, "HC": 0.02}, {"H": 0.04, "HC": 0.04}),
         ({"H": 0.6}, {"H": 0.6}),
+        ({"H": 0.01, "HC": 0.02, "M": 0.04}, {"H": 0.03, "HC": 0.04, "M": 0.04}),
     ],
 )
 def test_holm_adjustment(p_values: dict[str, float], adjusted: dict[str, float]) -> None:

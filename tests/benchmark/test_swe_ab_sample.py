@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -101,7 +102,13 @@ def test_stage1_allocation_extra_to_two_largest(tmp_path: Path) -> None:
     assert len(plan.tasks) == 24
     assert plan.name == "r3x-stage1"
     assert plan.models == list(MUNA.labels)
-    assert plan.repetitions == {SweAbArm.A0: 2, SweAbArm.H: 1, SweAbArm.HC: 1, SweAbArm.C: 1}
+    assert plan.repetitions == {
+        SweAbArm.A0: 2,
+        SweAbArm.H: 1,
+        SweAbArm.HC: 1,
+        SweAbArm.M: 1,
+        SweAbArm.C: 1,
+    }
     assert all(t.image is None and t.task_dir is None for t in plan.tasks)
     assert inst.read_text().split() == [t.task_id for t in plan.tasks]
     repos = [t.repo for t in plan.tasks]
@@ -182,9 +189,10 @@ def test_stage2_disjoint_and_hamilton(tmp_path: Path) -> None:
     s2 = [t.task_id for t in plan2.tasks]
     assert len(s2) == 124 and not s1 & set(s2)
     assert plan2.name == "r3x-stage2"
-    assert plan2.repetitions == {SweAbArm.A0: 1, SweAbArm.H: 1, SweAbArm.HC: 1}
+    assert plan2.repetitions == {SweAbArm.A0: 1, SweAbArm.H: 1, SweAbArm.HC: 1, SweAbArm.M: 1}
     manifest = _manifest(m2)
     assert manifest["stage1_plan_task_ids"] == [t.task_id for t in load_plan(p1).tasks]
+    assert (manifest["without_hc"], manifest["without_m"]) == (False, False)
     assert manifest["stage2_tasks"] == 124
     total = sum(SIZES.values())
     for repo, k in manifest["allocation_by_repo"].items():
@@ -206,18 +214,27 @@ def test_stage2_shortfall_reassigned(tmp_path: Path) -> None:
     assert sum(alloc.values()) == 100
 
 
-def test_stage2_without_hc(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("flags", "arms"),
+    [
+        (("--without-hc",), {SweAbArm.A0: 1, SweAbArm.H: 1, SweAbArm.M: 1}),
+        (("--without-m",), {SweAbArm.A0: 1, SweAbArm.H: 1, SweAbArm.HC: 1}),
+        (("--without-hc", "--without-m"), {SweAbArm.A0: 1, SweAbArm.H: 1}),
+    ],
+)
+def test_stage2_drops_the_arms_named_by_flags_and_records_them(
+    tmp_path: Path, flags: tuple[str, ...], arms: dict[SweAbArm, int]
+) -> None:
     root = _make_root(tmp_path)
     _, p1, _, _ = _run(tmp_path, root, 1, tag="s1")
-    code, p2, _, _ = _run(
-        tmp_path,
-        root,
-        2,
-        "--stage1-plan", str(p1), "--stage2-tasks", "100", "--without-hc",
-        tag="s2",
-    )  # fmt: skip
+    code, p2, m2, _ = _run(
+        tmp_path, root, 2, "--stage1-plan", str(p1), "--stage2-tasks", "100", *flags, tag="s2"
+    )
     assert code == 0
-    assert load_plan(p2).repetitions == {SweAbArm.A0: 1, SweAbArm.H: 1}
+    assert load_plan(p2).repetitions == arms
+    manifest = _manifest(m2)
+    assert manifest["without_hc"] is ("--without-hc" in flags)
+    assert manifest["without_m"] is ("--without-m" in flags)
 
 
 def test_stage2_refuses_mismatched_stage1_plan(tmp_path: Path) -> None:
@@ -261,6 +278,7 @@ def test_stage_argument_combinations_refused(tmp_path: Path) -> None:
     root = _make_root(tmp_path)
     assert _run(tmp_path, root, 2, tag="a")[0] == 1
     assert _run(tmp_path, root, 1, "--without-hc", tag="b")[0] == 1
+    assert _run(tmp_path, root, 1, "--without-m", tag="e")[0] == 1
     assert _run(tmp_path, root, 1, "--stage2-tasks", "100", tag="c")[0] == 1
     assert _run(tmp_path, root, 2, "--stage1-plan", str(tmp_path / "x"), tag="d")[0] == 1
 
@@ -275,17 +293,40 @@ def test_stage2_tasks_below_the_floor_are_refused(tmp_path: Path) -> None:
     assert not p2.exists()
 
 
-@pytest.mark.parametrize(("passing", "tasks"), [(1, 370), (2, 185), (3, 124)])
-def test_stage2_task_count_follows_the_size_rule(passing: int, tasks: int) -> None:
-    assert sample.stage2_task_count(passing, 3) == tasks
+@pytest.mark.parametrize(("arms_kept", "pairs"), [(1, 468.5680), (2, 567.6995), (3, 625.4152)])
+def test_stage2_pairs_needed_follows_the_holm_adjusted_paired_test(
+    arms_kept: int, pairs: float
+) -> None:
+    assert math.isclose(sample.stage2_pairs_needed(arms_kept), pairs, abs_tol=1e-3)
+    assert math.isclose(sample.stage2_target_pairs(arms_kept), pairs, abs_tol=1e-3)
 
 
-@pytest.mark.parametrize(("passing", "configurations"), [(0, 3), (4, 3), (2, 1)])
-def test_stage2_task_count_refuses_counts_outside_the_configurations(
-    passing: int, configurations: int
+@pytest.mark.parametrize(
+    ("arms_kept", "passing", "configurations", "tasks"),
+    [
+        (3, 3, 3, 209),
+        (2, 3, 3, 190),
+        (1, 3, 3, 157),
+        (3, 1, 3, 626),
+        (3, 2, 3, 313),
+        (1, 7, 7, 100),  # 468.6 / 7 = 67 tasks: the 100-task floor binds
+    ],
+)
+def test_stage2_task_count_follows_the_size_rule(
+    arms_kept: int, passing: int, configurations: int, tasks: int
+) -> None:
+    assert sample.stage2_task_count(arms_kept, passing, configurations) == tasks
+
+
+@pytest.mark.parametrize(
+    ("arms_kept", "passing", "configurations"),
+    [(3, 0, 3), (3, 4, 3), (3, 2, 1), (0, 2, 3), (4, 2, 3)],
+)
+def test_stage2_task_count_refuses_counts_outside_the_arms_and_configurations(
+    arms_kept: int, passing: int, configurations: int
 ) -> None:
     with pytest.raises(SweAbError):
-        sample.stage2_task_count(passing, configurations)
+        sample.stage2_task_count(arms_kept, passing, configurations)
 
 
 def test_plan_names_the_campaign_and_the_manifest_records_its_hash(tmp_path: Path) -> None:

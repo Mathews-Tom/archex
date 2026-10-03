@@ -19,30 +19,45 @@ cell enters every metric at the tokens it consumed and scores unresolved.
 
 What is computed, and nothing else:
 
-* **Efficiency, per configuration** (H1, H2). Per task, ``ln(treatment billed tokens / A0 billed
-  tokens)``, billed = input + output + cache read + cache write, summed over the cell's requests;
-  the control is A0 repetition 1 (a second A0 repetition, Stage 1 only, feeds the noise estimate
-  and nothing else). Geometric mean ratio = ``exp(mean)``. Repository-clustered percentile
-  bootstrap, 10,000 resamples, seed 20260909. H0 per comparison: ratio ≥ 1 − SESOI; one-sided
-  bootstrap p = (1 + #{resampled ratio ≥ 0.90}) / (10,001); Holm-adjusted over H and HC within the
-  model. Verdict: ``superior`` (adjusted p < 0.05), else ``equivalent`` (the 90% interval inside
-  1 ± EQM), else ``inconclusive``. A pair with a zero-token cell has no log ratio: it is counted
-  and listed under ``zero_token_pairs``, and stays in the guardrail as unresolved.
+* **Efficiency, per configuration** (H1, H2, H4). Per task, ``ln(treatment billed tokens / A0
+  billed tokens)``, billed = input + output + cache read + cache write, summed over the cell's
+  requests; the control is A0 repetition 1 (a second A0 repetition, Stage 1 only, feeds the noise
+  estimate and nothing else). Geometric mean ratio = ``exp(mean)``. Repository-clustered
+  percentile bootstrap, 10,000 resamples, seed 20260909. The primary arms are H, HC and M (C is a
+  pilot arm: reported, never tested). Two one-sided tests per arm, each Holm-adjusted over the
+  primary arms present within the model, as two separate families: H0 ratio ≥ 1 − SESOI, one-sided
+  bootstrap p = (1 + #{resampled ratio ≥ 0.90}) / 10,001; and H0 ratio ≤ 1 + SESOI, p = (1 +
+  #{resampled ratio ≤ 1.10}) / 10,001. Reading: ``superior`` (first adjusted p < 0.05), else
+  ``worse`` (second adjusted p < 0.05), else ``equivalent`` (the 90% interval inside 1 ± EQM),
+  else ``inconclusive``. A pair with a zero-token cell has no log ratio: it is counted and listed
+  under ``zero_token_pairs``, and stays in the completion analyses as unresolved.
+* **Completion test, pooled** (H5). Per primary arm, the two-sided paired solve-rate comparison
+  with A0 over the floor-passing configurations, stratified by configuration: the exact
+  conditional test of the stratified McNemar table (the sum of the per-stratum discordant counts
+  is Binomial(N, 1/2) under H0, which is the Mantel–Haenszel-type statistic's exact form), with
+  the repository-clustered bootstrap 95% interval of the pooled difference. Holm over the primary
+  arms present at α = 0.05. Reading: ``better`` / ``worse`` (adjusted p < 0.05, by the sign of the
+  pooled difference), else ``no_difference_detected``.
 * **Quality guardrail, pooled** (H3). Per (model, task), ``resolved(treatment) − resolved(A0)``;
   the estimate is the mean of per-model means (the model is the stratum). Same bootstrap,
   resampling repositories with all their models' pairs. ``non_inferior`` when the one-sided 95%
   lower bound (5th percentile) is above the −5 pp margin, ``inferior`` when the 95th percentile is
   below it, else ``inconclusive``. Cross-check: McNemar over discordant pairs pooled across the
   model strata (chi-square statistic and exact two-sided binomial p).
-* **Sensitivity.** Both analyses again without the (model, task) pairs in which either cell had a
-  quota-blocked attempt.
+* **Sensitivity.** The efficiency, guardrail and completion analyses again without the (model,
+  task) pairs in which either cell had a quota-blocked attempt.
 * **Stage 1 gates** (when A0 has two repetitions): the A0 lever share per configuration against
-  2 × SESOI (kill criterion 3), HC adoption against 25% (criterion 4), H hook activity against
-  50% (criterion 5), the A0 solve-rate floor (15% over all A0 cells, failures unresolved), the
-  Stage 2 task count ``max(100, ceil(370 / k))`` for the k configurations passing the floor, and
-  the A0-vs-A0 noise that sets efficiency power, the minimum detectable ratio, and whether the
-  equivalence margin is reachable at that Stage 2 size. With ``--pilot-analysis`` the Stage 2
-  guardrail pools only the configurations that passed the floor (none: ``not_estimable``).
+  2 × SESOI (kill criterion 5; H's lever is out-of-patch reads, HC's and M's search plus
+  out-of-patch reads), HC and M adoption against 25% (criterion 6; the share of cells with at
+  least one archex CLI call, respectively one archex MCP call, failed cells included), H hook
+  activity against 50% (criterion 7; annotated ÷ eligible less ``no_hits`` declines and stale-index
+  declines after the first edit), the A0 solve-rate floor (15% over all A0 cells, failures
+  unresolved), the Stage 2 size for the m primary arms kept after the adoption gates and the k
+  configurations passing the floor (pairs needed n(m), target pairs ``max(370, n(m))``, tasks
+  ``max(100, ceil(target / k))``), and the A0-vs-A0 noise that sets efficiency power (Holm first
+  step α/m), the minimum detectable ratio, and whether the equivalence margin is reachable at that
+  Stage 2 size. With ``--pilot-analysis`` the Stage 2 guardrail and completion analyses pool only
+  the configurations that passed the floor (none: ``not_estimable``).
 """
 
 from __future__ import annotations
@@ -61,6 +76,7 @@ import numpy as np
 
 from archex.benchmark.swe_ab import (
     PREREGISTRATION_PATH,
+    PRIMARY_ARMS,
     QUOTA_BLOCKED_DIR,
     Campaign,
     CellKey,
@@ -93,13 +109,14 @@ EQM = 0.05
 """Equivalence margin on the ratio, ±5% (set at freeze)."""
 NIM = -0.05
 """Non-inferiority margin on the pooled solve-rate difference (−5 percentage points)."""
+WORSE_RATIO = 1.10
+"""H4 holds (a treatment costs more tokens) when the ratio is above this (a 10% increase)."""
 LEVER_GATE = round(2 * (1 - SESOI_RATIO), 6)
 ADOPTION_GATE = 0.25
 HOOK_ACTIVITY_GATE = 0.50
 SOLVE_FLOOR = 0.15
 """Stage 1 gate: a configuration's A0 solve rate (all A0 cells) must reach this."""
 POWER = 0.80
-TREATMENTS: tuple[SweAbArm, ...] = (SweAbArm.H, SweAbArm.HC)
 _NORMAL = statistics.NormalDist()
 
 
@@ -311,7 +328,12 @@ def efficiency(stage_pairs: Iterable[Pair], *, exclude_blocked: bool = False) ->
         "excluded_blocked_pairs": excluded,
     }
     if not by_repo:
-        return {**result, "geometric_mean_ratio": None, "p_vs_sesoi": None}
+        return {
+            **result,
+            "geometric_mean_ratio": None,
+            "p_vs_sesoi": None,
+            "p_vs_worse": None,
+        }
     point, boot = cluster_mean(by_repo)
     ratios = np.exp(boot)
     ci90 = (_pct(ratios, 5), _pct(ratios, 95))
@@ -321,6 +343,7 @@ def efficiency(stage_pairs: Iterable[Pair], *, exclude_blocked: bool = False) ->
         "ci95": [_pct(ratios, 2.5), _pct(ratios, 97.5)],
         "ci90": list(ci90),
         "p_vs_sesoi": (1 + int((ratios >= SESOI_RATIO).sum())) / (RESAMPLES + 1),
+        "p_vs_worse": (1 + int((ratios <= WORSE_RATIO).sum())) / (RESAMPLES + 1),
         "within_eqm": ci90[0] >= 1 - EQM and ci90[1] <= 1 + EQM,
         "increase": _pct(ratios, 2.5) > 1.0,
     }
@@ -332,8 +355,8 @@ def efficiency_family(
     exclude_blocked: bool = False,
     no_headroom: Mapping[str, set[str]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """H1/H2 per model, Holm-adjusted over the treatments present."""
-    arms = [arm for arm in TREATMENTS if arm in stage.plan.repetitions]
+    """H1/H2/H4 per model; each direction Holm-adjusted over the primary arms present."""
+    arms = [arm for arm in PRIMARY_ARMS if arm in stage.plan.repetitions]
     by_arm = {arm: pairs(stage, arm) for arm in arms}
     out: dict[str, dict[str, Any]] = {}
     for model in stage.plan.models:
@@ -343,15 +366,21 @@ def efficiency_family(
             )
             for arm in arms
         }
-        tested = {arm: r["p_vs_sesoi"] for arm, r in results.items() if r["p_vs_sesoi"] is not None}
-        adjusted = holm(tested)
+        superior = holm(
+            {arm: r["p_vs_sesoi"] for arm, r in results.items() if r["p_vs_sesoi"] is not None}
+        )
+        worse = holm(
+            {arm: r["p_vs_worse"] for arm, r in results.items() if r["p_vs_worse"] is not None}
+        )
         for arm, result in results.items():
-            p = adjusted.get(arm)
-            result["p_holm"] = p
-            if p is None:
+            result["p_holm"] = superior.get(arm)
+            result["p_holm_worse"] = worse.get(arm)
+            if arm not in superior:
                 result["verdict"] = "not_estimable"
-            elif p < ALPHA:
+            elif superior[arm] < ALPHA:
                 result["verdict"] = "superior"
+            elif worse[arm] < ALPHA:
+                result["verdict"] = "worse"
             elif result["within_eqm"]:
                 result["verdict"] = "equivalent"
             else:
@@ -435,14 +464,14 @@ UNINFORMATIVE = "uninformative: below the 15% solve-rate floor"
 def guardrail_family(
     stage: Stage, *, exclude_blocked: bool = False, uninformative: Collection[str] = frozenset()
 ) -> dict[str, Any]:
-    """H3 per treatment over the configurations above the pilot's floor.
+    """H3 per primary arm over the configurations above the pilot's floor.
 
     Configurations in ``uninformative`` stay out of the pooled estimate and are reported alone;
     with none left the verdict is ``not_estimable``.
     """
     informative = [m for m in stage.plan.models if m not in uninformative]
     out: dict[str, Any] = {}
-    for arm in TREATMENTS:
+    for arm in PRIMARY_ARMS:
         if arm not in stage.plan.repetitions:
             continue
         stage_pairs = pairs(stage, arm)
@@ -465,6 +494,49 @@ def guardrail_family(
                 if model in uninformative
             }
         out[arm.value] = result
+    return out
+
+
+def completion_family(guardrails: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """H5: the two-sided pooled paired solve-rate test per primary arm, Holm over the arms.
+
+    ``guardrails`` is `guardrail_family`'s output, whose pooled difference, repository-clustered
+    interval and discordant counts (strata: the configurations) this reuses. The p-value is the
+    exact conditional test of the stratified McNemar table: given each stratum's discordant count
+    the treatment-only count is Binomial(n, 1/2) under H0, so their sum is Binomial(N, 1/2) and
+    ``mcnemar`` already returns its two-sided p. With no discordant pair the p-value is 1.
+    """
+    tested: dict[str, float] = {}
+    for arm, result in guardrails.items():
+        if result["verdict"] != "not_estimable":
+            p = result["mcnemar"]["p_exact_two_sided"]
+            tested[arm] = 1.0 if p is None else p
+    adjusted = holm(tested)
+    out: dict[str, dict[str, Any]] = {}
+    for arm, result in guardrails.items():
+        mc = result["mcnemar"]
+        difference = result["difference"]
+        p_holm = adjusted.get(arm)
+        if p_holm is None:
+            reading = "not_estimable"
+        elif p_holm < ALPHA and difference > 0:
+            reading = "better"
+        elif p_holm < ALPHA and difference < 0:
+            reading = "worse"
+        else:
+            reading = "no_difference_detected"
+        out[arm] = {
+            "pairs": result["pairs"],
+            "excluded_blocked_pairs": result["excluded_blocked_pairs"],
+            "difference": difference,
+            "ci95": result.get("ci95"),
+            "treatment_only_resolved": mc["treatment_only_resolved"],
+            "control_only_resolved": mc["control_only_resolved"],
+            "per_stratum": mc["per_stratum"],
+            "p_two_sided": tested.get(arm),
+            "p_holm": p_holm,
+            "reading": reading,
+        }
     return out
 
 
@@ -519,10 +591,10 @@ def _billed_input(cell: SweAbCell) -> int:
 
 
 def lever_shares(stage: Stage) -> dict[str, Any]:
-    """Kill criterion 3: per model, the A0 share of billed input each treatment could displace.
+    """Kill criterion 5: per model, the A0 share of billed input each treatment could displace.
 
-    H's lever is out-of-patch reads; HC's is search plus out-of-patch reads (compounded tokens over
-    the cell's billed input). Mean over A0 repetitions within a task, then over tasks.
+    H's lever is out-of-patch reads; HC's and M's is search plus out-of-patch reads (compounded
+    tokens over the cell's billed input). Mean over A0 repetitions within a task, then over tasks.
     """
     out: dict[str, Any] = {}
     reps = stage.plan.repetitions[SweAbArm.A0]
@@ -530,6 +602,7 @@ def lever_shares(stage: Stage) -> dict[str, Any]:
         by_repo: dict[str, dict[str, list[float]]] = {
             "H": defaultdict(list),
             "HC": defaultdict(list),
+            "M": defaultdict(list),
         }
         no_input: list[str] = []
         for task in stage.plan.tasks:
@@ -548,6 +621,7 @@ def lever_shares(stage: Stage) -> dict[str, Any]:
                 continue
             by_repo["H"][task.repo].append(statistics.fmean(h))
             by_repo["HC"][task.repo].append(statistics.fmean(hc))
+            by_repo["M"][task.repo].append(statistics.fmean(hc))
         model_out: dict[str, Any] = {"tasks_without_billed_input": no_input}
         for arm, values in by_repo.items():
             if not values:
@@ -565,22 +639,28 @@ def lever_shares(stage: Stage) -> dict[str, Any]:
 
 
 def adoption(stage: Stage, arm: SweAbArm) -> dict[str, Any]:
-    """Share of the arm's cells that made at least one archex CLI call (criterion 4 for HC)."""
+    """Share of the arm's cells that made at least one archex call (criterion 6 for HC and M).
+
+    HC and C count archex CLI calls (``subcommands``: per subcommand); M counts archex MCP tool
+    calls (``subcommands``: per MCP tool). Failed cells stay in the denominator.
+    """
     cells = [c for k, c in stage.cells.items() if k.arm is arm]
+
+    def calls(cell: SweAbCell) -> int:
+        return cell.archex_mcp_calls if arm.mcp else cell.archex_cli_calls
+
     subcommands: Counter[str] = Counter()
     for cell in cells:
-        subcommands.update(cell.archex_cli_subcommands)
-    share = sum(1 for c in cells if c.archex_cli_calls > 0) / len(cells)
+        subcommands.update(cell.archex_mcp_tools if arm.mcp else cell.archex_cli_subcommands)
+    share = sum(1 for c in cells if calls(c) > 0) / len(cells)
     return {
         "cells": len(cells),
         "share": share,
         "by_model": {
-            model: statistics.fmean(
-                1.0 if c.archex_cli_calls > 0 else 0.0 for c in cells if c.model == model
-            )
+            model: statistics.fmean(1.0 if calls(c) > 0 else 0.0 for c in cells if c.model == model)
             for model in stage.plan.models
         },
-        "calls": sum(c.archex_cli_calls for c in cells),
+        "calls": sum(calls(c) for c in cells),
         "subcommands": dict(sorted(subcommands.items())),
         "threshold": ADOPTION_GATE,
         "passed": share >= ADOPTION_GATE,
@@ -588,17 +668,22 @@ def adoption(stage: Stage, arm: SweAbArm) -> dict[str, Any]:
 
 
 def hook_activity(stage: Stage, arm: SweAbArm) -> dict[str, Any]:
-    """Criterion 5: annotated ÷ eligible calls, less stale-index declines after the first edit."""
+    """Criterion 7: annotated ÷ eligible calls, less no-hit searches and stale-index declines.
+
+    The stale declines excluded are those after the first edit; a search with no hits has nothing
+    to annotate (``fail_open["no_hits"]``). Searches the hook could not parse stay in.
+    """
 
     def share(cells: Sequence[SweAbCell]) -> tuple[float | None, dict[str, int]]:
         ledgers = [c.hook_ledger for c in cells if c.hook_ledger is not None]
         totals = {
             "eligible": sum(ledger.eligible for ledger in ledgers),
             "annotated": sum(ledger.annotated for ledger in ledgers),
+            "no_hits": sum(ledger.fail_open.get("no_hits", 0) for ledger in ledgers),
             "stale_after_first_edit": sum(ledger.not_fresh_after_first_edit for ledger in ledgers),
         }
-        denominator = totals["eligible"] - totals["stale_after_first_edit"]
-        return (totals["annotated"] / denominator if denominator else None), totals
+        denominator = totals["eligible"] - totals["no_hits"] - totals["stale_after_first_edit"]
+        return (totals["annotated"] / denominator if denominator > 0 else None), totals
 
     cells = [c for k, c in stage.cells.items() if k.arm is arm]
     pooled, totals = share(cells)
@@ -636,26 +721,56 @@ def solve_floor(stage: Stage) -> dict[str, Any]:
     return out
 
 
-def stage2_size(passing: int, configurations: int) -> dict[str, Any]:
-    """The Stage 2 task count the size rule gives for ``passing`` of ``configurations``."""
-    if passing == 0:
-        return {"passing_configurations": 0, "tasks": None, "estimable": False}
-    return {
+def primary_arms_kept(
+    stage: Stage, gates: Mapping[str, Mapping[str, Any] | None]
+) -> list[SweAbArm]:
+    """The primary arms in the plan that survive the adoption gates (HC and M; H has none).
+
+    ``gates`` maps an arm's value to its adoption gate; an arm whose gate failed is dropped.
+    """
+    kept: list[SweAbArm] = []
+    for arm in PRIMARY_ARMS:
+        if arm not in stage.plan.repetitions:
+            continue
+        gate = gates.get(arm.value)
+        if gate is None or gate["passed"]:
+            kept.append(arm)
+    return kept
+
+
+def stage2_size(passing: int, configurations: int, arms_kept: Sequence[SweAbArm]) -> dict[str, Any]:
+    """The Stage 2 size the rule gives for ``passing`` of ``configurations`` and ``arms_kept``.
+
+    Pairs needed ``n(m)`` for the two-sided completion test over the ``m`` primary arms kept
+    (Holm first step ``alpha / m``), target pairs ``max(370, n(m))``, tasks
+    ``max(100, ceil(target / k))``. With no arm kept or no passing configuration there is no size.
+    """
+    m = len(arms_kept)
+    size: dict[str, Any] = {
         "passing_configurations": passing,
-        "tasks": sampler.stage2_task_count(passing, configurations),
+        "primary_arms_kept": [arm.value for arm in arms_kept],
+        "pairs_needed": sampler.stage2_pairs_needed(m) if m else None,
+        "target_pairs": sampler.stage2_target_pairs(m) if m else None,
+    }
+    if passing == 0 or m == 0:
+        return {**size, "tasks": None, "estimable": False}
+    return {
+        **size,
+        "tasks": sampler.stage2_task_count(m, passing, configurations),
         "estimable": True,
     }
 
 
-def a0_noise(stage: Stage, stage2_tasks: int | None) -> dict[str, Any]:
+def a0_noise(stage: Stage, stage2_tasks: int | None, arms_kept: int) -> dict[str, Any]:
     """A0 rep 2 vs rep 1 per configuration: token CV, flip rate, and what they imply for Stage 2.
 
     ``sd`` is the standard deviation of per-task ``ln(rep2 / rep1)``, the paired log-ratio spread
     a treatment with no effect would show. Power treats tasks as independent (Stage 1 has about
     two tasks per repository, too few to estimate a between-repository component) and uses the
-    Holm first-step level ``alpha / 2`` (two treatments per model), one-sided.
+    Holm first-step level ``alpha / m`` (``m`` = ``arms_kept``, the primary arms kept after the
+    adoption gates; at least 1), one-sided.
     """
-    z_alpha = _NORMAL.inv_cdf(1 - ALPHA / 2)
+    z_alpha = _NORMAL.inv_cdf(1 - ALPHA / max(1, arms_kept))
     z_beta = _NORMAL.inv_cdf(POWER)
     delta = -math.log(SESOI_RATIO)
     eqm_delta = math.log(1 + EQM)
@@ -727,16 +842,22 @@ def stage1_gates(stage: Stage) -> dict[str, Any] | None:
     arms = stage.plan.repetitions
     floor = solve_floor(stage)
     passing = sum(1 for gate in floor.values() if gate["passed"])
-    size = stage2_size(passing, len(stage.plan.models))
+    adoption_gates: dict[str, dict[str, Any] | None] = {
+        arm.value: adoption(stage, arm) if arm in arms else None
+        for arm in (SweAbArm.HC, SweAbArm.M, SweAbArm.C)
+    }
+    kept = primary_arms_kept(stage, adoption_gates)
+    size = stage2_size(passing, len(stage.plan.models), kept)
     return {
         "headroom": lever_shares(stage),
         "solve_floor": floor,
         "stage2_size": size,
-        "hc_adoption": adoption(stage, SweAbArm.HC) if SweAbArm.HC in arms else None,
-        "c_adoption": adoption(stage, SweAbArm.C) if SweAbArm.C in arms else None,
+        "hc_adoption": adoption_gates["HC"],
+        "mcp_adoption": adoption_gates["M"],
+        "c_adoption": adoption_gates["C"],
         "hook_activity": hook_activity(stage, SweAbArm.H) if SweAbArm.H in arms else None,
         "hook_activity_hc": hook_activity(stage, SweAbArm.HC) if SweAbArm.HC in arms else None,
-        "a0_noise": a0_noise(stage, size["tasks"]),
+        "a0_noise": a0_noise(stage, size["tasks"], len(kept)),
     }
 
 
@@ -747,7 +868,11 @@ def _no_headroom(pilot: Mapping[str, Any]) -> dict[str, set[str]]:
     pilot_gates = cast("dict[str, Any]", pilot.get("gates") or {})
     headroom = cast("dict[str, dict[str, Any]]", pilot_gates.get("headroom") or {})
     return {
-        model: {arm for arm in ("H", "HC") if not cast("dict[str, Any]", gates[arm])["passed"]}
+        model: {
+            arm
+            for arm in ("H", "HC", "M")
+            if arm in gates and not cast("dict[str, Any]", gates[arm])["passed"]
+        }
         for model, gates in headroom.items()
     }
 
@@ -774,6 +899,9 @@ def _identities(stage: Stage) -> dict[str, Any]:
                     (c.hook_module_sha256 for c in cells if c.arm is arm), None
                 ),
                 "cli_guide_sha256": next((c.cli_guide_sha256 for c in cells if c.arm is arm), None),
+                "mcp_config_sha256": next(
+                    (c.mcp_config_sha256 for c in cells if c.arm is arm), None
+                ),
             }
             for arm in SweAbArm
             if arm in stage.plan.repetitions
@@ -794,6 +922,8 @@ def _rounded(value: object) -> object:
 def analyse(stage: Stage, pilot: Mapping[str, Any] | None = None) -> dict[str, Any]:
     no_headroom = _no_headroom(pilot) if pilot is not None else None
     uninformative = _below_floor(pilot) if pilot is not None else frozenset[str]()
+    guardrails = guardrail_family(stage, uninformative=uninformative)
+    blocked_free = guardrail_family(stage, exclude_blocked=True, uninformative=uninformative)
     report = {
         "analysis": "r3x-swe-ab",
         "preregistration": PREREGISTRATION_PATH,
@@ -803,6 +933,7 @@ def analyse(stage: Stage, pilot: Mapping[str, Any] | None = None) -> dict[str, A
             "resamples": RESAMPLES,
             "alpha": ALPHA,
             "sesoi_ratio": SESOI_RATIO,
+            "worse_ratio": WORSE_RATIO,
             "eqm": EQM,
             "nim": NIM,
             "lever_gate": LEVER_GATE,
@@ -810,15 +941,19 @@ def analyse(stage: Stage, pilot: Mapping[str, Any] | None = None) -> dict[str, A
             "hook_activity_gate": HOOK_ACTIVITY_GATE,
             "solve_floor": SOLVE_FLOOR,
             "guardrail_pairs": sampler.GUARDRAIL_PAIRS,
+            "primary_arms": [arm.value for arm in PRIMARY_ARMS],
+            "completion_alpha": ALPHA,
         },
         "provenance": {**_identities(stage), "coverage": stage.coverage},
         "outcomes": outcomes(stage),
         "blocked_attempts": blocked_attempts(stage),
         "efficiency": efficiency_family(stage, no_headroom=no_headroom),
-        "guardrail": guardrail_family(stage, uninformative=uninformative),
+        "guardrail": guardrails,
+        "completion": completion_family(guardrails),
         "sensitivity_excluding_blocked": {
             "efficiency": efficiency_family(stage, exclude_blocked=True, no_headroom=no_headroom),
-            "guardrail": guardrail_family(stage, exclude_blocked=True, uninformative=uninformative),
+            "guardrail": blocked_free,
+            "completion": completion_family(blocked_free),
         },
         "gates": stage1_gates(stage),
     }
@@ -841,7 +976,7 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Stage 1 analysis JSON; labels Stage 2 hypotheses its headroom gate declared "
         "mis-specified and drops configurations that failed its solve-rate floor from the "
-        "pooled guardrail",
+        "pooled guardrail and completion tests",
     )
     args = parser.parse_args(argv)
     try:
@@ -867,6 +1002,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "efficiency": summary,
                 "guardrail": {arm: r["verdict"] for arm, r in report["guardrail"].items()},
+                "completion": {arm: r["reading"] for arm, r in report["completion"].items()},
             }
         )
     )

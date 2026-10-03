@@ -50,10 +50,10 @@ from typing import Any, cast
 
 from archex.benchmark.swe_ab import (
     ANNOTATION_MARKER,
-    BASE_TOOLS,
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
     HOOK_TIMEOUT_SECONDS,
+    MCP_TOOLS,
     OMP_CONFIG_PATH,
     OMP_VERSION,
     PROFILE,
@@ -61,6 +61,7 @@ from archex.benchmark.swe_ab import (
     Configuration,
     SweAbArm,
     SweAbError,
+    arm_tools,
     is_emulated,
     load_campaign,
     load_cell,
@@ -365,6 +366,96 @@ def effort_request_shape_check(
     )
 
 
+def mcp_tools_check(tools: dict[str, list[str]]) -> dict[str, Any]:
+    """`mcp_tools_in_m_arm`: the M arm advertises the archex MCP tools, no other arm any."""
+    m_tools = tools.get(SweAbArm.M.value, [])
+    missing = [t for t in MCP_TOOLS if t not in m_tools]
+    leaked = {
+        arm: [t for t in MCP_TOOLS if t in advertised]
+        for arm, advertised in tools.items()
+        if arm != SweAbArm.M.value and any(t in advertised for t in MCP_TOOLS)
+    }
+    exact = m_tools == sorted(arm_tools(SweAbArm.M))
+    problems = [
+        *([f"M does not advertise {missing}"] if missing else []),
+        *([f"M advertises {m_tools}, not exactly base + MCP tools"] if not exact else []),
+        *([f"{arm} advertises {names}" for arm, names in leaked.items()]),
+    ]
+    return _check(
+        "mcp_tools_in_m_arm", "fail" if problems else "pass",
+        "M's first request advertises exactly the base tools plus the archex MCP tools, and no "
+        "other arm advertises either MCP tool" if not problems else "; ".join(problems),
+        m_tools=m_tools, mcp_tools=list(MCP_TOOLS),
+    )  # fmt: skip
+
+
+def mcp_call_check(requests: list[dict[str, Any]], calls: int) -> dict[str, Any]:
+    """`mcp_call_executes_in_m_arm`: a scripted MCP call returned archex context, not an error.
+
+    ``requests`` are the stub's captured request bodies in order; the answer to the call is
+    the last tool message of the last request. Only its size is recorded.
+    """
+    answers = (
+        [
+            str(m.get("content"))
+            for m in cast("list[dict[str, Any]]", requests[-1].get("messages") or [])
+            if m.get("role") == "tool"
+        ]
+        if requests
+        else []
+    )
+    text = answers[-1] if answers else ""
+    ok = calls >= 1 and "<context" in text
+    return _check(
+        "mcp_call_executes_in_m_arm", "pass" if ok else "fail",
+        "a scripted `mcp__archex_query_repo` call in the M arm returned archex context"
+        if ok else (
+            f"the scripted MCP call did not return archex context (cell recorded {calls} "
+            f"archex MCP calls, result {len(text)} chars)"
+        ),
+        archex_mcp_calls=calls, tool_result_chars=len(text),
+    )  # fmt: skip
+
+
+_MCP_SCRIPT: list[dict[str, Any]] = [
+    {
+        "tool": "mcp__archex_query_repo",
+        "args": {"repo_url": ".", "question": "where is hash_password defined?"},
+    },
+    {"text": "Looked it up."},
+]
+
+
+def stub_mcp_call_check(omp_command: list[str], work: Path) -> dict[str, Any]:
+    """Run the M arm alone against a stub script that calls the archex MCP tool."""
+    plan = json.loads(_DRY_RUN_PLAN.read_text())
+    plan["repetitions"] = {SweAbArm.M.value: 1}
+    work.mkdir(parents=True, exist_ok=True)
+    plan_path = work / "mcp-plan.json"
+    script_path = work / "mcp-script.json"
+    plan_path.write_text(json.dumps(plan))
+    script_path.write_text(json.dumps(_MCP_SCRIPT))
+    cells_dir = work / "cells"
+    done = subprocess.run(
+        [
+            sys.executable, str(_SUITE), "run", "--plan", str(plan_path), "--runtime", "local",
+            "--output", str(cells_dir), "--work-root", str(work / "suite"),
+            "--omp-command", shlex.join(omp_command), "--stub-script", str(script_path),
+        ],
+        capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    if done.returncode != 0:
+        return _check(
+            "mcp_call_executes_in_m_arm", "fail", done.stderr[-800:] or done.stdout[-800:]
+        )
+    [cell_path] = list(cells_dir.rglob("M/*.json"))
+    requests = [
+        cast("dict[str, Any]", json.loads(path.read_text()))
+        for path in sorted((work / "suite" / "capture").glob("request-*.json"))
+    ]
+    return mcp_call_check(requests, load_cell(cell_path).archex_mcp_calls)
+
+
 def stub_arm_checks(omp_command: list[str], work: Path) -> list[dict[str, Any]]:
     """Run every arm once against the stub and check what omp sent and received."""
     cells_dir = work / "cells"
@@ -408,12 +499,15 @@ def stub_arm_checks(omp_command: list[str], work: Path) -> list[dict[str, Any]]:
         "stub_rehearsal", "pass" if set(statuses.values()) == {"ok"} else "fail",
         "one no-spend cell per arm through the full cell flow", cell_status=statuses,
     ))  # fmt: skip
-    wrong = {arm: t for arm, t in tools.items() if t != sorted(BASE_TOOLS)}
+    expected = {arm.value: sorted(arm_tools(arm)) for arm in SweAbArm}
+    wrong = {arm: t for arm, t in tools.items() if t != expected[arm]}
     checks.append(_check(
         "tool_list_fingerprint", "fail" if wrong else "pass",
-        "first request advertises exactly the base tools in every arm",
-        advertised=tools, expected=sorted(BASE_TOOLS),
+        "first request advertises exactly the arm's tools: the base tools, plus the archex MCP "
+        "tools in M",
+        advertised=tools, expected=expected,
     ))  # fmt: skip
+    checks.append(mcp_tools_check(tools))
     leaked = {arm: v for arm, v in violations.items() if v}
     checks.append(_check(
         "system_prompt_isolation", "fail" if leaked else "pass",
@@ -770,6 +864,7 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="swe-ab-stage0-") as work:
         checks.append(effort_request_shape_check(omp_command, campaign, Path(work) / "effort"))
         checks += stub_arm_checks(omp_command, Path(work))
+        checks.append(stub_mcp_call_check(omp_command, Path(work) / "mcp"))
     if args.host and docker_running():
         checks += host_checks(args, campaign)
     else:

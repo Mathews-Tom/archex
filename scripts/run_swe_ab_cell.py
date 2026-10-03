@@ -60,12 +60,12 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from archex.benchmark.swe_ab import (
     ANNOTATION_MARKER,
-    BASE_TOOLS,
     CHANNELS,
     CLI_GUIDE_PATH,
     COMPRESSOR_MARKERS,
     HOOK_TIMEOUT_SECONDS,
     MAX_TIME,
+    MCP_SERVER,
     OMP_CONFIG_PATH,
     OMP_VERSION,
     Campaign,
@@ -81,6 +81,7 @@ from archex.benchmark.swe_ab import (
     SweAbCell,
     Usage,
     archex_subcommand,
+    arm_tools,
     compound,
     credential_files_in_profile,
     diff_files,
@@ -101,11 +102,14 @@ from archex.benchmark.swe_ab import (
     system_prompt_violations,
     tool_fingerprint,
 )
-from archex.client_setup import render_annotation_hook_module
+from archex.client_setup import (
+    _OMP_SCHEMA,  # pyright: ignore[reportPrivateUsage]
+    render_annotation_hook_module,
+)
 from archex.reporting import count_tokens
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from collections.abc import Collection, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PRIOR_ATTEMPTS_DIR = "prior-attempts"
@@ -386,6 +390,8 @@ class _Setup:
     archex_version: str | None = None
     wheel_sha: str | None = None
     hook_sha: str | None = None
+    mcp_sha: str | None = None
+    python: str = ""
     guide_sha: str | None = None
     hook_path: str | None = None
     guide_path: str | None = None
@@ -429,6 +435,7 @@ def _install_archex(spec: CellSpec, rt: Runtime) -> tuple[str, str | None]:
 
 def _prepare_archex(spec: CellSpec, rt: Runtime, setup: _Setup) -> None:
     python, setup.wheel_sha = _install_archex(spec, rt)
+    setup.python = python
     setup.archex_version = _checked(
         rt.run([python, "-c", "import archex; print(archex.__version__)"]), "archex version"
     ).strip()
@@ -479,6 +486,26 @@ def _prepare_archex(spec: CellSpec, rt: Runtime, setup: _Setup) -> None:
         setup.extra_path.append(bin_dir)
 
 
+def _write_mcp_config(spec: CellSpec, rt: Runtime, python: str) -> str:
+    """Install the M arm's ``mcp.json`` in the agent profile; return its SHA-256.
+
+    The content is what ``archex install-client omp`` writes, except that ``command`` is the
+    absolute entry of the cell's own archex install (the agent's PATH has none).
+    """
+    entry = str(Path(python).parent / "archex")
+    if spec.runtime == "local":
+        entry = str(Path(entry).absolute())
+    config = {
+        "$schema": _OMP_SCHEMA,
+        "mcpServers": {MCP_SERVER: {"command": entry, "args": ["mcp"]}},
+    }
+    source = spec.work_dir / "mcp.json"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    rt.put(source, f"{rt.home}/.omp/profiles/swebench/agent/mcp.json")
+    return sha256_file(source)
+
+
 def _prewarm_annotate(rt: Runtime, python: str) -> float:
     """Run the annotate entry once on a real search hit, so the agent's first call is warm.
 
@@ -517,6 +544,10 @@ def _prewarm_annotate(rt: Runtime, python: str) -> float:
 
 
 def _setup(spec: CellSpec, rt: Runtime) -> _Setup:
+    if (spec.profile_dir / "mcp.json").exists():
+        # Only the M arm has an MCP server, and the runner writes its `mcp.json`; a profile's
+        # own would reach every arm (or be overwritten in M), so the cell refuses it.
+        raise ValueError("the profile carries `mcp.json`; the runner installs the M arm's own")
     setup = _Setup()
     started = time.monotonic()
     setup.base_commit = _git(rt, "rev-parse", "HEAD").strip()
@@ -535,6 +566,9 @@ def _setup(spec: CellSpec, rt: Runtime) -> _Setup:
     rt.put(spec.profile_dir, agent_dir)
     # The frozen provider config is the profile's `models.yml`: it overrides any the profile has.
     rt.put(spec.provider_config, f"{agent_dir}/models.yml")
+    if spec.arm.mcp:
+        # After the profile copy: `docker cp` of a directory onto an existing one nests it.
+        setup.mcp_sha = _write_mcp_config(spec, rt, setup.python)
     setup.omp_config_path = (
         f"{rt.out}/omp-campaign.yml" if spec.runtime == "local" else "/task/omp-campaign.yml"
     )
@@ -685,12 +719,14 @@ def _isolation(spec: CellSpec, session: OmpSession) -> Isolation:
         violations = system_prompt_violations(system)
         checked = True
     else:
-        tools, violations, checked = sorted(BASE_TOOLS), [], False
+        tools, violations, checked = sorted(arm_tools(spec.arm)), [], False
     texts = [exchange.result_text for exchange in session.exchanges]
     return Isolation(
         tools_source="request_capture" if checked else "declared",
         tools_advertised=tools,
-        undeclared_tool_calls=sorted({e.tool for e in session.exchanges} - set(BASE_TOOLS)),
+        undeclared_tool_calls=sorted(
+            {e.tool for e in session.exchanges} - set(arm_tools(spec.arm))
+        ),
         system_prompt_checked=checked,
         system_prompt_violations=violations,
         compressor_marker_seen=any(m in text for text in texts for m in COMPRESSOR_MARKERS),
@@ -752,9 +788,10 @@ def failed_cell(
         archex_wheel_sha256=identity.get("wheel_sha"),
         hook_module_sha256=identity.get("hook_sha") or ("unknown" if spec.arm.hook else None),
         cli_guide_sha256=identity.get("guide_sha") or ("unknown" if spec.arm.cli else None),
+        mcp_config_sha256=identity.get("mcp_sha") or ("unknown" if spec.arm.mcp else None),
         image=spec.image,
         thinking=spec.campaign.configuration(spec.model).thinking,
-        tool_fingerprint=tool_fingerprint(BASE_TOOLS),
+        tool_fingerprint=tool_fingerprint(arm_tools(spec.arm)),
         provider=None,
         provider_base_url=provider_base_url(spec.provider_config, spec.campaign.provider),
         provider_config_sha256=_sha_or_missing(spec.provider_config),
@@ -774,7 +811,7 @@ def failed_cell(
         archex_cli_calls=0,
         isolation=Isolation(
             tools_source="declared",
-            tools_advertised=sorted(BASE_TOOLS),
+            tools_advertised=sorted(arm_tools(spec.arm)),
             system_prompt_checked=False,
             compressor_marker_seen=False,
             annotation_seen=False,
@@ -841,6 +878,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         "wheel_sha": setup.wheel_sha,
         "hook_sha": setup.hook_sha,
         "guide_sha": setup.guide_sha,
+        "mcp_sha": setup.mcp_sha,
     }
 
     retried = False
@@ -881,13 +919,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
     patch_files = diff_files(patch_text)
 
     ledger_rows = read_ledger(_fetch(spec, rt, "annotation-ledger.jsonl"))
-    edits = [e for e in session.exchanges if e.tool in ("edit", "write")]
-    first_edit = edits[0].request_index if edits else None
-    after_first_edit = {
-        e.call_id
-        for e in session.exchanges
-        if first_edit is not None and e.request_index > first_edit
-    }
+    after_first_edit = calls_after_first_edit(session.exchanges)
     annotation_tokens = {
         str(row.get("toolCallId")): int(row.get("tokens") or 0)
         for row in ledger_rows
@@ -902,6 +934,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         for sub in [archex_subcommand(str(e.arguments.get("command", "")))]
         if sub is not None
     ]
+    mcp_calls = [e.tool for e in session.exchanges if e.tool.startswith(f"mcp__{MCP_SERVER}_")]
     gold = diff_files(spec.gold_patch.read_text()) if spec.gold_patch else []
     tests = diff_files(spec.test_patch.read_text()) if spec.test_patch else []
     repo_prefixes = [rt.repo, "/app", "/testbed"]
@@ -926,7 +959,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
                 session.error_message,
             )
     elif (
-        sorted(isolation.tools_advertised) != sorted(BASE_TOOLS)
+        sorted(isolation.tools_advertised) != sorted(arm_tools(spec.arm))
         or isolation.undeclared_tool_calls
         or isolation.system_prompt_violations
         or isolation.compressor_marker_seen
@@ -965,6 +998,7 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         archex_wheel_sha256=setup.wheel_sha,
         hook_module_sha256=setup.hook_sha,
         cli_guide_sha256=setup.guide_sha,
+        mcp_config_sha256=setup.mcp_sha,
         image=spec.image,
         thinking=spec.campaign.configuration(spec.model).thinking,
         tool_fingerprint=tool_fingerprint(isolation.tools_advertised),
@@ -993,6 +1027,8 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         hook_ledger=summarize_ledger(ledger_rows, after_first_edit) if spec.arm.hook else None,
         archex_cli_calls=len(cli_calls),
         archex_cli_subcommands=dict(sorted(_count(cli_calls).items())),
+        archex_mcp_calls=len(mcp_calls),
+        archex_mcp_tools=dict(sorted(_count(mcp_calls).items())),
         isolation=isolation,
         localization=localize(session, gold, patch_files, repo_prefixes),
         patch_sha256=sha256_file(patch_path),
@@ -1007,6 +1043,16 @@ def _run_cell(spec: CellSpec, rt: Runtime, started: float) -> SweAbCell:
         hook_timeout_seconds=HOOK_TIMEOUT_SECONDS,
         quota=_quota(spec, runs, phase),
     )
+
+
+def calls_after_first_edit(exchanges: Sequence[Any]) -> set[str]:
+    """Ids of the calls that follow the first ``edit``/``write`` in call order.
+
+    Call order, not request index: a call issued in the same request as the first edit but after
+    it (parallel tool calls) is still after it.
+    """
+    first = next((i for i, e in enumerate(exchanges) if e.tool in ("edit", "write")), None)
+    return set() if first is None else {e.call_id for e in exchanges[first + 1 :]}
 
 
 def _count(items: Any) -> dict[str, int]:

@@ -12,7 +12,10 @@ from archex.benchmark.swe_ab import (
     BASE_TOOLS,
     CHANNELS,
     ISOLATION_FLAGS,
+    MCP_SERVER,
+    MCP_TOOLS,
     OMP_VERSION,
+    PRIMARY_ARMS,
     QUOTA_BLOCKED_DIR,
     Campaign,
     CellKey,
@@ -21,6 +24,7 @@ from archex.benchmark.swe_ab import (
     SweAbCell,
     SweAbError,
     SweAbPlan,
+    arm_tools,
     compound,
     credential_files_in_profile,
     is_credit_error,
@@ -63,6 +67,9 @@ FREE_LABEL = FREE_CAMPAIGN.labels[0]
         ("edit", {"input": "[a.py#1A2B]"}, "edit"),
         ("write", {"path": "a.py"}, "write"),
         ("todo", {}, "other"),
+        ("mcp__archex_context", {"query": "where is auth"}, "archex-MCP"),
+        ("mcp__archex_query_repo", {"repo_url": ".", "question": "where is auth"}, "archex-MCP"),
+        ("mcp__someone_else_search", {"query": "x"}, "other"),
         ("bash", {"command": "archex scout . 'where is auth'"}, "archex-CLI"),
         ("bash", {"command": "cd /app && archex symbol . 'symbol:a.py::f#function'"}, "archex-CLI"),
         ("bash", {"command": "cd /app && python -m pytest tests/x.py -q"}, "test"),
@@ -252,7 +259,7 @@ def test_ledger_counts_stale_declines_only_after_the_first_edit() -> None:
 
 
 @pytest.mark.parametrize("arm", list(SweAbArm))
-def test_omp_argv_differs_across_arms_only_by_hook_and_guide(arm: SweAbArm) -> None:
+def test_omp_argv_differs_across_arms_only_by_hook_guide_and_mcp_tools(arm: SweAbArm) -> None:
     argv = omp_argv(
         ["omp"],
         arm=arm,
@@ -264,11 +271,43 @@ def test_omp_argv_differs_across_arms_only_by_hook_and_guide(arm: SweAbArm) -> N
         omp_config_path="/task/omp-campaign.yml",
     )
 
-    assert argv[argv.index("--tools") + 1] == ",".join(BASE_TOOLS)
+    assert argv[argv.index("--tools") + 1] == ",".join(arm_tools(arm))
     assert all(flag in argv for flag in ISOLATION_FLAGS)
     assert ("-e" in argv) is arm.hook
     assert ("--append-system-prompt" in argv) is arm.cli
     assert argv[-1] == "@/task/prompt.md"
+
+
+def test_arm_tools_add_the_two_archex_mcp_tools_to_the_m_arm_alone() -> None:
+    assert MCP_TOOLS == ("mcp__archex_context", "mcp__archex_query_repo")
+    assert all(tool.startswith(f"mcp__{MCP_SERVER}_") for tool in MCP_TOOLS)
+    assert arm_tools(SweAbArm.M) == (*BASE_TOOLS, *MCP_TOOLS)
+    assert [arm for arm in SweAbArm if arm_tools(arm) != BASE_TOOLS] == [SweAbArm.M]
+
+
+def test_only_the_m_arm_has_the_mcp_server_and_the_primary_arms_are_h_hc_m() -> None:
+    assert [arm for arm in SweAbArm if arm.mcp] == [SweAbArm.M]
+    assert SweAbArm.M.archex_installed and not SweAbArm.M.hook and not SweAbArm.M.cli
+    assert PRIMARY_ARMS == (SweAbArm.H, SweAbArm.HC, SweAbArm.M)
+    assert list(SweAbArm) == [SweAbArm.A0, SweAbArm.H, SweAbArm.HC, SweAbArm.M, SweAbArm.C]
+
+
+def test_omp_argv_for_the_m_arm_allows_the_mcp_tools_without_a_hook_or_guide() -> None:
+    argv = omp_argv(
+        ["omp"],
+        arm=SweAbArm.M,
+        config=CAMPAIGN.configurations[0],
+        prompt_path="/task/prompt.md",
+        session_dir="/out/s",
+        hook_module_path=None,
+        cli_guide_path=None,
+        omp_config_path="/task/omp-campaign.yml",
+    )
+
+    allowed = argv[argv.index("--tools") + 1].split(",")
+    assert allowed[: len(BASE_TOOLS)] == list(BASE_TOOLS)
+    assert allowed[len(BASE_TOOLS) :] == list(MCP_TOOLS)
+    assert "-e" not in argv and "--append-system-prompt" not in argv
 
 
 def test_omp_argv_refuses_a_hook_outside_the_hook_arms() -> None:
@@ -470,6 +509,7 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
     zero = dict.fromkeys(CHANNELS, 0)
     cell: dict[str, Any] = {
         "task_id": "t1",
+        "artifact_version": 3,
         "repo": "org/repo",
         "model": MODEL,
         "arm": arm.value,
@@ -480,8 +520,9 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
         "archex_wheel_sha256": "w" if arm.archex_installed else None,
         "hook_module_sha256": "h" if arm.hook else None,
         "cli_guide_sha256": "g" if arm.cli else None,
+        "mcp_config_sha256": "m" if arm.mcp else None,
         "image": "img",
-        "tool_fingerprint": tool_fingerprint(BASE_TOOLS),
+        "tool_fingerprint": tool_fingerprint(arm_tools(arm)),
         "provider": CAMPAIGN.provider,
         "provider_base_url": CAMPAIGN.base_url,
         "provider_config_sha256": CAMPAIGN.provider_config_sha256,
@@ -501,9 +542,10 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
             else None
         ),
         "archex_cli_calls": 0,
+        "archex_mcp_calls": 0,
         "isolation": {
             "tools_source": "declared",
-            "tools_advertised": sorted(BASE_TOOLS),
+            "tools_advertised": sorted(arm_tools(arm)),
             "system_prompt_checked": False,
             "compressor_marker_seen": False,
             "annotation_seen": False,
@@ -532,6 +574,31 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
         (SweAbArm.H, {"hook_ledger": None}),
         (SweAbArm.C, {"cli_guide_sha256": None}),
         (SweAbArm.A0, {"isolation": {**_cell()["isolation"], "tools_advertised": ["read"]}}),
+        (SweAbArm.M, {"mcp_config_sha256": None}),
+        (SweAbArm.A0, {"mcp_config_sha256": "m"}),
+        (SweAbArm.H, {"archex_mcp_calls": 1}),
+        (SweAbArm.HC, {"channel_tokens_once": {**dict.fromkeys(CHANNELS, 0), "archex-MCP": 5}}),
+        (
+            SweAbArm.M,
+            {
+                "isolation": {
+                    **_cell(SweAbArm.M)["isolation"],
+                    "tools_advertised": sorted(BASE_TOOLS),
+                },
+                "tool_fingerprint": tool_fingerprint(BASE_TOOLS),
+            },
+        ),
+        (
+            SweAbArm.A0,
+            {
+                "isolation": {
+                    **_cell()["isolation"],
+                    "tools_advertised": sorted(arm_tools(SweAbArm.M)),
+                },
+                "tool_fingerprint": tool_fingerprint(arm_tools(SweAbArm.M)),
+            },
+        ),
+        (SweAbArm.M, {"archex_mcp_calls": -1}),
         (SweAbArm.A0, {"status": "failed"}),
         (SweAbArm.A0, {"status": "failed", "failure_reason": "timeout", "resolved": True}),
         (SweAbArm.A0, {"omp_version": "18.5.0"}),
@@ -544,6 +611,36 @@ def _cell(arm: SweAbArm = SweAbArm.A0, **overrides: Any) -> dict[str, Any]:
 def test_cell_schema_rejects_protocol_violations(arm: SweAbArm, overrides: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
         SweAbCell.model_validate(_cell(arm, **overrides))
+
+
+def test_an_m_cell_carries_its_mcp_config_calls_and_channel_tokens() -> None:
+    tokens = {**dict.fromkeys(CHANNELS, 0), "archex-MCP": 40}
+    cell = SweAbCell.model_validate(
+        _cell(
+            SweAbArm.M,
+            archex_mcp_calls=2,
+            archex_mcp_tools={"mcp__archex_query_repo": 2},
+            channel_tokens_once=tokens,
+            channel_tokens_compounded=tokens,
+        )
+    )
+
+    assert cell.artifact_version == 3
+    assert (cell.mcp_config_sha256, cell.archex_mcp_calls) == ("m", 2)
+    assert sorted(cell.isolation.tools_advertised) == sorted(arm_tools(SweAbArm.M))
+    assert cell.tool_fingerprint != tool_fingerprint(BASE_TOOLS)
+
+
+def test_a_failed_m_cell_keeps_the_mcp_calls_it_made() -> None:
+    failed = _cell(
+        SweAbArm.M,
+        status="failed",
+        failure_reason="timeout",
+        resolved=False,
+        archex_mcp_calls=3,
+    )
+
+    assert SweAbCell.model_validate(failed).archex_mcp_calls == 3
 
 
 def _plan(**overrides: Any) -> SweAbPlan:
@@ -651,6 +748,26 @@ def test_validator_rejects_mixed_identities_within_an_arm(tmp_path: Path) -> Non
     plan = _plan(repetitions={"A0": 2, "H": 2})
 
     with pytest.raises(SweAbError, match="hook module differs"):
+        validate_swe_ab_directory(tmp_path, plan, CAMPAIGN)
+
+
+def test_validator_lets_the_m_arm_differ_from_the_others_in_tool_set_and_config(
+    tmp_path: Path,
+) -> None:
+    for arm in (SweAbArm.A0, SweAbArm.H, SweAbArm.M):
+        _write(tmp_path, _cell(arm))
+    plan = _plan(repetitions={"A0": 1, "H": 1, "M": 1})
+
+    assert validate_swe_ab_directory(tmp_path, plan, CAMPAIGN).ok == 3
+
+
+def test_validator_rejects_mixed_mcp_configs_within_the_m_arm(tmp_path: Path) -> None:
+    _write(tmp_path, _cell(SweAbArm.A0))
+    _write(tmp_path, _cell(SweAbArm.M, repetition=1))
+    _write(tmp_path, _cell(SweAbArm.M, repetition=2, mcp_config_sha256="other"))
+    plan = _plan(repetitions={"A0": 1, "M": 2})
+
+    with pytest.raises(SweAbError, match="M MCP config differs"):
         validate_swe_ab_directory(tmp_path, plan, CAMPAIGN)
 
 
