@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from typing import TYPE_CHECKING
 
 import pytest
@@ -390,6 +391,60 @@ def test_insert_or_replace_deduplicates(store: IndexStore) -> None:
     chunks = store.get_chunks()
     assert len(chunks) == 1
     assert chunks[0].content == "# updated"
+
+
+def test_scratch_store_is_usable_and_removes_only_its_own_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """scratch() creates a private directory under the temp root and close() removes it."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    sibling = tmp_path / "unrelated"
+    sibling.mkdir()
+
+    s = IndexStore.scratch("custom.db")
+    scratch_dir = s.db_path.parent
+    assert s.db_path.name == "custom.db"
+    assert scratch_dir.parent == tmp_path
+    s.insert_chunks(SAMPLE_CHUNKS)
+    assert s.get_chunk("utils.py:calculate_sum:5") is not None
+    s.close()
+
+    assert not scratch_dir.exists()
+    assert sibling.exists()
+
+
+def test_plain_store_close_never_deletes_directories(tmp_path: Path) -> None:
+    """A plain IndexStore leaves its parent directory and unrelated siblings intact."""
+    parent = tmp_path / "shared"
+    parent.mkdir()
+    bystander = parent / "keep.txt"
+    bystander.write_text("keep")
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+
+    s = IndexStore(parent / "index.db")
+    assert s.ephemeral is False
+    s.close()
+
+    assert parent.exists()
+    assert bystander.read_text() == "keep"
+    assert sibling.exists()
+
+
+def test_scratch_construction_failure_removes_created_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the store cannot be built, scratch() leaves no directory behind."""
+    from unittest.mock import patch
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    with (
+        patch.object(IndexStore, "create_schema", side_effect=RuntimeError("schema failure")),
+        pytest.raises(RuntimeError, match="schema failure"),
+    ):
+        IndexStore.scratch()
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_store_closes_connection_on_schema_failure(tmp_path: Path) -> None:
