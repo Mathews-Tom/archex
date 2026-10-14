@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   test:
+    name: ${{ github.event_name == 'push' && format('push / test ({0})', matrix.python-version) || format('test ({0})', matrix.python-version) }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -75,6 +76,7 @@ jobs:
     # environment masks (e.g. networkx pagerank's transitive numpy/scipy). Install
     # ONLY [project.dependencies] into a clean venv and exercise the core query
     # path end-to-end; a missing core dependency fails here.
+    name: ${{ github.event_name == 'push' && 'push / smoke-min-install' || 'smoke-min-install' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

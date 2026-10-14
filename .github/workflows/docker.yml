@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   build:
+    name: ${{ github.event_name == 'push' && format('push / build ({0}, {1})', matrix.variant, matrix.file) || format('build ({0}, {1})', matrix.variant, matrix.file) }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
