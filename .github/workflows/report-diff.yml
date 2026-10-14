@@ -3,6 +3,8 @@ name: Report diff
 on:
   pull_request:
     branches: [main]
+    # Retargeting a stacked PR changes the merge context without changing its head.
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 # Read-only by construction: no write scope is granted, so no step in this
