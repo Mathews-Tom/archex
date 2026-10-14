@@ -276,12 +276,10 @@ def test_ephemeral_property_defaults_false(tmp_path: Path) -> None:
         assert s.ephemeral is False
 
 
-def test_close_removes_scratch_dir_when_ephemeral(tmp_path: Path) -> None:
-    """close() deletes the store's parent directory when delete_dir_on_close is set."""
-    scratch_dir = tmp_path / "scratch"
-    scratch_dir.mkdir()
-    db = scratch_dir / "index.db"
-    s = IndexStore(db, delete_dir_on_close=True)
+def test_close_removes_scratch_dir_when_ephemeral() -> None:
+    """close() deletes the scratch directory created by IndexStore.scratch()."""
+    s = IndexStore.scratch()
+    scratch_dir = s.db_path.parent
     assert s.ephemeral is True
     assert scratch_dir.exists()
 

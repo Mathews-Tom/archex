@@ -246,8 +246,8 @@ def _full_index(
         t_idx = time.perf_counter()
         from archex.index.delta import compute_file_states
 
-        db_path = Path(tempfile.mkdtemp()) / "index.db"
-        store = IndexStore(db_path, delete_dir_on_close=True)
+        store = IndexStore.scratch()
+        db_path = store.db_path
         try:
             bm25 = BM25Index(
                 store,
@@ -2488,8 +2488,8 @@ def query(
         total_repo_tokens = _total_chunk_tokens(all_chunks)
         effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget, intent_budget)
 
-        db_path = Path(tempfile.mkdtemp()) / "index.db"
-        store = IndexStore(db_path, delete_dir_on_close=True)
+        store = IndexStore.scratch()
+        db_path = store.db_path
         try:
             chunk_surrogates = (
                 build_chunk_surrogates(
