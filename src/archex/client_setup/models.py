@@ -53,11 +53,11 @@ class TsHookInstallPlan:
 
     Unlike the Claude Code hook (a JSON command entry merged into an existing
     settings file), this installs a standalone TypeScript module — see
-    ``_render_ts_hook_module`` for the per-client template dispatch. omp and
-    pi share one module (``_TS_HOOK_MODULE_TEMPLATE``, a
+    ``ts_annotation.render_ts_hook_module`` for the per-client template dispatch.
+    omp and pi share one module (``omp_annotation.TS_HOOK_MODULE_TEMPLATE``, a
     ``pi.on("tool_result", ...)`` handler returning a content patch);
     opencode uses a structurally different one
-    (``_OPENCODE_HOOK_MODULE_TEMPLATE``, a ``tool.execute.after`` plugin
+    (``opencode_annotation.OPENCODE_HOOK_MODULE_TEMPLATE``, a ``tool.execute.after`` plugin
     that appends to its output argument's text in place instead).
     """
 
@@ -75,7 +75,7 @@ class CodexHookInstallPlan:
     Unlike the Claude Code hook (a JSON command entry merged into
     ``settings.json``) or the omp/pi hook (a standalone ``.ts`` module), this
     appends a marker-delimited TOML block to the *same* ``config.toml`` the
-    MCP server registration already writes to (``_target_path`` for
+    MCP server registration already writes to (``registration.client_config_path`` for
     ``client == "codex"``), mirroring that file's non-destructive append
     behavior for a ``[[hooks.PostToolUse]]`` table instead of
     ``[mcp_servers.archex]``. Install also removes the retired diagnostics-only

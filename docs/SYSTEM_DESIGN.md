@@ -109,7 +109,26 @@ archex/
 ├── status_snapshot.py      # Bounded, versioned cached status snapshot
 ├── doctor.py               # Trust diagnostics for repo-local installs
 ├── onboarding.py           # Getting-started summaries and setup guidance
-├── client_setup.py         # MCP client install/bootstrap helpers
+├── client_setup/           # MCP client install/bootstrap package
+│   ├── __init__.py         # Explicit public install-plan and rendering surface
+│   ├── models.py           # Shared plans, client types and capability constants
+│   ├── io.py               # Atomic config writes and JSON/TOML merge helpers
+│   ├── registration.py     # MCP registration targets and rendering
+│   ├── discovery.py        # Client and agent-file discovery
+│   ├── agent_guidance.py   # Managed agent-file guidance
+│   ├── hooks.py            # Annotation hook plan and per-host dispatch
+│   ├── claude_code.py      # Claude Code hook and session-primer settings
+│   ├── codex.py            # Codex annotation hook TOML installation
+│   ├── cursor.py           # Cursor annotation hook JSON installation
+│   ├── ts_annotation.py    # TypeScript annotation module installation
+│   ├── omp_annotation.py   # Shared omp/Pi annotation template
+│   ├── opencode_annotation.py # OpenCode annotation plugin template
+│   ├── post_edit.py        # Per-host post-edit installation
+│   ├── omp_post_edit.py    # Shared omp/Pi post-edit template
+│   ├── opencode_post_edit.py # OpenCode post-edit plugin template
+│   ├── statusline.py       # Status-line install plans and per-host dispatch
+│   ├── statusline_script.py # Claude Code status-line script
+│   └── statusline_ts.py    # TypeScript status adapter rendering
 ├── scout.py                # Structural scout map + fetch-plan protocol
 ├── context_facade.py       # Primary agent-facing context contract (query, intent, profile, filters, budgets, handles)
 ├── receipt.py              # Deterministic context receipt construction

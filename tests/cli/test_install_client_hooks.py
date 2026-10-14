@@ -665,7 +665,7 @@ def test_render_hook_install_preview_pi_install_does_not_write(tmp_path: Path) -
 # annotation to `output.output` in place rather than returning a patch
 # object, and its dispatch table (`ANNOTATED_TOOLS`) is keyed directly on
 # OpenCode's own native tool ids (`grep`, `glob`, `bash`). See
-# `_OPENCODE_HOOK_MODULE_TEMPLATE` in `client_setup.py`; the plugin's runtime
+# `OPENCODE_HOOK_MODULE_TEMPLATE` in `client_setup/opencode_annotation.py`; the plugin's runtime
 # behaviour is exercised under Bun in
 # `tests/integrations/test_opencode_annotate_plugin.py`.
 
