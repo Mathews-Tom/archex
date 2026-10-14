@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from archex.api import index_repository
 from archex.benchmark.models import (
     BenchmarkRetrievalOptions,
     BenchmarkTask,
@@ -56,7 +57,15 @@ from archex.index.embeddings import (
     JINA_V2_MAX_SEQ_LENGTH,
     JINA_V2_MODEL_REVISION,
 )
-from archex.models import CodeChunk, ContextBundle, IndexConfig, RankedChunk, RetrievalMetadata
+from archex.index.rerank import CrossEncoderReranker
+from archex.models import (
+    CodeChunk,
+    Config,
+    ContextBundle,
+    IndexConfig,
+    RankedChunk,
+    RetrievalMetadata,
+)
 
 JINA_V2_CACHE_IDENTITY = (
     f"jina-v2@{JINA_V2_MODEL_REVISION}"
@@ -64,7 +73,9 @@ JINA_V2_CACHE_IDENTITY = (
     f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
 )
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
+    from unittest.mock import MagicMock
 
 
 @pytest.fixture
@@ -77,6 +88,50 @@ def sample_task() -> BenchmarkTask:
         expected_files=["main.py", "services/auth.py"],
         keywords=["auth", "login"],
     )
+
+
+def _assert_ranking_budget(
+    task: BenchmarkTask, repo_path: Path, strategy: Strategy = Strategy.ARCHEX_QUERY
+) -> None:
+    """Use the passthrough path's indexed chunk tokens, including import context."""
+    with index_repository(
+        benchmark_repo_source(task, repo_path, strategy=strategy),
+        config=Config(cache=False),
+        index_config=benchmark_index_config(IndexConfig(), strategy=strategy),
+    ) as store:
+        total_tokens = store.get_chunk_token_total()
+    assert task.token_budget < total_tokens, (
+        f"ranking requires token_budget < fixture total: {task.token_budget} >= {total_tokens}"
+    )
+
+
+def test_ranking_budget_rejects_passthrough(
+    sample_task: BenchmarkTask, python_simple_repo: Path
+) -> None:
+    sample_task.token_budget = 4096
+    with pytest.raises(AssertionError, match="ranking requires token_budget < fixture total"):
+        _assert_ranking_budget(sample_task, python_simple_repo)
+
+
+@pytest.fixture
+def fake_reranker() -> Iterator[MagicMock]:
+    def reverse_candidates(
+        self: CrossEncoderReranker,
+        query: str,
+        candidates: list[tuple[CodeChunk, float]],
+        top_k: int,
+    ) -> list[tuple[CodeChunk, float]]:
+        del self, query
+        reversed_candidates = list(reversed(candidates))[:top_k]
+        return [
+            (chunk, float(len(reversed_candidates) - rank))
+            for rank, (chunk, _) in enumerate(reversed_candidates)
+        ]
+
+    with patch.object(
+        CrossEncoderReranker, "rerank", autospec=True, side_effect=reverse_candidates
+    ) as fake:
+        yield fake
 
 
 def test_measure_archex_freshness_returns_correct_probe(
@@ -596,13 +651,13 @@ class TestRunRawRipgrep:
             commit="abc",
             question="How does authentication work?",
             expected_files=["services/auth.py"],
-            keywords=["authenticate"],
+            keywords=["login"],
         )
         result = run_raw_ripgrep(task, python_simple_repo)
         assert result.strategy == Strategy.RAW_RIPGREP
         assert result.files_accessed >= 0
-        assert 0.0 <= result.recall <= 1.0
-        assert 0.0 <= result.precision <= 1.0
+        assert result.recall == 1.0
+        assert result.precision == 1 / 2
 
     def test_ripgrep_no_matches(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
@@ -732,13 +787,17 @@ class TestRunArchexQuery:
             commit="abc",
             question="How does the main module work?",
             expected_files=["main.py"],
-            token_budget=4096,
+            token_budget=256,
         )
+        _assert_ranking_budget(task, python_simple_repo)
         result = run_archex_query(task, python_simple_repo)
         assert result.strategy == Strategy.ARCHEX_QUERY
         assert result.tokens_total >= 0
         assert result.tool_calls == 1
         assert result.timing is not None
+        assert result.recall == 1.0
+        assert result.precision == 1.0
+        assert result.mrr == 1.0
         # Token efficiency fields
         assert result.tokens_input >= 0
         assert result.tokens_output >= 0
@@ -792,7 +851,7 @@ class TestRunArchexQuery:
         assert result.region_recall == 1.0
         assert result.region_precision is not None
         assert result.line_recall is not None
-        assert 0.0 <= result.line_recall <= 1.0
+        assert result.line_recall == 15 / 19
         assert result.ranked_region_mrr is not None
         assert result.context_noise_ratio is not None
         assert result.useful_tokens is not None
@@ -1274,16 +1333,18 @@ class TestRunArchexQueryVector:
             commit="abc",
             question="How does the main module work?",
             expected_files=["main.py"],
-            token_budget=4096,
+            token_budget=256,
         )
+        _assert_ranking_budget(task, python_simple_repo, Strategy.ARCHEX_QUERY_VECTOR)
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_archex_query_vector(task, python_simple_repo)
         assert result.strategy == Strategy.ARCHEX_QUERY_VECTOR
         assert result.tokens_total >= 0
         assert result.tool_calls == 1
         assert result.timing is not None
-        assert 0.0 <= result.recall <= 1.0
-        assert 0.0 <= result.precision <= 1.0
+        assert result.recall == 1.0
+        assert result.precision == 1 / 6
+        assert result.mrr == 1.0
 
     def test_vector_recall_precision(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
@@ -1292,13 +1353,15 @@ class TestRunArchexQueryVector:
             commit="abc",
             question="authentication login service",
             expected_files=["services/auth.py", "main.py"],
-            token_budget=8192,
+            token_budget=256,
         )
+        _assert_ranking_budget(task, python_simple_repo, Strategy.ARCHEX_QUERY_VECTOR)
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_archex_query_vector(task, python_simple_repo)
         assert result.files_accessed >= 0
-        assert isinstance(result.recall, float)
-        assert isinstance(result.precision, float)
+        assert result.recall == 1.0
+        assert result.precision == 1 / 3
+        assert result.mrr == 1 / 4
 
 
 class TestRunArchexQueryFusion:
@@ -1309,16 +1372,18 @@ class TestRunArchexQueryFusion:
             commit="abc",
             question="How does the main module work?",
             expected_files=["main.py"],
-            token_budget=4096,
+            token_budget=256,
         )
+        _assert_ranking_budget(task, python_simple_repo, Strategy.ARCHEX_QUERY_FUSION)
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_archex_query_fusion(task, python_simple_repo)
         assert result.strategy == Strategy.ARCHEX_QUERY_FUSION
         assert result.tokens_total >= 0
         assert result.tool_calls == 1
         assert result.timing is not None
-        assert 0.0 <= result.recall <= 1.0
-        assert 0.0 <= result.precision <= 1.0
+        assert result.recall == 1.0
+        assert result.precision == 1 / 5
+        assert result.mrr == 1.0
 
     def test_fusion_recall_precision(self, python_simple_repo: Path) -> None:
         task = BenchmarkTask(
@@ -1327,13 +1392,15 @@ class TestRunArchexQueryFusion:
             commit="abc",
             question="authentication login service",
             expected_files=["services/auth.py", "main.py"],
-            token_budget=8192,
+            token_budget=256,
         )
+        _assert_ranking_budget(task, python_simple_repo, Strategy.ARCHEX_QUERY_FUSION)
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_archex_query_fusion(task, python_simple_repo)
         assert result.files_accessed >= 0
-        assert isinstance(result.recall, float)
-        assert isinstance(result.precision, float)
+        assert result.recall == 1.0
+        assert result.precision == 1 / 3
+        assert result.mrr == 1.0
 
 
 class TestRunArchexQueryHybridQuantized4Bit:
@@ -1367,13 +1434,17 @@ class TestRunSurrogateVector:
             commit="abc",
             question="How does authentication work?",
             expected_files=["services/auth.py"],
-            token_budget=4096,
+            token_budget=256,
         )
+        _assert_ranking_budget(task, python_simple_repo, Strategy.SURROGATE_VECTOR)
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_surrogate_vector(task, python_simple_repo)
         assert result.strategy == Strategy.SURROGATE_VECTOR
         assert result.vector_mode == "surrogate"
         assert result.surrogate_version == "v1"
+        assert result.recall == 1.0
+        assert result.precision == 1 / 6
+        assert result.mrr == 1 / 3
 
 
 class TestRunCrossLayerFusion:
@@ -1384,30 +1455,48 @@ class TestRunCrossLayerFusion:
             commit="abc",
             question="How does authentication work?",
             expected_files=["services/auth.py", "main.py"],
-            token_budget=4096,
+            token_budget=256,
         )
+        _assert_ranking_budget(task, python_simple_repo, Strategy.CROSS_LAYER_FUSION)
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_cross_layer_fusion(task, python_simple_repo)
         assert result.strategy == Strategy.CROSS_LAYER_FUSION
         assert result.vector_mode == "surrogate"
         assert result.surrogate_version == "v1"
+        assert result.recall == 1.0
+        assert result.precision == 1 / 3
+        assert result.mrr == 1 / 3
 
 
 class TestRunArchexQueryFusionRerank:
-    def test_fusion_rerank_strategy(self, python_simple_repo: Path) -> None:
+    def test_fusion_rerank_strategy(
+        self, python_simple_repo: Path, fake_reranker: MagicMock
+    ) -> None:
         task = BenchmarkTask(
             task_id="test",
             repo="test/repo",
             commit="abc",
             question="How does the main module work?",
             expected_files=["main.py"],
-            token_budget=4096,
+            token_budget=256,
         )
+        _assert_ranking_budget(task, python_simple_repo, Strategy.ARCHEX_QUERY_FUSION_RERANK)
         with patch("archex.api._get_embedder", _stub_get_embedder):
             result = run_archex_query_fusion_rerank(task, python_simple_repo)
+            fusion = run_archex_query_fusion(task, python_simple_repo)
+        fake_reranker.assert_called_once()
         assert result.strategy == Strategy.ARCHEX_QUERY_FUSION_RERANK
         assert result.tokens_total >= 0
         assert result.tool_calls == 1
         assert result.timing is not None
-        assert 0.0 <= result.recall <= 1.0
-        assert 0.0 <= result.precision <= 1.0
+        assert result.recall == 1.0
+        assert result.precision == 1 / 5
+        assert result.mrr == 1.0
+        assert result.result_files == [
+            "main.py",
+            "models.py",
+            "services/__init__.py",
+            "services/auth.py",
+            "utils.py",
+        ]
+        assert result.result_files != fusion.result_files
