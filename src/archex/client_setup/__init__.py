@@ -1,4 +1,4 @@
-"""Client install/bootstrap helpers for MCP-compatible archex setups."""
+"""Client install/bootstrap helpers with an explicit public surface."""
 
 from __future__ import annotations
 
@@ -27,10 +27,68 @@ from archex.status_snapshot import (
     WATCH_OBSERVATION_TTL_SECONDS,
 )
 
+__all__ = [
+    "AGENT_GUIDANCE_END",
+    "AGENT_GUIDANCE_PROMPT",
+    "AGENT_GUIDANCE_START",
+    "ClaudeCodeHookInstallPlan",
+    "ClaudeCodePostEditHookInstallPlan",
+    "ClaudeCodeSessionPrimerInstallPlan",
+    "ClaudeCodeStatuslineInstallPlan",
+    "ClientInstallPlan",
+    "ClientName",
+    "ClientScope",
+    "CodexHookInstallPlan",
+    "CodexPostEditHookInstallPlan",
+    "CursorHookInstallPlan",
+    "DiscoveredClient",
+    "HookAction",
+    "HookInstallPlan",
+    "POST_EDIT_UNSUPPORTED_CLIENTS",
+    "PostEditHookInstallPlan",
+    "STATUSLINE_REFRESH_INTERVAL_SECONDS",
+    "STATUSLINE_SCRIPT_FILENAME",
+    "STATUSLINE_SCRIPT_MARKER",
+    "STATUSLINE_UNSUPPORTED_CLIENTS",
+    "StatusInstallPlan",
+    "TS_STATUS_KEY",
+    "TsHookInstallPlan",
+    "TsPostEditHookInstallPlan",
+    "TsStatusInstallPlan",
+    "append_agent_guidance",
+    "build_client_install_plan",
+    "build_discovered_install_plans",
+    "build_hook_install_plan",
+    "build_post_edit_hook_install_plan",
+    "build_session_primer_install_plan",
+    "build_statusline_install_plan",
+    "discover_agent_files",
+    "discover_clients",
+    "get_client_config_candidates",
+    "render_agent_guidance_block",
+    "render_agent_guidance_preview",
+    "render_annotation_hook_module",
+    "render_client_install_preview",
+    "render_hook_install_preview",
+    "render_multiple_install_preview",
+    "render_post_edit_hook_install_preview",
+    "render_session_primer_install_preview",
+    "render_statusline_install_preview",
+    "render_statusline_script",
+    "render_ts_status_module",
+    "statusline_interpreter",
+    "write_client_install_plan",
+    "write_config_atomic",
+    "write_hook_install_plan",
+    "write_post_edit_hook_install_plan",
+    "write_session_primer_install_plan",
+    "write_statusline_install_plan",
+]
+
 ClientName = Literal["claude-code", "codex", "cursor", "opencode", "pi", "omp"]
 ClientScope = Literal["project", "user"]
 
-_USER_ONLY_CLIENTS: frozenset[ClientName] = frozenset({"pi", "omp"})
+USER_ONLY_CLIENTS: frozenset[ClientName] = frozenset({"pi", "omp"})
 
 HookAction = Literal["install", "remove"]
 
@@ -161,9 +219,7 @@ def discover_clients(source: str | Path | None = None) -> list[DiscoveredClient]
     all_clients: list[ClientName] = ["omp", "codex", "claude-code", "cursor", "opencode", "pi"]
 
     for client in all_clients:
-        scopes: list[ClientScope] = (
-            ["user"] if client in _USER_ONLY_CLIENTS else ["user", "project"]
-        )
+        scopes: list[ClientScope] = ["user"] if client in USER_ONLY_CLIENTS else ["user", "project"]
         for scope in scopes:
             candidates = get_client_config_candidates(client, repo_root, scope)
             found = False
@@ -220,7 +276,7 @@ def render_multiple_install_preview(plans: list[ClientInstallPlan]) -> str:
 
     lines = ["Will write:"]
     for plan in plans:
-        if _is_toml_plan(plan):
+        if is_toml_plan(plan):
             lines.append(f"- {plan.target_path}: add [mcp_servers.archex]")
         elif plan.client == "opencode":
             lines.append(f"- {plan.target_path}: add mcp.archex")
@@ -240,10 +296,10 @@ def build_client_install_plan(
     disclosure: bool = True,
 ) -> ClientInstallPlan:
     selected_scope = _resolve_scope(client, source, scope)
-    if client in _USER_ONLY_CLIENTS and selected_scope != "user":
+    if client in USER_ONLY_CLIENTS and selected_scope != "user":
         raise ValueError(f"{client} client config supports only --scope user")
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
-    target_path = _target_path(client, repo_root, selected_scope)
+    target_path = client_config_path(client, repo_root, selected_scope)
     content = _render_content(client, tool_scope, disclosure=disclosure)
     return ClientInstallPlan(
         client=client,
@@ -319,7 +375,7 @@ def write_config_atomic(path: Path, text: str) -> None:
 def write_client_install_plan(plan: ClientInstallPlan) -> Path:
     target = plan.target_path
     target.parent.mkdir(parents=True, exist_ok=True)
-    if _is_toml_plan(plan):
+    if is_toml_plan(plan):
         block = plan.content.strip()
         if target.exists():
             existing = target.read_text(encoding="utf-8")
@@ -540,38 +596,38 @@ def build_hook_install_plan(
 ) -> HookInstallPlan:
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
     if client == "claude-code":
-        selected_scope = _resolve_hook_scope(source, scope)
+        selected_scope = resolve_hook_scope(source, scope)
         return ClaudeCodeHookInstallPlan(
             client=client,
             scope=selected_scope,
-            target_path=_hook_settings_path(repo_root, selected_scope),
+            target_path=hook_settings_path(repo_root, selected_scope),
             action=action,
-            hook_entry=_render_hook_entry(),
+            hook_entry=render_hook_entry(),
         )
     if client in {"omp", "pi", "opencode"}:
-        selected_scope = _resolve_hook_scope(source, scope)
+        selected_scope = resolve_hook_scope(source, scope)
         return TsHookInstallPlan(
             client=client,
             scope=selected_scope,
-            target_path=_ts_hook_module_path(client, repo_root, selected_scope),
+            target_path=ts_hook_module_path(client, repo_root, selected_scope),
             action=action,
-            module_content=_render_ts_hook_module(client),
+            module_content=render_ts_hook_module(client),
         )
     if client == "codex":
-        selected_scope = _resolve_hook_scope(source, scope)
+        selected_scope = resolve_hook_scope(source, scope)
         return CodexHookInstallPlan(
             client=client,
             scope=selected_scope,
-            target_path=_target_path(client, repo_root, selected_scope),
+            target_path=client_config_path(client, repo_root, selected_scope),
             action=action,
-            block_content=_render_codex_hook_block(),
+            block_content=render_codex_hook_block(),
         )
     if client == "cursor":
-        selected_scope = _resolve_hook_scope(source, scope)
+        selected_scope = resolve_hook_scope(source, scope)
         return CursorHookInstallPlan(
             client=client,
             scope=selected_scope,
-            target_path=_cursor_hook_settings_path(repo_root, selected_scope),
+            target_path=cursor_hook_settings_path(repo_root, selected_scope),
             action=action,
             hook_entry=_render_cursor_hook_entry(),
         )
@@ -589,11 +645,11 @@ def build_session_primer_install_plan(
 ) -> ClaudeCodeSessionPrimerInstallPlan:
     """Build a separate opt-in Claude Code SessionStart primer install plan."""
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
-    selected_scope = _resolve_hook_scope(source, scope)
+    selected_scope = resolve_hook_scope(source, scope)
     return ClaudeCodeSessionPrimerInstallPlan(
         client="claude-code",
         scope=selected_scope,
-        target_path=_hook_settings_path(repo_root, selected_scope),
+        target_path=hook_settings_path(repo_root, selected_scope),
         action=action,
         hook_entry=_render_session_primer_hook_entry(),
     )
@@ -601,14 +657,14 @@ def build_session_primer_install_plan(
 
 def write_hook_install_plan(plan: HookInstallPlan) -> Path:
     if isinstance(plan, TsHookInstallPlan):
-        return _write_ts_hook_plan(plan)
+        return write_ts_hook_plan(plan)
     if isinstance(plan, CodexHookInstallPlan):
-        return _write_codex_hook_plan(plan)
+        return write_codex_hook_plan(plan)
     if isinstance(plan, CursorHookInstallPlan):
-        return _write_cursor_hook_plan(plan)
+        return write_cursor_hook_plan(plan)
     target = plan.target_path
-    existing = _read_json_object(target) if target.exists() else {}
-    updated, changed = _apply_hook_action(existing, plan)
+    existing = read_json_object(target) if target.exists() else {}
+    updated, changed = apply_hook_action(existing, plan)
     if not changed:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -619,7 +675,7 @@ def write_hook_install_plan(plan: HookInstallPlan) -> Path:
 def write_session_primer_install_plan(plan: ClaudeCodeSessionPrimerInstallPlan) -> Path:
     """Write a SessionStart primer plan without disturbing other settings."""
     target = plan.target_path
-    existing = _read_json_object(target) if target.exists() else {}
+    existing = read_json_object(target) if target.exists() else {}
     updated, changed = _apply_session_primer_action(existing, plan)
     if not changed:
         return target
@@ -628,7 +684,7 @@ def write_session_primer_install_plan(plan: ClaudeCodeSessionPrimerInstallPlan) 
     return target
 
 
-def _write_ts_hook_plan(plan: TsHookInstallPlan) -> Path:
+def write_ts_hook_plan(plan: TsHookInstallPlan) -> Path:
     target = plan.target_path
     if plan.action == "remove":
         if target.exists():
@@ -641,7 +697,7 @@ def _write_ts_hook_plan(plan: TsHookInstallPlan) -> Path:
     return target
 
 
-def _write_codex_hook_plan(plan: CodexHookInstallPlan) -> Path:
+def write_codex_hook_plan(plan: CodexHookInstallPlan) -> Path:
     target = plan.target_path
     existing = target.read_text(encoding="utf-8") if target.exists() else ""
     updated = _apply_codex_hook_block(existing, plan)
@@ -654,13 +710,13 @@ def _write_codex_hook_plan(plan: CodexHookInstallPlan) -> Path:
 
 def render_hook_install_preview(plan: HookInstallPlan) -> str:
     if isinstance(plan, TsHookInstallPlan):
-        return _render_ts_hook_preview(plan)
+        return render_ts_hook_preview(plan)
     if isinstance(plan, CodexHookInstallPlan):
-        return _render_codex_hook_preview(plan)
+        return render_codex_hook_preview(plan)
     if isinstance(plan, CursorHookInstallPlan):
-        return _render_cursor_hook_preview(plan)
-    existing = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
-    updated, changed = _apply_hook_action(existing, plan)
+        return render_cursor_hook_preview(plan)
+    existing = read_json_object(plan.target_path) if plan.target_path.exists() else {}
+    updated, changed = apply_hook_action(existing, plan)
     action_label = "Install" if plan.action == "install" else "Remove"
     lines = [
         f"Client: {plan.client}",
@@ -692,7 +748,7 @@ def render_hook_install_preview(plan: HookInstallPlan) -> str:
 
 def render_session_primer_install_preview(plan: ClaudeCodeSessionPrimerInstallPlan) -> str:
     """Render a no-write preview for the SessionStart primer installer."""
-    existing = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
+    existing = read_json_object(plan.target_path) if plan.target_path.exists() else {}
     updated, changed = _apply_session_primer_action(existing, plan)
     action_label = "Install" if plan.action == "install" else "Remove"
     lines = [
@@ -717,7 +773,7 @@ def render_session_primer_install_preview(plan: ClaudeCodeSessionPrimerInstallPl
     return "\n".join(lines) + "\n"
 
 
-def _render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
+def render_ts_hook_preview(plan: TsHookInstallPlan) -> str:
     target = plan.target_path
     existing = target.read_text(encoding="utf-8") if target.exists() else None
     action_label = "Install" if plan.action == "install" else "Remove"
@@ -755,7 +811,7 @@ def _ts_hook_coverage(client: ClientName) -> str:
     return f"grep, {finder}, and bash search results: appends one line per indexed code unit hit"
 
 
-def _render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
+def render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
     target = plan.target_path
     existing = target.read_text(encoding="utf-8") if target.exists() else ""
     updated = _apply_codex_hook_block(existing, plan)
@@ -788,7 +844,7 @@ def _render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _hook_settings_path(repo_root: Path, scope: ClientScope) -> Path:
+def hook_settings_path(repo_root: Path, scope: ClientScope) -> Path:
     return (
         repo_root / ".claude" / "settings.json"
         if scope == "project"
@@ -796,7 +852,7 @@ def _hook_settings_path(repo_root: Path, scope: ClientScope) -> Path:
     )
 
 
-def _render_hook_entry() -> dict[str, object]:
+def render_hook_entry() -> dict[str, object]:
     return {
         "type": "command",
         "command": sys.executable,
@@ -815,7 +871,7 @@ def _render_session_primer_hook_entry() -> dict[str, object]:
 _TS_HOOK_MODULE_FILENAME = "archex-hook.ts"
 
 
-def _ts_hook_module_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:
+def ts_hook_module_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:
     if client == "omp":
         return (
             repo_root / ".omp" / "extensions" / _TS_HOOK_MODULE_FILENAME
@@ -848,9 +904,9 @@ def _ts_hook_event_label(client: ClientName) -> str:
     return "tool.execute.after plugin" if client == "opencode" else "tool_result hook module"
 
 
-def _render_ts_hook_module(client: ClientName) -> str:
+def render_ts_hook_module(client: ClientName) -> str:
     if client == "opencode":
-        return _OPENCODE_HOOK_MODULE_TEMPLATE.replace(
+        return OPENCODE_HOOK_MODULE_TEMPLATE.replace(
             "__ARCHEX_PYTHON_COMMAND__", json.dumps(sys.executable)
         )
     return render_annotation_hook_module(sys.executable)
@@ -863,10 +919,10 @@ def render_annotation_hook_module(python_command: str) -> str:
     A/B harness renders the same module against the interpreter of an archex
     installed inside a task container.
     """
-    return _TS_HOOK_MODULE_TEMPLATE.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(python_command))
+    return TS_HOOK_MODULE_TEMPLATE.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(python_command))
 
 
-_TS_HOOK_MODULE_TEMPLATE = r"""/**
+TS_HOOK_MODULE_TEMPLATE = r"""/**
  * archex grep-result annotation module (oh-my-pi / Pi).
  *
  * Installed by `archex install-client omp --hooks` / `archex install-client
@@ -1204,7 +1260,7 @@ export default function archexHook(pi: HookHost): void {
 """
 
 
-_OPENCODE_HOOK_MODULE_TEMPLATE = r"""/**
+OPENCODE_HOOK_MODULE_TEMPLATE = r"""/**
  * archex grep-result annotation plugin (OpenCode).
  *
  * Installed by `archex install-client opencode --hooks` (opt-in; never
@@ -1545,7 +1601,7 @@ _CODEX_LEGACY_HOOK_BLOCK_END = "# archex:codex-hook end"
 _CODEX_HOOK_TIMEOUT_SECONDS = 2
 
 
-def _render_codex_hook_block() -> str:
+def render_codex_hook_block() -> str:
     command = f"{sys.executable} -m {_CODEX_HOOK_ARGS_MARKER}"
     return (
         "\n".join(
@@ -1565,7 +1621,7 @@ def _render_codex_hook_block() -> str:
     )
 
 
-def _marked_block_span(existing: str, start_marker: str, end_marker: str) -> tuple[int, int] | None:
+def marked_block_span(existing: str, start_marker: str, end_marker: str) -> tuple[int, int] | None:
     """Where one marker-delimited block sits, including its trailing newline."""
     start = existing.find(start_marker)
     if start == -1:
@@ -1579,9 +1635,9 @@ def _marked_block_span(existing: str, start_marker: str, end_marker: str) -> tup
     return start, end
 
 
-def _strip_marked_toml_block(existing: str, start_marker: str, end_marker: str) -> str:
+def strip_marked_toml_block(existing: str, start_marker: str, end_marker: str) -> str:
     """Remove one marker-delimited block, restoring the bytes around it."""
-    span = _marked_block_span(existing, start_marker, end_marker)
+    span = marked_block_span(existing, start_marker, end_marker)
     if span is None:
         return existing
     before, after = existing[: span[0]], existing[span[1] :]
@@ -1596,15 +1652,15 @@ def _strip_marked_toml_block(existing: str, start_marker: str, end_marker: str) 
 
 def _strip_codex_hook_block(existing: str) -> str:
     """Remove the annotation hook block and the retired diagnostics-only block."""
-    without_legacy = _strip_marked_toml_block(
+    without_legacy = strip_marked_toml_block(
         existing, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
     )
-    return _strip_marked_toml_block(without_legacy, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
+    return strip_marked_toml_block(without_legacy, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
 
 
-def _upsert_marked_toml_block(existing: str, block: str, start_marker: str, end_marker: str) -> str:
+def upsert_marked_toml_block(existing: str, block: str, start_marker: str, end_marker: str) -> str:
     """Replace a marker-delimited block where it sits, or append it after other content."""
-    span = _marked_block_span(existing, start_marker, end_marker)
+    span = marked_block_span(existing, start_marker, end_marker)
     if span is not None:
         return existing[: span[0]] + block + existing[span[1] :]
     if not existing.strip():
@@ -1618,16 +1674,16 @@ def _apply_codex_hook_block(existing: str, plan: CodexHookInstallPlan) -> str:
     # A block is replaced where it sits (the annotation block on a reinstall,
     # else the retired one on an upgrade), so neighbouring archex blocks never
     # reorder; only a first install appends.
-    own = _marked_block_span(existing, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
-    legacy = _marked_block_span(
+    own = marked_block_span(existing, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
+    legacy = marked_block_span(
         existing, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
     )
     if own is None and legacy is not None:
         return existing[: legacy[0]] + plan.block_content + existing[legacy[1] :]
-    upserted = _upsert_marked_toml_block(
+    upserted = upsert_marked_toml_block(
         existing, plan.block_content, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END
     )
-    return _strip_marked_toml_block(
+    return strip_marked_toml_block(
         upserted, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
     )
 
@@ -1639,7 +1695,7 @@ def _apply_codex_hook_block(existing: str, plan: CodexHookInstallPlan) -> str:
 _CURSOR_HOOK_COMMAND_MARKER = "archex.integrations.cursor_hook"
 
 
-def _cursor_hook_settings_path(repo_root: Path, scope: ClientScope) -> Path:
+def cursor_hook_settings_path(repo_root: Path, scope: ClientScope) -> Path:
     return (
         repo_root / ".cursor" / "hooks.json"
         if scope == "project"
@@ -1706,9 +1762,9 @@ def _apply_cursor_hook_action(
     return updated, updated != payload
 
 
-def _write_cursor_hook_plan(plan: CursorHookInstallPlan) -> Path:
+def write_cursor_hook_plan(plan: CursorHookInstallPlan) -> Path:
     target = plan.target_path
-    existing = _read_json_object(target) if target.exists() else {}
+    existing = read_json_object(target) if target.exists() else {}
     updated, changed = _apply_cursor_hook_action(existing, plan)
     if not changed:
         return target
@@ -1717,8 +1773,8 @@ def _write_cursor_hook_plan(plan: CursorHookInstallPlan) -> Path:
     return target
 
 
-def _render_cursor_hook_preview(plan: CursorHookInstallPlan) -> str:
-    existing = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
+def render_cursor_hook_preview(plan: CursorHookInstallPlan) -> str:
+    existing = read_json_object(plan.target_path) if plan.target_path.exists() else {}
     updated, changed = _apply_cursor_hook_action(existing, plan)
     action_label = "Install" if plan.action == "install" else "Remove"
     lines = [
@@ -1750,14 +1806,14 @@ def _is_archex_hook_entry(entry: object, marker: str = _HOOK_ARGS_MARKER) -> boo
     return any(isinstance(item, str) and marker in item for item in items)
 
 
-def _read_json_object(path: Path) -> dict[str, object]:
+def read_json_object(path: Path) -> dict[str, object]:
     payload_obj: object = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload_obj, dict):
         raise ValueError(f"expected JSON object in {path}")
     return cast("dict[str, object]", payload_obj)
 
 
-def _apply_claude_event_hook_action(
+def apply_claude_event_hook_action(
     payload: dict[str, object],
     *,
     event: str,
@@ -1811,7 +1867,7 @@ def _apply_claude_event_hook_action(
     return updated, updated != payload
 
 
-def _apply_hook_action(
+def apply_hook_action(
     payload: dict[str, object], plan: ClaudeCodeHookInstallPlan
 ) -> tuple[dict[str, object], bool]:
     """Merge the owned PostToolUse annotation handler into Claude Code settings.
@@ -1819,7 +1875,7 @@ def _apply_hook_action(
     The retired archex ``PreToolUse`` pattern-search handler is stripped first
     on every action, so install replaces it and remove clears both.
     """
-    without_legacy, _ = _apply_claude_event_hook_action(
+    without_legacy, _ = apply_claude_event_hook_action(
         payload,
         event=_LEGACY_SEARCH_HOOK_EVENT,
         marker=_LEGACY_SEARCH_HOOK_ARGS_MARKER,
@@ -1827,7 +1883,7 @@ def _apply_hook_action(
         hook_entry=plan.hook_entry,
         action="remove",
     )
-    updated, _ = _apply_claude_event_hook_action(
+    updated, _ = apply_claude_event_hook_action(
         without_legacy,
         event="PostToolUse",
         marker=_HOOK_ARGS_MARKER,
@@ -1842,7 +1898,7 @@ def _apply_session_primer_action(
     payload: dict[str, object], plan: ClaudeCodeSessionPrimerInstallPlan
 ) -> tuple[dict[str, object], bool]:
     """Merge one owned SessionStart handler without touching other settings."""
-    return _apply_claude_event_hook_action(
+    return apply_claude_event_hook_action(
         payload,
         event="SessionStart",
         marker=_SESSION_PRIMER_ARGS_MARKER,
@@ -1893,12 +1949,12 @@ def _resolve_scope(
 ) -> ClientScope:
     if scope is not None:
         return scope
-    if client in _USER_ONLY_CLIENTS:
+    if client in USER_ONLY_CLIENTS:
         return "user"
     return "project" if source is not None else "user"
 
 
-def _resolve_hook_scope(source: str | Path | None, scope: ClientScope | None) -> ClientScope:
+def resolve_hook_scope(source: str | Path | None, scope: ClientScope | None) -> ClientScope:
     """Scope resolution for hook installs (claude-code, omp, pi).
 
     Unlike ``_resolve_scope`` (MCP server config, where omp/pi are user-scope
@@ -1911,7 +1967,7 @@ def _resolve_hook_scope(source: str | Path | None, scope: ClientScope | None) ->
     return "project" if source is not None else "user"
 
 
-def _target_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:
+def client_config_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:
     home = Path.home()
     if client == "claude-code":
         return repo_root / ".mcp.json" if scope == "project" else home / ".claude.json"
@@ -2017,7 +2073,7 @@ def _json_server_key(client: ClientName) -> str:
     return "mcp" if client == "opencode" else "mcpServers"
 
 
-def _is_toml_plan(plan: ClientInstallPlan) -> bool:
+def is_toml_plan(plan: ClientInstallPlan) -> bool:
     return plan.client == "codex"
 
 
@@ -2154,12 +2210,12 @@ def build_post_edit_hook_install_plan(
             f"{client} has no supported post-edit event. {POST_EDIT_UNSUPPORTED_CLIENTS[client]}"
         )
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
-    selected_scope = _resolve_hook_scope(source, scope)
+    selected_scope = resolve_hook_scope(source, scope)
     if client == "claude-code":
         return ClaudeCodePostEditHookInstallPlan(
             client=client,
             scope=selected_scope,
-            target_path=_hook_settings_path(repo_root, selected_scope),
+            target_path=hook_settings_path(repo_root, selected_scope),
             action=action,
             hook_entry=_render_post_edit_hook_entry(),
         )
@@ -2167,7 +2223,7 @@ def build_post_edit_hook_install_plan(
         return CodexPostEditHookInstallPlan(
             client=client,
             scope=selected_scope,
-            target_path=_target_path(client, repo_root, selected_scope),
+            target_path=client_config_path(client, repo_root, selected_scope),
             action=action,
             block_content=_render_codex_post_edit_block(),
         )
@@ -2207,7 +2263,7 @@ def write_post_edit_hook_install_plan(plan: PostEditHookInstallPlan) -> Path:
         write_config_atomic(target, updated_toml)
         return target
     target = plan.target_path
-    existing_json = _read_json_object(target) if target.exists() else {}
+    existing_json = read_json_object(target) if target.exists() else {}
     updated_json, changed = _apply_post_edit_hook_action(existing_json, plan)
     if not changed:
         return target
@@ -2258,7 +2314,7 @@ def render_post_edit_hook_install_preview(plan: PostEditHookInstallPlan) -> str:
             header.append("Dry run. Re-run without --dry-run to write this config.")
         return "\n".join([*header, "", updated_toml]).rstrip("\n") + "\n"
     header.append(f"Action: {action_label} PostToolUse hook (matcher: {POST_EDIT_MATCHER!r})")
-    existing_json = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
+    existing_json = read_json_object(plan.target_path) if plan.target_path.exists() else {}
     updated_json, changed = _apply_post_edit_hook_action(existing_json, plan)
     if not changed:
         header.append(
@@ -2274,7 +2330,7 @@ def render_post_edit_hook_install_preview(plan: PostEditHookInstallPlan) -> str:
 def _apply_post_edit_hook_action(
     payload: dict[str, object], plan: ClaudeCodePostEditHookInstallPlan
 ) -> tuple[dict[str, object], bool]:
-    return _apply_claude_event_hook_action(
+    return apply_claude_event_hook_action(
         payload,
         event="PostToolUse",
         marker=_POST_EDIT_ARGS_MARKER,
@@ -2313,7 +2369,7 @@ def _render_codex_post_edit_block() -> str:
 
 
 def _strip_codex_post_edit_block(existing: str) -> str:
-    return _strip_marked_toml_block(
+    return strip_marked_toml_block(
         existing, _CODEX_POST_EDIT_BLOCK_START, _CODEX_POST_EDIT_BLOCK_END
     )
 
@@ -2321,7 +2377,7 @@ def _strip_codex_post_edit_block(existing: str) -> str:
 def _apply_codex_post_edit_block(existing: str, plan: CodexPostEditHookInstallPlan) -> str:
     if plan.action == "remove":
         return _strip_codex_post_edit_block(existing)
-    return _upsert_marked_toml_block(
+    return upsert_marked_toml_block(
         existing, plan.block_content, _CODEX_POST_EDIT_BLOCK_START, _CODEX_POST_EDIT_BLOCK_END
     )
 
@@ -2350,16 +2406,14 @@ def _ts_post_edit_module_path(client: ClientName, repo_root: Path, scope: Client
 
 def _render_ts_post_edit_module(client: ClientName) -> str:
     template = (
-        _OPENCODE_POST_EDIT_MODULE_TEMPLATE
-        if client == "opencode"
-        else _TS_POST_EDIT_MODULE_TEMPLATE
+        OPENCODE_POST_EDIT_MODULE_TEMPLATE if client == "opencode" else TS_POST_EDIT_MODULE_TEMPLATE
     )
     return template.replace("__ARCHEX_PYTHON_COMMAND__", json.dumps(sys.executable)).replace(
         "__ARCHEX_CLIENT__", client
     )
 
 
-_TS_POST_EDIT_MODULE_TEMPLATE = r"""/**
+TS_POST_EDIT_MODULE_TEMPLATE = r"""/**
  * archex shared post-edit `tool_result` module (R21 — oh-my-pi / Pi).
  *
  * Installed by `archex install-client omp --post-edit-hooks` /
@@ -2600,7 +2654,7 @@ export default function archexPostEditHook(pi: HookHost): void {
 """
 
 
-_OPENCODE_POST_EDIT_MODULE_TEMPLATE = r"""/**
+OPENCODE_POST_EDIT_MODULE_TEMPLATE = r"""/**
  * archex OpenCode post-edit `tool.execute.after` plugin (R21).
  *
  * Installed by `archex install-client opencode --post-edit-hooks` (opt-in).
@@ -2925,7 +2979,7 @@ class TsStatusInstallPlan:
 StatusInstallPlan = ClaudeCodeStatuslineInstallPlan | TsStatusInstallPlan
 
 
-def _ts_status_module_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:
+def ts_status_module_path(client: ClientName, repo_root: Path, scope: ClientScope) -> Path:
     if client == "omp":
         return (
             repo_root / ".omp" / "extensions" / _TS_STATUS_MODULE_FILENAME
@@ -3182,13 +3236,13 @@ def build_statusline_install_plan(
         )
         raise ValueError(message)
     repo_root = Path(source if source is not None else ".").expanduser().resolve()
-    selected_scope = _resolve_hook_scope(source, scope)
+    selected_scope = resolve_hook_scope(source, scope)
     if client == "claude-code":
         script_path = _statusline_script_path(repo_root, selected_scope)
         return ClaudeCodeStatuslineInstallPlan(
             client=client,
             scope=selected_scope,
-            target_path=_hook_settings_path(repo_root, selected_scope),
+            target_path=hook_settings_path(repo_root, selected_scope),
             script_path=script_path,
             action=action,
             script_content=render_statusline_script(),
@@ -3198,7 +3252,7 @@ def build_statusline_install_plan(
         return TsStatusInstallPlan(
             client=client,
             scope=selected_scope,
-            target_path=_ts_status_module_path(client, repo_root, selected_scope),
+            target_path=ts_status_module_path(client, repo_root, selected_scope),
             action=action,
             module_content=render_ts_status_module(),
         )
@@ -3221,7 +3275,7 @@ def write_statusline_install_plan(plan: StatusInstallPlan) -> Path:
         return target
 
     target = plan.target_path
-    existing = _read_json_object(target) if target.exists() else {}
+    existing = read_json_object(target) if target.exists() else {}
     # Decided before anything is written: a foreign status line raises here,
     # and a refused install must leave no renderer script behind.
     updated, changed = _apply_statusline_action(existing, plan)
@@ -3266,7 +3320,7 @@ def render_statusline_install_preview(plan: StatusInstallPlan) -> str:
         body = "" if plan.action == "remove" else plan.module_content
         return "\n".join([*header, "", body]).rstrip("\n") + "\n"
 
-    existing = _read_json_object(plan.target_path) if plan.target_path.exists() else {}
+    existing = read_json_object(plan.target_path) if plan.target_path.exists() else {}
     updated, changed = _apply_statusline_action(existing, plan)
     lines = [
         f"Client: {plan.client}",
