@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from archex.api import index_repository
 from archex.benchmark.models import (
     BenchmarkRetrievalOptions,
     BenchmarkTask,
@@ -56,7 +57,15 @@ from archex.index.embeddings import (
     JINA_V2_MAX_SEQ_LENGTH,
     JINA_V2_MODEL_REVISION,
 )
-from archex.models import CodeChunk, ContextBundle, IndexConfig, RankedChunk, RetrievalMetadata
+from archex.index.rerank import CrossEncoderReranker
+from archex.models import (
+    CodeChunk,
+    Config,
+    ContextBundle,
+    IndexConfig,
+    RankedChunk,
+    RetrievalMetadata,
+)
 
 JINA_V2_CACHE_IDENTITY = (
     f"jina-v2@{JINA_V2_MODEL_REVISION}"
@@ -64,7 +73,9 @@ JINA_V2_CACHE_IDENTITY = (
     f"+max_seq={JINA_V2_MAX_SEQ_LENGTH}"
 )
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
+    from unittest.mock import MagicMock
 
 
 @pytest.fixture
@@ -77,6 +88,50 @@ def sample_task() -> BenchmarkTask:
         expected_files=["main.py", "services/auth.py"],
         keywords=["auth", "login"],
     )
+
+
+def _assert_ranking_budget(
+    task: BenchmarkTask, repo_path: Path, strategy: Strategy = Strategy.ARCHEX_QUERY
+) -> None:
+    """Use the passthrough path's indexed chunk tokens, including import context."""
+    with index_repository(
+        benchmark_repo_source(task, repo_path, strategy=strategy),
+        config=Config(cache=False),
+        index_config=benchmark_index_config(IndexConfig(), strategy=strategy),
+    ) as store:
+        total_tokens = store.get_chunk_token_total()
+    assert task.token_budget < total_tokens, (
+        f"ranking requires token_budget < fixture total: {task.token_budget} >= {total_tokens}"
+    )
+
+
+def test_ranking_budget_rejects_passthrough(
+    sample_task: BenchmarkTask, python_simple_repo: Path
+) -> None:
+    sample_task.token_budget = 4096
+    with pytest.raises(AssertionError, match="ranking requires token_budget < fixture total"):
+        _assert_ranking_budget(sample_task, python_simple_repo)
+
+
+@pytest.fixture
+def fake_reranker() -> Iterator[MagicMock]:
+    def reverse_candidates(
+        self: CrossEncoderReranker,
+        query: str,
+        candidates: list[tuple[CodeChunk, float]],
+        top_k: int,
+    ) -> list[tuple[CodeChunk, float]]:
+        del self, query
+        reversed_candidates = list(reversed(candidates))[:top_k]
+        return [
+            (chunk, float(len(reversed_candidates) - rank))
+            for rank, (chunk, _) in enumerate(reversed_candidates)
+        ]
+
+    with patch.object(
+        CrossEncoderReranker, "rerank", autospec=True, side_effect=reverse_candidates
+    ) as fake:
+        yield fake
 
 
 def test_measure_archex_freshness_returns_correct_probe(
