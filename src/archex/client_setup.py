@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import stat
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
@@ -251,6 +254,66 @@ def build_client_install_plan(
         tested_status=_tested_status(client),
         last_verified="2026-06-16",
     )
+
+
+def _current_umask() -> int:
+    """Return the process umask.
+
+    ``os.umask`` can only be read by setting it, so this sets and restores the
+    mask. The mask is process-global: another thread creating a file in the
+    window between the two calls would see it. The installer is a
+    single-threaded CLI command, which is the only caller.
+    """
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def write_config_atomic(path: Path, text: str) -> None:
+    """Replace ``path`` with ``text`` so a reader sees the old or the new file, never a part.
+
+    Client configs such as ``~/.claude.json`` hold state the client cannot
+    rebuild, so a kill between ``Path.write_text``'s truncate and its write
+    would lose it. This writes a sibling temp file, syncs it, and renames it
+    over the target, keeping the two properties an in-place write has:
+
+    - a symlink is followed and its referent replaced, so the link survives
+      (dotfile managers such as stow point these paths at a repository);
+    - an existing file keeps its permission bits, and a new file gets the
+      ``0o666 & ~umask`` mode ``Path.write_text`` would give, not the
+      ``0o600`` of a bare temp file.
+
+    Unlike ``archex.state_file.write_text_atomic``, failure is never
+    swallowed: an installer that could not write its config must say so. The
+    temp file and its descriptor are released on every failure, including
+    ``KeyboardInterrupt``, and the original is left untouched.
+
+    The rename does not coordinate with a client that rewrites the same file
+    concurrently: an update the client makes between this function's caller
+    reading the config and this rename is lost.
+    """
+    target = path.resolve()
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        mode = 0o666 & ~_current_umask()
+    fd, temp_name = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    temp_path = Path(temp_name)
+    try:
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with handle:
+            os.fchmod(handle.fileno(), mode)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, target)
+    except BaseException:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 def write_client_install_plan(plan: ClientInstallPlan) -> Path:
