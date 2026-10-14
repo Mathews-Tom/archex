@@ -17,6 +17,16 @@ from archex.client_setup.agent_guidance import (
     render_agent_guidance_block,
     render_agent_guidance_preview,
 )
+from archex.client_setup.codex import (
+    render_codex_hook_block,
+    render_codex_hook_preview,
+    write_codex_hook_plan,
+)
+from archex.client_setup.cursor import (
+    cursor_hook_settings_path,
+    render_cursor_hook_preview,
+    write_cursor_hook_plan,
+)
 from archex.client_setup.discovery import (
     build_discovered_install_plans,
     discover_agent_files,
@@ -25,7 +35,6 @@ from archex.client_setup.discovery import (
     render_multiple_install_preview,
 )
 from archex.client_setup.io import (
-    marked_block_span,
     read_json_object,
     strip_marked_toml_block,
     upsert_marked_toml_block,
@@ -65,7 +74,6 @@ from archex.client_setup.registration import (
     write_client_install_plan,
 )
 from archex.integrations.claude_code_annotate_hook import HOOK_MATCHER
-from archex.integrations.codex_annotate_hook import HOOK_MATCHER as CODEX_HOOK_MATCHER
 from archex.integrations.codex_post_edit_hook import POST_EDIT_MATCHER as CODEX_POST_EDIT_MATCHER
 from archex.integrations.post_edit_hook import POST_EDIT_MATCHER
 from archex.integrations.session_hook import SESSION_START_MATCHER
@@ -140,10 +148,6 @@ __all__ = [
 #: find and replace our own entry without disturbing any other hook the user
 #: has configured for the same matcher group.
 _HOOK_ARGS_MARKER = "archex.integrations.claude_code_annotate_hook"
-
-#: Substring in the Codex ``PostToolUse`` hook command that identifies it as the
-#: archex search-annotation hook.
-_CODEX_HOOK_ARGS_MARKER = "archex.integrations.codex_annotate_hook"
 
 #: The retired Claude Code ``PreToolUse`` pattern-search hook. Install and
 #: remove both strip any handler carrying this marker from ``PreToolUse``, so a
@@ -268,17 +272,6 @@ def write_ts_hook_plan(plan: TsHookInstallPlan) -> Path:
     return target
 
 
-def write_codex_hook_plan(plan: CodexHookInstallPlan) -> Path:
-    target = plan.target_path
-    existing = target.read_text(encoding="utf-8") if target.exists() else ""
-    updated = _apply_codex_hook_block(existing, plan)
-    if updated == existing:
-        return target
-    target.parent.mkdir(parents=True, exist_ok=True)
-    write_config_atomic(target, updated)
-    return target
-
-
 def render_hook_install_preview(plan: HookInstallPlan) -> str:
     if isinstance(plan, TsHookInstallPlan):
         return render_ts_hook_preview(plan)
@@ -380,39 +373,6 @@ def _ts_hook_coverage(client: ClientName) -> str:
         )
     finder = "glob" if client == "omp" else "find"
     return f"grep, {finder}, and bash search results: appends one line per indexed code unit hit"
-
-
-def render_codex_hook_preview(plan: CodexHookInstallPlan) -> str:
-    target = plan.target_path
-    existing = target.read_text(encoding="utf-8") if target.exists() else ""
-    updated = _apply_codex_hook_block(existing, plan)
-    action_label = "Install" if plan.action == "install" else "Remove"
-    lines = [
-        f"Client: {plan.client}",
-        f"Scope: {plan.scope}",
-        f"Target: {target}",
-        (
-            f"Action: {action_label} PostToolUse search-annotation hook "
-            f"(matcher: {CODEX_HOOK_MATCHER!r}; appends the indexed code units each hit "
-            "falls in to shell search results) and remove the retired archex PreToolUse "
-            "diagnostics block"
-            if plan.action == "install"
-            else f"Action: {action_label} the PostToolUse search-annotation hook "
-            f"(matcher: {CODEX_HOOK_MATCHER!r}) and any retired archex PreToolUse "
-            "diagnostics block"
-        ),
-    ]
-    if updated == existing:
-        lines.append(
-            "No change: hook already in the requested state (idempotent no-op)."
-            if plan.action == "install"
-            else "No change: no archex hook is installed."
-        )
-    else:
-        lines.append("Dry run. Re-run without --dry-run to write this config.")
-    lines.append("")
-    lines.append(updated)
-    return "\n".join(lines) + "\n"
 
 
 def hook_settings_path(repo_root: Path, scope: ClientScope) -> Path:
@@ -1154,178 +1114,11 @@ export const ArchexHookPlugin: Plugin = async ({ directory }) => {
 """
 
 
-#: Marker comments delimiting the archex-owned block appended to Codex's
-#: ``config.toml`` -- lets install/remove find and replace exactly the block
-#: this installer wrote (and nothing else a user configured in the same
-#: file) without parsing/re-serializing TOML.
-_CODEX_HOOK_BLOCK_START = "# archex:codex-annotate-hook start"
-_CODEX_HOOK_BLOCK_END = "# archex:codex-annotate-hook end"
-
-#: Markers of the retired diagnostics-only ``PreToolUse`` block. It is stripped
-#: on install and remove so an upgrade leaves exactly one archex search hook.
-_CODEX_LEGACY_HOOK_BLOCK_START = "# archex:codex-hook start"
-_CODEX_LEGACY_HOOK_BLOCK_END = "# archex:codex-hook end"
-
-#: Codex kills a hook command after this many seconds. The hook enforces its own
-#: 0.5 s budget (``ARCHEX_HOOK_TIMEOUT_SECONDS``); this is only the outer bound,
-#: and Codex clamps it to at least one second.
-_CODEX_HOOK_TIMEOUT_SECONDS = 2
-
-
-def render_codex_hook_block() -> str:
-    command = f"{sys.executable} -m {_CODEX_HOOK_ARGS_MARKER}"
-    return (
-        "\n".join(
-            [
-                _CODEX_HOOK_BLOCK_START,
-                "[[hooks.PostToolUse]]",
-                f'matcher = "{CODEX_HOOK_MATCHER}"',
-                "",
-                "[[hooks.PostToolUse.hooks]]",
-                'type = "command"',
-                f'command = "{command}"',
-                f"timeout = {_CODEX_HOOK_TIMEOUT_SECONDS}",
-                _CODEX_HOOK_BLOCK_END,
-            ]
-        )
-        + "\n"
-    )
-
-
-def _strip_codex_hook_block(existing: str) -> str:
-    """Remove the annotation hook block and the retired diagnostics-only block."""
-    without_legacy = strip_marked_toml_block(
-        existing, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
-    )
-    return strip_marked_toml_block(without_legacy, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
-
-
-def _apply_codex_hook_block(existing: str, plan: CodexHookInstallPlan) -> str:
-    if plan.action == "remove":
-        return _strip_codex_hook_block(existing)
-    # A block is replaced where it sits (the annotation block on a reinstall,
-    # else the retired one on an upgrade), so neighbouring archex blocks never
-    # reorder; only a first install appends.
-    own = marked_block_span(existing, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END)
-    legacy = marked_block_span(
-        existing, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
-    )
-    if own is None and legacy is not None:
-        return existing[: legacy[0]] + plan.block_content + existing[legacy[1] :]
-    upserted = upsert_marked_toml_block(
-        existing, plan.block_content, _CODEX_HOOK_BLOCK_START, _CODEX_HOOK_BLOCK_END
-    )
-    return strip_marked_toml_block(
-        upserted, _CODEX_LEGACY_HOOK_BLOCK_START, _CODEX_LEGACY_HOOK_BLOCK_END
-    )
-
-
-#: Substring in a Cursor hook entry's ``command`` string that identifies it
-#: as archex-owned, so install/remove can find and replace our own entry
-#: without disturbing any other ``beforeSubmitPrompt`` hook the user has
-#: configured in the same file.
-_CURSOR_HOOK_COMMAND_MARKER = "archex.integrations.cursor_hook"
-
-
-def cursor_hook_settings_path(repo_root: Path, scope: ClientScope) -> Path:
-    return (
-        repo_root / ".cursor" / "hooks.json"
-        if scope == "project"
-        else Path.home() / ".cursor" / "hooks.json"
-    )
-
-
 def _render_cursor_hook_entry() -> dict[str, object]:
     return {
         "command": f"{sys.executable} -m archex.integrations.cursor_hook",
         "timeout": 1,
     }
-
-
-def _is_archex_cursor_hook_entry(entry: object) -> bool:
-    if not isinstance(entry, dict):
-        return False
-    command = cast("dict[str, object]", entry).get("command")
-    return isinstance(command, str) and _CURSOR_HOOK_COMMAND_MARKER in command
-
-
-def _apply_cursor_hook_action(
-    payload: dict[str, object], plan: CursorHookInstallPlan
-) -> tuple[dict[str, object], bool]:
-    """Return ``(updated_payload, changed)`` without mutating ``payload``.
-
-    Both install and remove start by stripping every archex-owned entry out
-    of ``hooks.beforeSubmitPrompt``, then install re-adds exactly one
-    canonical entry -- a second install (even after ``sys.executable``
-    changed, e.g. a venv move) converges on the same representation instead
-    of accumulating duplicates. This never reads or writes any other key
-    under ``hooks`` (in particular, never ``hooks.beforeReadFile``).
-    """
-    updated = copy.deepcopy(payload)
-    if plan.action == "install":
-        updated.setdefault("version", 1)
-    hooks_root_obj = updated.get("hooks")
-    if hooks_root_obj is None:
-        hooks_root: dict[str, object] = {}
-        updated["hooks"] = hooks_root
-    elif isinstance(hooks_root_obj, dict):
-        hooks_root = cast("dict[str, object]", hooks_root_obj)
-    else:
-        raise ValueError("expected object at 'hooks' in existing hooks.json")
-
-    before_submit_obj = hooks_root.get("beforeSubmitPrompt")
-    if before_submit_obj is None:
-        before_submit: list[object] = []
-    elif isinstance(before_submit_obj, list):
-        before_submit = cast("list[object]", before_submit_obj)
-    else:
-        raise ValueError("expected array at 'hooks.beforeSubmitPrompt' in existing hooks.json")
-
-    kept = [entry for entry in before_submit if not _is_archex_cursor_hook_entry(entry)]
-    merged = [*kept, plan.hook_entry] if plan.action == "install" else kept
-
-    if merged:
-        hooks_root["beforeSubmitPrompt"] = merged
-    else:
-        hooks_root.pop("beforeSubmitPrompt", None)
-    if not hooks_root:
-        updated.pop("hooks", None)
-
-    return updated, updated != payload
-
-
-def write_cursor_hook_plan(plan: CursorHookInstallPlan) -> Path:
-    target = plan.target_path
-    existing = read_json_object(target) if target.exists() else {}
-    updated, changed = _apply_cursor_hook_action(existing, plan)
-    if not changed:
-        return target
-    target.parent.mkdir(parents=True, exist_ok=True)
-    write_config_atomic(target, json.dumps(updated, indent=2) + "\n")
-    return target
-
-
-def render_cursor_hook_preview(plan: CursorHookInstallPlan) -> str:
-    existing = read_json_object(plan.target_path) if plan.target_path.exists() else {}
-    updated, changed = _apply_cursor_hook_action(existing, plan)
-    action_label = "Install" if plan.action == "install" else "Remove"
-    lines = [
-        f"Client: {plan.client}",
-        f"Scope: {plan.scope}",
-        f"Target: {plan.target_path}",
-        f"Action: {action_label} beforeSubmitPrompt hook (prompt-level, diagnostics-only)",
-    ]
-    if not changed:
-        lines.append(
-            "No change: hook already in the requested state (idempotent no-op)."
-            if plan.action == "install"
-            else "No change: no archex hook is installed."
-        )
-    else:
-        lines.append("Dry run. Re-run without --dry-run to write this config.")
-    lines.append("")
-    lines.append(json.dumps(updated, indent=2))
-    return "\n".join(lines) + "\n"
 
 
 def _is_archex_hook_entry(entry: object, marker: str = _HOOK_ARGS_MARKER) -> bool:
