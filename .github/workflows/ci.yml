@@ -5,6 +5,8 @@ on:
     branches: ["**"]
   pull_request:
     branches: [main]
+    # Retargeting a stacked PR changes the merge context without changing its head.
+    types: [opened, synchronize, reopened, edited]
 
 # Declared explicitly rather than inherited: this workflow runs on every pull
 # request, and an omitted `permissions` block silently takes the repository's
@@ -21,7 +23,7 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -75,7 +77,7 @@ jobs:
     # path end-to-end; a missing core dependency fails here.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
