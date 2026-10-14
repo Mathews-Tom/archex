@@ -333,7 +333,7 @@ def write_client_install_plan(plan: ClientInstallPlan) -> Path:
                 new_content = plan.content
         else:
             new_content = plan.content
-        target.write_text(new_content, encoding="utf-8")
+        write_config_atomic(target, new_content)
         return target
 
     key = _json_server_key(plan.client)
@@ -373,7 +373,7 @@ def write_client_install_plan(plan: ClientInstallPlan) -> Path:
     schema = _CLIENT_SCHEMA.get(plan.client)
     if schema is not None and "$schema" not in existing_payload:
         existing_payload["$schema"] = schema
-    target.write_text(json.dumps(existing_payload, indent=2) + "\n", encoding="utf-8")
+    write_config_atomic(target, json.dumps(existing_payload, indent=2) + "\n")
     return target
 
 
@@ -413,7 +413,7 @@ def append_agent_guidance(agent_file: Path) -> bool:
     else:
         agent_file.parent.mkdir(parents=True, exist_ok=True)
         new_content = block
-    agent_file.write_text(new_content, encoding="utf-8")
+    write_config_atomic(agent_file, new_content)
     return True
 
 
@@ -612,7 +612,7 @@ def write_hook_install_plan(plan: HookInstallPlan) -> Path:
     if not changed:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+    write_config_atomic(target, json.dumps(updated, indent=2) + "\n")
     return target
 
 
@@ -624,7 +624,7 @@ def write_session_primer_install_plan(plan: ClaudeCodeSessionPrimerInstallPlan) 
     if not changed:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+    write_config_atomic(target, json.dumps(updated, indent=2) + "\n")
     return target
 
 
@@ -637,7 +637,7 @@ def _write_ts_hook_plan(plan: TsHookInstallPlan) -> Path:
     existing = target.read_text(encoding="utf-8") if target.exists() else None
     if existing != plan.module_content:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(plan.module_content, encoding="utf-8")
+        write_config_atomic(target, plan.module_content)
     return target
 
 
@@ -648,7 +648,7 @@ def _write_codex_hook_plan(plan: CodexHookInstallPlan) -> Path:
     if updated == existing:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(updated, encoding="utf-8")
+    write_config_atomic(target, updated)
     return target
 
 
@@ -1713,7 +1713,7 @@ def _write_cursor_hook_plan(plan: CursorHookInstallPlan) -> Path:
     if not changed:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+    write_config_atomic(target, json.dumps(updated, indent=2) + "\n")
     return target
 
 
@@ -2195,7 +2195,7 @@ def write_post_edit_hook_install_plan(plan: PostEditHookInstallPlan) -> Path:
         existing = target.read_text(encoding="utf-8") if target.exists() else None
         if existing != plan.module_content:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(plan.module_content, encoding="utf-8")
+            write_config_atomic(target, plan.module_content)
         return target
     if isinstance(plan, CodexPostEditHookInstallPlan):
         target = plan.target_path
@@ -2204,7 +2204,7 @@ def write_post_edit_hook_install_plan(plan: PostEditHookInstallPlan) -> Path:
         if updated_toml == existing_toml:
             return target
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(updated_toml, encoding="utf-8")
+        write_config_atomic(target, updated_toml)
         return target
     target = plan.target_path
     existing_json = _read_json_object(target) if target.exists() else {}
@@ -2212,7 +2212,7 @@ def write_post_edit_hook_install_plan(plan: PostEditHookInstallPlan) -> Path:
     if not changed:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(updated_json, indent=2) + "\n", encoding="utf-8")
+    write_config_atomic(target, json.dumps(updated_json, indent=2) + "\n")
     return target
 
 
@@ -3217,7 +3217,7 @@ def write_statusline_install_plan(plan: StatusInstallPlan) -> Path:
         existing_module = target.read_text(encoding="utf-8") if target.exists() else None
         if existing_module != plan.module_content:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(plan.module_content, encoding="utf-8")
+            write_config_atomic(target, plan.module_content)
         return target
 
     target = plan.target_path
@@ -3232,7 +3232,7 @@ def write_statusline_install_plan(plan: StatusInstallPlan) -> Path:
             plan.script_path.read_text(encoding="utf-8") if plan.script_path.exists() else None
         )
         if existing_script != plan.script_content:
-            plan.script_path.write_text(plan.script_content, encoding="utf-8")
+            write_config_atomic(plan.script_path, plan.script_content)
         plan.script_path.chmod(0o755)
     elif plan.script_path.exists() and _is_archex_statusline_script(plan.script_path):
         plan.script_path.unlink()
@@ -3240,7 +3240,7 @@ def write_statusline_install_plan(plan: StatusInstallPlan) -> Path:
     if not changed:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+    write_config_atomic(target, json.dumps(updated, indent=2) + "\n")
     return target
 
 
