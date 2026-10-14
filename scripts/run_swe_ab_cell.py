@@ -102,10 +102,8 @@ from archex.benchmark.swe_ab import (
     system_prompt_violations,
     tool_fingerprint,
 )
-from archex.client_setup import (
-    _OMP_SCHEMA,  # pyright: ignore[reportPrivateUsage]
-    render_annotation_hook_module,
-)
+from archex.client_setup import render_annotation_hook_module
+from archex.client_setup.registration import _OMP_SCHEMA  # pyright: ignore[reportPrivateUsage]
 from archex.reporting import count_tokens
 
 if TYPE_CHECKING:
