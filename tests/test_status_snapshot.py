@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 from archex.post_edit import build_event, mark_synchronized, record_edit
 from archex.project import ProjectState, init_project, reset_project
@@ -592,3 +593,54 @@ def test_clearing_the_snapshot_is_idempotent(tmp_path: Path) -> None:
     clear_snapshot(repo)
 
     assert read_status(repo).state is StatusState.MISSING
+
+
+def test_index_snapshot_failure_is_diagnostic_and_does_not_break_the_store(
+    python_simple_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from archex.api import index_repository
+    from archex.models import Config, RepoSource
+
+    init_project(python_simple_repo)
+    cache_dir = ProjectState(repo_root=python_simple_repo).project_dir
+    diagnostics = tmp_path / "diagnostics.jsonl"
+    monkeypatch.setenv("ARCHEX_HOOK_DIAGNOSTICS_LOG", str(diagnostics))
+
+    with (
+        patch("archex.api.index_revision_from_store", side_effect=RuntimeError("revision failed")),
+        index_repository(
+            RepoSource(local_path=str(python_simple_repo)),
+            config=Config(cache_dir=str(cache_dir)),
+        ) as store,
+    ):
+        assert any(chunk.symbol_name == "login" for chunk in store.get_chunks())
+
+    entries = [json.loads(line) for line in diagnostics.read_text().splitlines()]
+    assert [entry["kind"] for entry in entries] == ["status_snapshot_publish_error"]
+    assert entries[0]["detail"] == "RuntimeError('revision failed')"
+    assert entries[0]["cwd"] == str(cache_dir)
+
+
+def test_watch_stamp_failure_is_diagnostic_and_non_fatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from archex.integrations.mcp import (
+        _record_watch_observation,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    repo = _repo(tmp_path / "repo")
+    _publish(repo)
+    diagnostics = tmp_path / "diagnostics.jsonl"
+    monkeypatch.setenv("ARCHEX_HOOK_DIAGNOSTICS_LOG", str(diagnostics))
+
+    with patch(
+        "archex.status_snapshot.publish_status_watch_observation",
+        side_effect=RuntimeError("watch stamp failed"),
+    ):
+        _record_watch_observation(repo)
+
+    entries = [json.loads(line) for line in diagnostics.read_text().splitlines()]
+    assert [entry["kind"] for entry in entries] == ["status_snapshot_watch_stamp_error"]
+    assert entries[0]["detail"] == "RuntimeError('watch stamp failed')"
+    assert entries[0]["cwd"] == str(repo)
+    assert read_status(repo, now=_NOW).watch_state is WatchState.UNOBSERVED

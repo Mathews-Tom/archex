@@ -147,8 +147,8 @@ def test_full_index_closes_ephemeral_store_on_mid_pipeline_exception(
 ) -> None:
     """A pipeline failure after the ephemeral store opens must not leak its scratch dir.
 
-    _full_index() builds its IndexStore under a fresh mkdtemp() directory with
-    delete_dir_on_close=True; that cleanup only fires on close(), so a failure
+    _full_index() builds its IndexStore under a fresh scratch directory via
+    IndexStore.scratch(); that cleanup only fires on close(), so a failure
     anywhere in the pipeline between construction and the normal return must
     still close (and thus clean up) the store rather than leaving it open.
     """

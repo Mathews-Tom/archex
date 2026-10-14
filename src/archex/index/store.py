@@ -6,6 +6,7 @@ import json
 import logging
 import shutil
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -241,17 +242,12 @@ class IndexStore:
         self,
         db_path: str | Path,
         *,
-        delete_dir_on_close: bool = False,
         check_same_thread: bool = True,
     ) -> None:
         """Open (creating if absent) the SQLite store at `db_path`.
 
-        `delete_dir_on_close` opts into deleting `db_path`'s *entire parent
-        directory* — not just the files this store wrote — when `close()`
-        runs. Only pass it for a `db_path` under a directory dedicated
-        exclusively to this store (e.g. a fresh `tempfile.mkdtemp()`); a
-        shared or otherwise meaningful directory would have its other
-        contents silently deleted too.
+        Closing the store never deletes anything on disk; use `scratch()` for
+        a store that owns a throwaway directory.
 
         `check_same_thread=False` lets the returned connection be used from
         threads other than the one that opened it. Only pass it when the
@@ -261,7 +257,7 @@ class IndexStore:
         flag, which only disables Python's own thread-affinity check.
         """
         self._db_path = str(db_path)
-        self._delete_dir_on_close = delete_dir_on_close
+        self._owned_scratch_dir: Path | None = None
         self._conn = sqlite3.connect(self._db_path, check_same_thread=check_same_thread)
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
@@ -270,6 +266,23 @@ class IndexStore:
         except Exception:
             self._conn.close()
             raise
+
+    @classmethod
+    def scratch(cls, filename: str = "index.db", *, check_same_thread: bool = True) -> IndexStore:
+        """Open a store in a fresh temporary directory that `close()` removes.
+
+        The directory is created here and recorded as owned, so `close()`
+        deletes exactly that directory and nothing else. If construction
+        fails the directory is removed before the error propagates.
+        """
+        scratch_dir = Path(tempfile.mkdtemp())
+        try:
+            store = cls(scratch_dir / filename, check_same_thread=check_same_thread)
+        except BaseException:
+            shutil.rmtree(scratch_dir)
+            raise
+        store._owned_scratch_dir = scratch_dir
+        return store
 
     def create_schema(self) -> None:
         cur = self._conn.cursor()
@@ -1232,7 +1245,7 @@ class IndexStore:
     @property
     def ephemeral(self) -> bool:
         """True when closing this store deletes its backing scratch directory."""
-        return self._delete_dir_on_close
+        return self._owned_scratch_dir is not None
 
     @property
     def vector_index_path(self) -> Path:
@@ -1245,8 +1258,8 @@ class IndexStore:
 
     def close(self) -> None:
         self._conn.close()
-        if self._delete_dir_on_close:
-            scratch_dir = self.db_path.parent
+        scratch_dir = self._owned_scratch_dir
+        if scratch_dir is not None:
             try:
                 shutil.rmtree(scratch_dir)
             except OSError:

@@ -246,8 +246,8 @@ def _full_index(
         t_idx = time.perf_counter()
         from archex.index.delta import compute_file_states
 
-        db_path = Path(tempfile.mkdtemp()) / "index.db"
-        store = IndexStore(db_path, delete_dir_on_close=True)
+        store = IndexStore.scratch()
+        db_path = store.db_path
         try:
             bm25 = BM25Index(
                 store,
@@ -474,6 +474,7 @@ def _publish_project_status(store: IndexStore, generation_id: str | None, cache_
     directory to write into and no repository for a status surface to
     describe.
     """
+    from archex.integrations.diagnostics import log_diagnostic
     from archex.serve.generation import read_generation_id
     from archex.status_snapshot import project_repo_root, publish_status, republish_measurement
 
@@ -508,8 +509,8 @@ def _publish_project_status(store: IndexStore, generation_id: str | None, cache_
             working_tree_dirty=signature not in {"", "clean"},
             reindex_required=reindex_required,
         )
-    except Exception:  # noqa: BLE001 - a status write never breaks indexing
-        logger.debug("could not publish cached status snapshot", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - a status write never breaks indexing
+        log_diagnostic("status_snapshot_publish_error", detail=repr(exc), cwd=cache_dir)
 
 
 @dataclass(frozen=True)
@@ -2487,8 +2488,8 @@ def query(
         total_repo_tokens = _total_chunk_tokens(all_chunks)
         effective_budget = _compute_dynamic_budget(total_repo_tokens, token_budget, intent_budget)
 
-        db_path = Path(tempfile.mkdtemp()) / "index.db"
-        store = IndexStore(db_path, delete_dir_on_close=True)
+        store = IndexStore.scratch()
+        db_path = store.db_path
         try:
             chunk_surrogates = (
                 build_chunk_surrogates(

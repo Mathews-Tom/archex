@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -562,6 +564,45 @@ def test_install_client_discovers_agent_files(
 
     content = agent_file.read_text(encoding="utf-8")
     assert "<!-- archex:mcp-guidance start -->" in content
+
+
+def test_install_client_writes_through_a_symlinked_config_and_keeps_its_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `~/.claude.json` is often a dotfile-manager symlink, and Claude Code keeps
+    # it private: the install must update the referent in place, not swap the
+    # link for a new world-readable file.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    dotfiles = tmp_path / "dotfiles"
+    dotfiles.mkdir()
+    referent = dotfiles / "claude.json"
+    referent.write_text(
+        json.dumps({"mcpServers": {"other": {"command": "other"}}, "numStartups": 7}),
+        encoding="utf-8",
+    )
+    referent.chmod(0o600)
+    link = home / ".claude.json"
+    link.symlink_to(referent)
+
+    previous_umask = os.umask(0o022)
+    try:
+        result = CliRunner().invoke(cli, ["install-client", "claude-code"])
+    finally:
+        os.umask(previous_umask)
+
+    assert result.exit_code == 0, result.output
+    assert link.is_symlink()
+    assert link.readlink() == referent
+    assert not referent.is_symlink()
+    assert stat.S_IMODE(referent.stat().st_mode) == 0o600
+    payload = json.loads(referent.read_text(encoding="utf-8"))
+    assert payload["mcpServers"]["archex"] == {"command": "archex", "args": ["mcp"]}
+    assert payload["mcpServers"]["other"] == {"command": "other"}
+    assert payload["numStartups"] == 7
+    assert sorted(entry.name for entry in home.iterdir()) == [".claude.json"]
+    assert sorted(entry.name for entry in dotfiles.iterdir()) == ["claude.json"]
 
 
 # ---------------------------------------------------------------------------
