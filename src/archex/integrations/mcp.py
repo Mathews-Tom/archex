@@ -2765,12 +2765,13 @@ def _record_watch_observation(repo_path: Path) -> None:
     because nothing changed, so `unobserved` means "no refresh seen
     recently", never "no watcher is running".
     """
+    from archex.integrations.diagnostics import log_diagnostic
     from archex.status_snapshot import publish_status_watch_observation
 
     try:
         publish_status_watch_observation(repo_path)
-    except Exception:  # noqa: BLE001 - watch refresh must survive a status write
-        logger.debug("could not stamp watch observation into status snapshot", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - watch refresh must survive a status write
+        log_diagnostic("status_snapshot_watch_stamp_error", detail=repr(exc), cwd=str(repo_path))
 
 
 def _start_index_watch(repo_path: Path, debounce_ms: int) -> Any:
