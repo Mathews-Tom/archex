@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-15
+
+This release makes client-config installation atomic, reports unexpected status snapshot failures in the diagnostics log, and gives temporary index stores explicit scratch-directory ownership. Client setup is split into per-client modules without changing its existing public imports or generated content. The R3x SWE A/B harness gains deterministic sampling, pre-registered analysis, provider-selected campaigns, and an MCP arm; these are harness capabilities, not evidence of token savings or improved solve rates.
+
+Re-run `archex install-client <host>` with the hook and status-line options you use to regenerate client files through the atomic writer. Consumers that passed `delete_dir_on_close` to `IndexStore` must use `IndexStore.scratch()` for an owned temporary store; caller-supplied directories are never deleted by a plain `IndexStore(path)`.
+
 ### Added
 
 - **R3x population sampler.** `scripts/swe_ab_sample.py` draws the Stage 1 (24 tasks) and Stage 2 SWE-bench Pro V2 samples deterministically: a seed fixed in code, a sha256 rank order within each repository, Stage 1 at two per repository plus one for the two largest, Stage 2 by largest-remainder allocation and disjoint from Stage 1. Stage 2 takes `--stage2-tasks N` (at least 100, recorded in the manifest); the pre-registered size is max(100, ⌈max(370, n(m)) / k⌉) for the k configurations that clear the Stage 1 solve-rate floor and the m primary arms kept after the adoption gates (209 for k = 3, m = 3). `--without-hc` and `--without-m` drop an arm from Stage 2. Instances that fail Stage 0 validity are replaced by the next valid instance of the same repository; the tool emits the suite's plan JSON, a manifest of every walked instance, and the Stage 0 instance list.
