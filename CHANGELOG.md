@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-08
+
+This release adds opt-in accounting for saved OMP usage receipts and restores the configured MCP tool surface for modern stateless discovery. It measures host-reported usage without claiming whole-session spend, provider billing, or causal token savings.
+
+### Added
+
+- **Explicit OMP receipt imports.** `archex metrics import-session SESSION [SOURCE]` imports numeric usage from OMP v3 JSONL files after local metrics are enabled. Bounded regular-file reads retain no transcript content, receipt paths, or raw host session identifiers. Re-imports replace the same snapshot without double-counting, stale snapshots are rejected, and forked sessions exclude inherited pre-fork receipts.
+- **Host-usage reports.** `archex metrics sessions [SOURCE] --global --since 7d --format text|json` reports saved main-session assistant and auxiliary `model_usage` receipts, excluding subagents. Missing counters remain unknown; costs are host estimates, durations sum request times, and repository/time-window retrieval activity is not exact session attribution or causal savings. The additive metrics schema v3 table follows the existing recording policy and 90-day retention.
+
+### Fixed
+
+- **Stateless MCP tool discovery.** Modern protocol sessions advertise the complete configured tool scope immediately instead of depending on a legacy list-change notification they cannot receive. Legacy handshake disclosure and explicit tool scoping remain unchanged. A real Claude Code 2.1.319 local-provider smoke reproduced two schemas in all four requests before the fix and verified all 20 configured schemas in all four requests afterward; this establishes reachability, not provider cache savings.
+
 ## [0.35.0] - 2026-10-15
 
 This release makes client-config installation atomic, reports unexpected status snapshot failures in the diagnostics log, and gives temporary index stores explicit scratch-directory ownership. Client setup is split into per-client modules without changing its existing public imports or generated content. The R3x SWE A/B harness gains deterministic sampling, pre-registered analysis, provider-selected campaigns, and an MCP arm; these are harness capabilities, not evidence of token savings or improved solve rates.
