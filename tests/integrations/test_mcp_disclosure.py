@@ -490,3 +490,34 @@ class TestTheAcceptanceCommandMeasuresTheShippedDefault:
         assert report["gated"] is False
         assert report["scope"] == "core"
         assert report["tool_count"] == len(TOOL_SCOPE_PROFILES["core"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", [None, frozenset({"query_repo", "get_symbol"})])
+async def test_stateless_discovery_keeps_the_complete_scoped_surface_stable(
+    scope: frozenset[str] | None,
+) -> None:
+    from mcp import types as mcp_types
+    from mcp.server.context import ServerRequestContext
+
+    server = build_server(disclosure=True, tool_names=scope)
+    list_entry = server.get_request_handler("tools/list")
+    call_entry = server.get_request_handler("tools/call")
+    assert list_entry is not None and call_entry is not None
+    session: Any = object()
+    context = ServerRequestContext(
+        session=session, lifespan_context={}, protocol_version="2026-07-28", method="tools/list"
+    )
+    before = await list_entry.handler(context, None)
+    expected = set(ALL_TOOL_NAMES) if scope is None else set(scope)
+    assert {tool.name for tool in before.tools} == expected
+    with patch("archex.integrations.mcp._run_mcp_tool", return_value="retrieved context"):
+        result = await call_entry.handler(
+            context,
+            mcp_types.CallToolRequestParams(
+                name="query_repo", arguments={"repo_url": ".", "question": "q"}
+            ),
+        )
+    assert result.is_error is not True
+    after = await list_entry.handler(context, None)
+    assert {tool.name for tool in after.tools} == expected

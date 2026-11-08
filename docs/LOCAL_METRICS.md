@@ -222,6 +222,30 @@ This is an offline benchmark number, not a per-event ledger metric: it is never 
 | Detailed traces | Off by default | Local-only, opt-in on top of metrics enablement. |
 | Hosted upload | Not available | Reserved for possible future work, not implemented in v1. |
 
+## Passive OMP session accounting
+
+Import an explicitly chosen OMP v3 saved session after enabling local metrics:
+
+```bash
+archex metrics enable
+archex metrics import-session /path/to/session.jsonl /path/to/repo
+archex metrics sessions /path/to/repo
+archex metrics sessions --global --format json
+```
+
+This is a manual receipt import, not background transcript discovery or a new hook. The source argument selects the repository to associate with the receipt; it defaults to the current directory. The importer streams the supplied regular JSONL file (maximum 256 MiB, maximum 16 MiB per entry), projects session identity/timestamps and numeric usage/duration fields, and retains no messages, tool arguments, transcript paths, raw host session IDs, or source content. The machine-local repository registry still stores the selected repository path, as documented above.
+
+Session rows live in the existing `~/.archex/usage.sqlite` ledger and are included in `metrics export`. A repository-salted opaque session key makes re-importing a growing saved session replace its snapshot rather than double-count usage. An older, less complete snapshot cannot overwrite a newer one. Counts cover saved main-session assistant requests and off-transcript `model_usage` receipts, including failed requests and abandoned branches. Forked sessions exclude copied requests predating the fork's header, so importing both parent and fork does not charge inherited requests twice. Subagent usage in tool results or asynchronous jobs is **excluded**; the JSON `usage_scope` and text report state that these are not whole-session expenditure totals.
+
+Reports keep these quantities separate:
+
+- OMP-normalized fresh input, output, cache-read, cache-write, and total tokens, summed over the covered requests. A missing field on any covered request makes its aggregate unknown (`null` in JSON), not zero or a partial total.
+- `host_cost_estimate_usd`: the sum of OMP's cost estimates on those receipts, not OMP's total session estimate or a provider invoice. No prices are inferred or substituted, and a reported zero does not establish free billed usage.
+- `request_duration_ms`: the sum of host-reported request durations, not session wall time or human waiting time. Missing durations remain unknown; `model_usage` entries do not supply durations.
+- `archex_activity`: existing retrieval events for the selected repository within the session's observed start/last-covered-request timestamp window. This is explicitly **not session attribution**: concurrent sessions can share that window, disabled/expired metrics leave gaps, and hook-only activity is not in the usage-events ledger. These context-response tokens are never subtracted from host tokens or cost to manufacture savings.
+
+The import command requires metrics enablement; `ARCHEX_USAGE_METRICS=off` prevents imports even after persisted enablement. No model or network call is made. Malformed receipts fail explicitly without importing a partial session. Imported snapshots are retained for 90 days after their last accepted import, using the existing raw-event retention setting, and `metrics delete --all` removes them with the rest of the ledger.
+
 ## Detailed traces
 
 Detailed traces are local-only and opt-in.
@@ -300,6 +324,7 @@ record_usage_event(
 
 Current local retention policy:
 - raw anonymous events: 90 days
+- imported host-session snapshots: 90 days after import
 - detailed traces: 14 days
 - daily aggregates: retained indefinitely
 

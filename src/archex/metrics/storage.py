@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DEFAULT_RAW_EVENT_RETENTION_DAYS = 90
 DEFAULT_TRACE_RETENTION_DAYS = 14
 
@@ -155,6 +155,33 @@ def _create_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_usage_traces_expires_at
             ON usage_traces(expires_at);
+
+        CREATE TABLE IF NOT EXISTS host_sessions (
+            session_key TEXT PRIMARY KEY,
+            repo_id TEXT NOT NULL REFERENCES repos(repo_id) ON DELETE CASCADE,
+            host TEXT NOT NULL CHECK (host = 'omp'),
+            started_at TEXT NOT NULL,
+            last_event_at TEXT NOT NULL,
+            imported_at TEXT NOT NULL,
+            request_count INTEGER NOT NULL CHECK (request_count >= 0),
+            receipt_count INTEGER NOT NULL CHECK (receipt_count >= 0),
+            input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+            output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+            cache_read_tokens INTEGER CHECK (cache_read_tokens IS NULL OR cache_read_tokens >= 0),
+            cache_write_tokens INTEGER CHECK (
+                cache_write_tokens IS NULL OR cache_write_tokens >= 0
+            ),
+            total_tokens INTEGER CHECK (total_tokens IS NULL OR total_tokens >= 0),
+            host_cost_estimate_usd REAL CHECK (
+                host_cost_estimate_usd IS NULL OR host_cost_estimate_usd >= 0
+            ),
+            request_duration_ms REAL CHECK (
+                request_duration_ms IS NULL OR request_duration_ms >= 0
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_host_sessions_repo_time
+            ON host_sessions(repo_id, last_event_at);
 
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,

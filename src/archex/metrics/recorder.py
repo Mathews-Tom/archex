@@ -314,6 +314,7 @@ class MetricsRecorder:
         raw_cutoff = _format_dt(current - timedelta(days=policy.raw_event_retention_days))
         conn.execute("DELETE FROM usage_traces WHERE expires_at < ?", (_format_dt(current),))
         conn.execute("DELETE FROM usage_events WHERE occurred_at < ?", (raw_cutoff,))
+        conn.execute("DELETE FROM host_sessions WHERE imported_at < ?", (raw_cutoff,))
 
 
 def _format_dt(value: datetime) -> str:

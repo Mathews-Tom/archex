@@ -11,6 +11,7 @@ from typing import Any, cast
 from archex.metrics.health import MetricsHealth, read_metrics_health
 from archex.metrics.policy import MetricsPolicy, resolve_metrics_policy
 from archex.metrics.recorder import MetricsRecorder
+from archex.metrics.sessions import session_payload
 from archex.metrics.storage import MetricsStore
 
 
@@ -121,6 +122,39 @@ class MetricsReporter:
             "health_warning": health.warning,
         }
 
+    def sessions(
+        self,
+        *,
+        source: str | Path | None = None,
+        global_scope: bool = False,
+        since: str = "7d",
+    ) -> dict[str, Any]:
+        """Report observed host usage separately from same-repo/window archex activity."""
+        window = _window(since)
+        MetricsRecorder(self._db_path).prune()
+        policy = resolve_metrics_policy(db_path=self._db_path)
+        with self._store.connect() as conn:
+            repo_ids = _repo_ids(conn, source=source, global_scope=global_scope, workspace=None)
+            clauses = ["s.last_event_at >= ?"]
+            params: list[object] = [window.cutoff]
+            if repo_ids is not None:
+                clauses.append(f"s.repo_id IN ({_placeholders(repo_ids)})")
+                params.extend(repo_ids)
+            rows = conn.execute(
+                f"""
+                SELECT s.* FROM host_sessions s WHERE {" AND ".join(clauses)}
+                ORDER BY s.last_event_at DESC, s.session_key
+                """,
+                params,
+            ).fetchall()
+            sessions = [session_payload(conn, row) for row in rows]
+        return {
+            "recording_enabled": policy.metrics_enabled,
+            "window": window.label,
+            "session_count": len(sessions),
+            "sessions": sessions,
+        }
+
     def export(
         self,
         *,
@@ -158,6 +192,14 @@ class MetricsReporter:
                 dict(row)
                 for row in conn.execute("SELECT * FROM usage_traces ORDER BY expires_at, trace_id")
             ]
+            sessions = [
+                session_payload(conn, row)
+                for row in conn.execute(
+                    "SELECT * FROM host_sessions WHERE last_event_at >= ? "
+                    "ORDER BY last_event_at, session_key",
+                    (window.cutoff,),
+                )
+            ]
         return {
             "recording_enabled": policy.metrics_enabled,
             "trace_enabled": policy.trace_enabled,
@@ -168,6 +210,7 @@ class MetricsReporter:
             "usage_events": events,
             "daily_usage": daily,
             "usage_traces": traces,
+            "host_sessions": sessions,
             "health_warning": health.warning,
         }
 

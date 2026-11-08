@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import click
@@ -15,6 +16,7 @@ from archex.metrics.reporter import (
     render_repos_text,
     render_summary_text,
 )
+from archex.metrics.sessions import import_omp_session, render_sessions_text
 from archex.metrics.storage import metrics_db_path
 
 
@@ -86,6 +88,32 @@ def inspect_cmd(source: str, since: str, output_format: str) -> None:
     """Inspect recent local metrics events."""
     payload = MetricsReporter().inspect(source=source, since=since)
     _emit(payload, output_format, render_inspect_text)
+
+
+@metrics_cmd.command("import-session")
+@click.argument("session", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument("source", required=False, default=".", type=click.Path(path_type=Path))
+def import_session_cmd(session: Path, source: Path) -> None:
+    """Import numeric receipts from an explicitly supplied OMP v3 saved session."""
+    try:
+        payload = import_omp_session(session, source)
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(json.dumps(payload, sort_keys=True))
+
+
+@metrics_cmd.command("sessions")
+@click.argument("source", required=False, default=".")
+@click.option("--global", "global_scope", is_flag=True, default=False, help="Show all repos.")
+@click.option("--since", default="7d", show_default=True, help="Time window, e.g. 24h or 7d.")
+@click.option("--format", "output_format", default="text", type=click.Choice(["text", "json"]))
+def sessions_cmd(source: str, global_scope: bool, since: str, output_format: str) -> None:
+    """Show imported host usage; estimates and context reduction stay distinct."""
+    try:
+        payload = MetricsReporter().sessions(source=source, global_scope=global_scope, since=since)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _emit(payload, output_format, render_sessions_text)
 
 
 @metrics_cmd.command("export")
