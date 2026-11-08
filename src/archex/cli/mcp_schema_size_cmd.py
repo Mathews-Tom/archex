@@ -75,6 +75,7 @@ def mcp_schema_size_cmd(tools: str | None, format_: str, disclosure: bool) -> No
 
     if format_ == "json":
         payload = {"scope": scope_label, "gated": gated, **report}
+        payload["gating_protocol"] = "legacy_handshake" if gated else None
         if expanded is not None:
             payload["after_first_retrieval"] = {
                 "tool_count": expanded["tool_count"],
@@ -85,6 +86,10 @@ def mcp_schema_size_cmd(tools: str | None, format_: str, disclosure: bool) -> No
         return
 
     click.echo(f"Scope: {scope_label}")
+    if gated:
+        click.echo(
+            "Protocol: legacy handshake gate; stateless discovery uses the expanded surface."
+        )
     click.echo(f"Tools: {report['tool_count']}")
     click.echo(
         f"Total serialized schema size: {report['total_chars']} chars, "

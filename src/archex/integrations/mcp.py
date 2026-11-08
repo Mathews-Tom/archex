@@ -2648,9 +2648,11 @@ def build_server(
     scoping only shrinks the advertised schema surface, it never changes
     which tool names a client can successfully call.
 
-    `disclosure` adds a retrieval gate on top of that: until the client calls a
-    retrieval tool, only `DISCLOSURE_CORE_TOOL_NAMES` are advertised, and the
-    expansion is announced with `notifications/tools/list_changed`.
+    For legacy handshake sessions, `disclosure` adds a retrieval gate: only
+    `DISCLOSURE_CORE_TOOL_NAMES` are initially advertised, and expansion is
+    announced with `notifications/tools/list_changed`. Stateless protocol
+    sessions advertise the complete configured scope from the start: their
+    discovery path cannot receive that legacy notification.
 
     That notification is what makes the gate safe, and it is load-bearing rather
     than a courtesy. MCP tools are model-controlled: a model only calls what it
@@ -2660,10 +2662,9 @@ def build_server(
     in front of the model. Dispatch-by-name surviving a closed gate rescues only
     *hardcoded* callers: an agent file that names tools directly, or a script.
 
-    The two settings compose rather than override: `tool_names` bounds what is
-    advertised *once the gate opens*, so `tool_names=None` (`--tools all`) still
-    starts at the minimal set. `disclosure=False` is the only way back to
-    advertising everything from the first `list_tools()`.
+    The two settings compose rather than override: `tool_names` always bounds
+    the advertised surface. On legacy sessions `tool_names=None` (`--tools all`)
+    still starts at the minimal set; `disclosure=False` opts out of that gate.
 
     `disclosure` defaults to False here and in `run_stdio_server` so a library
     caller keeps pre-R5 behaviour, while the `archex mcp` CLI defaults it on --
@@ -2675,6 +2676,7 @@ def build_server(
     try:
         import mcp.types as mcp_types
         from mcp.server import Server
+        from mcp_types.version import MODERN_PROTOCOL_VERSIONS
     except ImportError as exc:
         raise ImportError(
             "The 'mcp' package is required for MCP integration. Install it with: uv add mcp"
@@ -2686,10 +2688,16 @@ def build_server(
     gate = DisclosureGate(enabled=disclosure)
 
     async def list_tools(
-        _request_context: ServerRequestContext[Any, Any],
+        request_context: ServerRequestContext[Any, Any],
         _params: mcp_types.PaginatedRequestParams | None,
     ) -> mcp_types.ListToolsResult:
-        visible = gate.visible(tool_names)
+        # Stateless discovery has no legacy list-change channel. Keep its schema
+        # stable and complete; hiding tools here would make them undiscoverable.
+        visible = (
+            tool_names
+            if request_context.protocol_version in MODERN_PROTOCOL_VERSIONS
+            else gate.visible(tool_names)
+        )
         schemas = _tool_schemas()
         if visible is not None:
             schemas = [schema for schema in schemas if schema["name"] in visible]
@@ -2716,6 +2724,10 @@ def build_server(
             return mcp_types.CallToolResult(
                 content=[mcp_types.TextContent(type="text", text=str(exc))],
                 is_error=True,
+            )
+        if request_context.protocol_version in MODERN_PROTOCOL_VERSIONS:
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(type="text", text=result_text)]
             )
         # Only after the call succeeded: a failed retrieval has not demonstrated
         # that this session needs the wider surface.

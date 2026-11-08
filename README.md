@@ -76,7 +76,7 @@ archex does not ask the downstream agent to trust ranking alone. Every query/sco
 | --- | --- | --- |
 | Agent workflows | `archex doctor`, then `archex context "question"` | Checks local trust first, then returns a candidate map, exact fetch handles, selected code, relation paths, a route decision, and a receipt in one call. |
 | Already using an agent that searches with grep/glob | `archex install-client <host> --hooks` (`omp`, `pi`, `opencode`, `claude-code`, `codex`) | No new tool for the agent to choose: annotates the agent's own search results with the code units they hit, capped at about 300 tokens per call, and leaves the results themselves untouched. See [Surfaces](#surfaces). |
-| Want the full tool surface (graph, impact, symbol lookup, session records, etc.) | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts. Starts with two retrieval schemas and exposes 20 after the first retrieval — heavier than hooks, richer than grep/glob augmentation. |
+| Want the full tool surface (graph, impact, symbol lookup, session records, etc.) | [MCP and Claude Code](#mcp-and-claude-code) | Stdio MCP server, optional warm `--watch`, additive top-level receipts. Legacy handshake sessions expand from two retrieval schemas after retrieval; stateless discovery exposes the full configured scope immediately — heavier than hooks, richer than grep/glob augmentation. |
 | Python applications | [Python API](#python-api) | Deterministic `query()`, `analyze()`, `compare()`, and receipt-bearing bundles. |
 | Benchmark proof | [Measured results](#measured-results) and [archex vs. cocoindex-code](docs/ARCHEX_VS_COCOINDEX.md) | Same-task C1 report, raw-ripgrep/read baseline, bundle-only evaluator reports, required-file trust gates, and TurboQuant storage/recall evidence. |
 | Installation and clients | [Compatibility matrix](docs/CLIENT_COMPATIBILITY_MATRIX.md) | Client bootstrap paths for Claude Code, Codex, Pi, OpenCode, Cursor, and oh-my-pi (`omp`); global/user scope by default, `--dry-run` previews. |
@@ -498,7 +498,7 @@ uv run pytest --collect-only -q --no-cov | tail -1        # 5445/5454 tests coll
 # Language count (badge: 26)
 uv run python -c "from archex.languages import LANGUAGE_SUPPORT; print(len(LANGUAGE_SUPPORT))"   # 26
 
-# MCP schema cost (765 tokens for two retrieval schemas, 4,272 for all 20 tools)
+# Serialized MCP schema estimates: legacy gated minimum and full/stateless surface (not billing)
 uv run archex mcp-schema-size --format json
 
 # Annotation headroom evidence: read the file, including its denominator and gate

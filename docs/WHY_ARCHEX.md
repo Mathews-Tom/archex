@@ -443,7 +443,7 @@ print(bundle.to_prompt(format="xml"))
 }
 ```
 
-A fresh session advertises only the two retrieval entry points, `context` and `query_repo`; after the first retrieval the server exposes all 20 tools — `analyze_repo`, `scout_repo`, `compare_repos`, file/symbol precision tools, graph exploration tools, and session records. `archex mcp-schema-size` reports the schema cost of each surface.
+Legacy MCP handshake sessions initially advertise only `context` and `query_repo`, expanding to the full configured surface after retrieval. Stateless MCP discovery advertises the full configured surface immediately because it cannot receive the legacy list-change notification. `--tools` can bound either surface. `archex mcp-schema-size` reports the legacy gated and expanded schema sizes; these are schema estimates, not provider billing receipts.
 
 ### Hooks: no tool for the agent to choose
 

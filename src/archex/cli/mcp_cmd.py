@@ -40,13 +40,11 @@ import click
     default=True,
     show_default=True,
     help=(
-        "Advertise only the retrieval entry points until the client retrieves, "
-        "then advertise everything and send notifications/tools/list_changed. "
-        "Cuts the fixed per-turn schema cost from 4272 to 765 tokens. Pass "
-        "--no-disclosure for the pre-R5 behavior, which every client can use. "
-        "Note --tools does not disable the gate: it bounds what is advertised "
-        "once the gate opens, so --tools all still starts minimal. Tools remain "
-        "callable either way, so a client with hardcoded tool names is unaffected."
+        "On legacy MCP sessions, advertise the retrieval entry points until the client "
+        "retrieves, then expand via notifications/tools/list_changed. Stateless MCP "
+        "discovery always gets the full configured scope, preserving reachability "
+        "and a stable schema. --no-disclosure also exposes the full scope to legacy "
+        "sessions. --tools bounds either surface; tools remain callable either way."
     ),
 )
 def mcp_cmd(
@@ -58,9 +56,9 @@ def mcp_cmd(
 ) -> None:
     """Start the archex MCP server (stdio transport).
 
-    Advertises the retrieval entry points (context, query_repo) up front and
-    the remaining tools once the client retrieves; pass --no-disclosure to
-    advertise all of them from the start.
+    Legacy handshake sessions expand from the retrieval entry points after
+    the first retrieval. Stateless discovery gets the full configured scope
+    immediately. Pass --no-disclosure to disable the legacy gate too.
 
     Exposes 20 MCP tools (analyze_repo, scout_repo, query_repo, context,
     session, compare_repos, get_file_tree, get_file_outline, search_symbols,
